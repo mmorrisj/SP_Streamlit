@@ -1,0 +1,22 @@
+flask
+flask_sqlalchemy
+flask_migrate
+openai
+Flask-SQLAlchemy
+python-dotenv
+psycopg2-binary
+Flask-Migrate
+pandas
+gunicorn
+nano
+pyyaml
+boto3
+pgvector
+celery
+redis
+sentence-transformers
+transformers
+torch
+hdbscan
+umap
+"jax[cuda12]" numpyro
