@@ -84,7 +84,7 @@ class Document(Base):
     initiating_countries = relationship("InitiatingCountry", back_populates="document", lazy="dynamic")
     recipient_countries = relationship("RecipientCountry", back_populates="document", lazy="dynamic")
     projects_rel = relationship("Project", back_populates="document", lazy="dynamic")
-    # events = relationship("Event", secondary="event_sources", back_populates="documents", lazy="dynamic") # Commented out - Event model not defined
+    raw_events = relationship("RawEvent", back_populates="document", lazy="dynamic")
     def __repr__(self) -> str:
         return f"<Document(doc_id='{self.doc_id}', title='{self.title}')>"
     
@@ -187,7 +187,28 @@ class Project(Base):
     
     def __repr__(self) -> str:
         return f"<Project(doc_id='{self.doc_id}', project='{self.project}')>"
-    
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+
+class RawEvent(Base):
+    """
+    Raw events associated with documents - many-to-many relationship.
+
+    This model handles the flattening of event_name fields that can contain multiple
+    semicolon-separated values in a single document.
+    """
+    __tablename__ = 'raw_events'
+
+    doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
+    event_name: Mapped[str] = mapped_column(Text, primary_key=True)
+
+    # Bidirectional relationship for easier querying
+    document = relationship("Document", back_populates="raw_events")
+
+    def __repr__(self) -> str:
+        return f"<RawEvent(doc_id='{self.doc_id}', event_name='{self.event_name}')>"
+
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
