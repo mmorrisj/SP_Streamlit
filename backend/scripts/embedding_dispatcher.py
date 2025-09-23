@@ -1,9 +1,10 @@
 
 def is_already_embedded(doc_id: str) -> bool:
     """Check if a document already has embeddings in LangChain's table."""
-    from backend.extensions import db
+    from backend.database import get_engine
     from sqlalchemy.sql import text
-    with db.engine.connect() as conn:
+    engine = get_engine()
+    with engine.connect() as conn:
         result = conn.execute(
             text("""
                 SELECT 1 
@@ -24,15 +25,14 @@ def split_multi(val):
 
 def run_dispatcher(batch_size: int = 100, force: bool = False):
     import logging
-    from backend.app import app   # lazy import here
-    from backend.extensions import db
-    from backend.scripts.models import Document
+    from backend.database import get_session
+    from backend.models import Document
     from backend.tasks.embedding_tasks import process_document_task
 
     logging.info("🚀 Starting Celery embedding dispatcher...")
 
-    with app.app_context():
-        documents = db.session.query(Document).yield_per(batch_size)
+    with get_session() as session:
+        documents = session.query(Document).yield_per(batch_size)
 
         for doc in documents:
             if not doc.distilled_text:

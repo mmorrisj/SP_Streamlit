@@ -79,10 +79,12 @@ class Document(Base):
     
     # Relationships - Add as we convert each model
     # Removed salience_score relationship - field moved directly into Document
+    categories = relationship("Category", back_populates="document", lazy="dynamic")
+    subcategories = relationship("Subcategory", back_populates="document", lazy="dynamic")
     initiating_countries = relationship("InitiatingCountry", back_populates="document", lazy="dynamic")
     recipient_countries = relationship("RecipientCountry", back_populates="document", lazy="dynamic")
     projects_rel = relationship("Project", back_populates="document", lazy="dynamic")
-    events = relationship("Event", secondary="event_sources", back_populates="documents", lazy="dynamic")
+    # events = relationship("Event", secondary="event_sources", back_populates="documents", lazy="dynamic") # Commented out - Event model not defined
     def __repr__(self) -> str:
         return f"<Document(doc_id='{self.doc_id}', title='{self.title}')>"
     

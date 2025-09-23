@@ -3,7 +3,7 @@ from langchain_community.vectorstores.pgvector import PGVector
 from langchain_huggingface import HuggingFaceEmbeddings
 from sqlalchemy import text
 import numpy as np
-from backend.extensions import db
+from backend.database import get_engine
 embedding_function = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
@@ -86,7 +86,8 @@ def get_embeddings_by_ids(store: PGVector, ids):
     params = {"ids": [str(i) for i in ids], "collection": store.collection_name}
 
     emb_map = {}
-    with db.engine.connect() as conn:
+    engine = get_engine()
+    with engine.connect() as conn:
         rows = conn.execute(sql, params).mappings().all()
         for row in rows:
             emb = row["embedding"]

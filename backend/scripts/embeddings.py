@@ -2,9 +2,9 @@ import uuid
 import os
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
-from backend.extensions import db
-from backend.scripts.models import Document, ChunkEmbedding
-from backend.app import app
+from backend.database import get_session
+from backend.models import Document
+from backend.scripts.models import ChunkEmbedding
 from backend.tasks.embedding_tasks import process_document_task
 # Load tokenizer and model on GPU
 tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
@@ -29,23 +29,21 @@ def chunk_text(text, max_tokens=250, overlap=50):
     return chunks
 
 def enqueue_documents():
-    documents = db.session.query(Document).all()
-    for doc in documents:
-        full_text = doc.distilled_text or doc.body
-        metadata = {
-            "category": doc.category,
-            "subcategory": doc.subcategory,
-            "initiating_country": doc.initiating_country,
-            "recipient_country": doc.recipient_country,
-            "event_name": doc.event_name or doc.projects,
-            "location": doc.location or doc.lat_long,
-        }
-        process_document_task.delay(doc.doc_id, full_text, doc.date, metadata)
+    with get_session() as session:
+        documents = session.query(Document).all()
+        for doc in documents:
+            full_text = doc.distilled_text
+            metadata = {
+                "category": doc.category,
+                "subcategory": doc.subcategory,
+                "initiating_country": doc.initiating_country,
+                "recipient_country": doc.recipient_country,
+                "event_name": doc.event_name,
+            }
+            process_document_task.delay(doc.doc_id, full_text, doc.date, metadata)
 
 if __name__ == "__main__":
-    from backend.app import app
-    with app.app_context():
-        enqueue_documents()
+    enqueue_documents()
     print("🎉 All documents processed and embedded.")
     
 # from sentence_transformers import SentenceTransformer

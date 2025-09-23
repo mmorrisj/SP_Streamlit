@@ -2,8 +2,7 @@ import argparse
 import logging
 from sqlalchemy.orm import joinedload
 from sqlalchemy import text
-from backend.app import create_app
-from backend.extensions import db
+from backend.database import get_session
 from backend.scripts.embedding_vectorstore import stores
 
 # Import summary models
@@ -158,40 +157,41 @@ def embed_entities(level: str, batch_size: int = 100, replace: bool = False):
 
     logging.info(f"📦 Found {len(existing)} already embedded {level} summaries")
 
-    query = db.session.query(Model)
-    if rel:
-        query = query.options(joinedload(rel))
+    with get_session() as session:
+        query = session.query(Model)
+        if rel:
+            query = query.options(joinedload(rel))
 
-    q = query.yield_per(batch_size)
+        q = query.yield_per(batch_size)
 
-    buffer_texts, buffer_ids, buffer_metadatas = [], [], []
-    new_count = 0
+        buffer_texts, buffer_ids, buffer_metadatas = [], [], []
+        new_count = 0
 
-    for obj in q:
-        oid = str(obj.id)
-        if oid in existing:
-            continue
+        for obj in q:
+            oid = str(obj.id)
+            if oid in existing:
+                continue
 
-        text = text_fn(obj)
-        if not text:
-            continue
+            text = text_fn(obj)
+            if not text:
+                continue
 
-        buffer_texts.append(text)
-        buffer_ids.append(oid)
-        buffer_metadatas.append(metadata_fn(obj))
+            buffer_texts.append(text)
+            buffer_ids.append(oid)
+            buffer_metadatas.append(metadata_fn(obj))
 
-        if len(buffer_texts) >= batch_size:
+            if len(buffer_texts) >= batch_size:
+                store.add_texts(buffer_texts, metadatas=buffer_metadatas, ids=buffer_ids)
+                logging.info(f"✅ Embedded {len(buffer_texts)} {level} summaries")
+                new_count += len(buffer_texts)
+                buffer_texts, buffer_ids, buffer_metadatas = [], [], []
+
+        if buffer_texts:
             store.add_texts(buffer_texts, metadatas=buffer_metadatas, ids=buffer_ids)
-            logging.info(f"✅ Embedded {len(buffer_texts)} {level} summaries")
+            logging.info(f"✅ Embedded {len(buffer_texts)} {level} summaries (final batch)")
             new_count += len(buffer_texts)
-            buffer_texts, buffer_ids, buffer_metadatas = [], [], []
 
-    if buffer_texts:
-        store.add_texts(buffer_texts, metadatas=buffer_metadatas, ids=buffer_ids)
-        logging.info(f"✅ Embedded {len(buffer_texts)} {level} summaries (final batch)")
-        new_count += len(buffer_texts)
-
-    logging.info(f"🎯 Embedding complete: {new_count} new {level} summaries added")
+        logging.info(f"🎯 Embedding complete: {new_count} new {level} summaries added")
 
 
 # -----------------------------
@@ -207,6 +207,4 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    app = create_app()
-    with app.app_context():
-        embed_entities(level=args.granularity, batch_size=args.batch_size, replace=args.replace)
+    embed_entities(level=args.granularity, batch_size=args.batch_size, replace=args.replace)

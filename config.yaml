@@ -1,0 +1,306 @@
+db_path: './data/softpower.db'
+db_schema: './sql/schema.sql'
+gai_data: './gai_summary/data'
+gai_json: './gai_summary/json'
+dsr_data: 'backend/dsr'
+start_date: '2024-08-01'
+sql: './sql'
+report_directory: './'
+aws:
+  secret_name: "AZURE_OPENAI_API_KEY_NORTHCENTRALUS"
+  region_name: "us-east-1"
+  api_version: "2024-08-01-preview"
+  4_1_model: gpt-4.1 
+  4_1_version: '2025-04-14'
+  default_model: "gpt-4o-mini"
+text_field: 'BODY'
+identifier: 'ATOM ID'
+gai_output: 'GAI Output'
+chunk_dedup: 'ATOM ID'
+chunk_size: 1000
+max_records: 300
+summary_sample_percentage: .5
+sample_data: True
+sample_size: 10
+delete_after_processing: False
+create_sample: False
+atom_collection: 'ne_auto'
+report_months:
+  - '2024-07'
+  - '2024-08'
+  - '2024-09'
+  - '2024-10'
+  - '2024-11'
+  - '2024-12'
+  - '2025-01'
+  - '2025-02'
+event_models:
+  - 'all-MiniLM-L6-v2'
+  - 'paraphrase-mpnet-base-v2'
+  - 'paraphrase-distilroberta-base-v1'
+  - 'paraphrase-MiniLM-L6-v2'
+weekly_dates:
+  - ['2024-07-28', '2024-08-03']
+  - ['2024-08-04', '2024-08-10']
+  - ['2024-08-11', '2024-08-17']
+  - ['2024-08-18', '2024-08-24']
+  - ['2024-08-25', '2024-08-31']
+  - ['2024-09-01', '2024-09-07']
+  - ['2024-09-08', '2024-09-14']
+  - ['2024-09-15', '2024-09-21']
+  - ['2024-09-22', '2024-09-28']
+  - ['2024-09-29', '2024-10-05']
+  - ['2024-10-06', '2024-10-12']
+  - ['2024-10-13', '2024-10-19']
+  - ['2024-10-20', '2024-10-26']
+  - ['2024-10-27', '2024-11-02']
+  - ['2024-11-03', '2024-11-09']
+  - ['2024-11-10', '2024-11-16']
+  - ['2024-11-17', '2024-11-23']
+  - ['2024-11-24', '2024-11-30']
+  - ['2024-12-01', '2024-12-07']
+  - ['2024-12-08', '2024-12-14']
+  - ['2024-12-15', '2024-12-21']
+  - ['2024-12-22', '2024-12-28']
+  - ['2024-12-29', '2025-01-04']
+  - ['2025-01-05', '2025-01-11']
+  - ['2025-01-12', '2025-01-18']
+  - ['2025-01-19', '2025-01-25']
+  - ['2025-01-26', '2025-02-01']
+  - ['2025-02-02', '2025-02-08']
+  - ['2025-02-09', '2025-02-15']
+  - ['2025-02-16', '2025-02-22']
+  - ['2025-02-23', '2025-03-01']
+  - ['2025-03-02', '2025-03-08']
+  - ['2025-03-09', '2025-03-15']
+  - ['2025-03-16', '2025-03-22']
+  - ['2025-03-23', '2025-03-29']
+  - ['2025-03-30', '2025-04-05']
+
+biweekly_dates:
+  - ['2024-08-01', '2024-08-13']
+  - ['2024-08-14', '2024-08-27']
+  - ['2024-08-28', '2024-09-10']
+  - ['2024-09-11', '2024-09-24']
+  - ['2024-09-25', '2024-10-08']
+  - ['2024-10-09', '2024-10-22']
+  - ['2024-10-23', '2024-11-05']
+  - ['2024-11-06', '2024-11-19']
+  - ['2024-11-20', '2024-12-03']
+  - ['2024-12-04', '2024-12-17']
+  - ['2024-12-18', '2024-12-31']
+  - ['2025-01-01', '2025-01-15']
+  - ['2025-01-16', '2025-01-29']
+  - ['2025-01-30', '2025-02-12']
+  - ['2025-02-13', '2025-02-26']
+  - ['2025-02-27', '2025-03-12']
+  - ['2025-03-13', '2025-03-26']
+  - ['2025-03-27', '2025-04-09']
+
+monthly_dates:
+  - ['2024-08-01', '2024-08-31']
+  - ['2024-09-01', '2024-09-30']
+  - ['2024-10-01', '2024-10-31']
+  - ['2024-11-01', '2024-11-30']
+  - ['2024-12-01', '2024-12-31']
+  - ['2025-01-01', '2025-01-31']
+  - ['2025-02-01', '2025-02-28']
+  - ['2025-03-01', '2025-03-31']
+
+directories: 
+    atom: './data/atom'
+    data: './data'
+    documents: './data/documents'
+    update: './data/events/updates'
+    
+    event_clusters: './data/events/clusters'
+    eid: './data/events/eids'
+    salience: './data/atom/1toN/salience'
+    extract: './data/atom/1toN/extraction'
+    aggregate: './data/aggregate'
+    projects: './data/projects'
+    project_summaries: './data/projects/4. summaries'
+    clusters: './data/clusters'
+    evals: './data/evals'
+    validated: './data/validated'
+    files: './files'
+    references: './data/projects/1. references'
+    spid: './data/spid'
+    training: './data/training_data'
+    html: './html'
+    summaries: './data/summaries'
+    sql: './data/softpower.db'
+    embeddings: './data/embeddings'
+    corrections: './data/clusters/events/corrections'
+    event_summaries: './data/summaries/events'
+    scores: './data/scores'
+    mappings: './data/mappings'
+    events: './data/events'
+gai:
+    gai-engine: gpt-4turbo
+    gai-promptid: f92256a1-0a55-45ad-82b2-fc98176c3da5
+    gai-promptversion: 1
+    
+projects:
+  model: 'all-MiniLM-L6-v2'
+  batch_size: 1000
+  eps: 0.4
+  min_samples: 2
+  metric: 'cosine'
+  
+cluster:
+  threshold: 50
+  event_threshold: 50
+  max_passes: 5
+  metric: 'cosine'
+  eps: 0.55
+  eps_decay: 0.1
+  min_samples: 2
+  refine_clusters: True
+  text_columns:
+    - event-name
+    - distilled-text
+    - salience-justification
+
+fields:
+    raw_atom:
+      - Title
+      - BODY
+      - Source Name
+      - 'Source Date, Start'
+      - Collection Name
+      - ATOM ID
+    extract:
+      - salience-justification
+      - salience-bool
+      - category
+      - category-justification
+      - subcategory 
+      - initiating-country
+      - recipient-country
+      - project-name
+      - LAT_LONG
+      - location
+      - monetary-commitment
+      - distilled-text
+      - event-name
+    dsr:
+      - ATOM ID
+      - title 
+      - source-name
+      - source-geofocus
+    gai_salience:
+      - ATOM ID
+      - Salience
+      - Title
+      - BODY
+      - Source Name
+      - date
+      - Collection Name
+      - Model
+    gai_extraction:
+      - ATOM ID
+      - salience-bool
+      - salience-justification
+      - Title
+      - BODY
+      - Source Name
+      - date
+      - Collection Name
+      - category
+      - category-justification
+      - subcategory
+      - initiating-country
+      - recipient-country
+      - project-name
+      - location
+      - lat-long
+      - monetary-commitment
+      - distilled-text
+    gai_result:
+      - ATOM ID
+      - Title
+      - BODY
+      - Source Name
+      - date
+      - Collection Name
+      - GAI Output
+
+eval:
+    tasks:
+      salience: Salience
+      category: Category
+      subcategory: Subcategory
+      init_country: Initiating_Country
+      rec_country: Recipient_Country
+    meta_fields:
+      - 'ATOM ID'
+      - 'BODY'
+      - 'Distilled_Text'
+      
+influencers:
+  - China
+  - Russia
+  - Iran
+  - Turkey
+  - United States
+
+recipients:
+  - Bahrain
+  - Cyprus
+  - Egypt
+  - Iran
+  - Iraq
+  - Israel
+  - Jordan
+  - Kuwait
+  - Lebanon
+  - Libya
+  - Oman
+  - Palestine
+  - Qatar
+  - Saudi Arabia
+  - Syria
+  - Turkey
+  - United Arab Emirates
+  - UAE
+  - Yemen
+  
+available_models:
+  - llama3
+  - llama2
+
+categories:
+  - Economic
+  - Social
+  - Military
+  - Diplomacy
+ 
+
+subcategories:
+  - Trade
+  - Infrastructure
+  - Food
+  - Technology
+  - Tourism
+  - Industrial
+  - Raw Materials
+  - Culture
+  - Education
+  - Healthcare
+  - Housing
+  - Media
+  - Politics
+  - Religious
+  - "Bilateral/Multilateral Agreements"
+  - "Multilateral/Bilateral Commitments"
+  - Conflict Resolution
+  - Global Governance Participation
+  - Sales
+  - Joint Exercises
+  - Training
+  - Conferences
+  - Cultural
+  - Diaspora Engagement
+  - Energy
+  - Finance
