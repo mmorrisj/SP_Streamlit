@@ -8,9 +8,9 @@ psycopg2-binary==2.9.9
 alembic==1.12.1
 
 # Environment and Configuration
-pydantic==2.5.0
-pydantic-settings==2.11.9
-python-dotenv==1.0.0
+pydantic
+pydantic-settings
+python-dotenv
 
 # Development and Testing
 pytest==7.4.3
@@ -19,4 +19,10 @@ httpx==0.25.2
 
 # Future LangChain preparation (commented out for now)
 langchain==0.0.340
+langchain_community
+langchain_openai
+langchain_huggingface
+langchain_pydantic
+langchain_sqlalchemy
+langchain_experimental
 pgvector==0.2.4

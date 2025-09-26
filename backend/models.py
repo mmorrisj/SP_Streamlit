@@ -78,7 +78,7 @@ class Document(Base):
     # Geographic and relational data
     initiating_country: Mapped[Optional[str]] = mapped_column(Text)
     recipient_country: Mapped[Optional[str]] = mapped_column(Text)
-    projects: Mapped[Optional[str]] = mapped_column(Text)
+    _projects: Mapped[Optional[str]] = mapped_column(Text)
     lat_long: Mapped[Optional[str]] = mapped_column(Text)
     location: Mapped[Optional[str]] = mapped_column(Text)
     
@@ -95,12 +95,26 @@ class Document(Base):
     subcategories = relationship("Subcategory", back_populates="document", lazy="dynamic")
     initiating_countries = relationship("InitiatingCountry", back_populates="document", lazy="dynamic")
     recipient_countries = relationship("RecipientCountry", back_populates="document", lazy="dynamic")
-    projects_rel = relationship("Project", back_populates="document", lazy="dynamic")
     raw_events = relationship("RawEvent", back_populates="document", lazy="dynamic")
-    citations = relationship("Citation", back_populates="document", lazy="dynamic")
 
     # Link to event summaries through EventSourceLink
     event_source_links = relationship("EventSourceLink", back_populates="document", lazy="dynamic")
+
+    @property
+    def projects(self) -> str:
+        """
+        Return projects only if event_name is empty, otherwise return empty string.
+        This consolidates project logic based on event data availability.
+        """
+        if not self.event_name or self.event_name.strip() == '':
+            return getattr(self, '_projects', '') or ''
+        return ''
+
+    @projects.setter
+    def projects(self, value: str):
+        """Store the raw projects value for when event_name is empty."""
+        self._projects = value
+
     def __repr__(self) -> str:
         return f"<Document(doc_id='{self.doc_id}', title='{self.title}')>"
     
@@ -189,23 +203,6 @@ class RecipientCountry(Base):
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
-class Project(Base):
-    """
-    Projects associated with documents - many-to-many relationship.
-    """
-    __tablename__ = 'projects'
-    
-    doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
-    project: Mapped[str] = mapped_column(Text, primary_key=True)
-    
-    # Bidirectional relationship for easier querying
-    document = relationship("Document", back_populates="projects_rel")
-    
-    def __repr__(self) -> str:
-        return f"<Project(doc_id='{self.doc_id}', project='{self.project}')>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
 class RawEvent(Base):
     """
@@ -229,29 +226,6 @@ class RawEvent(Base):
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
 
-
-class Citation(Base):
-    """
-    Citations associated with documents.
-
-    Another single-field table that could potentially be consolidated
-    into Document, similar to the Salience issue we fixed earlier.
-    """
-    __tablename__ = 'citations'
-
-    doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
-    citation: Mapped[Optional[str]] = mapped_column(Text)
-
-    # Bidirectional relationship for easier querying
-    document = relationship("Document", back_populates="citations")
-
-    def __repr__(self) -> str:
-        return f"<Citation(doc_id='{self.doc_id}')>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
-
-# ========== CONSOLIDATED EVENT SUMMARY MODELS ==========
 
 class EventSummary(Base):
     """

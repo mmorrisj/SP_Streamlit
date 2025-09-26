@@ -1,19 +1,139 @@
-version: '3.8'
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: postgres-vector-db
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-vectordb}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+  db:
+    image: ankane/pgvector
+    container_name: postgres_db
+    restart: unless-stopped
+    shm_size: "1gb"
+    env_file:
+      - .env
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - /home/sagemaker-user/postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    networks:
+      - softpower_net
+
+  # Lightweight Streamlit frontend
+  streamlit:
+    build:
+      context: .
+      dockerfile: streamlit/Dockerfile
+    container_name: streamlit-app
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres_db
+      BACKEND_API_URL: http://backend:8000
+    networks:
+      - softpower_net
+    ports:
+      - "8501:8501"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init-scripts:/docker-entrypoint-initdb.d
+      - ./streamlit:/app/streamlit
+      - /home/sagemaker-user/output:/app/output
+    depends_on:
+      - db
+      - backend
     restart: unless-stopped
 
-volumes:
-  postgres_data:
+  # Heavy ML/processing backend
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ml-backend
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres_db
+      CELERY_BROKER_URL: redis://redis:6379/0
+    networks:
+      - softpower_net
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - /home/sagemaker-user/output:/app/output
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # Redis for task queue
+  redis:
+    image: redis:7
+    container_name: redis
+    networks:
+      - softpower_net
+    ports:
+      - "6379:6379"
+
+  # Celery worker for background tasks
+  celery_worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: celery-worker
+    command: celery -A backend.celery worker --loglevel=info
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres_db
+      CELERY_BROKER_URL: redis://redis:6379/0
+    networks:
+      - softpower_net
+    volumes:
+      - ./backend:/app/backend
+      - /home/sagemaker-user/output:/app/output
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # Migration service
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: alembic-migrate
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres_db
+    networks:
+      - softpower_net
+    volumes:
+      - ./backend:/app/backend
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      - db
+    profiles:
+      - migrate
+    command: alembic upgrade head
+
+  pg_dump:
+    image: postgres:15
+    container_name: pg_backup_runner
+    depends_on:
+      - db
+    env_file:
+      - .env
+    networks:
+      - softpower_net
+    command: >
+      sh -c "
+      export PGPASSWORD=${POSTGRES_PASSWORD} &&
+      pg_dump -h db -U ${POSTGRES_USER} -F c -f /home/sagemaker-user/backups/softpower-db-$(date +%Y%m%d-%H%M%S).backup ${POSTGRES_DB}
+      "
+    volumes:
+      - /home/sagemaker-user/backups:/home/sagemaker-user/backups
+    profiles:
+      - jobs
+
+# volumes:
+
+networks:
+  softpower_net:
+    external: true
