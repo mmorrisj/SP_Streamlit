@@ -621,6 +621,7 @@ def main():
     )
     migrate_parser.add_argument(
         '--api-url',
+        default='http://host.docker.internal:5001',
         help='FastAPI URL for S3 operations (default: from env API_URL or http://localhost:8000)'
     )
 
@@ -694,6 +695,7 @@ def main():
         )
         parser.add_argument(
             '--api-url',
+            default='http://host.docker.internal:5001',
             help='FastAPI URL for S3 operations (default: from env API_URL or http://localhost:8000)'
         )
 
