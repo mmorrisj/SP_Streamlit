@@ -539,9 +539,9 @@ class S3APIClient:
         Initialize API client.
 
         Args:
-            api_url: Base URL of FastAPI server (default: from env or localhost)
+            api_url: Base URL of FastAPI server (default: from env or http://host.docker.internal:5001)
         """
-        self.api_url = api_url or os.getenv('API_URL', 'http://localhost:8000')
+        self.api_url = api_url or os.getenv('API_URL', 'http://host.docker.internal:5001')
         self.api_url = self.api_url.rstrip('/')
 
     def list_parquet_files(

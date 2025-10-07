@@ -445,10 +445,10 @@ class S3ToPgVectorMigrator:
         if not self.dry_run and documents_to_insert:
             try:
                 print(f"Inserting {len(documents_to_insert)} documents into {self.collection_name}...")
-                self.vector_store.add_texts(
+                self.vector_store.add_embeddings(
                     texts=documents_to_insert,
-                    metadatas=metadatas_to_insert,
-                    embeddings=embeddings_to_insert
+                    embeddings=embeddings_to_insert,
+                    metadatas=metadatas_to_insert
                 )
                 print(f"✓ Successfully inserted {len(documents_to_insert)} documents")
 
