@@ -1,4 +1,13 @@
+# ============================================
+#  SoftPower Streamlit / Backend / PGVector Stack
+# ============================================
+
+name: softpower_streamlit
+
 services:
+  # -----------------------
+  # PostgreSQL + pgvector
+  # -----------------------
   db:
     image: ankane/pgvector
     container_name: softpower_db
@@ -15,40 +24,45 @@ services:
     networks:
       - softpower_net
 
+  # -----------------------
+  # Streamlit Frontend
+  # -----------------------
   streamlit:
     build:
       context: .
       dockerfile: streamlit/Dockerfile
     container_name: streamlit-app
+    restart: unless-stopped
     env_file:
       - .env
     environment:
       DB_HOST: softpower_db
       BACKEND_API_URL: http://backend:8000
-    networks:
-      - softpower_net
     ports:
       - "8501:8501"
     volumes:
       - ./streamlit:/app/streamlit
       - app_output:/app/output
+    networks:
+      - softpower_net
     depends_on:
       - backend
-    restart: unless-stopped
 
+  # -----------------------
+  # FastAPI Backend
+  # -----------------------
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     container_name: ml-backend
+    restart: unless-stopped
     env_file:
       - .env
     environment:
       DB_HOST: softpower_db
       S3_PROXY_URL: http://host.docker.internal:5001
       FASTAPI_URL: http://host.docker.internal:5001/material_query
-    networks:
-      - softpower_net
     ports:
       - "8000:8000"
     volumes:
@@ -56,18 +70,26 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - app_output:/app/output
+    networks:
+      - softpower_net
     depends_on:
       - db
-    restart: unless-stopped
     extra_hosts:
-    - "host.docker.internal:host-gateway"
+      - "host.docker.internal:host-gateway"
 
+  # -----------------------
+  # Redis (for Celery / caching)
+  # -----------------------
   redis:
     image: redis:7
     container_name: redis
+    restart: unless-stopped
     networks:
       - softpower_net
 
+  # -----------------------
+  # Alembic Migrations (run with `--profile migrate`)
+  # -----------------------
   migrate:
     build:
       context: .
@@ -77,24 +99,31 @@ services:
       - .env
     environment:
       DB_HOST: softpower_db
+    command: alembic upgrade head
+    depends_on:
+      - db
     networks:
       - softpower_net
     volumes:
       - ./backend:/app/backend
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
-    depends_on:
-      - db
     profiles:
       - migrate
-    command: alembic upgrade head
 
+# -----------------------
+# Persistent Volumes
+# -----------------------
 volumes:
   postgres_data:
-    driver: local
+    external: true
+    name: softpower_streamlit_postgres_data
   app_output:
     driver: local
 
+# -----------------------
+# Shared Network
+# -----------------------
 networks:
   softpower_net:
     external: true

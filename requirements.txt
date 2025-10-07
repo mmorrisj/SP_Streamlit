@@ -27,3 +27,4 @@ langchain_huggingface
 # langchain_sqlalchemy
 langchain_experimental
 pgvector==0.2.4
+pyarrow
