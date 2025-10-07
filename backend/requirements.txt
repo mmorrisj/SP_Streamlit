@@ -44,3 +44,4 @@ scikit-learn
 
 # OpenAI for LLM use
 openai
+pyarrow

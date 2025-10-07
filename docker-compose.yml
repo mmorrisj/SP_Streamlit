@@ -1,20 +1,20 @@
 services:
   db:
     image: ankane/pgvector
-    container_name: postgres_db
+    container_name: softpower_db
     restart: unless-stopped
     shm_size: "1gb"
     env_file:
       - .env
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./data/postgres:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     networks:
       - softpower_net
 
-  # Lightweight Streamlit frontend
   streamlit:
     build:
       context: .
@@ -23,7 +23,7 @@ services:
     env_file:
       - .env
     environment:
-      DB_HOST: postgres_db
+      DB_HOST: softpower_db
       BACKEND_API_URL: http://backend:8000
     networks:
       - softpower_net
@@ -31,13 +31,11 @@ services:
       - "8501:8501"
     volumes:
       - ./streamlit:/app/streamlit
-      - ./data/output:/app/output
+      - app_output:/app/output
     depends_on:
-      - db
       - backend
     restart: unless-stopped
 
-  # Heavy ML/processing backend
   backend:
     build:
       context: .
@@ -46,52 +44,30 @@ services:
     env_file:
       - .env
     environment:
-      DB_HOST: postgres_db
-      CELERY_BROKER_URL: redis://redis:6379/0
+      DB_HOST: softpower_db
+      S3_PROXY_URL: http://host.docker.internal:5001
+      FASTAPI_URL: http://host.docker.internal:5001/material_query
     networks:
       - softpower_net
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app/backend
-      - ./data/output:/app/output
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - app_output:/app/output
     depends_on:
       - db
-      - redis
     restart: unless-stopped
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
 
-  # Redis for task queue
   redis:
     image: redis:7
     container_name: redis
     networks:
       - softpower_net
-    ports:
-      - "6379:6379"
 
-  # Celery worker for background tasks
-  celery_worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: celery-worker
-    command: celery -A backend.celery worker --loglevel=info
-    env_file:
-      - .env
-    environment:
-      DB_HOST: postgres_db
-      CELERY_BROKER_URL: redis://redis:6379/0
-    networks:
-      - softpower_net
-    volumes:
-      - ./backend:/app/backend
-      - ./data/output:/app/output
-    depends_on:
-      - db
-      - redis
-    restart: unless-stopped
-
-  # Migration service
   migrate:
     build:
       context: .
@@ -100,7 +76,7 @@ services:
     env_file:
       - .env
     environment:
-      DB_HOST: postgres_db
+      DB_HOST: softpower_db
     networks:
       - softpower_net
     volumes:
@@ -113,44 +89,11 @@ services:
       - migrate
     command: alembic upgrade head
 
-  pg_dump:
-    image: postgres:15
-    container_name: pg_backup_runner
-    depends_on:
-      - db
-    env_file:
-      - .env
-    networks:
-      - softpower_net
-    command: >
-      sh -c "
-      export PGPASSWORD=${POSTGRES_PASSWORD} &&
-      pg_dump -h db -U ${POSTGRES_USER} -F c -f /app/backups/softpower-db-$(date +%Y%m%d-%H%M%S).backup ${POSTGRES_DB}
-      "
-    volumes:
-      - ./data/backups:/app/backups
-    profiles:
-      - jobs
-
 volumes:
   postgres_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/postgres
   app_output:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/output
-  app_backups:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/backups
 
 networks:
   softpower_net:
