@@ -57,7 +57,9 @@ class S3ToPgVectorMigrator:
         bucket_name: str = 'morris-sp-bucket',
         s3_prefix: str = 'embeddings/',
         collection_name: str = 'chunk_embeddings',
-        dry_run: bool = False
+        dry_run: bool = False,
+        force_reprocess: bool = False,
+        tracker_dir: str = './data/processed_embeddings'
     ):
         """
         Initialize the migrator.
@@ -67,14 +69,25 @@ class S3ToPgVectorMigrator:
             s3_prefix: S3 prefix/folder containing parquet files
             collection_name: Target LangChain collection name
             dry_run: If True, don't write to database
+            force_reprocess: If True, reprocess files even if already processed
+            tracker_dir: Local directory to store processed file tracker
         """
         self.bucket_name = bucket_name
         self.s3_prefix = s3_prefix.rstrip('/') + '/'
         self.collection_name = collection_name
         self.dry_run = dry_run
+        self.force_reprocess = force_reprocess
+
+        # Local tracker file
+        self.tracker_dir = Path(tracker_dir)
+        self.tracker_dir.mkdir(parents=True, exist_ok=True)
+        self.tracker_file = self.tracker_dir / f"{collection_name}_processed.json"
 
         # Initialize S3 client
         self.s3_client = boto3.client('s3')
+
+        # Load processed files tracker
+        self.processed_files = self._load_tracker()
 
         # Get the appropriate vector store
         if collection_name in stores:
@@ -94,11 +107,74 @@ class S3ToPgVectorMigrator:
         print(f"  Bucket: {bucket_name}")
         print(f"  S3 Prefix: {self.s3_prefix}")
         print(f"  Collection: {collection_name}")
+        print(f"  Tracker File: {self.tracker_file}")
+        print(f"  Previously Processed: {len(self.processed_files.get('files', []))} files")
         print(f"  Dry Run: {dry_run}")
+        print(f"  Force Reprocess: {force_reprocess}")
 
-    def list_parquet_files(self) -> List[Dict[str, Any]]:
+    def _load_tracker(self) -> Dict[str, Any]:
+        """Load the processed files tracker from local file."""
+        if self.tracker_file.exists():
+            try:
+                with open(self.tracker_file, 'r') as f:
+                    data = json.load(f)
+                print(f"Loaded tracker with {len(data.get('files', []))} processed files")
+                return data
+            except Exception as e:
+                print(f"Warning: Could not load tracker file: {e}")
+                return {'files': [], 'last_updated': None}
+        else:
+            print("No existing tracker file found, creating new one")
+            return {'files': [], 'last_updated': None}
+
+    def _save_tracker(self):
+        """Save the processed files tracker to local file."""
+        try:
+            self.processed_files['last_updated'] = datetime.utcnow().isoformat()
+            with open(self.tracker_file, 'w') as f:
+                json.dump(self.processed_files, indent=2, fp=f)
+            print(f"Saved tracker to {self.tracker_file}")
+        except Exception as e:
+            print(f"Warning: Could not save tracker file: {e}")
+
+    def _mark_file_processed(self, filename: str, document_count: int):
+        """Mark a file as processed in the tracker."""
+        if 'files' not in self.processed_files:
+            self.processed_files['files'] = []
+
+        # Add file with metadata
+        file_entry = {
+            'filename': filename,
+            'processed_at': datetime.utcnow().isoformat(),
+            'document_count': document_count
+        }
+
+        # Remove if already exists (for reprocessing)
+        self.processed_files['files'] = [
+            f for f in self.processed_files['files']
+            if f.get('filename') != filename
+        ]
+
+        self.processed_files['files'].append(file_entry)
+        self._save_tracker()
+
+    def _is_file_processed(self, filename: str) -> bool:
+        """Check if a file has already been processed."""
+        if self.force_reprocess:
+            return False
+
+        processed_filenames = [
+            f.get('filename')
+            for f in self.processed_files.get('files', [])
+        ]
+        return filename in processed_filenames
+
+    def list_parquet_files(self, skip_processed: bool = True) -> List[Dict[str, Any]]:
         """
         List all parquet files in the S3 prefix.
+
+        Args:
+            skip_processed: If True, filter out already processed files
 
         Returns:
             List of file metadata dictionaries
@@ -114,14 +190,26 @@ class S3ToPgVectorMigrator:
                     for obj in page['Contents']:
                         key = obj['Key']
                         if key.endswith('.parquet'):
+                            filename = key.split('/')[-1]
+
+                            # Skip if already processed
+                            if skip_processed and self._is_file_processed(filename):
+                                continue
+
                             parquet_files.append({
                                 'key': key,
-                                'filename': key.split('/')[-1],
+                                'filename': filename,
                                 'size': obj['Size'],
                                 'last_modified': obj['LastModified']
                             })
 
-            print(f"Found {len(parquet_files)} parquet files in s3://{self.bucket_name}/{self.s3_prefix}")
+            total_files = len(parquet_files)
+            if skip_processed:
+                processed_count = len(self.processed_files.get('files', []))
+                print(f"Found {total_files} unprocessed parquet files (skipped {processed_count} already processed)")
+            else:
+                print(f"Found {total_files} parquet files in s3://{self.bucket_name}/{self.s3_prefix}")
+
             return parquet_files
 
         except Exception as e:
@@ -285,9 +373,17 @@ class S3ToPgVectorMigrator:
         Returns:
             Number of documents processed
         """
+        filename = s3_key.split('/')[-1]
+
         print(f"\n{'='*80}")
         print(f"Processing: {s3_key}")
         print(f"{'='*80}")
+
+        # Check if already processed (unless force_reprocess is True)
+        if self._is_file_processed(filename):
+            print(f"⊘ Skipping {filename} - already processed")
+            print(f"  Use --force to reprocess this file")
+            return 0
 
         # Download parquet file
         df = self.download_parquet_file(s3_key)
@@ -366,11 +462,16 @@ class S3ToPgVectorMigrator:
                     embeddings=embeddings_to_insert
                 )
                 print(f"✓ Successfully inserted {len(documents_to_insert)} documents")
+
+                # Mark file as processed
+                self._mark_file_processed(filename, len(documents_to_insert))
+
             except Exception as e:
                 print(f"✗ Error inserting documents: {e}")
                 raise
         elif self.dry_run:
             print(f"[DRY RUN] Would insert {len(documents_to_insert)} documents")
+            print(f"[DRY RUN] Would mark {filename} as processed")
 
         return len(documents_to_insert)
 
@@ -439,53 +540,210 @@ class S3ToPgVectorMigrator:
         }
 
 
+def view_tracker(collection_name: str, tracker_dir: str = './data/processed_embeddings'):
+    """View processed files for a collection."""
+    tracker_file = Path(tracker_dir) / f"{collection_name}_processed.json"
+
+    if not tracker_file.exists():
+        print(f"No tracker file found for collection '{collection_name}'")
+        return
+
+    with open(tracker_file, 'r') as f:
+        data = json.load(f)
+
+    files = data.get('files', [])
+    print(f"\nProcessed Files for Collection: {collection_name}")
+    print(f"Tracker File: {tracker_file}")
+    print(f"Last Updated: {data.get('last_updated', 'Unknown')}")
+    print(f"Total Files: {len(files)}\n")
+
+    if files:
+        print(f"{'Filename':<50} {'Processed At':<25} {'Doc Count':<10}")
+        print("=" * 85)
+        for file_entry in sorted(files, key=lambda x: x.get('processed_at', ''), reverse=True):
+            filename = file_entry.get('filename', 'Unknown')
+            processed_at = file_entry.get('processed_at', 'Unknown')
+            doc_count = file_entry.get('document_count', 0)
+            print(f"{filename:<50} {processed_at:<25} {doc_count:<10}")
+
+
+def reset_tracker(collection_name: str, tracker_dir: str = './data/processed_embeddings', confirm: bool = False):
+    """Reset processed files tracker for a collection."""
+    tracker_file = Path(tracker_dir) / f"{collection_name}_processed.json"
+
+    if not confirm:
+        print("This will reset the tracker and allow all files to be reprocessed.")
+        print("Use --confirm to proceed.")
+        return
+
+    if tracker_file.exists():
+        tracker_file.unlink()
+        print(f"✓ Deleted tracker file: {tracker_file}")
+    else:
+        print(f"No tracker file found for collection '{collection_name}'")
+
+
 def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description='Migrate embeddings from S3 parquet files to pgvector database'
+        description='Migrate embeddings from S3 parquet files to pgvector database',
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument(
+
+    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+
+    # Migrate command (default)
+    migrate_parser = subparsers.add_parser('migrate', help='Migrate parquet files to pgvector')
+    migrate_parser.add_argument(
         '--bucket',
         default='morris-sp-bucket',
         help='S3 bucket name (default: morris-sp-bucket)'
     )
-    parser.add_argument(
+    migrate_parser.add_argument(
         '--s3-prefix',
         default='embeddings/',
         help='S3 prefix/folder containing parquet files (default: embeddings/)'
     )
-    parser.add_argument(
+    migrate_parser.add_argument(
         '--collection',
         default='chunk_embeddings',
         choices=list(stores.keys()) + ['custom'],
         help='Target LangChain collection name'
     )
-    parser.add_argument(
+    migrate_parser.add_argument(
         '--files',
         nargs='+',
         help='Specific parquet files to process (optional)'
     )
-    parser.add_argument(
+    migrate_parser.add_argument(
         '--dry-run',
         action='store_true',
         help='Run without inserting into database'
     )
-
-    args = parser.parse_args()
-
-    # Initialize migrator
-    migrator = S3ToPgVectorMigrator(
-        bucket_name=args.bucket,
-        s3_prefix=args.s3_prefix,
-        collection_name=args.collection,
-        dry_run=args.dry_run
+    migrate_parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Reprocess files even if already processed'
+    )
+    migrate_parser.add_argument(
+        '--tracker-dir',
+        default='./data/processed_embeddings',
+        help='Directory to store processed file tracker (default: ./data/processed_embeddings)'
     )
 
-    # Process files
-    summary = migrator.process_all_files(specific_files=args.files)
+    # View tracker command
+    view_parser = subparsers.add_parser('view', help='View processed files tracker')
+    view_parser.add_argument(
+        'collection',
+        help='Collection name to view'
+    )
+    view_parser.add_argument(
+        '--tracker-dir',
+        default='./data/processed_embeddings',
+        help='Directory containing tracker files (default: ./data/processed_embeddings)'
+    )
 
-    # Exit with appropriate code
-    sys.exit(0 if summary['failed_files'] == 0 else 1)
+    # Reset tracker command
+    reset_parser = subparsers.add_parser('reset', help='Reset processed files tracker')
+    reset_parser.add_argument(
+        'collection',
+        help='Collection name to reset'
+    )
+    reset_parser.add_argument(
+        '--tracker-dir',
+        default='./data/processed_embeddings',
+        help='Directory containing tracker files (default: ./data/processed_embeddings)'
+    )
+    reset_parser.add_argument(
+        '--confirm',
+        action='store_true',
+        help='Confirm reset operation'
+    )
+
+    # If no command specified, default to migrate with old-style args
+    if len(sys.argv) == 1 or (len(sys.argv) > 1 and not sys.argv[1] in ['migrate', 'view', 'reset']):
+        # Old-style usage without subcommands - default to migrate
+        parser.add_argument(
+            '--bucket',
+            default='morris-sp-bucket',
+            help='S3 bucket name (default: morris-sp-bucket)'
+        )
+        parser.add_argument(
+            '--s3-prefix',
+            default='embeddings/',
+            help='S3 prefix/folder containing parquet files (default: embeddings/)'
+        )
+        parser.add_argument(
+            '--collection',
+            default='chunk_embeddings',
+            choices=list(stores.keys()) + ['custom'],
+            help='Target LangChain collection name'
+        )
+        parser.add_argument(
+            '--files',
+            nargs='+',
+            help='Specific parquet files to process (optional)'
+        )
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            help='Run without inserting into database'
+        )
+        parser.add_argument(
+            '--force',
+            action='store_true',
+            help='Reprocess files even if already processed'
+        )
+        parser.add_argument(
+            '--tracker-dir',
+            default='./data/processed_embeddings',
+            help='Directory to store processed file tracker (default: ./data/processed_embeddings)'
+        )
+
+        args = parser.parse_args()
+
+        # Initialize migrator
+        migrator = S3ToPgVectorMigrator(
+            bucket_name=args.bucket,
+            s3_prefix=args.s3_prefix,
+            collection_name=args.collection,
+            dry_run=args.dry_run,
+            force_reprocess=args.force,
+            tracker_dir=args.tracker_dir
+        )
+
+        # Process files
+        summary = migrator.process_all_files(specific_files=args.files)
+
+        # Exit with appropriate code
+        sys.exit(0 if summary['failed_files'] == 0 else 1)
+    else:
+        # New subcommand-based usage
+        args = parser.parse_args()
+
+        if args.command == 'view':
+            view_tracker(args.collection, args.tracker_dir)
+        elif args.command == 'reset':
+            reset_tracker(args.collection, args.tracker_dir, args.confirm)
+        elif args.command == 'migrate':
+            # Initialize migrator
+            migrator = S3ToPgVectorMigrator(
+                bucket_name=args.bucket,
+                s3_prefix=args.s3_prefix,
+                collection_name=args.collection,
+                dry_run=args.dry_run,
+                force_reprocess=args.force,
+                tracker_dir=args.tracker_dir
+            )
+
+            # Process files
+            summary = migrator.process_all_files(specific_files=args.files)
+
+            # Exit with appropriate code
+            sys.exit(0 if summary['failed_files'] == 0 else 1)
+        else:
+            parser.print_help()
+            sys.exit(1)
 
 
 if __name__ == '__main__':

@@ -84,17 +84,49 @@ Example parquet schema:
 }
 ```
 
+## Duplicate Prevention
+
+The script **automatically tracks processed files locally** to prevent duplicate loading. Processed files are stored in:
+
+```
+./data/processed_embeddings/{collection_name}_processed.json
+```
+
+This tracker file contains:
+- List of processed filenames
+- Processing timestamp for each file
+- Document count for each file
+
+**Key Features:**
+- ✓ Automatically skips already-processed files
+- ✓ Persists across script runs
+- ✓ Per-collection tracking (different collections have separate trackers)
+- ✓ Can be reset or viewed with management commands
+
 ## Usage Examples
 
 ### Basic Migration
 
-Migrate all parquet files from S3 to the `chunk_embeddings` collection:
+Migrate all **unprocessed** parquet files from S3 to the `chunk_embeddings` collection:
 
 ```bash
 python backend/scripts/s3_to_pgvector.py \
   --bucket morris-sp-bucket \
   --s3-prefix embeddings/ \
   --collection chunk_embeddings
+```
+
+**Note:** This will automatically skip any files that have already been processed.
+
+### Force Reprocessing
+
+Reprocess all files, even if already processed:
+
+```bash
+python backend/scripts/s3_to_pgvector.py \
+  --s3-prefix embeddings/ \
+  --collection chunk_embeddings \
+  --force
 ```
 
 ### Dry Run (Test Mode)
@@ -112,7 +144,8 @@ This will:
 - Download and validate parquet files
 - Fetch document metadata
 - Show what would be inserted
-- NOT write to database
+- Show what would be marked as processed
+- NOT write to database or tracker file
 
 ### Process Specific Files
 
@@ -124,6 +157,42 @@ python backend/scripts/s3_to_pgvector.py \
   --collection chunk_embeddings \
   --files document_embeddings_2024_01.parquet document_embeddings_2024_02.parquet
 ```
+
+### View Processed Files
+
+See which files have already been processed for a collection:
+
+```bash
+python backend/scripts/s3_to_pgvector.py view chunk_embeddings
+```
+
+Output:
+```
+Processed Files for Collection: chunk_embeddings
+Tracker File: ./data/processed_embeddings/chunk_embeddings_processed.json
+Last Updated: 2025-01-15T10:30:45.123456
+Total Files: 12
+
+Filename                                          Processed At              Doc Count
+=====================================================================================
+document_embeddings_2024_03.parquet              2025-01-15T10:30:45       1450
+document_embeddings_2024_02.parquet              2025-01-15T10:15:20       1320
+document_embeddings_2024_01.parquet              2025-01-15T10:00:10       1580
+```
+
+### Reset Tracker
+
+Reset the processed files tracker to reprocess all files:
+
+```bash
+# Preview reset (shows warning)
+python backend/scripts/s3_to_pgvector.py reset chunk_embeddings
+
+# Confirm reset
+python backend/scripts/s3_to_pgvector.py reset chunk_embeddings --confirm
+```
+
+**Warning:** This will allow all files to be reprocessed, potentially creating duplicates in pgvector.
 
 ### Different Collections
 
@@ -155,19 +224,50 @@ The script supports the following predefined collections:
 - `monthly` - Monthly event embeddings
 - `yearly` - Yearly event embeddings
 
-## Command-Line Options
+## Command-Line Reference
+
+### Main Commands
 
 ```bash
-python backend/scripts/s3_to_pgvector.py [OPTIONS]
+# Migrate (default command - can be omitted)
+python backend/scripts/s3_to_pgvector.py [migrate] [OPTIONS]
 
+# View processed files
+python backend/scripts/s3_to_pgvector.py view COLLECTION [OPTIONS]
+
+# Reset tracker
+python backend/scripts/s3_to_pgvector.py reset COLLECTION [OPTIONS]
+```
+
+### Migrate Options
+
+```bash
 Options:
   --bucket TEXT          S3 bucket name (default: morris-sp-bucket)
   --s3-prefix TEXT       S3 prefix/folder containing parquet files (default: embeddings/)
   --collection TEXT      Target LangChain collection name (default: chunk_embeddings)
   --files FILE [FILE...] Specific parquet files to process (optional)
   --dry-run             Run without inserting into database
+  --force               Reprocess files even if already processed
+  --tracker-dir PATH    Directory to store tracker files (default: ./data/processed_embeddings)
   -h, --help            Show help message
 ```
+
+### View Command
+
+```bash
+python backend/scripts/s3_to_pgvector.py view COLLECTION [--tracker-dir PATH]
+```
+
+Shows all processed files for a collection with timestamps and document counts.
+
+### Reset Command
+
+```bash
+python backend/scripts/s3_to_pgvector.py reset COLLECTION [--tracker-dir PATH] [--confirm]
+```
+
+Resets the processed files tracker. Requires `--confirm` flag to proceed.
 
 ## How It Works
 
