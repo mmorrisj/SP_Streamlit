@@ -46,10 +46,14 @@ python backend/scripts/daily.py
 python backend/scripts/cluster_events.py
 python backend/scripts/embeddings.py
 
-# S3 to pgvector migration (automatically skips processed files)
+# FastAPI server (for S3 operations outside Docker)
+uvicorn backend.api:app --host 0.0.0.0 --port 8000 --reload
+
+# S3 to pgvector migration (automatically skips processed files, uses FastAPI for S3)
 python backend/scripts/s3_to_pgvector.py --s3-prefix embeddings/ --collection chunk_embeddings
 python backend/scripts/s3_to_pgvector.py --dry-run  # Test without writing to database
 python backend/scripts/s3_to_pgvector.py --force  # Reprocess all files
+python backend/scripts/s3_to_pgvector.py --api-url http://your-host:8000  # Custom API URL
 python backend/scripts/s3_to_pgvector.py view chunk_embeddings  # View processed files
 python backend/scripts/s3_to_pgvector.py reset chunk_embeddings --confirm  # Reset tracker
 

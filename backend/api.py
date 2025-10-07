@@ -1,10 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import os
+import tempfile
 import boto3
 from botocore.exceptions import ClientError
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+import pandas as pd
+import numpy as np
+import pyarrow.parquet as pq
 from backend.scripts.utils import gai, fetch_gai_content, fetch_gai_response
+
 app = FastAPI(title="SoftPower Backend API")
 
 # S3 client (will use host's IAM role/credentials)
@@ -133,3 +138,386 @@ async def upload_s3_content(request: S3UploadRequest):
         }
     except ClientError as e:
         raise HTTPException(status_code=500, detail=f"S3 error: {str(e)}")
+
+
+# ============================================================================
+# Parquet-Specific Endpoints
+# ============================================================================
+
+class ParquetListRequest(BaseModel):
+    bucket: str
+    prefix: str = "embeddings/"
+    max_keys: int = 1000
+
+class ParquetDownloadRequest(BaseModel):
+    bucket: str
+    key: str
+    num_rows: Optional[int] = None  # If specified, only return this many rows
+
+class ParquetValidateRequest(BaseModel):
+    bucket: str
+    key: str
+    required_columns: Optional[List[str]] = None
+
+class ParquetBatchRequest(BaseModel):
+    bucket: str
+    keys: List[str]
+
+
+@app.post("/s3/parquet/list")
+async def list_parquet_files(request: ParquetListRequest):
+    """List all parquet files in S3 prefix"""
+    try:
+        s3_prefix = request.prefix.rstrip('/') + '/'
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(
+            Bucket=request.bucket,
+            Prefix=s3_prefix,
+            PaginationConfig={'MaxItems': request.max_keys}
+        )
+
+        parquet_files = []
+        for page in pages:
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    key = obj['Key']
+                    if key.endswith('.parquet'):
+                        parquet_files.append({
+                            'key': key,
+                            'filename': key.split('/')[-1],
+                            'size': obj['Size'],
+                            'size_mb': round(obj['Size'] / (1024 * 1024), 2),
+                            'last_modified': obj['LastModified'].isoformat()
+                        })
+
+        return {
+            'bucket': request.bucket,
+            'prefix': request.prefix,
+            'count': len(parquet_files),
+            'files': parquet_files
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.post("/s3/parquet/metadata")
+async def get_parquet_metadata(request: S3DownloadRequest):
+    """Get metadata from parquet file without downloading full data"""
+    temp_path = None
+    try:
+        # Download to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+        temp_path = temp_file.name
+        temp_file.close()
+
+        s3_client.download_file(request.bucket, request.key, temp_path)
+
+        # Read parquet metadata
+        parquet_file = pq.ParquetFile(temp_path)
+        metadata = parquet_file.metadata
+
+        return {
+            'filename': request.key.split('/')[-1],
+            's3_key': request.key,
+            'num_rows': metadata.num_rows,
+            'num_columns': metadata.num_columns,
+            'num_row_groups': metadata.num_row_groups,
+            'columns': [
+                {
+                    'name': parquet_file.schema[i].name,
+                    'type': str(parquet_file.schema[i].physical_type)
+                }
+                for i in range(len(parquet_file.schema))
+            ],
+            'created_by': metadata.created_by,
+            'format_version': metadata.format_version
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+@app.post("/s3/parquet/read")
+async def read_parquet_file(request: ParquetDownloadRequest):
+    """Read parquet file from S3 and return data"""
+    temp_path = None
+    try:
+        # Download to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+        temp_path = temp_file.name
+        temp_file.close()
+
+        s3_client.download_file(request.bucket, request.key, temp_path)
+
+        # Read parquet file
+        df = pd.read_parquet(temp_path)
+
+        # Limit rows if specified
+        if request.num_rows:
+            df = df.head(request.num_rows)
+
+        # Convert to dict, handling special types
+        data = []
+        for _, row in df.iterrows():
+            row_dict = {}
+            for col, val in row.items():
+                # Handle numpy arrays (embeddings)
+                if isinstance(val, np.ndarray):
+                    row_dict[col] = {
+                        'type': 'array',
+                        'shape': list(val.shape),
+                        'dtype': str(val.dtype),
+                        'sample': val[:5].tolist() if len(val) > 5 else val.tolist()
+                    }
+                # Handle lists
+                elif isinstance(val, list):
+                    row_dict[col] = {
+                        'type': 'list',
+                        'length': len(val),
+                        'sample': val[:5] if len(val) > 5 else val
+                    }
+                # Handle pandas timestamps
+                elif pd.isna(val):
+                    row_dict[col] = None
+                # Handle regular values
+                else:
+                    row_dict[col] = val
+            data.append(row_dict)
+
+        return {
+            'filename': request.key.split('/')[-1],
+            's3_key': request.key,
+            'total_rows': len(df),
+            'returned_rows': len(data),
+            'columns': list(df.columns),
+            'dtypes': {col: str(dtype) for col, dtype in df.dtypes.items()},
+            'data': data
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+@app.post("/s3/parquet/sample")
+async def get_parquet_sample(request: ParquetDownloadRequest):
+    """Get a sample of rows from parquet file (default 10 rows)"""
+    if not request.num_rows:
+        request.num_rows = 10
+
+    return await read_parquet_file(request)
+
+
+@app.post("/s3/parquet/validate")
+async def validate_parquet_schema(request: ParquetValidateRequest):
+    """Validate parquet file schema"""
+    temp_path = None
+    try:
+        # Download to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+        temp_path = temp_file.name
+        temp_file.close()
+
+        s3_client.download_file(request.bucket, request.key, temp_path)
+
+        # Read parquet file
+        df = pd.read_parquet(temp_path)
+
+        # Default validation for embedding files
+        if request.required_columns is None:
+            # Flexible column names
+            id_cols = ['doc_id', 'document_id', 'id', 'atom_id', 'ATOM ID']
+            embedding_cols = ['embedding', 'embeddings', 'vector']
+
+            has_id = any(col in df.columns for col in id_cols)
+            has_embedding = any(col in df.columns for col in embedding_cols)
+
+            found_id_col = next((col for col in id_cols if col in df.columns), None)
+            found_emb_col = next((col for col in embedding_cols if col in df.columns), None)
+
+            is_valid = has_id and has_embedding
+
+            errors = []
+            if not has_id:
+                errors.append(f"Missing ID column (expected one of: {id_cols})")
+            if not has_embedding:
+                errors.append(f"Missing embedding column (expected one of: {embedding_cols})")
+
+            return {
+                'valid': is_valid,
+                'filename': request.key.split('/')[-1],
+                's3_key': request.key,
+                'columns': list(df.columns),
+                'num_rows': len(df),
+                'has_id_column': has_id,
+                'has_embedding_column': has_embedding,
+                'found_id_column': found_id_col,
+                'found_embedding_column': found_emb_col,
+                'errors': errors
+            }
+        else:
+            # Check for specific required columns
+            missing_cols = [col for col in request.required_columns if col not in df.columns]
+            is_valid = len(missing_cols) == 0
+
+            return {
+                'valid': is_valid,
+                'filename': request.key.split('/')[-1],
+                's3_key': request.key,
+                'columns': list(df.columns),
+                'num_rows': len(df),
+                'required_columns': request.required_columns,
+                'missing_columns': missing_cols,
+                'errors': [f"Missing required columns: {missing_cols}"] if missing_cols else []
+            }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        return {
+            'valid': False,
+            'filename': request.key.split('/')[-1],
+            's3_key': request.key,
+            'errors': [f"Error validating schema: {str(e)}"]
+        }
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+@app.post("/s3/parquet/extract-ids")
+async def extract_doc_ids(request: S3DownloadRequest):
+    """Extract all document IDs from a parquet file"""
+    temp_path = None
+    try:
+        # Download to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+        temp_path = temp_file.name
+        temp_file.close()
+
+        s3_client.download_file(request.bucket, request.key, temp_path)
+
+        # Read parquet file
+        df = pd.read_parquet(temp_path)
+
+        # Find ID column
+        id_cols = ['doc_id', 'document_id', 'id', 'atom_id', 'ATOM ID']
+        id_col = next((col for col in id_cols if col in df.columns), None)
+
+        if not id_col:
+            raise HTTPException(status_code=400, detail=f"No ID column found. Expected one of: {id_cols}")
+
+        # Extract unique IDs
+        doc_ids = df[id_col].unique().tolist()
+        doc_ids = [str(doc_id) for doc_id in doc_ids]
+
+        return {
+            'filename': request.key.split('/')[-1],
+            's3_key': request.key,
+            'id_column': id_col,
+            'total_rows': len(df),
+            'unique_ids': len(doc_ids),
+            'doc_ids': doc_ids
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+@app.post("/s3/parquet/batch-metadata")
+async def batch_get_parquet_metadata(request: ParquetBatchRequest):
+    """Get metadata for multiple parquet files"""
+    results = {
+        'bucket': request.bucket,
+        'total_files': len(request.keys),
+        'processed': 0,
+        'failed': 0,
+        'total_rows': 0,
+        'files': []
+    }
+
+    for s3_key in request.keys:
+        temp_path = None
+        try:
+            # Download to temp file
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+            temp_path = temp_file.name
+            temp_file.close()
+
+            s3_client.download_file(request.bucket, s3_key, temp_path)
+
+            # Read parquet metadata
+            parquet_file = pq.ParquetFile(temp_path)
+            metadata = parquet_file.metadata
+
+            results['processed'] += 1
+            results['total_rows'] += metadata.num_rows
+            results['files'].append({
+                'filename': s3_key.split('/')[-1],
+                's3_key': s3_key,
+                'num_rows': metadata.num_rows,
+                'num_columns': metadata.num_columns,
+                'status': 'success'
+            })
+
+        except Exception as e:
+            results['failed'] += 1
+            results['files'].append({
+                'filename': s3_key.split('/')[-1],
+                's3_key': s3_key,
+                'status': 'failed',
+                'error': str(e)
+            })
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    return results
+
+
+@app.get("/s3/parquet/download-binary")
+async def download_parquet_binary(bucket: str, key: str):
+    """Download parquet file as binary data"""
+    from fastapi.responses import StreamingResponse
+    try:
+        # Stream file from S3
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+
+        return StreamingResponse(
+            response['Body'],
+            media_type='application/octet-stream',
+            headers={
+                'Content-Disposition': f'attachment; filename="{key.split("/")[-1]}"'
+            }
+        )
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

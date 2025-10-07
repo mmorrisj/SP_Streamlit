@@ -25,10 +25,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import json
 
-import boto3
-from botocore.exceptions import ClientError
-import pyarrow.parquet as pq
-
 # Database imports
 from sqlalchemy import text
 from backend.database import get_session, get_engine
@@ -48,6 +44,9 @@ from backend.scripts.embedding_vectorstore import (
     stores
 )
 
+# API Client for S3 operations (runs outside Docker)
+from backend.api_client import get_s3_api_client
+
 
 class S3ToPgVectorMigrator:
     """Handles migration of embeddings from S3 parquet files to pgvector database."""
@@ -59,7 +58,8 @@ class S3ToPgVectorMigrator:
         collection_name: str = 'chunk_embeddings',
         dry_run: bool = False,
         force_reprocess: bool = False,
-        tracker_dir: str = './data/processed_embeddings'
+        tracker_dir: str = './data/processed_embeddings',
+        api_url: Optional[str] = None
     ):
         """
         Initialize the migrator.
@@ -71,6 +71,7 @@ class S3ToPgVectorMigrator:
             dry_run: If True, don't write to database
             force_reprocess: If True, reprocess files even if already processed
             tracker_dir: Local directory to store processed file tracker
+            api_url: FastAPI URL for S3 operations (default: from env or localhost:8000)
         """
         self.bucket_name = bucket_name
         self.s3_prefix = s3_prefix.rstrip('/') + '/'
@@ -83,8 +84,8 @@ class S3ToPgVectorMigrator:
         self.tracker_dir.mkdir(parents=True, exist_ok=True)
         self.tracker_file = self.tracker_dir / f"{collection_name}_processed.json"
 
-        # Initialize S3 client
-        self.s3_client = boto3.client('s3')
+        # Initialize API client for S3 operations
+        self.api_client = get_s3_api_client(api_url)
 
         # Load processed files tracker
         self.processed_files = self._load_tracker()
@@ -107,6 +108,7 @@ class S3ToPgVectorMigrator:
         print(f"  Bucket: {bucket_name}")
         print(f"  S3 Prefix: {self.s3_prefix}")
         print(f"  Collection: {collection_name}")
+        print(f"  API URL: {self.api_client.api_url}")
         print(f"  Tracker File: {self.tracker_file}")
         print(f"  Previously Processed: {len(self.processed_files.get('files', []))} files")
         print(f"  Dry Run: {dry_run}")
@@ -171,7 +173,7 @@ class S3ToPgVectorMigrator:
 
     def list_parquet_files(self, skip_processed: bool = True) -> List[Dict[str, Any]]:
         """
-        List all parquet files in the S3 prefix.
+        List all parquet files in the S3 prefix via FastAPI.
 
         Args:
             skip_processed: If True, filter out already processed files
@@ -179,29 +181,23 @@ class S3ToPgVectorMigrator:
         Returns:
             List of file metadata dictionaries
         """
-        parquet_files = []
-
         try:
-            paginator = self.s3_client.get_paginator('list_objects_v2')
-            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=self.s3_prefix)
+            # Use API client to list files
+            response = self.api_client.list_parquet_files(
+                bucket=self.bucket_name,
+                prefix=self.s3_prefix,
+                max_keys=10000
+            )
 
-            for page in pages:
-                if 'Contents' in page:
-                    for obj in page['Contents']:
-                        key = obj['Key']
-                        if key.endswith('.parquet'):
-                            filename = key.split('/')[-1]
+            parquet_files = []
+            for file_info in response.get('files', []):
+                filename = file_info['filename']
 
-                            # Skip if already processed
-                            if skip_processed and self._is_file_processed(filename):
-                                continue
+                # Skip if already processed
+                if skip_processed and self._is_file_processed(filename):
+                    continue
 
-                            parquet_files.append({
-                                'key': key,
-                                'filename': filename,
-                                'size': obj['Size'],
-                                'last_modified': obj['LastModified']
-                            })
+                parquet_files.append(file_info)
 
             total_files = len(parquet_files)
             if skip_processed:
@@ -218,30 +214,23 @@ class S3ToPgVectorMigrator:
 
     def download_parquet_file(self, s3_key: str, local_path: Optional[str] = None) -> pd.DataFrame:
         """
-        Download and read a parquet file from S3.
+        Download and read a parquet file from S3 via FastAPI with full embeddings.
 
         Args:
             s3_key: S3 object key
-            local_path: Optional local path to save file
+            local_path: Not used (kept for compatibility)
 
         Returns:
-            DataFrame containing parquet data
+            DataFrame containing complete parquet data including full embeddings
         """
         try:
-            if local_path is None:
-                local_path = f"/tmp/{s3_key.split('/')[-1]}"
-
-            # Download file
-            print(f"Downloading {s3_key}...")
-            self.s3_client.download_file(self.bucket_name, s3_key, local_path)
-
-            # Read parquet file
-            df = pd.read_parquet(local_path)
+            # Use API client to download full parquet file
+            print(f"Downloading {s3_key} via API...")
+            df = self.api_client.download_parquet_as_dataframe(
+                bucket=self.bucket_name,
+                key=s3_key
+            )
             print(f"  Loaded {len(df)} rows from {s3_key}")
-
-            # Clean up local file
-            if os.path.exists(local_path):
-                os.remove(local_path)
 
             return df
 
@@ -630,6 +619,10 @@ def main():
         default='./data/processed_embeddings',
         help='Directory to store processed file tracker (default: ./data/processed_embeddings)'
     )
+    migrate_parser.add_argument(
+        '--api-url',
+        help='FastAPI URL for S3 operations (default: from env API_URL or http://localhost:8000)'
+    )
 
     # View tracker command
     view_parser = subparsers.add_parser('view', help='View processed files tracker')
@@ -699,6 +692,10 @@ def main():
             default='./data/processed_embeddings',
             help='Directory to store processed file tracker (default: ./data/processed_embeddings)'
         )
+        parser.add_argument(
+            '--api-url',
+            help='FastAPI URL for S3 operations (default: from env API_URL or http://localhost:8000)'
+        )
 
         args = parser.parse_args()
 
@@ -709,7 +706,8 @@ def main():
             collection_name=args.collection,
             dry_run=args.dry_run,
             force_reprocess=args.force,
-            tracker_dir=args.tracker_dir
+            tracker_dir=args.tracker_dir,
+            api_url=getattr(args, 'api_url', None)
         )
 
         # Process files
@@ -733,7 +731,8 @@ def main():
                 collection_name=args.collection,
                 dry_run=args.dry_run,
                 force_reprocess=args.force,
-                tracker_dir=args.tracker_dir
+                tracker_dir=args.tracker_dir,
+                api_url=getattr(args, 'api_url', None)
             )
 
             # Process files
