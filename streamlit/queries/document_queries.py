@@ -1,16 +1,19 @@
 import pandas as pd
 import streamlit as st
 import ast
-# from backend.extensions import db
-from backend.scripts.models import SoftPowerActivity, Document, Category, Subcategory, Event, InitiatingCountry,RecipientCountry,DailySummary
-from sqlalchemy import func, desc, select
-from sqlalchemy import text
-from sqlalchemy.sql import exists,Join
+
+# Modern SQLAlchemy 2.0 imports
+from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry
+from backend.database import get_session, get_engine
+from sqlalchemy import func, desc, select, text
+from sqlalchemy.sql import exists, Join
 from backend.scripts.utils import Config
-from db import engine, get_session
+
 cfg = Config.from_yaml()
 
 def compile_query(query):
+    """Compile SQLAlchemy query to string for debugging."""
+    engine = get_engine()
     if hasattr(query, "statement"):
         query = query.statement
     return str(query.compile(dialect=engine.dialect, compile_kwargs={"literal_binds": True}))
