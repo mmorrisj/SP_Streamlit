@@ -13,9 +13,24 @@ session = boto3.Session()
 s3_client= boto3.client('s3')
 bucket_name = 'morris-sp-bucket'
 
-# Initialize API client for S3 operations (will use FastAPI proxy when available)
+# S3 API Client configuration (lazy initialization)
 _use_api_client = os.getenv('USE_S3_API_CLIENT', 'true').lower() == 'true'
-_api_client = get_s3_api_client() if _use_api_client else None
+_api_client = None
+
+def _get_api_client(api_url: Optional[str] = None):
+    """Get or create API client instance (lazy initialization)."""
+    global _api_client
+    if not _use_api_client:
+        print("S3 API client disabled via USE_S3_API_CLIENT environment variable")
+        return None
+    if _api_client is None or api_url:
+        try:
+            _api_client = get_s3_api_client(api_url)
+            print(f"S3 API client initialized: {_api_client.api_url}")
+        except Exception as e:
+            print(f"Warning: Failed to initialize S3 API client: {e}")
+            return None
+    return _api_client
 def file_exists(bucket, key):
     try:
         s3_client.head_object(Bucket=bucket, Key=key)
@@ -58,9 +73,9 @@ def load_processed_files_tracker(s3_prefix: str = "dsr_extracts/", api_url: Opti
     tracker_key = f"{s3_prefix}processed_files.json"
 
     # Use API client if available
-    if _use_api_client or api_url:
+    client = _get_api_client(api_url)
+    if client:
         try:
-            client = get_s3_api_client(api_url) if api_url else _api_client
             response = client.download_json_file(bucket=bucket_name, key=tracker_key)
             tracker_data = response['data']
             print(f"Loaded processed files tracker with {len(tracker_data.get('processed_files', []))} entries (via API)")
@@ -101,9 +116,9 @@ def save_processed_files_tracker(tracker_data: Dict[str, Any], s3_prefix: str = 
     tracker_key = f"{s3_prefix}processed_files.json"
 
     # Use API client if available
-    if _use_api_client or api_url:
+    client = _get_api_client(api_url)
+    if client:
         try:
-            client = get_s3_api_client(api_url) if api_url else _api_client
             client.upload_json_file(bucket=bucket_name, key=tracker_key, data=tracker_data)
             print(f"Saved processed files tracker to s3://{bucket_name}/{tracker_key} (via API)")
             return
@@ -134,9 +149,9 @@ def list_s3_json_files(s3_prefix: str = "dsr_extracts/", api_url: Optional[str] 
         api_url: Optional API URL (overrides default)
     """
     # Use API client if available
-    if _use_api_client or api_url:
+    client = _get_api_client(api_url)
+    if client:
         try:
-            client = get_s3_api_client(api_url) if api_url else _api_client
             response = client.list_json_files(bucket=bucket_name, prefix=s3_prefix)
             json_files = response['files']
 
@@ -187,9 +202,9 @@ def download_s3_json_file(s3_key: str, api_url: Optional[str] = None) -> List[Di
         api_url: Optional API URL (overrides default)
     """
     # Use API client if available
-    if _use_api_client or api_url:
+    client = _get_api_client(api_url)
+    if client:
         try:
-            client = get_s3_api_client(api_url) if api_url else _api_client
             response = client.download_json_file(bucket=bucket_name, key=s3_key)
             print(f"Downloaded and parsed {s3_key} (via API)")
             return response['data']

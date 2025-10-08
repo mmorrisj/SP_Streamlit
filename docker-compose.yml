@@ -63,6 +63,8 @@ services:
       DB_HOST: softpower_db
       S3_PROXY_URL: http://host.docker.internal:5001
       FASTAPI_URL: http://host.docker.internal:5001/material_query
+      API_URL: http://host.docker.internal:5001
+      USE_S3_API_CLIENT: "true"
     ports:
       - "8000:8000"
     volumes:
