@@ -141,6 +141,123 @@ async def upload_s3_content(request: S3UploadRequest):
 
 
 # ============================================================================
+# JSON-Specific Endpoints
+# ============================================================================
+
+class JsonListRequest(BaseModel):
+    bucket: str
+    prefix: str = "dsr_extracts/"
+    max_keys: int = 1000
+
+class JsonDownloadRequest(BaseModel):
+    bucket: str
+    key: str
+
+class JsonBatchRequest(BaseModel):
+    bucket: str
+    keys: List[str]
+
+
+@app.post("/s3/json/list")
+async def list_json_files(request: JsonListRequest):
+    """List all JSON files in S3 prefix (excluding error files and tracker files)"""
+    try:
+        s3_prefix = request.prefix.rstrip('/') + '/'
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(
+            Bucket=request.bucket,
+            Prefix=s3_prefix,
+            PaginationConfig={'MaxItems': request.max_keys}
+        )
+
+        json_files = []
+        for page in pages:
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    key = obj['Key']
+                    # Filter out error files and tracker files
+                    if (key.endswith('.json') and
+                        'errors' not in key and
+                        'processed_files.json' not in key):
+                        json_files.append({
+                            'key': key,
+                            'filename': key.split('/')[-1],
+                            'size': obj['Size'],
+                            'size_kb': round(obj['Size'] / 1024, 2),
+                            'last_modified': obj['LastModified'].isoformat()
+                        })
+
+        return {
+            'bucket': request.bucket,
+            'prefix': request.prefix,
+            'count': len(json_files),
+            'files': json_files
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.post("/s3/json/download")
+async def download_json_file(request: JsonDownloadRequest):
+    """Download and parse a JSON file from S3"""
+    try:
+        response = s3_client.get_object(Bucket=request.bucket, Key=request.key)
+        content = response['Body'].read().decode('utf-8')
+        data = json.loads(content)
+
+        return {
+            'filename': request.key.split('/')[-1],
+            's3_key': request.key,
+            'size': len(content),
+            'data': data
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.post("/s3/json/batch-download")
+async def batch_download_json(request: JsonBatchRequest):
+    """Download multiple JSON files from S3"""
+    results = {
+        'bucket': request.bucket,
+        'total_files': len(request.keys),
+        'successful': 0,
+        'failed': 0,
+        'files': []
+    }
+
+    for s3_key in request.keys:
+        try:
+            response = s3_client.get_object(Bucket=request.bucket, Key=s3_key)
+            content = response['Body'].read().decode('utf-8')
+            data = json.loads(content)
+
+            results['successful'] += 1
+            results['files'].append({
+                'filename': s3_key.split('/')[-1],
+                's3_key': s3_key,
+                'status': 'success',
+                'data': data
+            })
+        except Exception as e:
+            results['failed'] += 1
+            results['files'].append({
+                'filename': s3_key.split('/')[-1],
+                's3_key': s3_key,
+                'status': 'failed',
+                'error': str(e)
+            })
+
+    return results
+
+
+# ============================================================================
 # Parquet-Specific Endpoints
 # ============================================================================
 
@@ -751,6 +868,97 @@ class S3APIClient:
             # Clean up temp file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+    # JSON file methods
+    def list_json_files(
+        self,
+        bucket: str,
+        prefix: str = 'dsr_extracts/',
+        max_keys: int = 1000
+    ) -> Dict[str, Any]:
+        """
+        List JSON files in S3.
+
+        Args:
+            bucket: S3 bucket name
+            prefix: S3 prefix/folder
+            max_keys: Maximum number of files to return
+
+        Returns:
+            Response with file list
+        """
+        response = requests.post(
+            f'{self.api_url}/s3/json/list',
+            json={'bucket': bucket, 'prefix': prefix, 'max_keys': max_keys}
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def download_json_file(self, bucket: str, key: str) -> Dict[str, Any]:
+        """
+        Download and parse JSON file from S3.
+
+        Args:
+            bucket: S3 bucket name
+            key: S3 object key
+
+        Returns:
+            JSON data and metadata
+        """
+        response = requests.post(
+            f'{self.api_url}/s3/json/download',
+            json={'bucket': bucket, 'key': key}
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def batch_download_json(
+        self,
+        bucket: str,
+        keys: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Download multiple JSON files from S3.
+
+        Args:
+            bucket: S3 bucket name
+            keys: List of S3 object keys
+
+        Returns:
+            Batch download results with data
+        """
+        response = requests.post(
+            f'{self.api_url}/s3/json/batch-download',
+            json={'bucket': bucket, 'keys': keys}
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def upload_json_file(
+        self,
+        bucket: str,
+        key: str,
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Upload JSON data to S3.
+
+        Args:
+            bucket: S3 bucket name
+            key: S3 object key
+            data: Dictionary to upload as JSON
+
+        Returns:
+            Upload status
+        """
+        import json as json_lib
+        content = json_lib.dumps(data, indent=2)
+        response = requests.post(
+            f'{self.api_url}/s3/upload',
+            json={'bucket': bucket, 'key': key, 'content': content}
+        )
+        response.raise_for_status()
+        return response.json()
 
 
 # Singleton instance
