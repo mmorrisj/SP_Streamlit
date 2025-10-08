@@ -134,7 +134,7 @@ class S3ToPgVectorMigrator:
         try:
             self.processed_files['last_updated'] = datetime.utcnow().isoformat()
             with open(self.tracker_file, 'w') as f:
-                json.dump(self.processed_files, indent=2, fp=f)
+                json.dump(self.processed_files, f, indent=2)
             print(f"Saved tracker to {self.tracker_file}")
         except Exception as e:
             print(f"Warning: Could not save tracker file: {e}")
