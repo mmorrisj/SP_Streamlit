@@ -238,6 +238,33 @@ class S3ToPgVectorMigrator:
             print(f"Error downloading {s3_key}: {e}")
             raise
 
+    def get_existing_doc_ids_in_collection(self) -> set:
+        """
+        Get all doc_ids that already exist in the vector store collection.
+
+        Returns:
+            Set of doc_ids that are already in the collection
+        """
+        try:
+            engine = get_engine()
+            with engine.connect() as conn:
+                # Query for doc_ids in the collection
+                query = text("""
+                    SELECT DISTINCT cmetadata->>'doc_id' AS doc_id
+                    FROM langchain_pg_embedding
+                    WHERE collection_id = (
+                        SELECT uuid FROM langchain_pg_collection WHERE name = :collection_name
+                    )
+                    AND cmetadata->>'doc_id' IS NOT NULL
+                """)
+                result = conn.execute(query, {"collection_name": self.collection_name})
+                existing_ids = {row[0] for row in result if row[0]}
+                print(f"Found {len(existing_ids)} existing documents in collection '{self.collection_name}'")
+                return existing_ids
+        except Exception as e:
+            print(f"Warning: Could not check existing documents: {e}")
+            return set()
+
     def get_document_metadata(self, doc_ids: List[str]) -> Dict[str, Dict[str, Any]]:
         """
         Fetch document metadata from the database.
@@ -385,6 +412,22 @@ class S3ToPgVectorMigrator:
         # Normalize data
         df = self.normalize_parquet_data(df)
         print(f"Normalized {len(df)} records")
+
+        # Check for existing documents in the collection (skip if force_reprocess)
+        existing_doc_ids = set()
+        if not self.force_reprocess:
+            existing_doc_ids = self.get_existing_doc_ids_in_collection()
+            if existing_doc_ids:
+                initial_count = len(df)
+                df = df[~df['doc_id'].isin(existing_doc_ids)]
+                skipped_count = initial_count - len(df)
+                if skipped_count > 0:
+                    print(f"⊘ Skipping {skipped_count} documents already in collection")
+                if len(df) == 0:
+                    print(f"All documents in {filename} already exist in collection, skipping file")
+                    # Still mark as processed since all documents are accounted for
+                    self._mark_file_processed(filename, 0)
+                    return 0
 
         # Get document metadata
         doc_ids = df['doc_id'].unique().tolist()
