@@ -109,7 +109,9 @@ class S3ToPgVectorMigrator:
         print(f"  S3 Prefix: {self.s3_prefix}")
         print(f"  Collection: {collection_name}")
         print(f"  API URL: {self.api_client.api_url}")
-        print(f"  Tracker File: {self.tracker_file}")
+        print(f"  Tracker Dir: {self.tracker_dir.absolute()}")
+        print(f"  Tracker File: {self.tracker_file.absolute()}")
+        print(f"  Tracker Exists: {self.tracker_file.exists()}")
         print(f"  Previously Processed: {len(self.processed_files.get('files', []))} files")
         print(f"  Dry Run: {dry_run}")
         print(f"  Force Reprocess: {force_reprocess}")
@@ -133,11 +135,28 @@ class S3ToPgVectorMigrator:
         """Save the processed files tracker to local file."""
         try:
             self.processed_files['last_updated'] = datetime.utcnow().isoformat()
+
+            # Ensure the directory exists
+            self.tracker_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write to file
             with open(self.tracker_file, 'w') as f:
                 json.dump(self.processed_files, f, indent=2)
-            print(f"Saved tracker to {self.tracker_file}")
+
+            # Verify the file was written
+            if not self.tracker_file.exists():
+                raise FileNotFoundError(f"Tracker file was not created at {self.tracker_file}")
+
+            # Verify content
+            with open(self.tracker_file, 'r') as f:
+                json.load(f)  # Just to verify it's valid JSON
+
+            print(f"✓ Saved tracker to {self.tracker_file.absolute()}")
+
         except Exception as e:
-            print(f"Warning: Could not save tracker file: {e}")
+            print(f"✗ Error: Could not save tracker file to {self.tracker_file.absolute()}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _mark_file_processed(self, filename: str, document_count: int):
         """Mark a file as processed in the tracker."""
