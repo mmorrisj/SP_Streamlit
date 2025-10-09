@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import pyarrow.parquet as pq
 from backend.scripts.utils import gai, fetch_gai_content, fetch_gai_response
-
+import json
 app = FastAPI(title="SoftPower Backend API")
 
 # S3 client (will use host's IAM role/credentials)
