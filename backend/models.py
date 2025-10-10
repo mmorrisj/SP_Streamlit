@@ -527,3 +527,100 @@ class EventSourceLink(Base):
 
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+
+# Add to backend/models.py
+
+class CanonicalEvent(Base):
+    """Canonical event tracked across news mentions over time."""
+    __tablename__ = "canonical_events"
+    
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Core identity
+    canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # News mention tracking (key for news feeds)
+    first_mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    last_mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    total_mention_days: Mapped[int] = mapped_column(Integer, default=1)  # Days with mentions
+    total_articles: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Story arc tracking
+    story_phase: Mapped[str] = mapped_column(String(50))  # "emerging", "developing", "peak", "fading", "dormant"
+    days_since_last_mention: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # News source diversity
+    unique_sources: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    source_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Peak coverage tracking
+    peak_mention_date: Mapped[Optional[DateType]] = mapped_column(Date)
+    peak_daily_article_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Aggregated information (builds over time as articles mention different details)
+    consolidated_description: Mapped[Optional[str]] = mapped_column(Text)
+    key_facts: Mapped[Dict[str, str]] = mapped_column(JSONB, default=dict)  # Facts extracted from articles
+    
+    # For matching
+    embedding_vector: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float))
+    alternative_names: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)  # Different headlines for same event
+    
+    # Metadata
+    primary_categories: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)
+    primary_recipients: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)
+    
+    # Relationships
+    daily_mentions = relationship("DailyEventMention", back_populates="canonical_event")
+    
+    __table_args__ = (
+        Index("ix_canonical_event_country_dates", "initiating_country", "first_mention_date", "last_mention_date"),
+        Index("ix_canonical_event_story_phase", "story_phase"),
+        Index("ix_canonical_event_days_since", "days_since_last_mention"),
+    )
+
+class DailyEventMention(Base):
+    """
+    Represents all articles about an event on a specific day.
+    This is your daily consolidation output.
+    """
+    __tablename__ = "daily_event_mentions"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    canonical_event_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_events.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    # Country field for efficient filtering and data integrity
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+
+    mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    article_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Consolidation metadata (from your daily clustering + LLM)
+    consolidated_headline: Mapped[str] = mapped_column(Text)  # Best representation of event on this day
+    daily_summary: Mapped[Optional[str]] = mapped_column(Text)  # What was new this day
+    
+    # Source tracking
+    source_names: Mapped[List[str]] = mapped_column(ARRAY(Text))
+    source_diversity_score: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    # Signals for temporal matching
+    mention_context: Mapped[str] = mapped_column(Text)  # "announcement", "preparation", "execution", "aftermath"
+    news_intensity: Mapped[str] = mapped_column(String(20))  # "breaking", "developing", "follow-up", "recap"
+    
+    # Links to source documents
+    doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text))
+    
+    # Relationships
+    canonical_event = relationship("CanonicalEvent", back_populates="daily_mentions")
+    
+    __table_args__ = (
+        UniqueConstraint("canonical_event_id", "mention_date", name="uq_daily_mention"),
+        Index("ix_daily_mention_date", "mention_date"),
+        Index("ix_daily_mention_context", "mention_context"),
+        Index("ix_daily_mention_country_date", "initiating_country", "mention_date"),
+    )
