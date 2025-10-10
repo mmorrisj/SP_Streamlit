@@ -1,0 +1,2 @@
+1. download DSR 
+2. Upload to S3 dsr_extracts 

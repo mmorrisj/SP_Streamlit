@@ -10,7 +10,7 @@ aws:
   secret_name: "AZURE_OPENAI_API_KEY_NORTHCENTRALUS"
   region_name: "us-east-1"
   api_version: "2024-08-01-preview"
-  4_1_model: gpt-4.1 
+  4_1_model: gpt-4o-mini 
   4_1_version: '2025-04-14'
   default_model: "gpt-4o-mini"
 text_field: 'BODY'

@@ -11,10 +11,12 @@ coverage/
 *.iml
 *.log
 .pycharm/
-__pycache__/
+*__pycache__/*
 *.pyc
 *.pyo
 *.pyd
 *.sqlite3
 *.db
 /venv/*
+*.pyc
+*pycache*

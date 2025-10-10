@@ -3,7 +3,8 @@ import os
 import json
 from botocore.exceptions import ClientError
 from backend.scripts.utils import Config
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from backend.api import get_s3_api_client
 
 cfg = Config.from_yaml()
 
@@ -11,6 +12,25 @@ session = boto3.Session()
 # (2) Create an S3 client or resource
 s3_client= boto3.client('s3')
 bucket_name = 'morris-sp-bucket'
+
+# S3 API Client configuration (lazy initialization)
+_use_api_client = os.getenv('USE_S3_API_CLIENT', 'true').lower() == 'true'
+_api_client = None
+
+def _get_api_client(api_url: Optional[str] = None):
+    """Get or create API client instance (lazy initialization)."""
+    global _api_client
+    if not _use_api_client:
+        print("S3 API client disabled via USE_S3_API_CLIENT environment variable")
+        return None
+    if _api_client is None or api_url:
+        try:
+            _api_client = get_s3_api_client(api_url)
+            print(f"S3 API client initialized: {_api_client.api_url}")
+        except Exception as e:
+            print(f"Warning: Failed to initialize S3 API client: {e}")
+            return None
+    return _api_client
 def file_exists(bucket, key):
     try:
         s3_client.head_object(Bucket=bucket, Key=key)
@@ -41,17 +61,38 @@ def s3_upload(directory,file_type,s3_dir,bucket='morris-sp-bucket',force=False):
     
 bucket_path = f"s3://{bucket_name}/dsr_extracts/"
 
-def load_processed_files_tracker(s3_prefix: str = "dsr_extracts/") -> Dict[str, Any]:
+def load_processed_files_tracker(s3_prefix: str = "dsr_extracts/", api_url: Optional[str] = None) -> Dict[str, Any]:
     """
     Load the processed files tracker from S3.
     Returns a dictionary with processed file names and metadata.
+
+    Args:
+        s3_prefix: S3 prefix/folder
+        api_url: Optional API URL (overrides default)
     """
     tracker_key = f"{s3_prefix}processed_files.json"
 
+    # Use API client if available
+    client = _get_api_client(api_url)
+    if client:
+        try:
+            response = client.download_json_file(bucket=bucket_name, key=tracker_key)
+            tracker_data = response['data']
+            print(f"Loaded processed files tracker with {len(tracker_data.get('processed_files', []))} entries (via API)")
+            return tracker_data
+        except Exception as e:
+            # If file doesn't exist, return empty tracker
+            if '404' in str(e) or 'NoSuchKey' in str(e):
+                print("No existing processed files tracker found. Creating new one.")
+                return {"processed_files": [], "last_updated": None}
+            print(f"API client failed, falling back to direct S3: {e}")
+            # Fall through to direct S3 access
+
+    # Fallback to direct boto3 access
     try:
         response = s3_client.get_object(Bucket=bucket_name, Key=tracker_key)
         tracker_data = json.loads(response['Body'].read().decode('utf-8'))
-        print(f"Loaded processed files tracker with {len(tracker_data.get('processed_files', []))} entries")
+        print(f"Loaded processed files tracker with {len(tracker_data.get('processed_files', []))} entries (direct)")
         return tracker_data
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchKey':
@@ -60,15 +101,32 @@ def load_processed_files_tracker(s3_prefix: str = "dsr_extracts/") -> Dict[str, 
         else:
             raise
 
-def save_processed_files_tracker(tracker_data: Dict[str, Any], s3_prefix: str = "dsr_extracts/") -> None:
+def save_processed_files_tracker(tracker_data: Dict[str, Any], s3_prefix: str = "dsr_extracts/", api_url: Optional[str] = None) -> None:
     """
     Save the processed files tracker to S3.
+
+    Args:
+        tracker_data: Tracker data to save
+        s3_prefix: S3 prefix/folder
+        api_url: Optional API URL (overrides default)
     """
     from datetime import datetime
 
     tracker_data["last_updated"] = datetime.utcnow().isoformat()
     tracker_key = f"{s3_prefix}processed_files.json"
 
+    # Use API client if available
+    client = _get_api_client(api_url)
+    if client:
+        try:
+            client.upload_json_file(bucket=bucket_name, key=tracker_key, data=tracker_data)
+            print(f"Saved processed files tracker to s3://{bucket_name}/{tracker_key} (via API)")
+            return
+        except Exception as e:
+            print(f"API client failed, falling back to direct S3: {e}")
+            # Fall through to direct S3 access
+
+    # Fallback to direct boto3 access
     try:
         s3_client.put_object(
             Bucket=bucket_name,
@@ -76,18 +134,41 @@ def save_processed_files_tracker(tracker_data: Dict[str, Any], s3_prefix: str = 
             Body=json.dumps(tracker_data, indent=2),
             ContentType='application/json'
         )
-        print(f"Saved processed files tracker to s3://{bucket_name}/{tracker_key}")
+        print(f"Saved processed files tracker to s3://{bucket_name}/{tracker_key} (direct)")
     except Exception as e:
         print(f"Error saving processed files tracker: {e}")
         raise
 
-def list_s3_json_files(s3_prefix: str = "dsr_extracts/") -> List[Dict[str, Any]]:
+def list_s3_json_files(s3_prefix: str = "dsr_extracts/", api_url: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     List all JSON files in the S3 bucket prefix.
     Returns list of file metadata dictionaries.
-    """
-    json_files = []
 
+    Args:
+        s3_prefix: S3 prefix/folder to search
+        api_url: Optional API URL (overrides default)
+    """
+    # Use API client if available
+    client = _get_api_client(api_url)
+    if client:
+        try:
+            response = client.list_json_files(bucket=bucket_name, prefix=s3_prefix)
+            json_files = response['files']
+
+            # Convert to match old format (add last_modified as datetime-like object)
+            from datetime import datetime
+            for file_info in json_files:
+                if isinstance(file_info.get('last_modified'), str):
+                    file_info['last_modified'] = datetime.fromisoformat(file_info['last_modified'].replace('Z', '+00:00'))
+
+            print(f"Found {len(json_files)} JSON files in s3://{bucket_name}/{s3_prefix} (via API)")
+            return json_files
+        except Exception as e:
+            print(f"API client failed, falling back to direct S3: {e}")
+            # Fall through to direct S3 access
+
+    # Fallback to direct boto3 access
+    json_files = []
     try:
         paginator = s3_client.get_paginator('list_objects_v2')
         pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_prefix)
@@ -104,23 +185,39 @@ def list_s3_json_files(s3_prefix: str = "dsr_extracts/") -> List[Dict[str, Any]]
                             'last_modified': obj['LastModified']
                         })
 
-        print(f"Found {len(json_files)} JSON files in s3://{bucket_name}/{s3_prefix}")
+        print(f"Found {len(json_files)} JSON files in s3://{bucket_name}/{s3_prefix} (direct)")
         return json_files
 
     except Exception as e:
         print(f"Error listing S3 files: {e}")
         raise
 
-def download_s3_json_file(s3_key: str) -> List[Dict[str, Any]]:
+def download_s3_json_file(s3_key: str, api_url: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Download and parse a JSON file from S3.
     Returns the parsed JSON data.
+
+    Args:
+        s3_key: S3 object key
+        api_url: Optional API URL (overrides default)
     """
+    # Use API client if available
+    client = _get_api_client(api_url)
+    if client:
+        try:
+            response = client.download_json_file(bucket=bucket_name, key=s3_key)
+            print(f"Downloaded and parsed {s3_key} (via API)")
+            return response['data']
+        except Exception as e:
+            print(f"API client failed, falling back to direct S3: {e}")
+            # Fall through to direct S3 access
+
+    # Fallback to direct boto3 access
     try:
         response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
         file_content = response['Body'].read().decode('utf-8')
         data = json.loads(file_content)
-        print(f"Downloaded and parsed {s3_key}")
+        print(f"Downloaded and parsed {s3_key} (direct)")
         return data
     except Exception as e:
         print(f"Error downloading {s3_key}: {e}")

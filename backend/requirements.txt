@@ -1,22 +1,47 @@
-flask
-flask_sqlalchemy
-flask_migrate
-openai
-Flask-SQLAlchemy
-python-dotenv
-psycopg2-binary
-Flask-Migrate
-pandas
-gunicorn
-nano
-pyyaml
-boto3
-pgvector
-celery
-redis
+# Embeddings & NLP
 sentence-transformers
+nltk
+boto3
 transformers
 torch
+
+# Vector DB
+pgvector
+psycopg2-binary
+
+# LangChain
+langchain 
+langchain-community 
+langchain-huggingface 
+
+# Task Queue
+celery
+redis
+
+# Backend Frameworks
+fastapi
+uvicorn
+sqlalchemy
+
+# Database Migrations
+alembic
+
+# Config & Utils
+python-dotenv
+click
+tabulate
+
+# Data Processing
+pandas
+numpy
+openpyxl
+python-docx
+
+# Clustering / Dimension Reduction
 hdbscan
-umap
-"jax[cuda12]" numpyro
+umap-learn
+scikit-learn
+
+# OpenAI for LLM use
+openai
+pyarrow

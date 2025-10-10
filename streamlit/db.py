@@ -1,14 +1,24 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from backend.extensions import db
-from dotenv import load_dotenv
-import os
-load_dotenv()
-DB_HOST = os.getenv("DB_HOST", "localhost")
-POSTGRES_PORT = os.getenv("POSTGRES_PORT",5432)
-DATABASE_URL = f"postgresql://matthew50:softpower@{DB_HOST}:{POSTGRES_PORT}/softpower-db"  # adjust if needed
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
+"""
+Database connection module for Streamlit application.
+Uses modern SQLAlchemy 2.0 with centralized database management.
+"""
 
-def get_session():
-    return SessionLocal()
+from backend.database import get_session, create_session, get_engine, health_check
+from contextlib import contextmanager
+
+# Re-export the main functions for backwards compatibility
+__all__ = ['get_session', 'create_session', 'get_engine', 'health_check']
+
+# Legacy compatibility - if old code uses db.get_session() without context manager
+def get_db_session():
+    """
+    Legacy function for backwards compatibility.
+
+    DEPRECATED: Use get_session() context manager instead:
+        with get_session() as session:
+            # your code here
+
+    Returns:
+        Session object (must be closed manually)
+    """
+    return create_session()

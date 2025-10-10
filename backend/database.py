@@ -289,7 +289,7 @@ def init_database():
     """
     try:
         # Import models to ensure all models are registered
-        from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, Project, Citation
+        from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent, Citation
         
         Base.metadata.create_all(db_manager.engine)
         logger.info("Database tables created successfully")

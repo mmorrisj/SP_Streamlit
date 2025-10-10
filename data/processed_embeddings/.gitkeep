@@ -1,0 +1,14 @@
+# This directory stores local tracking files for S3 to pgvector migration
+# Format: {collection_name}_processed.json
+#
+# Example tracker file content:
+# {
+#   "files": [
+#     {
+#       "filename": "document_embeddings_2024_01.parquet",
+#       "processed_at": "2025-01-15T10:00:10.123456",
+#       "document_count": 1580
+#     }
+#   ],
+#   "last_updated": "2025-01-15T10:00:10.123456"
+# }
