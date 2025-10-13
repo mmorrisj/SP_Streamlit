@@ -3,7 +3,7 @@
 from datetime import date
 from backend.database import get_session
 from backend.scripts.news_event_tracker import NewsEventTracker
-from backend.config import load_yaml_config
+from backend.scripts.utils import Config
 from sqlalchemy import select
 
 def process_daily_news(target_date: date = None, country: str = None):
@@ -18,15 +18,15 @@ def process_daily_news(target_date: date = None, country: str = None):
     if target_date is None:
         target_date = date.today()
 
-    config = load_yaml_config('backend/config.yaml')
+    config = Config.from_yaml()
 
     # Determine which countries to process
     if country:
-        if country not in config['influencers']:
+        if country not in config.influencers:
             raise ValueError(f"Country '{country}' not found in config. Available: {list(config['influencers'].keys())}")
         countries_to_process = [country]
     else:
-        countries_to_process = config['influencers'].keys()
+        countries_to_process = config.influencers
 
     with get_session() as session:
         tracker = NewsEventTracker(session)
