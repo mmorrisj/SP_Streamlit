@@ -6,7 +6,7 @@ from collections import defaultdict
 import numpy as np
 from sqlalchemy import select, and_
 from backend.database import get_session
-from backend.models import Document, RawEvent, CanonicalEvent, DailyEventMention
+from backend.models import Document, RawEvent, CanonicalEvent, DailyEventMention, InitiatingCountry
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import DBSCAN
 import re
@@ -770,18 +770,23 @@ If different events, split into groups."""
     
     # Helper methods
     def _get_daily_raw_events(self, target_date: date, country: str) -> List[Dict]:
-        """Get raw events from documents for specific date."""
+        """Get raw events from documents for specific date.
+
+        Uses the flattened InitiatingCountry table for country filtering,
+        since your schema normalizes the country relationships.
+        """
         stmt = (
             select(Document, RawEvent)
             .join(RawEvent, RawEvent.doc_id == Document.doc_id)
+            .join(InitiatingCountry, InitiatingCountry.doc_id == Document.doc_id)
             .where(
                 and_(
                     Document.date == target_date,
-                    Document.initiating_country == country
+                    InitiatingCountry.initiating_country == country
                 )
             )
         )
-        
+
         results = self.session.execute(stmt).all()
         return [
             {

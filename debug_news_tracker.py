@@ -6,7 +6,7 @@ Run this on your server to see what's happening at each step.
 
 from datetime import date
 from backend.database import get_session
-from backend.models import Document, RawEvent
+from backend.models import Document, RawEvent, InitiatingCountry
 from sqlalchemy import select, func, and_
 
 def debug_data_flow(target_date: date, country: str):
@@ -17,12 +17,16 @@ def debug_data_flow(target_date: date, country: str):
     print("=" * 80)
 
     with get_session() as session:
-        # Step 1: Check if Documents exist
+        # Step 1: Check if Documents exist (using flattened InitiatingCountry table)
         print("\n[STEP 1] Checking Documents table...")
-        doc_stmt = select(func.count(Document.doc_id)).where(
-            and_(
-                Document.date == target_date,
-                Document.initiating_country == country
+        doc_stmt = (
+            select(func.count(Document.doc_id.distinct()))
+            .join(InitiatingCountry, InitiatingCountry.doc_id == Document.doc_id)
+            .where(
+                and_(
+                    Document.date == target_date,
+                    InitiatingCountry.initiating_country == country
+                )
             )
         )
         doc_count = session.scalar(doc_stmt)
@@ -37,19 +41,27 @@ def debug_data_flow(target_date: date, country: str):
             min_date, max_date = session.execute(date_stmt).first()
             print(f"    Date range in DB: {min_date} to {max_date}")
 
-            # Show countries with data on this date
-            country_stmt = select(Document.initiating_country, func.count(Document.doc_id)).where(
-                Document.date == target_date
-            ).group_by(Document.initiating_country)
+            # Show countries with data on this date (using flattened table)
+            country_stmt = (
+                select(InitiatingCountry.initiating_country, func.count(Document.doc_id.distinct()))
+                .join(Document, Document.doc_id == InitiatingCountry.doc_id)
+                .where(Document.date == target_date)
+                .group_by(InitiatingCountry.initiating_country)
+            )
             results = session.execute(country_stmt).all()
             print(f"\n    Countries with data on {target_date}:")
             for country_name, count in results:
                 print(f"      - {country_name}: {count} documents")
 
-            # Show dates with data for this country
-            date_stmt = select(Document.date, func.count(Document.doc_id)).where(
-                Document.initiating_country == country
-            ).group_by(Document.date).order_by(Document.date.desc()).limit(10)
+            # Show dates with data for this country (using flattened table)
+            date_stmt = (
+                select(Document.date, func.count(Document.doc_id.distinct()))
+                .join(InitiatingCountry, InitiatingCountry.doc_id == Document.doc_id)
+                .where(InitiatingCountry.initiating_country == country)
+                .group_by(Document.date)
+                .order_by(Document.date.desc())
+                .limit(10)
+            )
             results = session.execute(date_stmt).all()
             print(f"\n    Recent dates with data for {country}:")
             for doc_date, count in results:
@@ -62,10 +74,11 @@ def debug_data_flow(target_date: date, country: str):
         raw_stmt = (
             select(func.count(RawEvent.event_name))
             .join(Document, Document.doc_id == RawEvent.doc_id)
+            .join(InitiatingCountry, InitiatingCountry.doc_id == Document.doc_id)
             .where(
                 and_(
                     Document.date == target_date,
-                    Document.initiating_country == country
+                    InitiatingCountry.initiating_country == country
                 )
             )
         )
@@ -75,7 +88,7 @@ def debug_data_flow(target_date: date, country: str):
         if raw_count == 0:
             print("\n  ❌ NO RAW EVENTS FOUND!")
             print("  Documents exist but no RawEvents. Possible causes:")
-            print("    1. RawEvent table is empty (need to run atom_extraction.py)")
+            print("    1. RawEvent table is empty (need to run flatten.py)")
             print("    2. Documents have no event_name field")
             print("    3. JOIN is failing")
 
@@ -84,7 +97,7 @@ def debug_data_flow(target_date: date, country: str):
             print(f"\n    Total RawEvents in database: {total_raw}")
 
             if total_raw == 0:
-                print("    → RawEvent table is EMPTY. Run: python backend/scripts/atom_extraction.py")
+                print("    → RawEvent table is EMPTY. Run: python backend/scripts/flatten.py")
             else:
                 # Show sample of what RawEvents look like
                 print("\n    Sample RawEvents:")
@@ -100,10 +113,11 @@ def debug_data_flow(target_date: date, country: str):
         sample_stmt = (
             select(Document, RawEvent)
             .join(RawEvent, RawEvent.doc_id == Document.doc_id)
+            .join(InitiatingCountry, InitiatingCountry.doc_id == Document.doc_id)
             .where(
                 and_(
                     Document.date == target_date,
-                    Document.initiating_country == country
+                    InitiatingCountry.initiating_country == country
                 )
             )
             .limit(5)
