@@ -45,13 +45,13 @@ class NewsEventTracker:
     # ==================== STAGE 1: DAILY CONSOLIDATION ====================
     
     def process_daily_articles(
-        self, 
+        self,
         target_date: date,
         country: str
     ) -> List[DailyEventMention]:
         """
         Stage 1: Your existing daily consolidation process.
-        
+
         Process:
         1. Get all articles for the day
         2. Cluster similar event mentions (your existing HDBSCAN)
@@ -59,19 +59,33 @@ class NewsEventTracker:
         4. Create DailyEventMention for each unique event on this day
         5. Link to canonical events (Stage 2)
         """
-        
+
         # Step 1-3: Your existing daily process
+        print(f"    Fetching raw events...")
         raw_events = self._get_daily_raw_events(target_date, country)
-        
+
         if not raw_events:
+            print(f"    ⚠️  No raw events found for {target_date} / {country}")
             return []
-        
+
+        print(f"    Found {len(raw_events)} raw events")
+
         # Cluster same-day mentions (your existing clustering)
         daily_clusters = self._cluster_daily_events(raw_events)
-        
+
+        if not daily_clusters:
+            print(f"    ⚠️  Clustering produced 0 clusters")
+            return []
+
         # LLM dedupe within clusters (your existing 2-layer approach)
         deduplicated_clusters = self._llm_deduplicate_clusters(daily_clusters)
-        
+
+        if not deduplicated_clusters:
+            print(f"    ⚠️  Deduplication produced 0 clusters")
+            return []
+
+        print(f"    Processing {len(deduplicated_clusters)} deduplicated clusters...")
+
         # Step 4-5: Create daily mentions and link to canonical
         daily_mentions = []
         for cluster in deduplicated_clusters:
@@ -81,7 +95,7 @@ class NewsEventTracker:
                 country
             )
             daily_mentions.append(daily_mention)
-        
+
         return daily_mentions
     
     def _cluster_daily_events(self, raw_events: List[Dict]) -> List[List[Dict]]:
@@ -233,11 +247,14 @@ If different events, split into groups."""
         """
         Core temporal linking logic.
         Determine if this daily cluster matches an existing canonical event.
+
+        IMPORTANT: Tracks all source documents via doc_ids field on DailyEventMention.
+        These doc_ids remain tied to events as they are consolidated.
         """
-        
+
         # Create daily mention object first
         daily_mention = self._create_daily_mention_record(cluster, target_date, country)
-        
+
         # Determine mention context (helps with temporal matching)
         mention_context = self._classify_mention_context(cluster)
         daily_mention.mention_context = mention_context
@@ -257,6 +274,11 @@ If different events, split into groups."""
                 country
             )
             daily_mention.canonical_event_id = canonical_event.id
+
+            # Add to session to ensure tracking
+            self.session.add(daily_mention)
+            self.session.flush()  # Get ID assigned
+
             return daily_mention
         
         # Score candidates
@@ -297,8 +319,13 @@ If different events, split into groups."""
                 daily_mention,
                 country
             )
-        
+
         daily_mention.canonical_event_id = canonical_event.id
+
+        # Add to session and flush to ensure doc_ids are tracked
+        self.session.add(daily_mention)
+        self.session.flush()  # Assign ID before returning
+
         return daily_mention
     
     def _classify_mention_context(self, cluster: List[Dict]) -> str:
