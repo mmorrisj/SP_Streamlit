@@ -1,5 +1,9 @@
 # Quick Start: News Event Tracker
 
+## Prerequisites
+
+Your workflow uses `dsr.py` to load documents, so you need to run the flattening step first!
+
 ## Installation
 
 ```bash
@@ -10,19 +14,38 @@ pip install sentence-transformers scikit-learn numpy
 python -c "from backend.database import health_check; print('✅ DB OK' if health_check() else '❌ DB Failed')"
 ```
 
-## Test Your Setup
+## Complete Workflow
+
+### 1. Load Documents (You Already Do This)
 
 ```bash
-# Run the test script
-python test_daily_news.py
+# Load DSR documents from S3
+python backend/scripts/dsr.py --source s3
+```
+
+### 2. Flatten Event Names (REQUIRED - Creates RawEvent table)
+
+```bash
+# This splits Document.event_name by semicolons into RawEvent records
+python backend/scripts/flatten.py
+```
+
+**Why this is needed:** `process_daily_news.py` queries the `RawEvent` table which is created by flattening the semicolon-separated `event_name` field from your Documents.
+
+### 3. Test Your Setup
+
+```bash
+# Run the debug script to verify data exists
+python debug_news_tracker.py --date 2024-08-15 --country China
 ```
 
 This will:
-1. Show how many documents/events you have
-2. Show date range of your data
-3. Let you test processing a single day
+1. Check if Documents exist for that date/country
+2. **Check if RawEvents exist** (most common issue!)
+3. Show sample events that will be processed
+4. Tell you exactly what's wrong if no data found
 
-## Process Daily News
+### 4. Process Daily News
 
 ```bash
 # Process specific date and country
