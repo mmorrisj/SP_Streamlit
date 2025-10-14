@@ -7,6 +7,10 @@ import numpy as np
 from sqlalchemy import select, and_
 from backend.database import get_session
 from backend.models import Document, RawEvent, CanonicalEvent, DailyEventMention
+from sentence_transformers import SentenceTransformer
+from sklearn.cluster import DBSCAN
+import re
+import json
 
 class NewsEventTracker:
     """
@@ -18,7 +22,10 @@ class NewsEventTracker:
     
     def __init__(self, session):
         self.session = session
-        
+
+        # Initialize embedding model (shared across all methods)
+        self.embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
         # Temporal window for checking previous events
         # Shorter for breaking news, longer for recurring events
         self.lookback_windows = {
@@ -26,7 +33,7 @@ class NewsEventTracker:
             'developing': 14,   # Check last 2 weeks for developing stories
             'recurring': 90     # Check last 3 months for recurring events
         }
-        
+
         # Similarity thresholds by context
         self.similarity_thresholds = {
             'same_day': 0.70,      # Within-day clustering (lower = more grouping)
@@ -79,23 +86,141 @@ class NewsEventTracker:
     
     def _cluster_daily_events(self, raw_events: List[Dict]) -> List[List[Dict]]:
         """
-        Your existing same-day clustering logic.
-        Lower threshold since we expect high similarity on same day.
+        Cluster same-day events using embeddings + DBSCAN.
+        Groups articles mentioning similar events together.
         """
-        # Your HDBSCAN clustering code here
-        # Groups articles mentioning same event on same day
-        pass
+        if not raw_events:
+            return []
+
+        # Extract event names and normalize
+        event_names = [self._normalize_event_name(e['event_name']) for e in raw_events]
+
+        # Generate embeddings
+        print(f"  Generating embeddings for {len(event_names)} events...")
+        embeddings = self.embedding_model.encode(event_names, show_progress_bar=False)
+
+        # Cluster using DBSCAN (cosine distance)
+        print(f"  Clustering events...")
+        clustering = DBSCAN(
+            metric='cosine',
+            eps=0.15,  # Lower = stricter clustering (same-day should be similar)
+            min_samples=1  # Allow single-article events
+        )
+        labels = clustering.fit_predict(embeddings)
+
+        # Group events by cluster label
+        clusters_dict = defaultdict(list)
+        for idx, label in enumerate(labels):
+            clusters_dict[label].append(raw_events[idx])
+
+        clusters = list(clusters_dict.values())
+        print(f"  Found {len(clusters)} clusters from {len(raw_events)} events")
+
+        return clusters
+
+    def _normalize_event_name(self, name: str) -> str:
+        """Normalize event name for better clustering."""
+        # Lowercase
+        name = name.lower()
+        # Remove punctuation except spaces
+        name = re.sub(r'[^\w\s]', '', name)
+        # Remove ordinals (1st, 2nd, etc.)
+        name = re.sub(r'\b\d+(?:st|nd|rd|th)\b', '', name)
+        # Remove generic words
+        name = re.sub(r'\b(cooperation|forum|meeting|summit|conference)\b', '', name)
+        # Collapse whitespace
+        name = ' '.join(name.split())
+        return name
     
     def _llm_deduplicate_clusters(
-        self, 
+        self,
         clusters: List[List[Dict]]
     ) -> List[List[Dict]]:
         """
-        Your existing 2-layer LLM deduplication.
+        LLM-based deduplication to refine clusters.
         Handles edge cases where clustering grouped different events.
         """
-        # Your LLM-based refinement code here
-        pass
+        refined_clusters = []
+
+        for cluster in clusters:
+            # Only apply LLM if cluster has multiple distinct event names
+            unique_names = list(set(e['event_name'] for e in cluster))
+
+            if len(unique_names) == 1:
+                # All same name, no need for LLM
+                refined_clusters.append(cluster)
+                continue
+
+            if len(unique_names) <= 3:
+                # Small cluster with few names - probably same event
+                refined_clusters.append(cluster)
+                continue
+
+            # For larger clusters with many names, use LLM to verify
+            print(f"    LLM deduplication for cluster with {len(unique_names)} unique names...")
+            sub_clusters = self._llm_split_cluster(cluster, unique_names)
+            refined_clusters.extend(sub_clusters)
+
+        return refined_clusters
+
+    def _llm_split_cluster(self, cluster: List[Dict], unique_names: List[str]) -> List[List[Dict]]:
+        """
+        Use LLM to determine if a cluster should be split.
+        """
+        from backend.scripts.utils import gai
+
+        # Build prompt
+        names_list = "\n".join([f"{i+1}. {name}" for i, name in enumerate(unique_names[:10])])  # Limit to 10
+
+        sys_prompt = """You are an expert at identifying whether news article headlines refer to the same event or different events.
+Analyze the following list of event names that were clustered together.
+Determine if they all refer to the SAME event, or if there are MULTIPLE distinct events."""
+
+        user_prompt = f"""Event names:
+{names_list}
+
+Are all these referring to the SAME event?
+
+Respond in JSON format:
+{{
+    "same_event": true/false,
+    "explanation": "brief explanation",
+    "groups": [[1,2,3], [4,5]] // if different events, group the numbers
+}}
+
+If same_event is true, just return {{"same_event": true, "explanation": "...", "groups": [[1,2,3,...]]}}.
+If different events, split into groups."""
+
+        try:
+            response = gai(sys_prompt, user_prompt)
+
+            if isinstance(response, str):
+                response = json.loads(response)
+
+            if response.get('same_event', True):
+                # Keep as one cluster
+                return [cluster]
+            else:
+                # Split into sub-clusters
+                groups = response.get('groups', [])
+                name_to_group = {}
+                for group_idx, indices in enumerate(groups):
+                    for idx in indices:
+                        if 1 <= idx <= len(unique_names):
+                            name = unique_names[idx - 1]
+                            name_to_group[name] = group_idx
+
+                # Group events by their assigned group
+                sub_clusters_dict = defaultdict(list)
+                for event in cluster:
+                    group = name_to_group.get(event['event_name'], 0)
+                    sub_clusters_dict[group].append(event)
+
+                return list(sub_clusters_dict.values())
+
+        except Exception as e:
+            print(f"    Warning: LLM deduplication failed: {e}. Keeping cluster intact.")
+            return [cluster]
     
     # ==================== STAGE 2: TEMPORAL LINKING ====================
     
@@ -662,14 +787,31 @@ class NewsEventTracker:
         # Get doc IDs
         doc_ids = [e['doc_id'] for e in cluster]
 
+        # Create a brief summary from distilled texts
+        texts = [e.get('distilled_text', '')[:200] for e in cluster[:3]]  # First 3 articles
+        daily_summary = ' | '.join([t for t in texts if t])
+
+        # Determine news intensity
+        if len(cluster) >= 10:
+            news_intensity = 'breaking'
+        elif len(cluster) >= 5:
+            news_intensity = 'developing'
+        elif len(cluster) >= 2:
+            news_intensity = 'follow-up'
+        else:
+            news_intensity = 'recap'
+
         daily_mention = DailyEventMention(
             mention_date=target_date,
             initiating_country=country,
             article_count=len(cluster),
             consolidated_headline=consolidated_headline,
+            daily_summary=daily_summary[:500] if daily_summary else None,  # Truncate
             source_names=sources,
-            source_diversity_score=len(sources) / len(cluster),
-            doc_ids=doc_ids
+            source_diversity_score=len(sources) / len(cluster) if cluster else 0.0,
+            doc_ids=doc_ids,
+            mention_context='general',  # Will be set by _classify_mention_context
+            news_intensity=news_intensity
         )
 
         return daily_mention
@@ -688,7 +830,192 @@ class NewsEventTracker:
         daily_mention: DailyEventMention,
         canonical_event: CanonicalEvent
     ) -> float:
-        """Calculate semantic similarity using embeddings or text similarity."""
-        # Use your existing embedding comparison logic
-        # Or fall back to string similarity if embeddings not available
-        pass
+        """
+        Calculate semantic similarity using embeddings (cosine similarity).
+        """
+        # Normalize both texts
+        text1 = self._normalize_event_name(daily_mention.consolidated_headline)
+        text2 = self._normalize_event_name(canonical_event.canonical_name)
+
+        # Generate embeddings
+        emb1 = self.embedding_model.encode([text1])[0]
+        emb2 = self.embedding_model.encode([text2])[0]
+
+        # Calculate cosine similarity
+        similarity = np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
+
+        # Convert to 0-1 range (cosine similarity is -1 to 1)
+        similarity = (similarity + 1) / 2
+
+        return float(similarity)
+
+    def _entity_consistency_score(
+        self,
+        daily_mention: DailyEventMention,
+        canonical_event: CanonicalEvent
+    ) -> float:
+        """
+        Score based on entity consistency (countries, actors, locations).
+        Uses simple keyword matching and named entity overlap.
+        """
+        score = 0.0
+        weights_sum = 0.0
+
+        # 1. Country consistency (weight: 0.4)
+        if daily_mention.initiating_country == canonical_event.initiating_country:
+            score += 0.4
+        weights_sum += 0.4
+
+        # 2. Extract and compare named entities from text (weight: 0.6)
+        mention_entities = self._extract_entities(daily_mention.consolidated_headline)
+        event_entities = self._extract_entities(canonical_event.canonical_name)
+
+        # Also check alternative names
+        for alt_name in canonical_event.alternative_names:
+            alt_entities = self._extract_entities(alt_name)
+            event_entities.update(alt_entities)
+
+        # Calculate Jaccard similarity of entities
+        if mention_entities or event_entities:
+            overlap = len(mention_entities & event_entities)
+            union = len(mention_entities | event_entities)
+            entity_sim = overlap / union if union > 0 else 0.0
+            score += 0.6 * entity_sim
+        else:
+            score += 0.3  # Neutral if no entities
+        weights_sum += 0.6
+
+        return score / weights_sum if weights_sum > 0 else 0.5
+
+    def _extract_entities(self, text: str) -> Set[str]:
+        """
+        Extract named entities using simple keyword matching.
+        In production, replace with proper NER (spaCy, etc.)
+        """
+        entities = set()
+
+        # Normalize text
+        text = text.lower()
+
+        # Extract country names (simple approach)
+        countries = [
+            'china', 'russia', 'iran', 'india', 'pakistan', 'egypt',
+            'saudi arabia', 'uae', 'turkey', 'brazil', 'iraq', 'syria',
+            'afghanistan', 'israel', 'palestine', 'jordan', 'lebanon',
+            'yemen', 'oman', 'qatar', 'bahrain', 'kuwait', 'ethiopia',
+            'somalia', 'kenya', 'sudan', 'libya', 'algeria', 'morocco'
+        ]
+
+        for country in countries:
+            if country in text:
+                entities.add(country)
+
+        # Extract project/initiative names
+        initiatives = [
+            'belt and road', 'bri', 'brics', 'sco', 'shanghai cooperation',
+            'quad', 'aukus', 'asean', 'opec', 'g7', 'g20', 'nato',
+            'african union', 'arab league', 'gcc', 'oic'
+        ]
+
+        for initiative in initiatives:
+            if initiative in text:
+                entities.add(initiative)
+
+        # Extract city names (major capitals/cities)
+        cities = [
+            'beijing', 'moscow', 'tehran', 'delhi', 'islamabad',
+            'cairo', 'riyadh', 'dubai', 'ankara', 'brasilia',
+            'baghdad', 'damascus', 'kabul', 'jerusalem', 'amman'
+        ]
+
+        for city in cities:
+            if city in text:
+                entities.add(city)
+
+        return entities
+
+    def _count_recent_mentions(self, canonical_event: CanonicalEvent, days: int) -> int:
+        """Count mentions in the last N days."""
+        from datetime import timedelta
+
+        cutoff_date = canonical_event.last_mention_date - timedelta(days=days)
+
+        stmt = (
+            select(DailyEventMention)
+            .where(
+                and_(
+                    DailyEventMention.canonical_event_id == canonical_event.id,
+                    DailyEventMention.mention_date >= cutoff_date
+                )
+            )
+        )
+
+        mentions = list(self.session.scalars(stmt).all())
+        return len(mentions)
+
+    def _get_recent_mentions(self, canonical_event: CanonicalEvent, limit: int = 5) -> List[DailyEventMention]:
+        """Get recent daily mentions for an event."""
+        stmt = (
+            select(DailyEventMention)
+            .where(DailyEventMention.canonical_event_id == canonical_event.id)
+            .order_by(DailyEventMention.mention_date.desc())
+            .limit(limit)
+        )
+
+        return list(self.session.scalars(stmt).all())
+
+    def _format_recent_mentions(self, mentions: List[DailyEventMention]) -> str:
+        """Format recent mentions for LLM prompt."""
+        if not mentions:
+            return "No recent mentions"
+
+        lines = []
+        for mention in mentions:
+            lines.append(f"- {mention.mention_date}: {mention.consolidated_headline} ({mention.article_count} articles)")
+
+        return "\n".join(lines)
+
+    def _call_llm(self, prompt: str) -> Dict:
+        """
+        Call LLM for temporal resolution (ambiguous cases).
+        """
+        from backend.scripts.utils import gai
+
+        sys_prompt = """You are an expert news analyst determining if two news mentions refer to the same event.
+Analyze temporal patterns, story progression, and contextual coherence.
+Be conservative: if there's significant doubt, treat as separate events."""
+
+        try:
+            response = gai(sys_prompt, prompt)
+
+            # Parse response
+            if isinstance(response, str):
+                response = json.loads(response)
+
+            # Validate required fields
+            required_fields = ['is_same_event', 'confidence', 'explanation', 'relationship', 'suggested_action']
+            for field in required_fields:
+                if field not in response:
+                    # Fill in defaults
+                    if field == 'is_same_event':
+                        response[field] = False
+                    elif field == 'confidence':
+                        response[field] = 0.5
+                    elif field == 'explanation':
+                        response[field] = 'Missing field'
+                    elif field == 'relationship':
+                        response[field] = 'distinct'
+                    elif field == 'suggested_action':
+                        response[field] = 'create_new'
+
+            return response
+
+        except Exception as e:
+            print(f"    Warning: LLM call failed: {e}. Defaulting to separate events.")
+            return {
+                'is_same_event': False,
+                'confidence': 0.0,
+                'explanation': f'LLM error: {str(e)}',
+                'relationship': 'distinct',
+                'suggested_action': 'create_new'
+            }
