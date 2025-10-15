@@ -1,4 +1,4 @@
-from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, Project, RawEvent
+from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent
 from backend.database import get_session, init_database
 from backend.scripts.flatten_events import flatten_event
 
@@ -31,7 +31,6 @@ def normalize_data(batch_size=1000):
         existing_subcategories = {(s.doc_id, s.subcategory) for s in session.query(Subcategory).all()}
         existing_init_countries = {(i.doc_id, i.initiating_country) for i in session.query(InitiatingCountry).all()}
         existing_rec_countries = {(r.doc_id, r.recipient_country) for r in session.query(RecipientCountry).all()}
-        existing_projects = {(p.doc_id, p.project) for p in session.query(Project).all()}
         existing_events = {(e.doc_id, e.event_name) for e in session.query(RawEvent).all()}
 
         print(f"📋 Found existing relationships:")
@@ -39,7 +38,6 @@ def normalize_data(batch_size=1000):
         print(f"  - Subcategories: {len(existing_subcategories)}")
         print(f"  - Initiating Countries: {len(existing_init_countries)}")
         print(f"  - Recipient Countries: {len(existing_rec_countries)}")
-        print(f"  - Projects: {len(existing_projects)}")
         print(f"  - Events: {len(existing_events)}")
 
         # Process documents in batches
@@ -79,13 +77,6 @@ def normalize_data(batch_size=1000):
                         if key not in existing_rec_countries:
                             new_records.append(RecipientCountry(doc_id=doc.doc_id, recipient_country=rc))
                             existing_rec_countries.add(key)
-
-                    # Process projects
-                    for proj in split_field(doc.projects if hasattr(doc, 'projects') else None):
-                        key = (doc.doc_id, proj)
-                        if key not in existing_projects:
-                            new_records.append(Project(doc_id=doc.doc_id, project=proj))
-                            existing_projects.add(key)
 
                     # Process event names (from both event_name and projects fields)
                     # Note: Earlier extractions used 'projects' field for events,
