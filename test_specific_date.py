@@ -41,7 +41,72 @@ def test_date(target_date_str: str, country: str):
         ).scalar()
         print(f"Documents for {target_date} AND {country}: {doc_count_both}")
 
-        # Test 4: RawEvents for these documents
+        # Test 4: Export all documents for this date to CSV
+        if doc_count_date > 0:
+            print(f"\n📊 Exporting all documents for {target_date} to CSV...")
+
+            # Get all documents for this date with their flattened relationships
+            export_stmt = (
+                select(
+                    Document.doc_id,
+                    Document.date,
+                    Document.title,
+                    Document.source_name,
+                    Document.initiating_country,
+                    Document.recipient_country,
+                    Document.category,
+                    Document.subcategory,
+                    Document.event_name,
+                    Document.distilled_text,
+                    Document.salience,
+                    Document.salience_bool
+                )
+                .where(Document.date == target_date)
+                .order_by(Document.doc_id)
+            )
+
+            documents = session.execute(export_stmt).all()
+
+            # Convert to DataFrame
+            df = pd.DataFrame(documents, columns=[
+                'doc_id', 'date', 'title', 'source_name',
+                'initiating_country', 'recipient_country',
+                'category', 'subcategory', 'event_name',
+                'distilled_text', 'salience', 'salience_bool'
+            ])
+
+            # Export to CSV
+            filename = f"documents_{target_date}_{country}.csv"
+            df.to_csv(filename, index=False)
+            print(f"✅ Exported {len(df)} documents to: {filename}")
+
+            # Also export InitiatingCountry relationships for this date
+            init_stmt = (
+                select(InitiatingCountry.doc_id, InitiatingCountry.initiating_country)
+                .join(Document, Document.doc_id == InitiatingCountry.doc_id)
+                .where(Document.date == target_date)
+                .order_by(InitiatingCountry.doc_id)
+            )
+            init_records = session.execute(init_stmt).all()
+            init_df = pd.DataFrame(init_records, columns=['doc_id', 'initiating_country'])
+            init_filename = f"initiating_countries_{target_date}.csv"
+            init_df.to_csv(init_filename, index=False)
+            print(f"✅ Exported {len(init_df)} InitiatingCountry records to: {init_filename}")
+
+            # Export RawEvent relationships for this date
+            raw_stmt = (
+                select(RawEvent.doc_id, RawEvent.event_name)
+                .join(Document, Document.doc_id == RawEvent.doc_id)
+                .where(Document.date == target_date)
+                .order_by(RawEvent.doc_id)
+            )
+            raw_records = session.execute(raw_stmt).all()
+            raw_df = pd.DataFrame(raw_records, columns=['doc_id', 'event_name'])
+            raw_filename = f"raw_events_{target_date}.csv"
+            raw_df.to_csv(raw_filename, index=False)
+            print(f"✅ Exported {len(raw_df)} RawEvent records to: {raw_filename}")
+
+        # Test 5: RawEvents for these documents
         if doc_count_both > 0:
             raw_count = session.query(func.count(RawEvent.event_name)).select_from(RawEvent).join(
                 Document, Document.doc_id == RawEvent.doc_id
@@ -53,7 +118,7 @@ def test_date(target_date_str: str, country: str):
                     InitiatingCountry.initiating_country == country
                 )
             ).scalar()
-            print(f"RawEvents for these documents: {raw_count}")
+            print(f"\nRawEvents for {target_date} AND {country}: {raw_count}")
 
             # Show a sample
             if raw_count > 0:
