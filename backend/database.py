@@ -289,8 +289,8 @@ def init_database():
     """
     try:
         # Import models to ensure all models are registered
-        from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent, Citation
-        
+        from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent
+
         Base.metadata.create_all(db_manager.engine)
         logger.info("Database tables created successfully")
     except Exception as e:
@@ -303,8 +303,8 @@ def drop_database():
     """
     try:
         # Import models to ensure all models are registered
-        from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, Project, Citation
-        
+        from backend.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent
+
         Base.metadata.drop_all(db_manager.engine)
         logger.info("Database tables dropped successfully")
     except Exception as e:
