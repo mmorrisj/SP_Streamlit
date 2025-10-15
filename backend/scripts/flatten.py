@@ -87,8 +87,17 @@ def normalize_data(batch_size=1000):
                             new_records.append(Project(doc_id=doc.doc_id, project=proj))
                             existing_projects.add(key)
 
-                    # Process event names
-                    for evt in split_field(doc.event_name):
+                    # Process event names (from both event_name and projects fields)
+                    # Note: Earlier extractions used 'projects' field for events,
+                    # newer ones use 'event_name', so we pull from both
+                    # Use _projects to bypass the property accessor that returns empty string
+                    event_sources = []
+                    if doc.event_name:
+                        event_sources.extend(split_field(doc.event_name))
+                    if hasattr(doc, '_projects') and doc._projects:
+                        event_sources.extend(split_field(doc._projects))
+
+                    for evt in event_sources:
                         key = (doc.doc_id, evt)
                         if key not in existing_events:
                             new_records.append(RawEvent(doc_id=doc.doc_id, event_name=evt))

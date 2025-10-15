@@ -75,8 +75,11 @@ def test_date(target_date_str: str, country: str):
                 'distilled_text', 'salience', 'salience_bool'
             ])
 
-            # Export to CSV
-            filename = f"documents_{target_date}_{country}.csv"
+            # Export to CSV in /app/output (mounted volume accessible from host)
+            import os
+            output_dir = "/app/output" if os.path.exists("/app/output") else "."
+
+            filename = os.path.join(output_dir, f"documents_{target_date}_{country}.csv")
             df.to_csv(filename, index=False)
             print(f"✅ Exported {len(df)} documents to: {filename}")
 
@@ -89,7 +92,7 @@ def test_date(target_date_str: str, country: str):
             )
             init_records = session.execute(init_stmt).all()
             init_df = pd.DataFrame(init_records, columns=['doc_id', 'initiating_country'])
-            init_filename = f"initiating_countries_{target_date}.csv"
+            init_filename = os.path.join(output_dir, f"initiating_countries_{target_date}.csv")
             init_df.to_csv(init_filename, index=False)
             print(f"✅ Exported {len(init_df)} InitiatingCountry records to: {init_filename}")
 
@@ -102,7 +105,7 @@ def test_date(target_date_str: str, country: str):
             )
             raw_records = session.execute(raw_stmt).all()
             raw_df = pd.DataFrame(raw_records, columns=['doc_id', 'event_name'])
-            raw_filename = f"raw_events_{target_date}.csv"
+            raw_filename = os.path.join(output_dir, f"raw_events_{target_date}.csv")
             raw_df.to_csv(raw_filename, index=False)
             print(f"✅ Exported {len(raw_df)} RawEvent records to: {raw_filename}")
 

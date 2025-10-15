@@ -121,9 +121,18 @@ def parse_doc(dsr_doc):
     event_value = None
     projects_value = None
 
+    # Debug: Track if we ever see event-name field
+    event_name_found = False
+    event_name_raw_value = None
+
     for response in gai['value']:
         response_type = response.get('type')
         response_value = response.get('value')
+
+        # Debug: Log if we find event-name
+        if response_type == 'event-name':
+            event_name_found = True
+            event_name_raw_value = response_value
 
         # Normalize empty or invalid values
         normalized_value = (
@@ -146,6 +155,13 @@ def parse_doc(dsr_doc):
             setattr(doc, field_fix[response_type], normalized_value)
         else:
             setattr(doc, response_type.replace('-', '_'), normalized_value)  # normalize for model field
+
+    # Debug logging for event_name issues
+    if not event_value:
+        if not event_name_found:
+            print(f"⚠️  Doc {doc.doc_id}: 'event-name' field NOT FOUND in JSON")
+        else:
+            print(f"⚠️  Doc {doc.doc_id}: 'event-name' found but value was: '{event_name_raw_value}' (normalized to None)")
 
     # Final assignment (always overwrite to ensure consistency)
     setattr(doc, 'event_name', event_value)
