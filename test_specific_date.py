@@ -2,7 +2,7 @@
 """
 Test specific dates to see what data exists.
 """
-
+import pandas as pd
 from datetime import date
 from backend.database import get_session
 from backend.models import Document, RawEvent, InitiatingCountry
