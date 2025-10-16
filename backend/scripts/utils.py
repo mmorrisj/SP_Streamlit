@@ -156,30 +156,49 @@ def fetch_gai_response(sys_prompt,prompt,model):
 
 
 @rate_limit(min_interval=10.0)
-def gai(sys_prompt, user_prompt, model="gpt-4.1"):
-    client = initialize_client()
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-    content = completion.choices[0].message.content
+def gai(sys_prompt, user_prompt, model="gpt-4o-mini"):
+    """
+    Simple LLM call using OpenAI API (via environment variable).
+    Falls back gracefully if OpenAI is not available.
+    """
+    try:
+        from openai import OpenAI
 
-    # If it's already a dict/list (parsed JSON)
-    if isinstance(content, (dict, list)):
+        # Get API key from environment
+        api_key = os.getenv('OPENAI_PROJ_API')
+        if not api_key:
+            raise ValueError("OPENAI_PROJ_API not found in environment")
+
+        # Initialize OpenAI client
+        client = OpenAI(api_key=api_key)
+
+        # Make API call
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        content = completion.choices[0].message.content
+
+        # If it's already a dict/list (parsed JSON)
+        if isinstance(content, (dict, list)):
+            return content
+
+        # If it's a string, try parsing as JSON
+        if isinstance(content, str):
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                return content  # just return raw string if not JSON
+
+        # Fallback — return raw content
         return content
 
-    # If it's a string, try parsing as JSON
-    if isinstance(content, str):
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            return content  # just return raw string if not JSON
-
-    # Fallback — return raw content
-    return content
+    except Exception as e:
+        print(f"Warning: LLM call failed: {e}. LLM features disabled.")
+        raise  # Re-raise so calling code knows it failed
 
 
 def clean_json_string(text):
