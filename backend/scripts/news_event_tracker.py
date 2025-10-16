@@ -787,7 +787,7 @@ If different events, split into groups."""
         # Get doc IDs
         doc_ids = [e['doc_id'] for e in cluster]
 
-       daily_mention = DailyEventMention(
+        daily_mention = DailyEventMention(
             mention_date=target_date,
             initiating_country=country,
             article_count=len(cluster),
