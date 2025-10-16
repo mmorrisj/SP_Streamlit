@@ -237,10 +237,13 @@ If different events, split into groups."""
         
         # Create daily mention object first
         daily_mention = self._create_daily_mention_record(cluster, target_date, country)
-        
+
         # Determine mention context (helps with temporal matching)
         mention_context = self._classify_mention_context(cluster)
         daily_mention.mention_context = mention_context
+
+        # Add to session (will be committed by caller)
+        self.session.add(daily_mention)
         
         # Find candidate canonical events based on context-aware window
         lookback_days = self._get_lookback_window(mention_context, target_date)
