@@ -258,10 +258,18 @@ If different events, split into groups."""
             )
             daily_mention.canonical_event_id = canonical_event.id
 
-            # Add to session after canonical_event_id is set
-            self.session.add(daily_mention)
+            # Check if a daily mention already exists for this canonical event + date
+            # This handles the case where multiple clusters link to the same canonical event
+            existing_mention = self._get_existing_daily_mention(canonical_event.id, target_date)
 
-            return daily_mention
+            if existing_mention:
+                # Merge the data into the existing mention
+                self._merge_daily_mentions(existing_mention, daily_mention)
+                return existing_mention
+            else:
+                # Add to session after canonical_event_id is set
+                self.session.add(daily_mention)
+                return daily_mention
         
         # Score candidates
         best_match, best_score = self._find_best_canonical_match(
@@ -304,10 +312,18 @@ If different events, split into groups."""
         
         daily_mention.canonical_event_id = canonical_event.id
 
-        # Add to session after canonical_event_id is set
-        self.session.add(daily_mention)
+        # Check if a daily mention already exists for this canonical event + date
+        # This handles the case where multiple clusters link to the same canonical event
+        existing_mention = self._get_existing_daily_mention(canonical_event.id, target_date)
 
-        return daily_mention
+        if existing_mention:
+            # Merge the data into the existing mention
+            self._merge_daily_mentions(existing_mention, daily_mention)
+            return existing_mention
+        else:
+            # Add to session after canonical_event_id is set
+            self.session.add(daily_mention)
+            return daily_mention
     
     def _classify_mention_context(self, cluster: List[Dict]) -> str:
         """
@@ -833,6 +849,58 @@ If different events, split into groups."""
         else:
             return "recap"
     
+    def _get_existing_daily_mention(
+        self,
+        canonical_event_id: str,
+        mention_date: date
+    ) -> Optional[DailyEventMention]:
+        """
+        Check if a daily mention already exists for this canonical event + date.
+        """
+        stmt = (
+            select(DailyEventMention)
+            .where(
+                and_(
+                    DailyEventMention.canonical_event_id == canonical_event_id,
+                    DailyEventMention.mention_date == mention_date
+                )
+            )
+        )
+        return self.session.scalars(stmt).first()
+
+    def _merge_daily_mentions(
+        self,
+        existing: DailyEventMention,
+        new: DailyEventMention
+    ):
+        """
+        Merge data from new daily mention into existing one.
+        This happens when multiple clusters link to the same canonical event.
+        """
+        # Merge article count
+        existing.article_count += new.article_count
+
+        # Merge sources (remove duplicates)
+        all_sources = list(set(existing.source_names + new.source_names))
+        existing.source_names = all_sources
+        existing.source_diversity_score = len(all_sources) / existing.article_count
+
+        # Merge doc_ids (remove duplicates)
+        all_doc_ids = list(set(existing.doc_ids + new.doc_ids))
+        existing.doc_ids = all_doc_ids
+
+        # Update news intensity based on merged counts
+        existing.news_intensity = self._determine_news_intensity(
+            existing.article_count,
+            len(all_sources)
+        )
+
+        # Keep the more specific headline (longer is usually more specific)
+        if len(new.consolidated_headline) > len(existing.consolidated_headline):
+            existing.consolidated_headline = new.consolidated_headline
+
+        print(f"    Merged duplicate cluster into existing mention (now {existing.article_count} articles)")
+
     def _get_event_contexts(self, canonical_event: CanonicalEvent) -> List[str]:
         """Get historical contexts for an event."""
         stmt = (
