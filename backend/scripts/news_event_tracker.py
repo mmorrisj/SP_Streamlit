@@ -242,9 +242,6 @@ If different events, split into groups."""
         mention_context = self._classify_mention_context(cluster)
         daily_mention.mention_context = mention_context
 
-        # Add to session (will be committed by caller)
-        self.session.add(daily_mention)
-        
         # Find candidate canonical events based on context-aware window
         lookback_days = self._get_lookback_window(mention_context, target_date)
         candidates = self._get_candidate_canonical_events(
@@ -260,6 +257,10 @@ If different events, split into groups."""
                 country
             )
             daily_mention.canonical_event_id = canonical_event.id
+
+            # Add to session after canonical_event_id is set
+            self.session.add(daily_mention)
+
             return daily_mention
         
         # Score candidates
@@ -302,6 +303,10 @@ If different events, split into groups."""
             )
         
         daily_mention.canonical_event_id = canonical_event.id
+
+        # Add to session after canonical_event_id is set
+        self.session.add(daily_mention)
+
         return daily_mention
     
     def _classify_mention_context(self, cluster: List[Dict]) -> str:
