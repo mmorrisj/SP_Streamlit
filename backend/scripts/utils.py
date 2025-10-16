@@ -1,6 +1,8 @@
 import yaml
 import json
 import os
+import re
+import time
 from pathlib import Path
 import yaml
 # from openai import AzureOpenAI
@@ -8,7 +10,6 @@ import yaml
 import json
 # import boto3
 # from botocore.exceptions import ClientError
-# import re 
 # import pandas as pd
 from functools import wraps
 
@@ -156,49 +157,148 @@ def fetch_gai_response(sys_prompt,prompt,model):
 
 
 @rate_limit(min_interval=10.0)
-def gai(sys_prompt, user_prompt, model="gpt-4o-mini"):
+def gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=None):
     """
-    Simple LLM call using OpenAI API (via environment variable).
-    Falls back gracefully if OpenAI is not available.
+    LLM call that routes through FastAPI proxy (designed for production deployment).
+
+    Args:
+        sys_prompt: System prompt for the LLM
+        user_prompt: User prompt for the LLM
+        model: Model to use (default: gpt-4o-mini)
+        use_proxy: If True, use FastAPI proxy. If False, attempt direct OpenAI.
+                   If None (default), REQUIRES FASTAPI_URL environment variable.
+
+    Environment Variables:
+        FASTAPI_URL: Required. Full URL to FastAPI endpoint (e.g., http://127.0.0.1:5001/material_query)
+                     Set this to enable LLM functionality.
+
+    Returns:
+        LLM response (parsed as JSON if possible, otherwise raw string)
+
+    Raises:
+        ValueError: If FASTAPI_URL is not configured and use_proxy is None
+        requests.RequestException: If FastAPI proxy call fails
     """
-    try:
-        from openai import OpenAI
+    import requests
 
-        # Get API key from environment
-        api_key = os.getenv('OPENAI_PROJ_API')
-        if not api_key:
-            raise ValueError("OPENAI_PROJ_API not found in environment")
+    # Determine routing mode
+    if use_proxy is None:
+        # Default mode: require FASTAPI_URL to be set
+        fastapi_url = os.getenv('FASTAPI_URL', '').strip()
 
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key)
+        if not fastapi_url:
+            raise ValueError(
+                "FASTAPI_URL environment variable not set. "
+                "LLM calls require the FastAPI proxy to be configured. "
+                "Set FASTAPI_URL=http://HOST:PORT/material_query in your .env file. "
+                "To bypass the proxy (not recommended for production), call gai(..., use_proxy=False)."
+            )
 
-        # Make API call
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        content = completion.choices[0].message.content
+        use_proxy = True
 
-        # If it's already a dict/list (parsed JSON)
-        if isinstance(content, (dict, list)):
+    # Route through FastAPI proxy (recommended for production)
+    if use_proxy:
+        fastapi_url = os.getenv('FASTAPI_URL', '').strip()
+
+        if not fastapi_url:
+            # Try to construct from API_URL if available
+            api_url = os.getenv('API_URL', '').strip()
+            if api_url:
+                fastapi_url = f"{api_url.rstrip('/')}/material_query"
+            else:
+                raise ValueError(
+                    "FASTAPI_URL or API_URL environment variable must be set for proxy mode. "
+                    "Example: FASTAPI_URL=http://127.0.0.1:5001/material_query"
+                )
+
+        print(f"  → Calling LLM via FastAPI proxy: {fastapi_url}")
+
+        payload = {
+            "sys_prompt": sys_prompt,
+            "prompt": user_prompt,
+            "model": model
+        }
+
+        try:
+            response = requests.post(fastapi_url, json=payload, timeout=120)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Extract response content (FastAPI returns {"response": content})
+            resp_content = data.get("response") if isinstance(data, dict) and "response" in data else data
+
+            # Try to parse as JSON if it's a string
+            if isinstance(resp_content, str):
+                try:
+                    return json.loads(resp_content)
+                except json.JSONDecodeError:
+                    # Try to extract JSON from markdown-wrapped response
+                    match = re.search(r'(\[.*\]|\{.*\})', resp_content, re.DOTALL)
+                    if match:
+                        try:
+                            return json.loads(match.group(1))
+                        except json.JSONDecodeError:
+                            pass
+                    return resp_content
+
+            return resp_content
+
+        except requests.RequestException as e:
+            error_msg = (
+                f"FastAPI proxy call failed: {e}\n"
+                f"  URL: {fastapi_url}\n"
+                f"  Ensure the FastAPI server is running: uvicorn backend.api:app --host 0.0.0.0 --port 5001"
+            )
+            print(f"ERROR: {error_msg}")
+            raise RuntimeError(error_msg) from e
+
+    # Direct OpenAI call (for local development only - not recommended for production)
+    else:
+        print("  ⚠ WARNING: Bypassing FastAPI proxy and calling OpenAI directly")
+        print("  ⚠ This mode is for local development only and requires OPENAI_PROJ_API env var")
+
+        try:
+            from openai import OpenAI
+
+            # Get API key from environment
+            api_key = os.getenv('OPENAI_PROJ_API')
+            if not api_key:
+                raise ValueError(
+                    "OPENAI_PROJ_API not found in environment. "
+                    "For production deployments, use the FastAPI proxy instead (use_proxy=True)."
+                )
+
+            # Initialize OpenAI client
+            client = OpenAI(api_key=api_key)
+
+            # Make API call
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            content = completion.choices[0].message.content
+
+            # If it's already a dict/list (parsed JSON)
+            if isinstance(content, (dict, list)):
+                return content
+
+            # If it's a string, try parsing as JSON
+            if isinstance(content, str):
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    return content  # just return raw string if not JSON
+
+            # Fallback — return raw content
             return content
 
-        # If it's a string, try parsing as JSON
-        if isinstance(content, str):
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                return content  # just return raw string if not JSON
-
-        # Fallback — return raw content
-        return content
-
-    except Exception as e:
-        print(f"Warning: LLM call failed: {e}. LLM features disabled.")
-        raise  # Re-raise so calling code knows it failed
+        except Exception as e:
+            print(f"ERROR: Direct OpenAI call failed: {e}")
+            raise
 
 
 def clean_json_string(text):
