@@ -795,6 +795,9 @@ If different events, split into groups."""
         # Get doc IDs
         doc_ids = [e['doc_id'] for e in cluster]
 
+        # Determine news intensity based on article count and source diversity
+        news_intensity = self._determine_news_intensity(len(cluster), len(sources))
+
         daily_mention = DailyEventMention(
             mention_date=target_date,
             initiating_country=country,
@@ -802,10 +805,33 @@ If different events, split into groups."""
             consolidated_headline=consolidated_headline,
             source_names=sources,
             source_diversity_score=len(sources) / len(cluster),
-            doc_ids=doc_ids
+            doc_ids=doc_ids,
+            news_intensity=news_intensity
         )
 
         return daily_mention
+
+    def _determine_news_intensity(self, article_count: int, source_count: int) -> str:
+        """
+        Determine news intensity level based on coverage metrics.
+
+        Returns: "breaking", "developing", "follow-up", or "recap"
+        """
+        # High article count + high source diversity = breaking news
+        if article_count >= 5 and source_count >= 3:
+            return "breaking"
+
+        # Moderate coverage = developing story
+        elif article_count >= 3 or source_count >= 2:
+            return "developing"
+
+        # Multiple articles but limited sources = follow-up
+        elif article_count >= 2:
+            return "follow-up"
+
+        # Single article or low coverage = recap/mention
+        else:
+            return "recap"
     
     def _get_event_contexts(self, canonical_event: CanonicalEvent) -> List[str]:
         """Get historical contexts for an event."""
