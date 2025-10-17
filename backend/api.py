@@ -42,9 +42,65 @@ def query_gai(input: QueryInput):
 
 @app.post("/material_query")
 def material_gai_query(input: QueryInput):
-    content = gai(input.sys_prompt, input.prompt, input.model)
-    # If B returns string or C returns dict, either:
-    return {"response": content}
+    """
+    LLM query endpoint with environment-based routing.
+
+    - PRODUCTION (ENV=production): Uses Azure OpenAI via utils.gai()
+    - DEVELOPMENT (default): Uses direct OpenAI API
+
+    Environment Variables:
+        ENV: Set to 'production' for Azure OpenAI (default: development)
+        OPENAI_PROJ_API: OpenAI API key (for development)
+    """
+    import json
+
+    # Check environment
+    env = os.getenv('ENV', 'development').lower()
+
+    if env == 'production':
+        # PRODUCTION: Use existing Azure OpenAI flow via utils.gai()
+        print("→ Using Azure OpenAI (production mode)")
+        content = gai(input.sys_prompt, input.prompt, input.model)
+        return {"response": content}
+    else:
+        # DEVELOPMENT: Use direct OpenAI API
+        print("→ Using OpenAI API (development mode)")
+        from openai import OpenAI
+
+        # Get API key from environment
+        api_key = os.getenv('OPENAI_PROJ_API')
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="OPENAI_PROJ_API not configured. Set ENV=production to use Azure OpenAI instead."
+            )
+
+        try:
+            # Initialize OpenAI client
+            client = OpenAI(api_key=api_key)
+
+            # Make API call
+            completion = client.chat.completions.create(
+                model=input.model,
+                messages=[
+                    {"role": "system", "content": input.sys_prompt},
+                    {"role": "user", "content": input.prompt},
+                ],
+                temperature=0.7,
+            )
+
+            content = completion.choices[0].message.content
+
+            # Try to parse as JSON if possible
+            try:
+                parsed_content = json.loads(content)
+                return {"response": parsed_content}
+            except json.JSONDecodeError:
+                # Return raw string if not JSON
+                return {"response": content}
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
 
 @app.get("/")
 async def root():

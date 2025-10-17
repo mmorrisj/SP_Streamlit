@@ -88,7 +88,8 @@ class Document(Base):
     # Content
     distilled_text: Mapped[Optional[str]] = mapped_column(Text)
     event_name: Mapped[Optional[str]] = mapped_column(Text)
-    
+    project_name: Mapped[Optional[str]] = mapped_column(Text)  # Legacy field from old schema, consolidates into event_name
+
     # Relationships - Add as we convert each model
     # Removed salience_score relationship - field moved directly into Document
     categories = relationship("Category", back_populates="document", lazy="dynamic")
@@ -103,16 +104,13 @@ class Document(Base):
     @property
     def projects(self) -> str:
         """
-        Return projects only if event_name is empty, otherwise return empty string.
-        This consolidates project logic based on event data availability.
+        Return projects value. This is now stored separately from event_name.
         """
-        if not self.event_name or self.event_name.strip() == '':
-            return getattr(self, '_projects', '') or ''
-        return ''
+        return getattr(self, '_projects', '') or ''
 
     @projects.setter
     def projects(self, value: str):
-        """Store the raw projects value for when event_name is empty."""
+        """Store the projects value separately."""
         self._projects = value
 
     def __repr__(self) -> str:

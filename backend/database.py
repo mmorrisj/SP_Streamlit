@@ -14,6 +14,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError, DisconnectionError
 import time
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv(override=True)  # override=True ensures .env takes precedence
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,11 +46,11 @@ class DatabaseManager:
         Supports both development and production configurations.
         """
         # Primary environment variables (your current setup)
-        db_host = os.getenv("DB_HOST", "localhost")
+        db_host = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "localhost")
         db_user = os.getenv("POSTGRES_USER", "matthew50")
         db_pass = os.getenv("POSTGRES_PASSWORD", "softpower")
         db_name = os.getenv("POSTGRES_DB", "softpower-db")
-        db_port = os.getenv("POSTGRES_PORT", "5432")
+        db_port = os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT", "5432")
         
         # Alternative environment variable names (for flexibility)
         if not all([db_user, db_pass, db_name]):

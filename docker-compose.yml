@@ -101,6 +101,10 @@ services:
       - .env
     environment:
       DB_HOST: softpower_db
+      POSTGRES_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
     command: alembic upgrade head
     depends_on:
       - db
