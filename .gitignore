@@ -21,3 +21,4 @@ coverage/
 *.pyc
 *pycache*
 *.exe.*
+*.json
