@@ -23,4 +23,7 @@ COPY alembic.ini ./
 
 EXPOSE 8000
 
+# Set Python path to find modules
+ENV PYTHONPATH=/app
+
 CMD ["uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

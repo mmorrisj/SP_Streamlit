@@ -37,6 +37,9 @@ services:
       - .env
     environment:
       DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
       BACKEND_API_URL: http://api:8000
     ports:
       - "8501:8501"
@@ -61,7 +64,11 @@ services:
     env_file:
       - .env
     environment:
+      DOCKER_ENV: "true"
       DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
       S3_PROXY_URL: http://host.docker.internal:5001
       FASTAPI_URL: http://host.docker.internal:5001/material_query
       API_URL: http://host.docker.internal:5001
@@ -70,7 +77,9 @@ services:
       - "8000:8000"
     volumes:
       - ./services/api:/app/services/api
+      - ./services/pipeline:/app/services/pipeline
       - ./shared:/app/shared
+      - ./data:/app/data
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - app_output:/app/output

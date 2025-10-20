@@ -14,9 +14,16 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError, DisconnectionError
 import time
 
-# Load environment variables from .env file
-from dotenv import load_dotenv
-load_dotenv(override=True)  # override=True ensures .env takes precedence
+# Load environment variables from .env file (only for local development)
+# In Docker, environment variables are provided by docker-compose
+from dotenv import load_dotenv, find_dotenv
+# Skip .env loading if we're in Docker (DOCKER_ENV is set by docker-compose)
+if not os.getenv('DOCKER_ENV'):
+    # Only load .env from current directory, don't search parent directories
+    # This prevents loading host .env when shared/ is mounted in Docker
+    env_file = find_dotenv(usecwd=True)
+    if env_file:
+        load_dotenv(env_file, override=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -251,39 +258,49 @@ class DatabaseManager:
         self.close_all_connections()
         self._setup_connection()
 
-# Global database manager instance
-db_manager = DatabaseManager()
+# Global database manager instance (lazy-loaded)
+_db_manager = None
+
+def get_db_manager():
+    """Get or create the global database manager instance (lazy initialization)."""
+    global _db_manager
+    if _db_manager is None:
+        _db_manager = DatabaseManager()
+    return _db_manager
+
+# For backward compatibility
+db_manager = property(lambda self: get_db_manager())
 
 # Convenience functions for backward compatibility and ease of use
 def get_session() -> Generator[Session, None, None]:
     """
     Convenience function to get a database session context manager.
-    
+
     Usage:
         with get_session() as session:
             # Your database operations
     """
-    return db_manager.get_session()
+    return get_db_manager().get_session()
 
 def create_session() -> Session:
     """
     Convenience function to create a new session for manual management.
-    
+
     Note: Remember to commit/rollback and close the session manually.
     """
-    return db_manager.create_session()
+    return get_db_manager().create_session()
 
 def get_engine() -> Engine:
     """Get the SQLAlchemy engine instance."""
-    return db_manager.engine
+    return get_db_manager().engine
 
 def health_check() -> bool:
     """Perform a database health check."""
-    return db_manager.health_check()
+    return get_db_manager().health_check()
 
 def get_pool_status() -> dict:
     """Get connection pool status."""
-    return db_manager.get_pool_status()
+    return get_db_manager().get_pool_status()
 
 # Database initialization and management functions
 def init_database():
@@ -295,7 +312,7 @@ def init_database():
         # Import models to ensure all models are registered
         from shared.models.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent
 
-        Base.metadata.create_all(db_manager.engine)
+        Base.metadata.create_all(get_db_manager().engine)
         logger.info("Database tables created successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
@@ -309,7 +326,7 @@ def drop_database():
         # Import models to ensure all models are registered
         from shared.models.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent
 
-        Base.metadata.drop_all(db_manager.engine)
+        Base.metadata.drop_all(get_db_manager().engine)
         logger.info("Database tables dropped successfully")
     except Exception as e:
         logger.error(f"Failed to drop database: {e}")
@@ -349,7 +366,7 @@ def handle_db_error(func):
             return func(*args, **kwargs)
         except DisconnectionError:
             logger.warning("Database disconnection detected, attempting to reconnect...")
-            db_manager.recreate_connection()
+            get_db_manager().recreate_connection()
             return func(*args, **kwargs)  # Retry once
         except SQLAlchemyError as e:
             logger.error(f"Database error in {func.__name__}: {e}")

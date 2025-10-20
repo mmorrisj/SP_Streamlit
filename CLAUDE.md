@@ -76,6 +76,14 @@ python services/pipeline/embeddings/s3_to_pgvector.py --dry-run     # Test witho
 python services/pipeline/embeddings/s3_to_pgvector.py --force       # Reprocess all files
 python services/pipeline/embeddings/s3_to_pgvector.py view chunk_embeddings      # View processed files
 
+# Load pre-computed embeddings from parquet files
+python services/pipeline/embeddings/load_embeddings.py --source local --directory data/processed_embeddings
+python services/pipeline/embeddings/load_embeddings.py --source s3 --s3-prefix embeddings/
+python services/pipeline/embeddings/load_embeddings.py --source local --status  # Check local status
+python services/pipeline/embeddings/load_embeddings.py --source s3 --status     # Check S3 status
+python services/pipeline/embeddings/load_embeddings.py --source local --files file1.parquet file2.parquet  # Load specific files
+python services/pipeline/embeddings/load_embeddings.py --source local --reprocess file1.parquet  # Reprocess specific files
+
 # FastAPI server (for S3 operations, runs on host)
 uvicorn services.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```

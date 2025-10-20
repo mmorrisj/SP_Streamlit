@@ -16,6 +16,9 @@ COPY services/dashboard/ ./services/dashboard/
 
 EXPOSE 8501
 
+# Set Python path to find modules
+ENV PYTHONPATH=/app
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl --fail http://localhost:8501/_stcore/health || exit 1
