@@ -26,25 +26,22 @@ with get_session() as session:
 
 ## Updated Files
 
-### 1. Dockerfile (`streamlit/Dockerfile`)
+### 1. Dockerfile (`docker/dashboard.Dockerfile`)
 
 **Changes:**
-- ✅ Copies `backend/database.py` (modern connection manager)
-- ✅ Copies `backend/models.py` (SQLAlchemy 2.0 models)
-- ✅ Installs both streamlit and backend requirements
+- ✅ Copies `shared/database/database.py` (modern connection manager)
+- ✅ Copies `shared/models/models.py` (SQLAlchemy 2.0 models)
+- ✅ Copies `shared/config/` (configuration files)
+- ✅ Installs unified requirements from root
 - ✅ Creates proper `__init__.py` files for imports
 - ✅ Added health check
-- ❌ Removed `backend/extensions.py` (Flask-SQLAlchemy - deprecated)
-- ❌ Removed `backend/app.py` (Flask app - not needed for Streamlit)
-- ❌ Removed `backend/routes.py` (Flask routes - not needed)
+- ❌ Removed Flask-SQLAlchemy dependencies (deprecated)
 
 **New structure:**
 ```dockerfile
-# Modern dependencies
-COPY backend/database.py /app/backend/database.py
-COPY backend/models.py /app/backend/models.py
-COPY backend/config.yaml /app/backend/config.yaml
-COPY backend/scripts /app/backend/scripts
+# Modern service-oriented structure
+COPY shared/ ./shared/
+COPY services/dashboard/ ./services/dashboard/
 ```
 
 ### 2. Database Connection (`streamlit/db.py`)
@@ -164,19 +161,22 @@ SQL_ECHO_POOL=false
 
 ### Service Configuration
 
-The `streamlit` service now properly connects to PostgreSQL:
+The `dashboard` service now properly connects to PostgreSQL:
 
 ```yaml
-streamlit:
+dashboard:
   build:
     context: .
-    dockerfile: streamlit/Dockerfile
+    dockerfile: docker/dashboard.Dockerfile
   environment:
-    DB_HOST: postgres_db  # Links to 'db' service
+    DB_HOST: softpower_db  # Links to 'db' service
   depends_on:
-    - db
+    - api
   networks:
     - softpower_net
+  volumes:
+    - ./services/dashboard:/app/services/dashboard
+    - ./shared:/app/shared
 ```
 
 ## Migration Checklist
