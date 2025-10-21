@@ -95,11 +95,35 @@ class EmbeddingLoader:
         if source == 's3':
             self.api_client = get_s3_api_client(api_url)
 
+        # Map collection names to stores
+        # The stores dict uses short keys: "chunk", "daily", etc.
+        collection_map = {
+            'chunk_embeddings': 'chunk',
+            'chunk': 'chunk',
+            'summary_embeddings': None,  # summary_store not in stores dict
+            'daily_event_embeddings': 'daily',
+            'daily': 'daily',
+            'weekly_event_embeddings': 'weekly',
+            'weekly': 'weekly',
+            'monthly_event_embeddings': 'monthly',
+            'monthly': 'monthly',
+            'yearly_event_embeddings': 'yearly',
+            'yearly': 'yearly',
+        }
+
         # Get the vector store
-        if collection_name in stores:
-            self.vector_store = stores[collection_name]
+        store_key = collection_map.get(collection_name)
+        if store_key and store_key in stores:
+            self.vector_store = stores[store_key]
+        elif collection_name == 'summary_embeddings':
+            # summary_store is available but not in stores dict
+            from services.pipeline.embeddings.embedding_vectorstore import summary_store
+            self.vector_store = summary_store
         else:
-            raise ValueError(f"Collection '{collection_name}' not found in predefined stores")
+            raise ValueError(
+                f"Collection '{collection_name}' not found. "
+                f"Available: {', '.join(collection_map.keys())}"
+            )
 
         print(f"Initialized EmbeddingLoader:")
         print(f"  Source: {source}")
@@ -652,10 +676,18 @@ Examples:
     )
 
     # General options
+    available_collections = [
+        'chunk_embeddings', 'chunk',
+        'summary_embeddings',
+        'daily_event_embeddings', 'daily',
+        'weekly_event_embeddings', 'weekly',
+        'monthly_event_embeddings', 'monthly',
+        'yearly_event_embeddings', 'yearly'
+    ]
     parser.add_argument(
         '--collection',
         default='chunk_embeddings',
-        choices=list(stores.keys()),
+        choices=available_collections,
         help='Target LangChain collection name (default: chunk_embeddings)'
     )
     parser.add_argument(
