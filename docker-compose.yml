@@ -40,6 +40,7 @@ services:
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
       BACKEND_API_URL: http://api:8000
     ports:
       - "8501:8501"
@@ -69,6 +70,7 @@ services:
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
       S3_PROXY_URL: http://host.docker.internal:5001
       FASTAPI_URL: http://host.docker.internal:5001/material_query
       API_URL: http://host.docker.internal:5001
