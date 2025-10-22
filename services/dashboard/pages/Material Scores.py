@@ -2,16 +2,12 @@
 import os
 import pandas as pd
 import datetime as dt
-from sqlalchemy import create_engine, text, bindparam
+from sqlalchemy import text, bindparam
 import streamlit as st
 import altair as alt
+from shared.database.database import get_engine
 
-# -----------------------------
-# DB connection
-# -----------------------------
-is_local = os.getenv("LOCAL", "true").lower() == "true"
-db_host = "postgres_db"
-DATABASE_URL = f"postgresql://matthew50:softpower@{db_host}:5432/softpower-db"
+# Use centralized database connection management
 
 st.set_page_config(page_title="Material Score Over Time", page_icon="📈", layout="wide")
 st.title("📈 Material Score Over Time")
@@ -22,7 +18,7 @@ st.caption("Daily averages from DailyEventSummary; filter by Initiating and/or R
 # -----------------------------
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_available_initiators() -> list[str]:
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
     q = text("""
         SELECT DISTINCT initiating_country
         FROM daily_event_summaries
@@ -35,7 +31,7 @@ def fetch_available_initiators() -> list[str]:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_available_recipients() -> list[str]:
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
     q = text("""
         SELECT DISTINCT country
         FROM daily_event_recipient_countries
@@ -61,7 +57,7 @@ def fetch_timeseries(
     """
     Returns columns: date, series, avg_material_score, initiating_country, recipient_country
     """
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
 
     # --- dynamic WHERE / JOIN pieces ---
     clauses = ["des.material_score IS NOT NULL"]

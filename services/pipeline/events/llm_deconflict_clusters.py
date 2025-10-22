@@ -259,7 +259,7 @@ IMPORTANT:
 
             # Use direct OpenAI call (bypassing FastAPI proxy to avoid recursion)
             # OPENAI_PROJ_API is already set in environment
-            response = gai(sys_prompt, user_prompt, model="gpt-4o", use_proxy=False)
+            response = gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=False)
 
             # Parse JSON response (handle both dict and string)
             if isinstance(response, str):

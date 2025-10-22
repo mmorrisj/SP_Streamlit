@@ -3,9 +3,9 @@ import pandas as pd
 import numpy as np
 from datetime import date, datetime, timedelta
 from shared.utils.utils import Config
-from backend.scripts.models import DailySummary, WeeklySummary, DailyEventSummary
+from shared.models.models import DailySummary, WeeklySummary, DailyEventSummary
 from sqlalchemy import select, and_, or_, func, desc, text
-from db import engine
+from shared.database.database import get_engine
 import requests
 from dotenv import load_dotenv
 import os
@@ -72,7 +72,7 @@ class DirectVectorRAG:
     """RAG engine using direct pgvector queries (no LangChain dependency)"""
     
     def __init__(self):
-        self.engine = engine
+        self.engine = get_engine()
         self.max_context_length = 4000
         # Initialize embedding model
         try:

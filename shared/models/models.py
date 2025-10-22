@@ -531,9 +531,16 @@ class EventSourceLink(Base):
 class CanonicalEvent(Base):
     """Canonical event tracked across news mentions over time."""
     __tablename__ = "canonical_events"
-    
+
     id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    
+
+    # Master event tracking (for temporal consolidation)
+    master_event_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_events.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
     # Core identity
     canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
     initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
@@ -570,11 +577,20 @@ class CanonicalEvent(Base):
     
     # Relationships
     daily_mentions = relationship("DailyEventMention", back_populates="canonical_event")
-    
+
+    # Self-referential relationship for master event hierarchy
+    child_events = relationship(
+        "CanonicalEvent",
+        foreign_keys=[master_event_id],
+        remote_side=[id],
+        backref="master_event"
+    )
+
     __table_args__ = (
         Index("ix_canonical_event_country_dates", "initiating_country", "first_mention_date", "last_mention_date"),
         Index("ix_canonical_event_story_phase", "story_phase"),
         Index("ix_canonical_event_days_since", "days_since_last_mention"),
+        Index("ix_canonical_event_master", "master_event_id"),
     )
 
 class DailyEventMention(Base):

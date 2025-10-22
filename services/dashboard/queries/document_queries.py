@@ -130,7 +130,7 @@ def set_start_date(start_date=None):
 def initiating_country_list():
     stmt = (select(InitiatingCountry.initiating_country)
         .where(InitiatingCountry.initiating_country.in_(cfg.influencers)))
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn:
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['initiating_country']])))
 
@@ -138,7 +138,7 @@ def initiating_country_list():
 def recipient_country_list():
     stmt = (select(RecipientCountry.recipient_country)
         .where(RecipientCountry.recipient_country.in_(cfg.recipients)))
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn:
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['recipient_country']])))
 
@@ -146,15 +146,15 @@ def recipient_country_list():
 def category_list():
     stmt = (select(Category.category)
         .where(Category.category.in_(cfg.categories)))
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn:
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['category']])))
-       
+
 @st.cache_data
 def subcategory_list():
     stmt = (select(Subcategory.subcategory)
         .where(Subcategory.subcategory.in_(cfg.subcategories)))
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn:
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['subcategory']])))
 
@@ -191,7 +191,7 @@ def get_document_counts_per_week(
     )
 
     # 3) pass the Select object *directly* to pandas.read_sql
-    with engine.begin() as conn:
+    with get_engine().begin() as conn:
         df = pd.read_sql(stmt, conn)
 
     return df
@@ -214,7 +214,7 @@ def get_subcategory_distribution_by_document_count(country_list='ALL',category='
     
         # Group by and order by
     stmt = stmt.group_by(Subcategory.subcategory).order_by(desc('doc_count'))
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
@@ -242,7 +242,7 @@ def get_top_influencers_by_document_count(country_list='ALL', category='ALL', su
 
     stmt = stmt.group_by(InitiatingCountry.initiating_country)
 
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
@@ -264,7 +264,7 @@ def get_top_recipients_by_document_count(country_list='ALL',category='ALL',subca
     stmt = stmt.order_by(desc('doc_count'))
     stmt = stmt.limit(10)
 
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
@@ -283,7 +283,7 @@ def get_category_distribution_by_document_count(country_list='ALL',category='ALL
         Document.date >=cfg.start_date)
         )
     stmt = stmt.group_by(Category.category)
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
@@ -311,7 +311,7 @@ def get_category_distribution_by_document_count_by_country(country_list='ALL',ca
             desc('doc_count')
         )
 
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
@@ -336,7 +336,7 @@ def get_category_count_over_time(country_list='ALL',category='ALL',subcategory='
                 desc('category_count')
             )
 
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
@@ -355,7 +355,7 @@ def get_category_count_over_time(country='ALL',start_date=None):
                 desc('category_count')
             )
 
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
@@ -363,7 +363,7 @@ def get_category_count_over_time(country='ALL',start_date=None):
 @st.cache_data
 def get_category_df():
     stmt = select(Category).order_by(Category.category)
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn: 
         df = pd.read_sql(stmt, conn)
     return df
 
@@ -371,7 +371,7 @@ def get_category_df():
 @st.cache_data
 def get_subcategory_df():
     stmt = select(Subcategory).order_by(Subcategory.subcategory)
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn: 
         df = pd.read_sql(stmt, conn)
     return df
 #get activity df
@@ -387,7 +387,7 @@ def get_activity_df(country_list=None,start_date=None,end_date=None):
                        SoftPowerActivity.recipient_country.in_(cfg.recipients))
     if country_list and country_list != "ALL":
         stmt = stmt.filter(SoftPowerActivity.initiating_country.in_(country_list))
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn: 
         df = pd.read_sql(stmt, conn)
     return df
 
@@ -395,7 +395,7 @@ def get_activity_df(country_list=None,start_date=None,end_date=None):
 @st.cache_data
 def get_daily_df():
     stmt = select(DailySummary).order_by(DailySummary.date.desc())
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn: 
         df = pd.read_sql(stmt, conn)
     return df
 
@@ -413,7 +413,7 @@ def get_document_dates(country_list=None,start_date=None,end_date=None):
         stmt = stmt.filter(InitiatingCountry.initiating_country.in_(country_list))
     if end_date:
         stmt = stmt.filter(Document.date <= end_date)
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn: 
         df = pd.read_sql(stmt, conn)
     return df
 
@@ -432,7 +432,7 @@ def get_last_week_of_documents(country_list=None,end_date=None):
                        RecipientCountry.recipient_country.in_(cfg.recipients))
     if country_list and country_list != "ALL":
         stmt = stmt.filter(InitiatingCountry.initiating_country.in_(country_list))
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
     return df
 
@@ -443,7 +443,7 @@ def get_most_recent_daily_summary(country_list=None,date=None):
         stmt = stmt.filter(DailySummary.initiating_country.in_(country_list))
     if date:
         stmt = stmt.filter(DailySummary.date == date)
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
     return df
     
@@ -461,7 +461,7 @@ def get_date_documents(date,country=None,category=None):
     if category and category != "ALL":
         stmt = stmt.join(Category, Document.doc_id == Category.doc_id)
         stmt = stmt.filter(Category.category == category)
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         df.drop_duplicates(subset=['doc_id'], inplace=True)
     return df
@@ -499,7 +499,7 @@ def get_category(category=None,country=None):
     if country and country != "ALL":
         stmt = stmt.filter(InitiatingCountry.initiating_country == country)
 
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn: 
         df = pd.read_sql(stmt, conn)
         df.drop_duplicates(subset=['doc_id'], inplace=True)
         df.reset_index(inplace=True,drop=True)
@@ -554,6 +554,6 @@ def visualize_category_z_score(df):
 
 def get_most_recent_daily_date(country):
     stmt = select(DailySummary.date).where(DailySummary.initiating_country==country)
-    with engine.connect() as conn: 
+    with get_engine().connect() as conn: 
         df = pd.read_sql(stmt, conn)
         return max(df['date'])
