@@ -622,3 +622,47 @@ class DailyEventMention(Base):
         Index("ix_daily_mention_context", "mention_context"),
         Index("ix_daily_mention_country_date", "initiating_country", "mention_date"),
     )
+
+
+class EventCluster(Base):
+    """
+    Stores event clustering results for batch processing.
+    Clusters are created by country and date, with batches of ~50 events.
+    Uses embeddings + DBSCAN clustering similar to news_event_tracker.py.
+    """
+    __tablename__ = "event_clusters"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Grouping dimensions
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+    cluster_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    batch_number: Mapped[int] = mapped_column(Integer, nullable=False)  # For splitting large date/country combos
+
+    # Cluster information
+    cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)  # DBSCAN cluster label within batch
+    event_names: Mapped[List[str]] = mapped_column(ARRAY(Text), nullable=False)  # All event names in cluster
+    doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text), nullable=False)  # Source documents
+
+    # Cluster metadata
+    cluster_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_noise: Mapped[bool] = mapped_column(Boolean, default=False)  # DBSCAN label = -1
+
+    # Embedding information (for later analysis/refinement)
+    centroid_embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float))
+    representative_name: Mapped[Optional[str]] = mapped_column(Text)  # Most central event name
+
+    # Processing status
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    llm_deconflicted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # LLM processing results (populated later)
+    refined_clusters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)  # Sub-clusters after LLM review
+
+    __table_args__ = (
+        Index("ix_event_cluster_country_date", "initiating_country", "cluster_date"),
+        Index("ix_event_cluster_processed", "processed", "llm_deconflicted"),
+        UniqueConstraint("initiating_country", "cluster_date", "batch_number", "cluster_id",
+                        name="uq_event_cluster"),
+    )
