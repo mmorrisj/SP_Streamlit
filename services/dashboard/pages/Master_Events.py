@@ -49,18 +49,41 @@ st.markdown(
 st.markdown("""
 This dashboard displays master events - consolidated events tracked across multiple days.
 Master events aggregate related canonical events to provide a comprehensive view of ongoing international developments.
-""")
+
+**Data Filtering:** This dashboard shows only events and documents that match the countries, categories, and subcategories
+defined in `config.yaml`. All metrics count unique documents that match ALL filter criteria:
+- **Initiating Countries:** Limited to influencers from config
+- **Recipient Countries:** Limited to recipients from config (default: all 18 Middle East countries)
+- **Categories:** Economic, Social, Military, Diplomacy
+- **Subcategories:** All {num_subcat} subcategories from config
+""".format(num_subcat=len(cfg.subcategories)))
 
 # Sidebar filters
 st.sidebar.title("Filters")
 
-# Country filter
+st.sidebar.markdown("### Geographic Filters")
+
+# Initiating country filter
 influencer_countries = ['ALL'] + cfg.influencers
 selected_country = st.sidebar.selectbox(
-    "Select Initiating Country",
+    "Initiating Country",
     options=influencer_countries,
-    index=0
+    index=0,
+    help="Filter by country initiating the events"
 )
+
+# Recipient country filter
+recipient_countries_options = ['ALL'] + cfg.recipients
+selected_recipients = st.sidebar.multiselect(
+    "Recipient Countries",
+    options=cfg.recipients,
+    default=cfg.recipients,
+    help="Filter by countries receiving/targeted by events. Showing only config.yaml recipients by default."
+)
+
+# If no recipients selected, use all
+if not selected_recipients:
+    selected_recipients = cfg.recipients
 
 # Date range filter
 st.sidebar.markdown("### Date Range Filter")
@@ -83,9 +106,11 @@ end_date_str = end_date.strftime('%Y-%m-%d')
 
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"""
-**Influencer Countries:** {', '.join(cfg.influencers)}
-
-**Recipient Countries:** {', '.join(cfg.recipients[:5])}{'...' if len(cfg.recipients) > 5 else ''}
+**Active Filters:**
+- Initiating: {selected_country}
+- Recipients: {len(selected_recipients)} of {len(cfg.recipients)} countries
+- Categories: {len(cfg.categories)} categories
+- Subcategories: {len(cfg.subcategories)} subcategories
 """)
 
 # Main content
@@ -99,6 +124,12 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 with tab1:
     st.header("Master Events Overview")
+
+    st.info(f"""
+    📊 **Data Scope:** Showing events from **{len(cfg.influencers)} influencer countries**
+    targeting **{len(selected_recipients)} recipient countries** (from {len(cfg.recipients)} total in config).
+    All article counts reflect unique documents matching ALL config filters.
+    """)
 
     # Get overview stats
     overview_df = get_master_event_overview(start_date_str, end_date_str)
@@ -357,15 +388,19 @@ with tab5:
 
     st.markdown("""
     This section shows which recipient countries are most affected by master events
-    from different initiating countries.
+    from different initiating countries. **All documents are filtered to match config.yaml recipients.**
     """)
 
-    # Get recipient impact data
+    # Get recipient impact data (always uses cfg.recipients for data filtering)
     recipient_df = get_recipient_impact(
         cfg.recipients,
         start_date=start_date_str,
         end_date=end_date_str
     )
+
+    # Filter display by selected recipients (UI filter only)
+    if 'ALL' not in selected_recipients and len(selected_recipients) < len(cfg.recipients):
+        recipient_df = recipient_df[recipient_df['recipient'].isin(selected_recipients)]
 
     if not recipient_df.empty:
         # Heatmap
