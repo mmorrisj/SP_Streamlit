@@ -282,6 +282,9 @@ class EventSummary(Base):
     count_by_recipient: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
     count_by_source: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
 
+    # Narrative summary with source traceability (AP-style)
+    narrative_summary: Mapped[Optional[Dict]] = mapped_column(JSONB, default=dict, nullable=True)
+
     # Relationships
     period_summary = relationship("PeriodSummary", back_populates="events")
     source_links = relationship(
