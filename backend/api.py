@@ -10,6 +10,22 @@ import numpy as np
 import pyarrow.parquet as pq
 from backend.scripts.utils import gai, fetch_gai_content, fetch_gai_response
 import json
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables from .env file
+env_path = Path(__file__).parent.parent / '.env'
+if env_path.exists():
+    print(f"[OK] Loading environment variables from: {env_path}")
+    load_dotenv(env_path)
+    # Verify OPENAI_PROJ_API is loaded
+    if os.getenv('OPENAI_PROJ_API'):
+        print(f"[OK] OPENAI_PROJ_API loaded successfully")
+    else:
+        print(f"[WARNING] OPENAI_PROJ_API not found in environment")
+else:
+    print(f"[WARNING] .env file not found at {env_path}")
+
 app = FastAPI(title="SoftPower Backend API")
 
 # S3 client (will use host's IAM role/credentials)
@@ -59,12 +75,12 @@ def material_gai_query(input: QueryInput):
 
     if env == 'production':
         # PRODUCTION: Use existing Azure OpenAI flow via utils.gai()
-        print("→ Using Azure OpenAI (production mode)")
+        print("[INFO] Using Azure OpenAI (production mode)")
         content = gai(input.sys_prompt, input.prompt, input.model)
         return {"response": content}
     else:
         # DEVELOPMENT: Use direct OpenAI API
-        print("→ Using OpenAI API (development mode)")
+        print("[INFO] Using OpenAI API (development mode)")
         from openai import OpenAI
 
         # Get API key from environment

@@ -10,6 +10,18 @@ import numpy as np
 import pyarrow.parquet as pq
 from shared.utils.utils import gai, fetch_gai_content, fetch_gai_response
 import json
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables from .env file
+# Look for .env in project root (2 levels up from this file)
+env_path = Path(__file__).parent.parent.parent / '.env'
+if env_path.exists():
+    print(f"Loading environment variables from: {env_path}")
+    load_dotenv(env_path)
+else:
+    print(f"Warning: .env file not found at {env_path}")
+
 app = FastAPI(title="SoftPower Backend API")
 
 # S3 client (will use host's IAM role/credentials)

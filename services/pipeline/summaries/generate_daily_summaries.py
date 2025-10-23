@@ -222,11 +222,13 @@ def generate_daily_summary_for_event(
     print(f"🤖 Calling LLM for summary generation...")
 
     try:
-        # Call LLM via FastAPI proxy
+        # Call LLM directly (bypassing FastAPI proxy for now)
+        # TODO: Fix FastAPI proxy and switch back to proxy mode
         response = gai(
             sys_prompt="You are an experienced journalist writing in Associated Press (AP) style. Follow the instructions exactly and output valid JSON only.",
             user_prompt=prompt,
-            model="gpt-4o-mini"
+            model="gpt-4o-mini",
+            use_proxy=False
         )
 
         # Parse JSON response (handle both dict and string)
