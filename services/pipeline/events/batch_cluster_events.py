@@ -348,7 +348,7 @@ class EventBatchClusterer:
         # Cluster ALL events for this day at once
         clusters = self.cluster_batch(events)
 
-        print(f"  ✓ Found {len(clusters)} clusters from {len(events)} events")
+        print(f"  [OK] Found {len(clusters)} clusters from {len(events)} events")
 
         # Show cluster summary
         print(f"\n  Cluster Summary:")
@@ -362,7 +362,8 @@ class EventBatchClusterer:
 
             # Show first 3 event names
             for i, event in enumerate(cluster_events[:3]):
-                print(f"      - {event['event_name'][:80]}")
+                event_name = event['event_name'][:80].encode('ascii', 'replace').decode('ascii')
+                print(f"      - {event_name}")
             if len(cluster_events) > 3:
                 print(f"      ... and {len(cluster_events) - 3} more")
 
@@ -393,8 +394,8 @@ class EventBatchClusterer:
                 total_saved += len(batch_clusters)
 
             session.commit()
-            print(f"\n  ✓ Saved {total_saved} clusters in {len(batched_clusters)} batch(es)")
-            print(f"  ✓ Committed to database for {country} on {target_date}")
+            print(f"\n  [OK] Saved {total_saved} clusters in {len(batched_clusters)} batch(es)")
+            print(f"  [OK] Committed to database for {country} on {target_date}")
         else:
             print(f"\n  [DRY RUN] Would save {len(clusters)} clusters in {len(batched_clusters)} batch(es)")
 
@@ -473,7 +474,7 @@ Examples:
     parser.add_argument('--end-date', type=str, help='End date for date range (YYYY-MM-DD)')
     parser.add_argument('--influencers', action='store_true', help='Process all influencer countries from config.yaml (China, Russia, Iran, Turkey, United States)')
     parser.add_argument('--all-countries', action='store_true', help='Process ALL countries in database (not recommended - many spurious countries)')
-    parser.add_argument('--batch-size', type=int, default=50, help='Events per batch for LLM processing (default: 50, does NOT affect clustering)')
+    parser.add_argument('--batch-size', type=int, default=150, help='Events per batch for LLM processing (default: 150, does NOT affect clustering)')
     parser.add_argument('--eps', type=float, default=0.15, help='DBSCAN epsilon (default: 0.15, range: 0.10-0.30)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without saving')
 
@@ -574,7 +575,7 @@ Examples:
     print("="*60)
 
     if not args.dry_run:
-        print("\n✓ Clusters saved to event_clusters table")
+        print("\n[OK] Clusters saved to event_clusters table")
         print("  Next step: Run LLM deconfliction on saved clusters")
     else:
         print("\n[DRY RUN COMPLETE] No changes were made to the database")

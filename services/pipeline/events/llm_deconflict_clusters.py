@@ -203,55 +203,125 @@ class LLMClusterDeconfliction:
         # Build prompt with numbered list of unique event names
         names_list = "\n".join([f"{i+1}. {name}" for i, name in enumerate(unique_names)])
 
-        sys_prompt = """You are an expert at identifying whether news article headlines refer to the same event or different events.
+        sys_prompt = """You are an expert at tracking events across their lifecycle in news coverage.
 
-Analyze the following list of event names that were clustered together using machine learning (DBSCAN with cosine similarity on embeddings).
+**CRITICAL UNDERSTANDING:**
+Events evolve through stages over time. Your task is to group event names that refer to the SAME underlying event, EVEN IF they are at different stages.
 
-Your task: Identify which event names refer to the SAME real-world event and which are DISTINCT events.
+**Event Lifecycle Stages:**
+- ANNOUNCEMENT: "China announces Belt and Road Forum"
+- PREPARATION: "China preparing for Belt and Road Forum"
+- EXECUTION: "Belt and Road Forum begins in Beijing"
+- CONTINUATION: "Belt and Road Forum continues with trade deals"
+- AFTERMATH: "Belt and Road Forum concludes with 50 agreements"
 
-IMPORTANT: A cluster may contain references to MULTIPLE different events that were grouped together because they're topically similar.
+**Your Task:**
+Analyze the following list of event names that were clustered together. Identify which event names refer to the SAME underlying event across different stages, and which are DISTINCT events.
 
-Context:
+**Context:**
 - These events all occurred on the same date
 - They are all initiated by the same country
 - The clustering algorithm grouped them based on semantic similarity
 - The algorithm often groups topically related but DISTINCT events together
 
-Examples:
+**Examples:**
 
-SAME EVENT (group together):
-- "Beijing Declaration", "Beijing Agreement", "Beijing Summit Agreement" → All refer to same agreement
-- "Arbaeen Pilgrimage", "Arbaeen Pilgrimage Support", "Arbaeen Healthcare Services" → All aspects of same pilgrimage
-- "Day of Mourning for Haniyeh", "National Day of Mourning for Ismail Haniyeh" → Same mourning event
+✅ SAME EVENT - Group Together (same event at different stages):
+- "China announces South-South Cooperation Forum"
+- "Preparations underway for South-South Cooperation Forum"
+- "South-South Cooperation Forum opens in Beijing"
+- "South-South Cooperation Forum concludes with cooperation agreements"
+→ All refer to same forum at different lifecycle stages
 
-DIFFERENT EVENTS (keep separate):
-- "Belt and Road Initiative", "Beijing Declaration", "25-year Cooperation Plan" → Three separate diplomatic initiatives
-- "Humanitarian Aid to Gaza", "Ceasefire Negotiations", "UN Security Council Meeting" → Related to same conflict but three distinct events
-- "Arbaeen Pilgrimage", "Emergency OIC Meeting", "UN Security Council Session" → Three completely different events
+✅ SAME EVENT - Group Together (same event, different wording):
+- "President Xi visits Egypt for bilateral talks"
+- "Xi Jinping state visit to Egypt"
+- "China-Egypt summit during Xi's Cairo visit"
+→ All refer to same visit
 
-Your goal: Group event names that refer to the SAME real-world event. Keep distinct events in separate groups."""
+✅ SAME EVENT - Group Together (same event, different aspects):
+- "Beijing Declaration", "Beijing Agreement", "Beijing Summit Agreement"
+→ All refer to same agreement
+- "Arbaeen Pilgrimage", "Arbaeen Pilgrimage Support", "Arbaeen Healthcare Services"
+→ All aspects of same pilgrimage event
+
+❌ DIFFERENT EVENTS - Keep Separate (different instances):
+- "First China-Arab States Cooperation Forum"
+- "Second China-Arab States Cooperation Forum"
+→ Different instances of the same type of event
+
+❌ DIFFERENT EVENTS - Keep Separate (different topics with same partner):
+- "China signs trade deal with Egypt"
+- "China signs defense cooperation with Egypt"
+→ Different agreements, even with same country
+
+❌ DIFFERENT EVENTS - Keep Separate (same type, different partners):
+- "China signs trade deal with Egypt"
+- "China signs trade deal with UAE"
+→ Different countries = different events
+
+❌ DIFFERENT EVENTS - Keep Separate (topically related but distinct):
+- "Belt and Road Initiative", "Beijing Declaration", "25-year Cooperation Plan"
+→ Three separate diplomatic initiatives
+- "Humanitarian Aid to Gaza", "Ceasefire Negotiations", "UN Security Council Meeting"
+→ Related to same conflict but three distinct events
+
+**Your Goal:**
+- Group event names that refer to the SAME core event (even at different stages)
+- Keep DISTINCT events in separate groups
+- Err on the side of grouping if it's the same core event evolving over time"""
 
         user_prompt = f"""Event names from cluster (cluster_id={cluster.cluster_id}, size={cluster.cluster_size}):
 {names_list}
 
-Analyze these event names carefully. Determine which names refer to the SAME real-world event.
+**ANALYZE USING CHAIN-OF-THOUGHT:**
 
-Respond in JSON format:
+**STEP 1 - IDENTIFY CORE EVENTS:**
+For each event name, extract the core event:
+- What is the main activity? (summit, visit, agreement, project, announcement, etc.)
+- Who are the key actors? (countries, organizations, leaders)
+- What is the context? (location, initiative, purpose)
+
+**STEP 2 - MATCH ACROSS STAGES:**
+Group events that share the same core, even if they differ in:
+- Stage indicators: "announces", "preparing", "begins", "ongoing", "concludes", "resulted in"
+- Temporal markers: "upcoming", "scheduled", "started", "continuing", "ended"
+- Outcome language: "will", "plans to", "is", "has", "completed"
+
+**STEP 3 - DISTINGUISH TRULY DIFFERENT EVENTS:**
+Keep events SEPARATE if they are:
+- Different instances: "First meeting" vs "Second meeting"
+- Different topics: "Trade agreement" vs "Defense cooperation" (both with same country)
+- Different entities: "China-Egypt summit" vs "China-UAE summit"
+- Different projects: "Port project in Egypt" vs "Railway project in Egypt"
+
+**STEP 4 - VALIDATION:**
+For each potential group, verify:
+- If tracking this event's lifecycle, would all these headlines fit the same timeline?
+- Could these be different news sources reporting the SAME event at different stages?
+- Or are these genuinely DIFFERENT events (even if similar)?
+
+---
+
+**OUTPUT (JSON format):**
 {{
-    "same_event": true/false,  // true if ALL names refer to one event, false if multiple distinct events exist
-    "explanation": "brief explanation of your analysis (2-3 sentences)",
-    "groups": [[1,2,3], [4,5], [6]]  // group numbers by which events belong together
+    "reasoning": "Brief overview of your grouping strategy (2-3 sentences)",
+    "same_event": true/false,  // true if ALL names refer to ONE event, false if multiple distinct events
+    "groups": [[1,2,3], [4,5], [6]],  // group numbers by which events belong together
+    "stages_identified": ["announcement", "execution", "aftermath"],  // lifecycle stages present (if applicable)
+    "confidence": 0.95  // 0.0-1.0 confidence in your grouping
 }}
 
-Examples:
-- If all {len(unique_names)} names refer to ONE event: {{"same_event": true, "explanation": "...", "groups": [[{','.join(str(i+1) for i in range(len(unique_names)))}]]}}
-- If there are TWO distinct events: {{"same_event": false, "explanation": "...", "groups": [[1,2], [3,4,5]]}}
-- If there are THREE distinct events: {{"same_event": false, "explanation": "...", "groups": [[1,2], [3], [4,5,6]]}}
+**Examples:**
+- If all {len(unique_names)} names refer to ONE event: {{"reasoning": "...", "same_event": true, "groups": [[{','.join(str(i+1) for i in range(len(unique_names)))}]], "stages_identified": ["execution"], "confidence": 0.95}}
+- If there are TWO distinct events: {{"reasoning": "...", "same_event": false, "groups": [[1,2], [3,4,5]], "stages_identified": [], "confidence": 0.90}}
+- If there are THREE distinct events: {{"reasoning": "...", "same_event": false, "groups": [[1,2], [3], [4,5,6]], "stages_identified": [], "confidence": 0.85}}
 
-IMPORTANT:
+**IMPORTANT:**
 - Every number from 1 to {len(unique_names)} must appear in exactly one group
 - Create as many groups as there are distinct real-world events
-- Event names that are just different phrasings of the same event should be in the same group"""
+- Group events that are the SAME core event at different lifecycle stages
+- Only keep events separate if you're confident they're truly distinct events (confidence >= 0.80)"""
 
         try:
             if self.verbose:
@@ -345,9 +415,9 @@ IMPORTANT:
 
         if self.verbose:
             if llm_result['same_event']:
-                print(f"    ✓ Cluster {cluster.cluster_id}: Confirmed as single event")
+                print(f"    [OK] Cluster {cluster.cluster_id}: Confirmed as single event")
             else:
-                print(f"    ✓ Cluster {cluster.cluster_id}: Split into {len(llm_result['groups'])} sub-events")
+                print(f"    [OK] Cluster {cluster.cluster_id}: Split into {len(llm_result['groups'])} sub-events")
                 print(f"      Groups: {llm_result['groups']}")
 
     def create_canonical_events_from_cluster(
@@ -596,10 +666,10 @@ IMPORTANT:
         if not self.dry_run:
             session.commit()
             if self.verbose:
-                print(f"  ✓ Committed batch {batch_number} to database")
+                print(f"  [OK] Committed batch {batch_number} to database")
         else:
             if self.verbose:
-                print(f"  ✓ Dry run - no changes committed")
+                print(f"  [OK] Dry run - no changes committed")
 
         return stats
 
@@ -774,7 +844,7 @@ def main():
             return
 
     print("=" * 60)
-    print("✓ LLM deconfliction completed")
+    print("[OK] LLM deconfliction completed")
     print("=" * 60)
 
 
