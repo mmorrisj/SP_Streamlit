@@ -214,3 +214,94 @@ Create a period summary with two sections:
 
 Remember: This is a higher-level summary but still AP-style. Report facts and attributed statements, not analysis.
 """
+
+MATERIALITY_SCORE_PROMPT = """You are an expert analyst assessing the materiality of soft power events.
+
+Your task is to assign a **Materiality Score** from 1.0 to 10.0 that measures the concrete, substantive nature of an event versus purely symbolic or rhetorical gestures.
+
+**MATERIALITY SCALE:**
+
+**1.0-3.0: Symbolic/Rhetorical**
+- Diplomatic statements, declarations, speeches
+- Cultural performances, exhibitions, festivals
+- Goodwill visits without tangible commitments
+- Joint communiqués without specific outcomes
+- Symbolic agreements lacking implementation details
+- Examples: State visits with photo ops, cultural exchange announcements, general cooperation statements
+
+**4.0-6.0: Mixed/Transitional**
+- MOUs with unspecified or modest financial commitments (< $10M)
+- Capacity building programs, training initiatives
+- Small-scale pilot projects
+- Educational exchanges with institutional backing
+- Technical cooperation agreements
+- Examples: Student scholarship programs, technical training, early-stage project discussions
+
+**7.0-10.0: Substantive/Material**
+- Major infrastructure projects with confirmed funding (> $10M)
+- Significant trade agreements with monetary values specified
+- Military equipment transfers, defense cooperation with hardware
+- Large-scale energy deals, resource extraction agreements
+- Direct financial aid, grants, or investment commitments
+- Completed construction projects, operational facilities
+- Examples: Belt & Road infrastructure, nuclear power plants, military base agreements, major energy pipelines
+
+**Event Information:**
+**Country:** {country}
+**Event Name:** {event_name}
+**Period:** {period_type} ({period_start} to {period_end})
+
+**Event Summary:**
+{event_summary}
+
+**Categories:** {categories}
+**Recipients:** {recipients}
+**Total Documents:** {total_documents}
+
+**YOUR TASK:**
+
+1. Carefully read the event summary
+2. Identify concrete, tangible commitments vs. symbolic gestures
+3. Look for:
+   - Specific monetary amounts
+   - Confirmed construction/implementation
+   - Delivered equipment/aid
+   - Signed contracts with details
+   - Operational projects (not just announcements)
+
+4. Assign a score from 1.0 to 10.0 based on the materiality scale above
+5. Provide 2-3 sentence justification citing specific evidence
+
+**FORMAT YOUR RESPONSE AS JSON:**
+{{
+  "material_score": 7.5,
+  "justification": "The Belt and Road Initiative project involves confirmed $4.5 billion in infrastructure funding for port construction and railway development, according to the bilateral agreement. Construction began in August 2024 with Chinese contractors and local labor, with completion expected by 2027. This represents substantial material investment beyond symbolic cooperation."
+}}
+
+**SCORING GUIDELINES:**
+- Be conservative: Require concrete evidence for high scores
+- Announcements without details = low scores (1-3)
+- MOUs without financial specifics = mid scores (4-6)
+- Confirmed funding/construction/delivery = high scores (7-10)
+- Multiple small commitments may aggregate to mid-range scores
+- Consider the scale relative to recipient country's GDP if possible
+
+**EXAMPLES:**
+
+**Example 1 - Score 2.0:**
+Event: Cultural Festival Announcement
+Summary: China announced plans for a cultural festival in Cairo featuring traditional performances and art exhibitions. Officials from both countries attended the signing ceremony and emphasized strengthening cultural ties.
+Justification: "Purely symbolic cultural exchange with no financial commitments or tangible infrastructure. The announcement focuses on goodwill and diplomatic rhetoric without concrete material outcomes."
+
+**Example 2 - Score 5.5:**
+Event: Training Program Launch
+Summary: Russia launched a 3-year military training program for Syrian officers, providing instruction for 200 personnel annually. The program includes classroom education and equipment familiarization but no hardware transfers.
+Justification: "Capacity building with institutional backing and ongoing commitment, but lacks major material transfers or financial investment. Falls in the transitional category between symbolic cooperation and substantive investment."
+
+**Example 3 - Score 9.0:**
+Event: Nuclear Power Plant Construction
+Summary: Russia's Rosatom began construction on the El Dabaa Nuclear Power Plant in Egypt, with $25 billion in confirmed financing. The project includes four reactors with 4,800 MW capacity, scheduled for completion by 2030.
+Justification: "Major infrastructure project with specific financial commitment ($25B), confirmed construction phase, and tangible deliverables. Represents substantial material investment with long-term strategic and economic impact."
+
+Now analyze the event provided above and return your assessment as JSON.
+"""
