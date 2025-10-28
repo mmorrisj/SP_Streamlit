@@ -500,7 +500,8 @@ For each potential group, verify:
                         canonical_event.alternative_names = canonical_event.alternative_names + [name]
 
                 if self.verbose:
-                    print(f"      Updated existing canonical event: {canonical_name}")
+                    safe_name = canonical_name.encode('ascii', 'replace').decode('ascii')
+                    print(f"      Updated existing canonical event: {safe_name}")
 
             else:
                 # Create new canonical event
@@ -526,7 +527,8 @@ For each potential group, verify:
                 session.flush()  # Get the ID
 
                 if self.verbose:
-                    print(f"      Created canonical event: {canonical_name}")
+                    safe_name = canonical_name.encode('ascii', 'replace').decode('ascii')
+                    print(f"      Created canonical event: {safe_name}")
 
             canonical_events.append(canonical_event)
 

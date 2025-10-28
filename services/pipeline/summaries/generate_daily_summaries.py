@@ -188,8 +188,23 @@ def generate_daily_summary_for_event(
         EventSummary ID if created, None if dry_run
     """
     print(f"\n{'='*80}")
-    print(f"Processing: {event['canonical_name']}")
+    # Handle Unicode safely for Windows console
+    event_name = event['canonical_name'].encode('ascii', 'replace').decode('ascii')
+    print(f"Processing: {event_name}")
     print(f"Articles: {event['article_count']}")
+
+    # Check if summary already exists
+    existing_summary = session.query(EventSummary).filter(
+        EventSummary.period_type == PeriodType.DAILY,
+        EventSummary.period_start == date,
+        EventSummary.period_end == date,
+        EventSummary.initiating_country == country,
+        EventSummary.event_name == event['canonical_name']
+    ).first()
+
+    if existing_summary:
+        print(f"[SKIP] Summary already exists: {existing_summary.id}")
+        return str(existing_summary.id) if not dry_run else None
 
     # Get representative documents
     representative_docs = select_representative_docs(
@@ -197,7 +212,7 @@ def generate_daily_summary_for_event(
     )
 
     if not representative_docs:
-        print(f"⚠️  No documents found for event, skipping")
+        print(f"[WARNING] No documents found for event, skipping")
         return None
 
     # Format article samples for prompt
@@ -219,16 +234,15 @@ def generate_daily_summary_for_event(
     )
 
     # Call LLM
-    print(f"🤖 Calling LLM for summary generation...")
+    print(f"Calling LLM for summary generation...")
 
     try:
-        # Call LLM directly (bypassing FastAPI proxy for now)
-        # TODO: Fix FastAPI proxy and switch back to proxy mode
+        # Call LLM via FastAPI proxy
         response = gai(
             sys_prompt="You are an experienced journalist writing in Associated Press (AP) style. Follow the instructions exactly and output valid JSON only.",
             user_prompt=prompt,
             model="gpt-4o-mini",
-            use_proxy=False
+            use_proxy=True
         )
 
         # Parse JSON response (handle both dict and string)
@@ -242,20 +256,20 @@ def generate_daily_summary_for_event(
         else:
             summary_data = response
 
-        print(f"✅ Generated summary:")
+        print(f"[OK] Generated summary:")
         print(f"   Overview: {summary_data['overview'][:100]}...")
         print(f"   Outcomes: {summary_data['outcomes'][:100]}...")
 
     except json.JSONDecodeError as e:
-        print(f"❌ Failed to parse LLM response as JSON: {e}")
+        print(f"[ERROR] Failed to parse LLM response as JSON: {e}")
         print(f"   Response: {response[:500] if isinstance(response, str) else str(response)[:500]}...")
         return None
     except Exception as e:
-        print(f"❌ LLM call failed: {e}")
+        print(f"[ERROR] LLM call failed: {e}")
         return None
 
     if dry_run:
-        print(f"🔍 DRY RUN - Would create EventSummary with {len(event['doc_ids'])} source links")
+        print(f"[DRY RUN] Would create EventSummary with {len(event['doc_ids'])} source links")
         return None
 
     # Filter out None values from doc_ids before processing
@@ -289,7 +303,7 @@ def generate_daily_summary_for_event(
     session.add(event_summary)
     session.flush()  # Get ID
 
-    print(f"💾 Created EventSummary: {event_summary.id}")
+    print(f"[SAVED] Created EventSummary: {event_summary.id}")
 
     # Create EventSourceLink records for ALL valid doc_ids
     for doc_id in valid_doc_ids:
@@ -303,7 +317,7 @@ def generate_daily_summary_for_event(
         )
         session.add(link)
 
-    print(f"🔗 Created {len(valid_doc_ids)} EventSourceLink records")
+    print(f"[LINKS] Created {len(valid_doc_ids)} EventSourceLink records")
 
     return str(event_summary.id)
 
@@ -339,7 +353,7 @@ def generate_daily_summaries(
 
     with get_session() as session:
         while current_date <= end_date:
-            print(f"\n📅 Processing {current_date.strftime('%Y-%m-%d')}...")
+            print(f"\nProcessing {current_date.strftime('%Y-%m-%d')}...")
 
             # Get active master events for this day
             events = get_active_master_events(
@@ -349,7 +363,7 @@ def generate_daily_summaries(
             print(f"   Found {len(events)} active master events")
 
             if not events:
-                print(f"   ⚠️  No events found for this day, skipping")
+                print(f"   [WARNING] No events found for this day, skipping")
                 current_date += timedelta(days=1)
                 continue
 
@@ -364,7 +378,7 @@ def generate_daily_summaries(
 
             if not dry_run and day_summaries > 0:
                 session.commit()
-                print(f"\n✅ Committed {day_summaries} summaries for {current_date.strftime('%Y-%m-%d')}")
+                print(f"\n[OK] Committed {day_summaries} summaries for {current_date.strftime('%Y-%m-%d')}")
 
             total_summaries += day_summaries
             current_date += timedelta(days=1)

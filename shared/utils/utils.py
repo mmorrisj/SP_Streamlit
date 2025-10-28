@@ -211,7 +211,7 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=None):
                     "Example: FASTAPI_URL=http://127.0.0.1:5001/material_query"
                 )
 
-        print(f"  → Calling LLM via FastAPI proxy: {fastapi_url}")
+        print(f"  [PROXY] Calling LLM via FastAPI proxy: {fastapi_url}")
 
         payload = {
             "sys_prompt": sys_prompt,
@@ -255,8 +255,8 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=None):
 
     # Direct OpenAI call (for local development only - not recommended for production)
     else:
-        print("  ⚠ WARNING: Bypassing FastAPI proxy and calling OpenAI directly")
-        print("  ⚠ This mode is for local development only and requires OPENAI_PROJ_API env var")
+        print("  [WARNING] Bypassing FastAPI proxy and calling OpenAI directly")
+        print("  [WARNING] This mode is for local development only and requires OPENAI_PROJ_API env var")
 
         try:
             from openai import OpenAI

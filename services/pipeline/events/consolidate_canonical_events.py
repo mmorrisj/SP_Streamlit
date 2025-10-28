@@ -1,23 +1,24 @@
 """
-Temporal Event Consolidation Script
+Canonical Event Consolidation Script
 
-This script consolidates canonical events across time periods (weekly/monthly) by:
+This script consolidates canonical events by:
 1. Grouping events by country and time period
-2. Using embedding similarity to identify related events (e.g., "Ceasefire Agreement" vs "Ceasefire Negotiations")
-3. Creating consolidated event records that track the same real-world event across multiple days
+2. Using embedding similarity to identify related events
+3. Setting master_event_id to link related events to their primary event
 
-The goal is to identify when the same event appears across multiple days with slightly different names,
-and consolidate them into a single timeline view.
+This creates a master event hierarchy where:
+- Master events have master_event_id = NULL
+- Child events have master_event_id pointing to the master event ID
 
 Usage:
-    # Consolidate by week
-    python temporal_event_consolidation.py --country "United States" --start-date 2024-08-01 --end-date 2024-08-31 --period week
-
     # Consolidate by month
-    python temporal_event_consolidation.py --influencers --start-date 2024-08-01 --end-date 2024-08-31 --period month
+    python consolidate_canonical_events.py --country China --start-date 2024-08-01 --end-date 2024-09-30 --period month
+
+    # Consolidate all influencer countries
+    python consolidate_canonical_events.py --influencers --start-date 2024-08-01 --end-date 2024-09-30 --period month
 
     # Dry run to see what would be consolidated
-    python temporal_event_consolidation.py --country "United States" --start-date 2024-08-01 --end-date 2024-08-31 --period week --dry-run
+    python consolidate_canonical_events.py --country China --start-date 2024-08-01 --end-date 2024-09-30 --period month --dry-run
 """
 
 import argparse
@@ -30,7 +31,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import text
 
 from shared.database.database import get_session
-from shared.models.models import CanonicalEvent, DailyEventMention
+from shared.models.models import CanonicalEvent
 
 
 def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
@@ -42,7 +43,7 @@ def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
                 'influencers': config.get('influencers', ['China', 'Russia', 'Iran', 'Turkey', 'United States'])
             }
     except Exception as e:
-        print(f"Warning: Could not load config.yaml: {e}")
+        print(f"[WARNING] Could not load config.yaml: {e}")
         return {'influencers': ['China', 'Russia', 'Iran', 'Turkey', 'United States']}
 
 
@@ -67,7 +68,7 @@ def get_date_ranges(start_date: date, end_date: date, period: str) -> List[Tuple
 
         while current <= end_date:
             period_end = min(current + timedelta(days=6), end_date)
-            if period_end >= start_date:  # Only include periods that overlap with our range
+            if period_end >= start_date:
                 ranges.append((max(current, start_date), period_end))
             current += timedelta(days=7)
 
@@ -99,6 +100,7 @@ def load_canonical_events_for_period(
 ) -> List[Dict]:
     """
     Load canonical events and their mentions for a specific country and date range.
+    Only loads events that don't already have a master_event_id set.
 
     Returns:
         List of dicts with canonical event info plus aggregated mention stats
@@ -110,6 +112,7 @@ def load_canonical_events_for_period(
             ce.initiating_country,
             ce.embedding_vector,
             ce.alternative_names,
+            ce.master_event_id,
             COUNT(DISTINCT dem.mention_date) as days_mentioned,
             MIN(dem.mention_date) as first_mention,
             MAX(dem.mention_date) as last_mention,
@@ -121,6 +124,7 @@ def load_canonical_events_for_period(
         WHERE ce.initiating_country = :country
           AND dem.mention_date >= :start_date
           AND dem.mention_date <= :end_date
+          AND ce.master_event_id IS NULL
         GROUP BY ce.id
         ORDER BY total_articles DESC
     '''), {
@@ -137,12 +141,13 @@ def load_canonical_events_for_period(
             'initiating_country': row[2],
             'embedding': np.array(row[3]),
             'alternative_names': row[4] or [],
-            'days_mentioned': row[5],
-            'first_mention': row[6],
-            'last_mention': row[7],
-            'total_articles': row[8],
-            'mention_dates': row[9],
-            'mention_ids': row[10]
+            'master_event_id': row[5],
+            'days_mentioned': row[6],
+            'first_mention': row[7],
+            'last_mention': row[8],
+            'total_articles': row[9],
+            'mention_dates': row[10],
+            'mention_ids': row[11]
         })
 
     return events
@@ -232,7 +237,7 @@ def consolidate_period(
     if len(events) == 0:
         if verbose:
             print(f"  No events found for this period")
-        return {'events': 0, 'groups': 0, 'consolidated': 0}
+        return {'events': 0, 'groups': 0, 'consolidated': 0, 'updated': 0}
 
     if verbose:
         print(f"  Found {len(events)} canonical events")
@@ -246,44 +251,70 @@ def consolidate_period(
     stats = {
         'events': len(events),
         'groups': len(groups),
-        'consolidated': sum(len(g) for g in groups)
+        'consolidated': sum(len(g) for g in groups),
+        'updated': 0
     }
 
-    # Display consolidated groups
+    # Process consolidated groups
     for group_idx, group in enumerate(groups):
-        if verbose:
-            print(f"\n  Group {group_idx + 1}: {len(group)} related events")
-
         # Sort by total articles (most prominent first)
         group_events = sorted([events[i] for i in group], key=lambda e: e['total_articles'], reverse=True)
 
-        # Primary event (most articles)
-        primary = group_events[0]
+        # Primary event (most articles) becomes the master
+        master_event = group_events[0]
+        master_id = master_event['id']
 
         if verbose:
             # Encode event names to handle Unicode characters
-            primary_name = primary['canonical_name'].encode('ascii', 'replace').decode('ascii')
-            print(f"    Primary: {primary_name}")
-            print(f"      {primary['days_mentioned']} days, {primary['total_articles']} articles")
-            print(f"      Dates: {primary['first_mention']} to {primary['last_mention']}")
+            master_name = master_event['canonical_name'].encode('ascii', 'replace').decode('ascii')
+            print(f"\n  Group {group_idx + 1}: {len(group)} related events")
+            print(f"    Master Event: {master_name} (ID: {master_id})")
+            print(f"      {master_event['days_mentioned']} days, {master_event['total_articles']} articles")
+            print(f"      Dates: {master_event['first_mention']} to {master_event['last_mention']}")
 
-            if len(group_events) > 1:
-                print(f"    Related events:")
-                for evt in group_events[1:]:
-                    evt_name = evt['canonical_name'].encode('ascii', 'replace').decode('ascii')
-                    print(f"      - {evt_name}")
-                    print(f"        {evt['days_mentioned']} days, {evt['total_articles']} articles")
+        # Update child events to point to master
+        if len(group_events) > 1 and not dry_run:
+            child_ids = [evt['id'] for evt in group_events[1:]]
 
-        # In a future enhancement, we could update the primary canonical event
-        # to include the mention_ids from related events
-        # For now, this is just reporting what would be consolidated
+            # Update master_event_id for all child events
+            session.execute(
+                text('''
+                    UPDATE canonical_events
+                    SET master_event_id = :master_id
+                    WHERE id = ANY(:child_ids)
+                '''),
+                {
+                    'master_id': master_id,
+                    'child_ids': child_ids
+                }
+            )
+
+            stats['updated'] += len(child_ids)
+
+            if verbose:
+                print(f"    [UPDATED] Linked {len(child_ids)} child events to master")
+
+        elif len(group_events) > 1 and dry_run and verbose:
+            print(f"    [DRY RUN] Would link {len(group_events) - 1} child events:")
+            for evt in group_events[1:]:
+                evt_name = evt['canonical_name'].encode('ascii', 'replace').decode('ascii')
+                print(f"      - {evt_name} (ID: {evt['id']})")
+                print(f"        {evt['days_mentioned']} days, {evt['total_articles']} articles")
+
+    # Commit changes if not dry run
+    if not dry_run and stats['updated'] > 0:
+        session.commit()
+        if verbose:
+            print(f"\n  [COMMITTED] Updated {stats['updated']} canonical events")
+    elif dry_run and verbose:
+        print(f"\n  [DRY RUN] Would update {stats['consolidated'] - stats['groups']} canonical events")
 
     return stats
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Temporal Event Consolidation",
+        description="Canonical Event Consolidation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
@@ -297,7 +328,7 @@ def main():
     parser.add_argument('--end-date', type=str, required=True, help='End date (YYYY-MM-DD)')
 
     # Consolidation parameters
-    parser.add_argument('--period', type=str, choices=['week', 'month'], default='week',
+    parser.add_argument('--period', type=str, choices=['week', 'month'], default='month',
                        help='Consolidation period (week or month)')
     parser.add_argument('--similarity-threshold', type=float, default=0.85,
                        help='Cosine similarity threshold for merging events (0.0-1.0)')
@@ -319,28 +350,29 @@ def main():
     elif args.country:
         countries = [args.country]
     else:
-        print("Error: Must specify either --country or --influencers")
+        print("[ERROR] Must specify either --country or --influencers")
         return
 
     # Get date ranges for period
     date_ranges = get_date_ranges(start_date, end_date, args.period)
 
     print("=" * 80)
-    print("TEMPORAL EVENT CONSOLIDATION")
+    print("CANONICAL EVENT CONSOLIDATION")
     print("=" * 80)
     print(f"Period: {args.period}")
     print(f"Date range: {start_date} to {end_date} ({len(date_ranges)} {args.period}s)")
     print(f"Countries: {', '.join(countries)}")
     print(f"Similarity threshold: {args.similarity_threshold}")
     if args.dry_run:
-        print("DRY RUN MODE - No changes will be saved")
+        print("[DRY RUN MODE] No changes will be saved")
     print("=" * 80)
     print()
 
     overall_stats = {
         'total_events': 0,
         'total_groups': 0,
-        'total_consolidated': 0
+        'total_consolidated': 0,
+        'total_updated': 0
     }
 
     with get_session() as session:
@@ -360,6 +392,7 @@ def main():
                 overall_stats['total_events'] += stats['events']
                 overall_stats['total_groups'] += stats['groups']
                 overall_stats['total_consolidated'] += stats['consolidated']
+                overall_stats['total_updated'] += stats['updated']
 
     print()
     print("=" * 80)
@@ -368,6 +401,8 @@ def main():
     print(f"Total events processed: {overall_stats['total_events']}")
     print(f"Event groups identified: {overall_stats['total_groups']}")
     print(f"Events that can be consolidated: {overall_stats['total_consolidated']}")
+    if not args.dry_run:
+        print(f"Database records updated: {overall_stats['total_updated']}")
     print("=" * 80)
 
 
