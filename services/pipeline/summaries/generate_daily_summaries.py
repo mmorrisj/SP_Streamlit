@@ -15,12 +15,18 @@ Usage:
     python generate_daily_summaries.py --dry-run --country Iran --date 2024-08-15
 """
 
+import sys
+import io
 import argparse
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session
+
+# Configure stdout encoding for Unicode support on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from shared.database.database import get_session, get_engine
 from shared.models.models import (
@@ -38,19 +44,21 @@ def get_active_master_events(
     session: Session,
     country: str,
     date: datetime,
-    limit: int = 10
+    limit: int = 10  # Deprecated parameter kept for backward compatibility
 ) -> List[Dict]:
     """
     Get master events active on a specific day for a country.
+
+    Now returns ALL events with ≥3 articles (changed from top 10 limit).
 
     Args:
         session: Database session
         country: Initiating country
         date: Date to query
-        limit: Maximum number of events to return (top by article count)
+        limit: DEPRECATED - No longer used, kept for backward compatibility
 
     Returns:
-        List of dicts with event metadata and doc_ids
+        List of dicts with event metadata and doc_ids (all events with ≥3 articles)
     """
     query = text("""
         WITH master_events AS (
@@ -91,14 +99,13 @@ def get_active_master_events(
         LEFT JOIN daily_mentions dm ON dm.canonical_event_id = c.id
         LEFT JOIN LATERAL unnest(dm.doc_ids) unnested_doc ON true
         GROUP BY me.master_id, me.canonical_name, me.primary_categories, me.primary_recipients
-        HAVING COUNT(DISTINCT unnested_doc) > 0
+        HAVING COUNT(DISTINCT unnested_doc) >= 3
         ORDER BY article_count DESC
-        LIMIT :limit
     """)
 
     result = session.execute(
         query,
-        {"country": country, "date": date, "limit": limit}
+        {"country": country, "date": date}
     ).fetchall()
 
     events = []
@@ -161,7 +168,7 @@ def format_article_samples(documents: List[Document]) -> str:
         samples.append(f"""[{i}] {doc.title}
 Source: {doc.source_name}
 Date: {doc.date.strftime('%B %d, %Y') if doc.date else 'Unknown'}
-Excerpt: {doc.distilled_text[:500] if doc.distilled_text else doc.summary[:500] if doc.summary else 'No text available'}...
+Excerpt: {doc.distilled_text[:500] if doc.distilled_text else doc.title[:500] if doc.title else 'No text available'}...
 """)
 
     return "\n".join(samples)
@@ -257,15 +264,25 @@ def generate_daily_summary_for_event(
             summary_data = response
 
         print(f"[OK] Generated summary:")
-        print(f"   Overview: {summary_data['overview'][:100]}...")
-        print(f"   Outcomes: {summary_data['outcomes'][:100]}...")
+        try:
+            print(f"   Overview: {summary_data['overview'][:100]}...")
+            print(f"   Outcomes: {summary_data['outcomes'][:100]}...")
+        except UnicodeEncodeError:
+            print(f"   Overview: [Unicode content - {len(summary_data['overview'])} chars]")
+            print(f"   Outcomes: [Unicode content - {len(summary_data['outcomes'])} chars]")
 
     except json.JSONDecodeError as e:
         print(f"[ERROR] Failed to parse LLM response as JSON: {e}")
-        print(f"   Response: {response[:500] if isinstance(response, str) else str(response)[:500]}...")
+        try:
+            print(f"   Response: {response[:500] if isinstance(response, str) else str(response)[:500]}...")
+        except UnicodeEncodeError:
+            print(f"   Response: [Unicode encoding error - response contains non-ASCII characters]")
         return None
     except Exception as e:
-        print(f"[ERROR] LLM call failed: {e}")
+        try:
+            print(f"[ERROR] LLM call failed: {e}")
+        except UnicodeEncodeError:
+            print(f"[ERROR] LLM call failed: [Unicode encoding error]")
         return None
 
     if dry_run:
@@ -344,7 +361,7 @@ def generate_daily_summaries(
     print(f"{'='*80}")
     print(f"Country: {country}")
     print(f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-    print(f"Events per Day: {limit_per_day}")
+    print(f"Selection Criteria: All events with ≥3 articles")
     print(f"Dry Run: {dry_run}")
     print(f"{'='*80}\n")
 
@@ -434,7 +451,7 @@ def main():
         '--limit',
         type=int,
         default=10,
-        help='Maximum events to process per day (default: 10)'
+        help='DEPRECATED: Now processes all events with ≥3 articles (parameter kept for backward compatibility)'
     )
 
     args = parser.parse_args()

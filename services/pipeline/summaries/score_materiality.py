@@ -13,9 +13,14 @@ Usage:
 import argparse
 import json
 import sys
+import io
 from datetime import date, datetime
 from typing import List, Dict, Optional
 from pathlib import Path
+
+# Configure stdout encoding for Unicode support on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from sqlalchemy import text
 from shared.database.database import get_session
