@@ -224,6 +224,30 @@ Outcomes: {narrative.get('outcomes', 'N/A')}""")
     session.add(event_summary)
     session.flush()  # Get the ID
 
+    # Collect all unique doc_ids from constituent daily summaries
+    doc_ids = set()
+    for daily in daily_summaries:
+        # Query source links for this daily summary
+        daily_links = session.execute(text('''
+            SELECT doc_id FROM event_source_links
+            WHERE event_summary_id = :summary_id
+        '''), {'summary_id': daily['summary_id']}).fetchall()
+
+        doc_ids.update(row[0] for row in daily_links)
+
+    # Create EventSourceLink records for the weekly summary
+    if doc_ids:
+        for doc_id in doc_ids:
+            link = EventSourceLink(
+                event_summary_id=event_summary.id,
+                doc_id=doc_id
+            )
+            session.add(link)
+
+        print(f"    [LINKS] Created {len(doc_ids)} EventSourceLink records")
+    else:
+        print(f"    [WARNING] No source documents found from daily summaries")
+
     print(f"    [SAVED] Created weekly summary: {event_summary.id}")
     print(f"    [INFO] Synthesized from {len(daily_summaries)} daily summaries")
 

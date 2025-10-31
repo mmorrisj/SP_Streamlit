@@ -23,3 +23,6 @@ coverage/
 *.exe.*
 *.json
 *.parquet
+*.docx
+*.csv
+*.txt

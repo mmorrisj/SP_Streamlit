@@ -19,7 +19,7 @@ from sqlalchemy import text
 from uuid import UUID
 
 from shared.database.database import get_session
-from shared.models.models import EventSummary, PeriodType, EventStatus
+from shared.models.models import EventSummary, PeriodType, EventStatus, EventSourceLink
 from shared.utils.utils import gai
 from services.pipeline.summaries.summary_prompts import MONTHLY_SUMMARY_PROMPT
 
@@ -227,6 +227,30 @@ Progression: {narrative.get('progression', 'N/A')}""")
 
     session.add(event_summary)
     session.flush()  # Get the ID
+
+    # Collect all unique doc_ids from constituent weekly summaries
+    doc_ids = set()
+    for weekly in weekly_summaries:
+        # Query source links for this weekly summary
+        weekly_links = session.execute(text('''
+            SELECT doc_id FROM event_source_links
+            WHERE event_summary_id = :summary_id
+        '''), {'summary_id': weekly['summary_id']}).fetchall()
+
+        doc_ids.update(row[0] for row in weekly_links)
+
+    # Create EventSourceLink records for the monthly summary
+    if doc_ids:
+        for doc_id in doc_ids:
+            link = EventSourceLink(
+                event_summary_id=event_summary.id,
+                doc_id=doc_id
+            )
+            session.add(link)
+
+        print(f"    [LINKS] Created {len(doc_ids)} EventSourceLink records")
+    else:
+        print(f"    [WARNING] No source documents found from weekly summaries")
 
     print(f"    [SAVED] Created monthly summary: {event_summary.id}")
     print(f"    [INFO] Synthesized from {len(weekly_summaries)} weekly summaries")
