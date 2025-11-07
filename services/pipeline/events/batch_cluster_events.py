@@ -33,12 +33,14 @@ Date: 2025-10-22
 import argparse
 import re
 import yaml
+import uuid
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Tuple
 from collections import defaultdict
 import numpy as np
 
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert
 from sklearn.cluster import DBSCAN
 from sentence_transformers import SentenceTransformer
 
@@ -281,6 +283,7 @@ class EventBatchClusterer:
     ):
         """
         Save clustered events to database.
+        Uses ON CONFLICT DO NOTHING to gracefully handle duplicate entries.
         """
         for cluster_id, cluster_events, centroid in clusters:
             # Extract event names and doc IDs
@@ -290,24 +293,31 @@ class EventBatchClusterer:
             # Find representative name
             representative_name = self.find_representative_name(cluster_events, centroid)
 
-            # Create EventCluster record (convert numpy types to native Python)
-            event_cluster = EventCluster(
-                initiating_country=country,
-                cluster_date=target_date,
-                batch_number=int(batch_number),  # Ensure native Python int
-                cluster_id=int(cluster_id),  # Convert from numpy.int64
-                event_names=event_names,
-                doc_ids=doc_ids,
-                cluster_size=len(cluster_events),
-                is_noise=bool(cluster_id == -1),  # DBSCAN noise label
-                centroid_embedding=[float(x) for x in centroid],  # Convert from numpy.float32
-                representative_name=representative_name,
-                processed=False,
-                llm_deconflicted=False,
-                created_at=datetime.utcnow()
+            # Prepare data for insert (convert numpy types to native Python)
+            cluster_data = {
+                'id': uuid.uuid4(),
+                'initiating_country': country,
+                'cluster_date': target_date,
+                'batch_number': int(batch_number),  # Ensure native Python int
+                'cluster_id': int(cluster_id),  # Convert from numpy.int64
+                'event_names': event_names,
+                'doc_ids': doc_ids,
+                'cluster_size': len(cluster_events),
+                'is_noise': bool(cluster_id == -1),  # DBSCAN noise label
+                'centroid_embedding': [float(x) for x in centroid],  # Convert from numpy.float32
+                'representative_name': representative_name,
+                'processed': False,
+                'llm_deconflicted': False,
+                'created_at': datetime.utcnow()
+            }
+
+            # Use PostgreSQL's ON CONFLICT DO NOTHING to skip duplicates
+            stmt = insert(EventCluster).values(**cluster_data)
+            stmt = stmt.on_conflict_do_nothing(
+                constraint='uq_event_cluster'
             )
 
-            session.add(event_cluster)
+            session.execute(stmt)
 
     def process_date(
         self,

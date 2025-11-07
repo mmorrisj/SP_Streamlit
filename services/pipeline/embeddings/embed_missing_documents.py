@@ -210,12 +210,12 @@ Examples:
     missing_doc_ids = find_missing_embeddings(args.collection)
 
     if not missing_doc_ids:
-        print("\n✅ All documents have embeddings!")
+        print("\nAll documents have embeddings!")
         sys.exit(0)
 
     # Apply limit if specified
     if args.limit:
-        print(f"\n⚠️  Limiting to {args.limit} documents")
+        print(f"\nLimiting to {args.limit} documents")
         missing_doc_ids = missing_doc_ids[:args.limit]
 
     # Dry run
@@ -236,7 +236,7 @@ Examples:
         sys.exit(0)
 
     # Embed documents
-    print(f"\n🚀 Starting direct embedding process...")
+    print(f"\nStarting direct embedding process...")
     start_time = datetime.now()
 
     try:

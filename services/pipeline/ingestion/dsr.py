@@ -566,11 +566,11 @@ def embed_documents_direct(doc_ids, batch_size=50):
                         ids=batch_embedding_ids
                     )
                     embedded_count += len(batch_texts)
-                    print(f"✅ Embedded batch {(i//batch_size)+1}: {len(batch_texts)} documents")
+                    print(f"[OK] Embedded batch {(i//batch_size)+1}: {len(batch_texts)} documents")
                 except Exception as e:
-                    print(f"❌ Error embedding batch {(i//batch_size)+1}: {e}")
+                    print(f"[ERROR] Error embedding batch {(i//batch_size)+1}: {e}")
 
-    print(f"🎯 Direct embedding complete: {embedded_count} documents embedded")
+    print(f"[COMPLETE] Direct embedding complete: {embedded_count} documents embedded")
 
 def process_dsr_s3(s3_prefix: str = "dsr_extracts/", specific_files: Optional[List[str]] = None, batch_size: int = 100):
     """
