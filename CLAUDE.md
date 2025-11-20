@@ -70,19 +70,35 @@ python services/pipeline/events/news_event_tracker.py     # Event tracking
 python services/pipeline/events/process_daily_news.py     # Daily event processing
 python services/pipeline/events/process_date_range.py     # Process date range
 
-# Embeddings
-python services/pipeline/embeddings/s3_to_pgvector.py --s3-prefix embeddings/ --collection chunk_embeddings
-python services/pipeline/embeddings/s3_to_pgvector.py --dry-run     # Test without writing
-python services/pipeline/embeddings/s3_to_pgvector.py --force       # Reprocess all files
-python services/pipeline/embeddings/s3_to_pgvector.py view chunk_embeddings      # View processed files
+# Embeddings - Generation
+python services/pipeline/embeddings/embed_missing_documents.py                    # Embed documents
+python services/pipeline/embeddings/embed_missing_documents.py --status           # Check status
+python services/pipeline/embeddings/embed_event_summaries.py --yes                # Embed event summaries
+python services/pipeline/embeddings/embed_event_summaries.py --status             # Check event embedding status
 
-# Load pre-computed embeddings from parquet files
-python services/pipeline/embeddings/load_embeddings.py --source local --directory data/processed_embeddings
-python services/pipeline/embeddings/load_embeddings.py --source s3 --s3-prefix embeddings/
-python services/pipeline/embeddings/load_embeddings.py --source local --status  # Check local status
-python services/pipeline/embeddings/load_embeddings.py --source s3 --status     # Check S3 status
-python services/pipeline/embeddings/load_embeddings.py --source local --files file1.parquet file2.parquet  # Load specific files
-python services/pipeline/embeddings/load_embeddings.py --source local --reprocess file1.parquet  # Reprocess specific files
+# Embeddings - Backup & Restore (FAST - recommended for database rebuilds)
+# Export all embeddings (saves ~45 hours of regeneration time!)
+python services/pipeline/embeddings/export_embeddings.py \
+    --output-dir ./embedding_backups/$(date +%Y%m%d) \
+    --include-event-summaries
+
+# Restore embeddings from backup (15-20 minutes vs 45 hours regeneration)
+python services/pipeline/embeddings/import_embeddings.py \
+    --input-dir ./embedding_backups/20241106
+
+# Export to S3 for long-term storage
+python services/pipeline/embeddings/export_embeddings.py \
+    --output-dir ./embedding_backups/$(date +%Y%m%d) \
+    --include-event-summaries \
+    --s3-bucket your-bucket \
+    --s3-prefix embeddings/backup/$(date +%Y%m%d)/
+
+# Restore from S3
+python services/pipeline/embeddings/import_embeddings.py \
+    --s3-bucket your-bucket \
+    --s3-prefix embeddings/backup/20241106/
+
+# See services/pipeline/embeddings/README_BACKUP_RESTORE.md for full documentation
 
 # FastAPI server (for S3 operations, runs on host)
 uvicorn services.api.main:app --host 0.0.0.0 --port 8000 --reload
