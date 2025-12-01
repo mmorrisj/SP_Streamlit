@@ -685,3 +685,100 @@ class EventCluster(Base):
         UniqueConstraint("initiating_country", "cluster_date", "batch_number", "cluster_id",
                         name="uq_event_cluster"),
     )
+
+
+class BilateralRelationshipSummary(Base):
+    """
+    Comprehensive bilateral relationship summaries between country pairs.
+
+    Aggregates all soft power interactions (documents, events, summaries) between
+    an initiating country and a recipient country to provide an analytical overview
+    of their bilateral relationship dynamics.
+
+    Example: China → Egypt relationship summary covering all their interactions
+    across all time periods and categories.
+    """
+    __tablename__ = "bilateral_relationship_summaries"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Country pair
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_country: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Time coverage
+    first_interaction_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    last_interaction_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    analysis_generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Quantitative metrics
+    total_documents: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_daily_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_weekly_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_monthly_events: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Category and source breakdowns (JSONB)
+    count_by_category: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+    count_by_subcategory: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+    count_by_source: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Temporal trends (monthly aggregations)
+    activity_by_month: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # AI-generated comprehensive summary
+    relationship_summary: Mapped[Dict] = mapped_column(JSONB, nullable=False)
+    """
+    Expected structure:
+    {
+        "overview": "High-level summary of the relationship",
+        "key_themes": ["theme1", "theme2", ...],
+        "major_initiatives": [
+            {"name": "...", "description": "...", "timeframe": "..."},
+            ...
+        ],
+        "trend_analysis": "Analysis of how relationship has evolved",
+        "current_status": "Present state of the relationship",
+        "notable_developments": ["development1", "development2", ...],
+        "material_assessment": {
+            "score": 0.0-1.0,
+            "justification": "..."
+        }
+    }
+    """
+
+    # Material soft power score
+    material_score: Mapped[Optional[float]] = mapped_column(Float)
+    material_justification: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Versioning for regeneration tracking
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    # Soft delete
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    __table_args__ = (
+        # Ensure one summary per country pair
+        UniqueConstraint("initiating_country", "recipient_country", name="uq_bilateral_pair"),
+        # Performance indexes
+        Index("ix_bilateral_initiator", "initiating_country"),
+        Index("ix_bilateral_recipient", "recipient_country"),
+        Index("ix_bilateral_dates", "first_interaction_date", "last_interaction_date"),
+        Index("ix_bilateral_updated", "updated_at"),
+        # JSONB indexes for efficient queries
+        Index("ix_bilateral_category_jsonb", "count_by_category", postgresql_using="gin"),
+        # Ensure logical date consistency
+        CheckConstraint("first_interaction_date <= last_interaction_date", name="ck_bilateral_valid_dates"),
+        CheckConstraint("total_documents >= 0", name="ck_bilateral_positive_docs"),
+    )
+
+    def __repr__(self):
+        return f"<BilateralRelationshipSummary({self.initiating_country} → {self.recipient_country}, {self.total_documents} docs)>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {column.name: getattr(self, column.name) for column in self.__table__.columns}

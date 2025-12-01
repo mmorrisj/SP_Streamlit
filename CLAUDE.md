@@ -70,6 +70,19 @@ python services/pipeline/events/news_event_tracker.py     # Event tracking
 python services/pipeline/events/process_daily_news.py     # Daily event processing
 python services/pipeline/events/process_date_range.py     # Process date range
 
+# Bilateral Relationship Summaries
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --init-country China --recipient-country Egypt         # Generate specific pair
+
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --init-country China --min-docs 500                    # All recipients for China (≥500 docs)
+
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --all --min-docs 1000                                  # All major pairs (≥1000 docs)
+
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --init-country China --recipient-country Egypt --regenerate  # Update existing summary
+
 # Embeddings - Generation
 python services/pipeline/embeddings/embed_missing_documents.py                    # Embed documents
 python services/pipeline/embeddings/embed_missing_documents.py --status           # Check status
