@@ -375,6 +375,47 @@ def gather_bilateral_data(
         for row in recent_results
     ]
 
+    # Get material score histogram from event summaries
+    material_query = text("""
+        SELECT
+            es.material_score,
+            COUNT(*) as event_count
+        FROM event_summaries es
+        WHERE es.initiating_country = :init_country
+        AND es.count_by_recipient ? :recip_country
+        AND es.material_score IS NOT NULL
+        GROUP BY es.material_score
+        ORDER BY es.material_score
+    """)
+
+    material_results = session.execute(
+        material_query,
+        {"init_country": initiating_country, "recip_country": recipient_country}
+    ).fetchall()
+
+    # Build histogram with rounded scores (e.g., 2.5, 3.0, 3.5, etc.)
+    material_histogram = {}
+    material_scores = []
+    for row in material_results:
+        score = row[0]
+        count = row[1]
+        # Round to nearest 0.5 for histogram buckets
+        rounded_score = round(score * 2) / 2
+        material_histogram[str(rounded_score)] = material_histogram.get(str(rounded_score), 0) + count
+        # Collect all raw scores for avg/median calculation
+        material_scores.extend([score] * count)
+
+    data['material_histogram'] = material_histogram
+
+    # Calculate avg and median
+    if material_scores:
+        import statistics
+        data['material_avg'] = statistics.mean(material_scores)
+        data['material_median'] = statistics.median(material_scores)
+    else:
+        data['material_avg'] = None
+        data['material_median'] = None
+
     return data
 
 
@@ -550,6 +591,9 @@ def generate_bilateral_summary(
         existing.relationship_summary = relationship_summary
         existing.material_score = material_score
         existing.material_justification = material_justification
+        existing.material_score_histogram = data['material_histogram']
+        existing.material_score_avg = data['material_avg']
+        existing.material_score_median = data['material_median']
         existing.updated_at = datetime.utcnow()
         existing.version += 1
 
@@ -572,6 +616,9 @@ def generate_bilateral_summary(
             relationship_summary=relationship_summary,
             material_score=material_score,
             material_justification=material_justification,
+            material_score_histogram=data['material_histogram'],
+            material_score_avg=data['material_avg'],
+            material_score_median=data['material_median'],
             created_by="generate_bilateral_summaries.py"
         )
 

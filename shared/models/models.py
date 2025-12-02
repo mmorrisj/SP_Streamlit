@@ -746,7 +746,21 @@ class BilateralRelationshipSummary(Base):
     }
     """
 
-    # Material soft power score
+    # Material soft power analysis (histogram-based)
+    material_score_histogram: Mapped[Optional[Dict[str, int]]] = mapped_column(JSONB, default=dict)
+    """
+    Histogram of material scores from events:
+    {
+        "2.0": 5,   # 5 events with material score 2.0
+        "3.0": 12,  # 12 events with material score 3.0
+        ...
+    }
+    """
+
+    material_score_avg: Mapped[Optional[float]] = mapped_column(Float)
+    material_score_median: Mapped[Optional[float]] = mapped_column(Float)
+
+    # Legacy fields (kept for backward compatibility)
     material_score: Mapped[Optional[float]] = mapped_column(Float)
     material_justification: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -779,6 +793,210 @@ class BilateralRelationshipSummary(Base):
 
     def __repr__(self):
         return f"<BilateralRelationshipSummary({self.initiating_country} → {self.recipient_country}, {self.total_documents} docs)>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+
+
+class CountryCategorySummary(Base):
+    """
+    Category-specific soft power analysis for each initiating country.
+
+    Aggregates all interactions for a specific country-category combination
+    (e.g., "China's Economic soft power", "Russia's Military soft power").
+
+    This provides a thematic lens on how countries deploy different categories
+    of soft power across all their recipient relationships.
+
+    Example: China → All Recipients → Economic category analysis
+    """
+    __tablename__ = "country_category_summaries"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Country and category
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Time coverage
+    first_interaction_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    last_interaction_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    analysis_generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Quantitative metrics
+    total_documents: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_daily_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_weekly_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_monthly_events: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Recipient breakdown (which countries receive this type of soft power)
+    count_by_recipient: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Subcategory breakdown within this category
+    count_by_subcategory: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Source distribution
+    count_by_source: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Temporal trends
+    activity_by_month: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # AI-generated category-specific analysis
+    category_summary: Mapped[Dict] = mapped_column(JSONB, nullable=False)
+    """
+    Expected structure:
+    {
+        "overview": "High-level summary of this country's use of this category",
+        "key_strategies": ["strategy1", "strategy2", ...],
+        "top_recipients": [
+            {"country": "...", "focus_areas": "...", "intensity": "..."},
+            ...
+        ],
+        "major_initiatives": [
+            {"name": "...", "description": "...", "timeframe": "..."},
+            ...
+        ],
+        "trend_analysis": "How this category's use has evolved",
+        "effectiveness_assessment": "Analysis of impact and outcomes",
+        "material_assessment": {
+            "score": 0.0-1.0,
+            "justification": "..."
+        }
+    }
+    """
+
+    # Material soft power analysis (histogram-based)
+    material_score_histogram: Mapped[Optional[Dict[str, int]]] = mapped_column(JSONB, default=dict)
+    material_score_avg: Mapped[Optional[float]] = mapped_column(Float)
+    material_score_median: Mapped[Optional[float]] = mapped_column(Float)
+    material_score: Mapped[Optional[float]] = mapped_column(Float)
+    material_justification: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Versioning
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    # Soft delete
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("initiating_country", "category", name="uq_country_category"),
+        Index("ix_country_category_initiator", "initiating_country"),
+        Index("ix_country_category_category", "category"),
+        Index("ix_country_category_dates", "first_interaction_date", "last_interaction_date"),
+        Index("ix_country_category_updated", "updated_at"),
+        Index("ix_country_category_recipient_jsonb", "count_by_recipient", postgresql_using="gin"),
+        CheckConstraint("first_interaction_date <= last_interaction_date", name="ck_country_category_valid_dates"),
+        CheckConstraint("total_documents >= 0", name="ck_country_category_positive_docs"),
+    )
+
+    def __repr__(self):
+        return f"<CountryCategorySummary({self.initiating_country} → {self.category}, {self.total_documents} docs)>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+
+
+class BilateralCategorySummary(Base):
+    """
+    Category-specific analysis for bilateral country pairs.
+
+    Focuses on a single category of soft power interaction between two countries
+    (e.g., "China → Egypt Economic relationship", "Russia → Iran Military relationship").
+
+    This provides deep categorical insight into bilateral dynamics, showing how
+    different soft power tools are deployed in specific relationships.
+
+    Example: China → Egypt → Economic category analysis
+    """
+    __tablename__ = "bilateral_category_summaries"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Country pair and category
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_country: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Time coverage
+    first_interaction_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    last_interaction_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    analysis_generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Quantitative metrics
+    total_documents: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_daily_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_weekly_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_monthly_events: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Subcategory breakdown within this category
+    count_by_subcategory: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Source distribution
+    count_by_source: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Temporal trends
+    activity_by_month: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # AI-generated bilateral category-specific analysis
+    category_summary: Mapped[Dict] = mapped_column(JSONB, nullable=False)
+    """
+    Expected structure:
+    {
+        "overview": "High-level summary of this category in this bilateral relationship",
+        "key_focus_areas": ["area1", "area2", ...],
+        "major_initiatives": [
+            {"name": "...", "description": "...", "timeframe": "..."},
+            ...
+        ],
+        "interaction_patterns": "How this category is deployed in this relationship",
+        "trend_analysis": "Evolution of this category over time",
+        "impact_assessment": "Effectiveness and outcomes",
+        "material_assessment": {
+            "score": 0.0-1.0,
+            "justification": "..."
+        }
+    }
+    """
+
+    # Material soft power analysis (histogram-based)
+    material_score_histogram: Mapped[Optional[Dict[str, int]]] = mapped_column(JSONB, default=dict)
+    material_score_avg: Mapped[Optional[float]] = mapped_column(Float)
+    material_score_median: Mapped[Optional[float]] = mapped_column(Float)
+    material_score: Mapped[Optional[float]] = mapped_column(Float)
+    material_justification: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Versioning
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    # Soft delete
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("initiating_country", "recipient_country", "category", name="uq_bilateral_category"),
+        Index("ix_bilateral_category_initiator", "initiating_country"),
+        Index("ix_bilateral_category_recipient", "recipient_country"),
+        Index("ix_bilateral_category_category", "category"),
+        Index("ix_bilateral_category_dates", "first_interaction_date", "last_interaction_date"),
+        Index("ix_bilateral_category_updated", "updated_at"),
+        Index("ix_bilateral_category_subcategory_jsonb", "count_by_subcategory", postgresql_using="gin"),
+        CheckConstraint("first_interaction_date <= last_interaction_date", name="ck_bilateral_category_valid_dates"),
+        CheckConstraint("total_documents >= 0", name="ck_bilateral_category_positive_docs"),
+    )
+
+    def __repr__(self):
+        return f"<BilateralCategorySummary({self.initiating_country} → {self.recipient_country} → {self.category}, {self.total_documents} docs)>"
 
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}

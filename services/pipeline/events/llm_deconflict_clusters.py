@@ -473,6 +473,27 @@ For each potential group, verify:
             # Remove duplicates while preserving order
             group_doc_ids = list(dict.fromkeys(group_doc_ids))
 
+            # Query recipient countries and categories from these documents
+            from sqlalchemy import text
+
+            # Get recipient countries with counts
+            recipients_query = session.execute(text("""
+                SELECT rc.recipient_country, COUNT(*) as count
+                FROM recipient_countries rc
+                WHERE rc.doc_id = ANY(:doc_ids)
+                GROUP BY rc.recipient_country
+            """), {"doc_ids": group_doc_ids}).fetchall()
+            primary_recipients = {row[0]: row[1] for row in recipients_query}
+
+            # Get categories with counts
+            categories_query = session.execute(text("""
+                SELECT c.category, COUNT(*) as count
+                FROM categories c
+                WHERE c.doc_id = ANY(:doc_ids)
+                GROUP BY c.category
+            """), {"doc_ids": group_doc_ids}).fetchall()
+            primary_categories = {row[0]: row[1] for row in categories_query}
+
             # Choose canonical name (most frequent or first)
             canonical_name = max(group_names, key=group_names.count)
 
@@ -520,8 +541,8 @@ For each potential group, verify:
                     peak_daily_article_count=len(group_doc_ids),
                     embedding_vector=embedding,
                     alternative_names=[name for name in group_names if name != canonical_name],
-                    primary_categories={},
-                    primary_recipients={}
+                    primary_categories=primary_categories,
+                    primary_recipients=primary_recipients
                 )
                 session.add(canonical_event)
                 session.flush()  # Get the ID
