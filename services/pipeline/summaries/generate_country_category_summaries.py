@@ -53,40 +53,61 @@ COUNTRY_CATEGORY_SUMMARY_PROMPT = """You are analyzing **{country}'s** use of **
 - Monthly Activity Trend: {monthly_trend}
 - Material Score: Avg {material_avg:.2f}, Median {material_median:.2f} (from {material_count} scored events)
 
-**Sample Recent Event Names ({category} category only):**
+**Actual Event Names ({category} category only):**
 {recent_events}
 
-**TASK:**
-Analyze how {country} deploys **{category}** soft power as a strategic tool.
+**CRITICAL REQUIREMENTS:**
+You MUST extract and reference SPECIFIC, CONCRETE details from the event names provided above:
+- Mention specific agreements, treaties, MOUs, or deals by name
+- Include dollar amounts, investment figures, loan values when present in event names
+- Name specific infrastructure projects, facilities, or initiatives
+- Reference specific dates, timeframes, or periods mentioned
+- Cite specific countries, cities, or locations involved
+- Identify specific officials, leaders, or organizations when named
+- Note specific outcomes, results, or deliverables mentioned
 
 **OUTPUT FORMAT (JSON only, no markdown):**
 {{
-    "overview": "2-3 sentences summarizing {country}'s overall {category} soft power strategy and approach",
-    "key_strategies": ["specific strategy 1", "specific strategy 2", "..."],
+    "overview": "2-3 sentences with SPECIFIC examples from the events (e.g., '$X billion agreement', 'Y infrastructure project', 'Z treaty signed')",
+    "key_strategies": [
+        "Specific strategy with concrete example (e.g., 'Infrastructure investment through [specific project name]')",
+        "Another specific strategy with dollar amount or named initiative",
+        "..."
+    ],
     "top_recipients": [
-        {{"country": "recipient name", "focus_areas": "what {category} activities focus on", "intensity": "high/medium/low"}},
+        {{
+            "country": "recipient name",
+            "focus_areas": "SPECIFIC projects, agreements, or initiatives (e.g., '[Project Name] worth $X', '[Agreement Name] signed on [date]')",
+            "intensity": "high/medium/low"
+        }},
         ...
     ],
     "major_initiatives": [
-        {{"name": "initiative name", "description": "what it involves", "timeframe": "when it occurred"}},
+        {{
+            "name": "EXACT name from events (e.g., 'Belt and Road Initiative', 'China-Egypt Strategic Partnership')",
+            "description": "Specific details: dollar amounts, scope, deliverables mentioned in events",
+            "timeframe": "Specific dates or periods from the events"
+        }},
         ...
     ],
-    "trend_analysis": "How {country}'s use of {category} soft power has evolved over time",
-    "effectiveness_assessment": "Evidence of impact and outcomes of {category} initiatives",
+    "trend_analysis": "How activities evolved with SPECIFIC examples from different time periods (e.g., 'Early 2024: [specific events], Mid-2024: [specific events]')",
+    "effectiveness_assessment": "CONCRETE outcomes from events (e.g., 'X agreements signed', 'Y projects completed', '$Z in total commitments')",
     "material_assessment": {{
         "score": <float between 0.0 and 1.0>,
-        "justification": "Why this score reflects the materiality of {country}'s {category} soft power"
+        "justification": "Reference specific high-value events or frequent activity patterns from the data"
     }}
 }}
 
 **INSTRUCTIONS:**
-- Focus ONLY on the {category} category - ignore other categories
-- Be specific about subcategories (e.g., within Economic: Trade, Infrastructure, etc.)
-- Identify geographic and thematic patterns across recipients
-- Use concrete examples from the event names provided
-- Assess materiality based on: breadth of deployment, diversity of tools, strategic coherence
+- DO NOT be generic or vague - every statement must reference specific events from the list
+- Focus ONLY on the {category} category
+- Extract exact names, numbers, and details from the event titles
+- If event names contain dollar amounts, include them
+- If event names mention specific agreements or projects, name them
+- Pattern: "China invested $X billion in Y project in Z country" NOT "China invested in infrastructure"
+- Include at least 5-10 specific, named examples throughout your response
 
-Generate the JSON response now:"""
+Generate the JSON response now with maximum specificity:"""
 
 
 def get_country_categories_with_minimum_docs(

@@ -51,36 +51,56 @@ BILATERAL_CATEGORY_SUMMARY_PROMPT = """You are analyzing the **{category}** soft
 - Monthly Activity Trend: {monthly_trend}
 - Material Score: Avg {material_avg:.2f}, Median {material_median:.2f} (from {material_count} scored events)
 
-**Sample Recent Event Names ({category} category only):**
+**Actual Event Names ({category} category only):**
 {recent_events}
 
-**TASK:**
-Analyze the **{category}** dimension of soft power in this bilateral relationship.
+**CRITICAL REQUIREMENTS:**
+You MUST extract and reference SPECIFIC, CONCRETE details from the event names provided above:
+- Mention specific agreements, treaties, MOUs, or bilateral deals by EXACT name
+- Include dollar amounts, investment figures, trade values when present in event names
+- Name specific infrastructure projects, facilities, ports, pipelines, or initiatives
+- Reference specific dates, timeframes, or periods mentioned
+- Cite specific locations, cities, or regions involved
+- Identify specific officials, ministers, presidents, or delegations when named
+- Note specific outcomes, deliverables, or results mentioned (e.g., "signed", "completed", "launched")
+- Quantify where possible (e.g., "3 agreements", "$5 billion investment", "10-year partnership")
 
 **OUTPUT FORMAT (JSON only, no markdown):**
 {{
-    "overview": "2-3 sentences summarizing {initiating_country}'s use of {category} soft power toward {recipient_country}",
-    "key_focus_areas": ["specific focus area 1", "specific focus area 2", "..."],
+    "overview": "2-3 sentences with SPECIFIC examples from the events (e.g., '{initiating_country} and {recipient_country} signed [Agreement Name] worth $X billion on [date]', '[Project Name] was completed in [location]')",
+    "key_focus_areas": [
+        "Specific area with concrete example (e.g., 'Infrastructure development including [Project Name] in [city]')",
+        "Another specific area with named initiative and dollar amount if available",
+        "..."
+    ],
     "major_initiatives": [
-        {{"name": "initiative name", "description": "what it involves", "timeframe": "when it occurred"}},
+        {{
+            "name": "EXACT name from events (e.g., 'China-Egypt TEDA Suez Economic Zone', 'Russian-Syrian Military Cooperation Agreement')",
+            "description": "Specific details from events: dollar amounts, scope, deliverables, participants (e.g., 'Joint venture worth $X billion, includes Y facilities in Z locations')",
+            "timeframe": "Specific dates or periods from the events (e.g., 'Signed March 2024', 'Completed Q2 2024', '2024-2025')"
+        }},
         ...
     ],
-    "interaction_patterns": "How {category} tools are deployed in this relationship - frequency, intensity, strategic approach",
-    "trend_analysis": "How this category's use has evolved over time - increasing/decreasing, shifting focus",
-    "impact_assessment": "Evidence of effectiveness and outcomes of {category} initiatives",
+    "interaction_patterns": "How {category} tools are deployed with SPECIFIC frequency data (e.g., 'X agreements per month on average', 'peak activity in [month/quarter]', 'Y high-level visits')",
+    "trend_analysis": "How activities evolved with SPECIFIC examples from different periods (e.g., 'Early 2024: [list specific events], Mid-2024: [list specific events], shift from X to Y focus')",
+    "impact_assessment": "CONCRETE outcomes from events (e.g., 'X agreements signed, Y projects completed, $Z committed, [specific deliverable] achieved')",
     "material_assessment": {{
         "score": <float between 0.0 and 1.0>,
-        "justification": "Why this score reflects the materiality of {category} soft power in this relationship"
+        "justification": "Reference specific high-value events, dollar amounts, or frequency patterns from the data (e.g., 'Multiple $X+ billion deals, Y ministerial visits, Z strategic agreements')"
     }}
 }}
 
 **INSTRUCTIONS:**
-- Focus ONLY on the {category} category - ignore other categories
-- Be specific about subcategories (e.g., within Economic: Trade, Infrastructure, etc.)
-- Use concrete examples from the event names provided
-- Assess materiality based on: frequency of interaction, diversity of activities, strategic significance
+- DO NOT be generic or vague - every statement must reference specific events from the list above
+- Focus ONLY on the {category} category
+- Extract exact names, numbers, dates, and details from the event titles
+- If event names contain dollar amounts or values, include them
+- If event names mention specific agreements, projects, or officials, name them
+- Pattern: "{initiating_country} invested $X billion in Y project in Z city, {recipient_country}" NOT "infrastructure cooperation occurred"
+- Include at least 8-12 specific, named examples throughout your response
+- Cite specific subcategories from the distribution (e.g., if "Trade" dominates, mention specific trade deals)
 
-Generate the JSON response now:"""
+Generate the JSON response now with maximum specificity:"""
 
 
 def get_category_pairs_with_minimum_docs(
