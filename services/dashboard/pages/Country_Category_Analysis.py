@@ -120,6 +120,31 @@ if view_mode == "Overview":
                 mime="text/csv"
             )
 
+            # Show AI summaries section
+            st.markdown("---")
+            st.subheader("📝 View AI-Generated Summaries")
+            st.markdown("Click on any country-category combination below to view the detailed AI analysis:")
+
+            # Create a selection for viewing summaries
+            summary_options = [f"{s['initiating_country']} - {s['category']}" for s in summaries]
+            selected_summary_label = st.selectbox(
+                "Select a summary to view:",
+                summary_options,
+                key="overview_summary_select"
+            )
+
+            if selected_summary_label:
+                # Parse the selection
+                country, category = selected_summary_label.split(' - ')
+                selected_summary = next(
+                    (s for s in summaries if s['initiating_country'] == country and s['category'] == category),
+                    None
+                )
+
+                if selected_summary:
+                    st.markdown(f"### {country} → {category}")
+                    display_country_category_summary(selected_summary)
+
         with tab2:
             st.subheader("🏆 Top Country-Category Combinations")
 

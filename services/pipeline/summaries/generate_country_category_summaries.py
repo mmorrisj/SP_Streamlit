@@ -470,10 +470,13 @@ def generate_country_category_summary(
     )
 
     try:
+        # Use model from config
+        model = config.default_model if hasattr(config, 'default_model') else "gpt-4o-mini"
+
         response = gai(
             sys_prompt="You are an expert analyst of international relations and soft power diplomacy. Output valid JSON only.",
             user_prompt=prompt,
-            model="gpt-4o",
+            model=model,
             use_proxy=True
         )
 

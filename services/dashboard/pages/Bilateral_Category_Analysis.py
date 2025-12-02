@@ -119,6 +119,42 @@ if view_mode == "Overview":
                 mime="text/csv"
             )
 
+            # Show AI summaries section
+            st.markdown("---")
+            st.subheader("📝 View AI-Generated Summaries")
+            st.markdown("Select any bilateral-category combination to view the detailed AI analysis:")
+
+            # Create a selection for viewing summaries
+            summary_options = [
+                f"{s['initiating_country']} → {s['recipient_country']} - {s['category']}"
+                for s in summaries
+            ]
+            selected_summary_label = st.selectbox(
+                "Select a summary to view:",
+                summary_options,
+                key="overview_summary_select"
+            )
+
+            if selected_summary_label:
+                # Parse the selection (format: "Country1 → Country2 - Category")
+                parts = selected_summary_label.split(' - ')
+                category = parts[1]
+                countries = parts[0].split(' → ')
+                init_country = countries[0]
+                recip_country = countries[1]
+
+                selected_summary = next(
+                    (s for s in summaries
+                     if s['initiating_country'] == init_country
+                     and s['recipient_country'] == recip_country
+                     and s['category'] == category),
+                    None
+                )
+
+                if selected_summary:
+                    st.markdown(f"### {init_country} → {recip_country} - {category}")
+                    display_bilateral_category_summary(selected_summary)
+
         with tab2:
             st.subheader("🏆 Top Bilateral Category Relationships")
 
