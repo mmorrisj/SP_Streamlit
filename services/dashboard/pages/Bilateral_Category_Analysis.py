@@ -55,6 +55,82 @@ st.markdown("---")
 # Sidebar filters
 st.sidebar.header("Filters")
 
+# Helper function to display bilateral category summary
+def display_bilateral_category_summary(summary: dict):
+    """Display a bilateral category summary."""
+
+    # Basic metrics
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Documents", f"{summary['total_documents']:,}")
+
+    with col2:
+        total_events = (
+            summary['total_daily_events'] +
+            summary['total_weekly_events'] +
+            summary['total_monthly_events']
+        )
+        st.metric("Total Events", f"{total_events:,}")
+
+    with col3:
+        st.metric("Subcategories", len(summary['count_by_subcategory']))
+
+    with col4:
+        if summary['material_score_avg']:
+            st.metric("Material Score", f"{summary['material_score_avg']:.2f}")
+        else:
+            st.metric("Material Score", "N/A")
+
+    st.caption(f"📅 {summary['first_interaction_date']} to {summary['last_interaction_date']}")
+
+    # Category summary content
+    cat_summary = summary['category_summary']
+
+    # Overview
+    st.markdown("#### 📝 Overview")
+    st.markdown(cat_summary.get('overview', 'N/A'))
+
+    # Key focus areas
+    st.markdown("#### 🎯 Key Focus Areas")
+    for area in cat_summary.get('key_focus_areas', []):
+        st.markdown(f"- {area}")
+
+    # Top subcategories
+    st.markdown("#### 📁 Top Subcategories")
+    subcats = sorted(
+        summary['count_by_subcategory'].items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:5]
+
+    for subcat, count in subcats:
+        pct = (count / summary['total_documents']) * 100
+        st.markdown(f"- **{subcat}**: {count:,} documents ({pct:.1f}%)")
+
+    # Material histogram
+    if summary['material_score_histogram']:
+        st.markdown("#### 📊 Material Score Distribution")
+
+        hist_data = []
+        for score, count in summary['material_score_histogram'].items():
+            hist_data.append({'Score': float(score), 'Count': count})
+
+        if hist_data:
+            hist_df = pd.DataFrame(hist_data).sort_values('Score')
+
+            hist_chart = alt.Chart(hist_df).mark_bar().encode(
+                x=alt.X('Score:Q', title='Material Score', scale=alt.Scale(domain=[2, 10])),
+                y=alt.Y('Count:Q', title='Number of Events'),
+                tooltip=['Score', 'Count']
+            ).properties(
+                height=200,
+                title='Event Material Score Distribution'
+            )
+
+            st.altair_chart(hist_chart, use_container_width=True)
+
+
 # View mode selection
 view_mode = st.sidebar.radio(
     "View Mode",
@@ -521,81 +597,6 @@ elif view_mode == "Compare":
                 st.info(f"Need at least 2 categories for {init} → {recip} to compare")
     else:
         st.info("No bilateral category summaries available.")
-
-
-def display_bilateral_category_summary(summary: dict):
-    """Display a bilateral category summary."""
-
-    # Basic metrics
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Documents", f"{summary['total_documents']:,}")
-
-    with col2:
-        total_events = (
-            summary['total_daily_events'] +
-            summary['total_weekly_events'] +
-            summary['total_monthly_events']
-        )
-        st.metric("Total Events", f"{total_events:,}")
-
-    with col3:
-        st.metric("Subcategories", len(summary['count_by_subcategory']))
-
-    with col4:
-        if summary['material_score_avg']:
-            st.metric("Material Score", f"{summary['material_score_avg']:.2f}")
-        else:
-            st.metric("Material Score", "N/A")
-
-    st.caption(f"📅 {summary['first_interaction_date']} to {summary['last_interaction_date']}")
-
-    # Category summary content
-    cat_summary = summary['category_summary']
-
-    # Overview
-    st.markdown("#### 📝 Overview")
-    st.markdown(cat_summary.get('overview', 'N/A'))
-
-    # Key focus areas
-    st.markdown("#### 🎯 Key Focus Areas")
-    for area in cat_summary.get('key_focus_areas', []):
-        st.markdown(f"- {area}")
-
-    # Top subcategories
-    st.markdown("#### 📁 Top Subcategories")
-    subcats = sorted(
-        summary['count_by_subcategory'].items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:5]
-
-    for subcat, count in subcats:
-        pct = (count / summary['total_documents']) * 100
-        st.markdown(f"- **{subcat}**: {count:,} documents ({pct:.1f}%)")
-
-    # Material histogram
-    if summary['material_score_histogram']:
-        st.markdown("#### 📊 Material Score Distribution")
-
-        hist_data = []
-        for score, count in summary['material_score_histogram'].items():
-            hist_data.append({'Score': float(score), 'Count': count})
-
-        if hist_data:
-            hist_df = pd.DataFrame(hist_data).sort_values('Score')
-
-            hist_chart = alt.Chart(hist_df).mark_bar().encode(
-                x=alt.X('Score:Q', title='Material Score', scale=alt.Scale(domain=[2, 10])),
-                y=alt.Y('Count:Q', title='Number of Events'),
-                tooltip=['Score', 'Count']
-            ).properties(
-                height=200,
-                title='Event Material Score Distribution'
-            )
-
-            st.altair_chart(hist_chart, use_container_width=True)
 
 
 # Footer
