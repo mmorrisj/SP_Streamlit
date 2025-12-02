@@ -6,9 +6,9 @@ from enum import Enum as PyEnum
 
 # Core SQLAlchemy imports
 from sqlalchemy import (
-    Column, Integer, String, Text, Date, Float, BigInteger, 
+    Column, Integer, String, Text, Date, Float, BigInteger,
     DateTime, Boolean, ForeignKey, UniqueConstraint, Index,
-    PrimaryKeyConstraint, func, Enum, CheckConstraint
+    PrimaryKeyConstraint, func, Enum, CheckConstraint, Numeric
 )
 
 # PostgreSQL-specific types
@@ -284,6 +284,10 @@ class EventSummary(Base):
 
     # Narrative summary with source traceability (AP-style)
     narrative_summary: Mapped[Optional[Dict]] = mapped_column(JSONB, default=dict, nullable=True)
+
+    # Material assessment
+    material_score: Mapped[Optional[float]] = mapped_column(Numeric(precision=4, scale=2), nullable=True)
+    material_justification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     period_summary = relationship("PeriodSummary", back_populates="events")

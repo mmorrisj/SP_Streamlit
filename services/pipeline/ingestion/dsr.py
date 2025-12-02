@@ -144,7 +144,7 @@ def flatten_events_to_raw_events(session, documents):
                 text("INSERT INTO raw_events (doc_id, event_name) VALUES (:doc_id, :event_name) ON CONFLICT (doc_id, event_name) DO NOTHING"),
                 event_record
             )
-        print(f"📊 Flattened {len(raw_events_to_insert)} event/project entries into RawEvent table")
+        print(f"[INFO] Flattened {len(raw_events_to_insert)} event/project entries into RawEvent table")
 
     return len(raw_events_to_insert)
 
@@ -263,7 +263,7 @@ def flatten_all_relationships(session, documents):
     counts['raw_events'] = event_count
 
     # Print summary
-    print(f"📊 Flattened relationships:")
+    print(f"[INFO] Flattened relationships:")
     print(f"   - Categories: {counts['categories']}")
     print(f"   - Subcategories: {counts['subcategories']}")
     print(f"   - Initiating Countries: {counts['initiating_countries']}")
@@ -372,7 +372,7 @@ def parse_doc(dsr_doc):
 
     # Debug logging for empty event names
     if not final_event_name:
-        print(f"⚠️  Doc {doc.doc_id}: All event fields empty (event-name, project-name, projects)")
+        print(f"[WARNING]  Doc {doc.doc_id}: All event fields empty (event-name, project-name, projects)")
     elif not event_name_value and project_name_value:
         print(f"ℹ️  Doc {doc.doc_id}: Using 'project-name' as fallback: '{project_name_value}'")
     elif not event_name_value and not project_name_value and projects_value:
@@ -429,7 +429,7 @@ def process_dsr(relocate=True, batch_size=100):
 
                     # Check if document already exists in current batch (within-batch duplicate)
                     if doc.doc_id in batch_doc_ids:
-                        print(f"⚠️  Document {doc.doc_id} is a duplicate within the same batch. Skipping...")
+                        print(f"[WARNING]  Document {doc.doc_id} is a duplicate within the same batch. Skipping...")
                         skipped_count += 1
                         continue
 
@@ -443,7 +443,7 @@ def process_dsr(relocate=True, batch_size=100):
                     if len(document_batch) >= batch_size:
                         session.add_all(document_batch)
                         session.commit()
-                        print(f"✅ Committed batch of {len(document_batch)} documents")
+                        print(f"[SUCCESS] Committed batch of {len(document_batch)} documents")
 
                         # Flatten all relationship fields (Categories, Subcategories, Countries, Events)
                         flatten_all_relationships(session, document_batch)
@@ -460,7 +460,7 @@ def process_dsr(relocate=True, batch_size=100):
         if document_batch:
             session.add_all(document_batch)
             session.commit()
-            print(f"✅ Committed final batch of {len(document_batch)} documents")
+            print(f"[SUCCESS] Committed final batch of {len(document_batch)} documents")
 
             # Flatten all relationship fields (Categories, Subcategories, Countries, Events)
             flatten_all_relationships(session, document_batch)
@@ -500,13 +500,13 @@ def dispatch_embedding_tasks(doc_ids, batch_size=50):
             # Dispatch batch to Celery worker
             process_document_batch.delay(batch)
             task_count += 1
-            print(f"📤 Dispatched batch {task_count} with {len(batch)} documents")
+            print(f"[INFO] Dispatched batch {task_count} with {len(batch)} documents")
 
-        print(f"✅ Successfully dispatched {task_count} embedding tasks to Celery workers")
-        print("📋 Tasks will be processed in parallel by available workers")
+        print(f"[SUCCESS] Successfully dispatched {task_count} embedding tasks to Celery workers")
+        print("[INFO] Tasks will be processed in parallel by available workers")
 
     except ImportError:
-        print("⚠️ Celery tasks not available. Falling back to direct embedding...")
+        print("[WARNING] Celery tasks not available. Falling back to direct embedding...")
         # Fallback to direct embedding if Celery is not available
         embed_documents_direct(doc_ids, batch_size)
 
@@ -629,7 +629,7 @@ def process_dsr_s3(s3_prefix: str = "dsr_extracts/", specific_files: Optional[Li
 
                     # Check if document already exists in current batch (within-batch duplicate)
                     if doc.doc_id in batch_doc_ids:
-                        print(f"⚠️  Document {doc.doc_id} is a duplicate within the same batch. Skipping...")
+                        print(f"[WARNING]  Document {doc.doc_id} is a duplicate within the same batch. Skipping...")
                         skipped_count += 1
                         continue
 
@@ -643,7 +643,7 @@ def process_dsr_s3(s3_prefix: str = "dsr_extracts/", specific_files: Optional[Li
                     if len(document_batch) >= batch_size:
                         session.add_all(document_batch)
                         session.commit()
-                        print(f"✅ Committed batch of {len(document_batch)} documents")
+                        print(f"[SUCCESS] Committed batch of {len(document_batch)} documents")
 
                         # Flatten all relationship fields (Categories, Subcategories, Countries, Events)
                         flatten_all_relationships(session, document_batch)
@@ -660,7 +660,7 @@ def process_dsr_s3(s3_prefix: str = "dsr_extracts/", specific_files: Optional[Li
         if document_batch:
             session.add_all(document_batch)
             session.commit()
-            print(f"✅ Committed final batch of {len(document_batch)} documents")
+            print(f"[SUCCESS] Committed final batch of {len(document_batch)} documents")
 
             # Flatten all relationship fields (Categories, Subcategories, Countries, Events)
             flatten_all_relationships(session, document_batch)
@@ -686,7 +686,7 @@ def process_dsr_s3_with_embedding(s3_prefix: str = "dsr_extracts/", specific_fil
         use_celery (bool): Whether to use Celery for parallel embedding
     """
     # Step 1: Load documents from S3 to database
-    print("🚀 Step 1: Loading DSR documents from S3 to database...")
+    print("[START] Step 1: Loading DSR documents from S3 to database...")
     new_doc_ids = process_dsr_s3(s3_prefix=s3_prefix, specific_files=specific_files, batch_size=doc_batch_size)
 
     if not new_doc_ids:
@@ -694,7 +694,7 @@ def process_dsr_s3_with_embedding(s3_prefix: str = "dsr_extracts/", specific_fil
         return
 
     # Step 2: Dispatch embedding tasks
-    print(f"\n🚀 Step 2: Processing embeddings for {len(new_doc_ids)} new documents...")
+    print(f"\n[START] Step 2: Processing embeddings for {len(new_doc_ids)} new documents...")
 
     if use_celery:
         dispatch_embedding_tasks(new_doc_ids, batch_size=embed_batch_size)
@@ -713,7 +713,7 @@ def reprocess_s3_files(filenames: List[str], s3_prefix: str = "dsr_extracts/",
         embed_batch_size (int): Batch size for embedding tasks
         use_celery (bool): Whether to use Celery for parallel embedding
     """
-    print(f"🔄 Reprocessing {len(filenames)} files from S3...")
+    print(f"[PROCESS] Reprocessing {len(filenames)} files from S3...")
 
     # Remove files from processed list
     reprocess_files(filenames, s3_prefix)
@@ -733,7 +733,7 @@ def list_s3_dsr_status(s3_prefix: str = "dsr_extracts/"):
     """
     from services.pipeline.embeddings.s3 import get_unprocessed_s3_files, load_processed_files_tracker
 
-    print(f"📊 DSR Files Status in S3 bucket (prefix: {s3_prefix})")
+    print(f"[INFO] DSR Files Status in S3 bucket (prefix: {s3_prefix})")
     print("=" * 60)
 
     # Get all files and processed status
@@ -747,14 +747,14 @@ def list_s3_dsr_status(s3_prefix: str = "dsr_extracts/"):
     print(f"Unprocessed files: {len(unprocessed_files)}")
 
     if unprocessed_files:
-        print("\n📋 Unprocessed files:")
+        print("\n[INFO] Unprocessed files:")
         for file_info in unprocessed_files[:10]:  # Show first 10
             print(f"  - {file_info['filename']} ({file_info['size']} bytes)")
         if len(unprocessed_files) > 10:
             print(f"  ... and {len(unprocessed_files) - 10} more")
 
     if tracker_data.get('last_updated'):
-        print(f"\n🕒 Last tracker update: {tracker_data['last_updated']}")
+        print(f"\n[TIME] Last tracker update: {tracker_data['last_updated']}")
 
 def process_dsr_with_embedding(relocate=True, doc_batch_size=100, embed_batch_size=50, use_celery=True):
     """
@@ -767,7 +767,7 @@ def process_dsr_with_embedding(relocate=True, doc_batch_size=100, embed_batch_si
         use_celery (bool): Whether to use Celery for parallel embedding
     """
     # Step 1: Load documents to database
-    print("🚀 Step 1: Loading DSR documents to database...")
+    print("[START] Step 1: Loading DSR documents to database...")
     new_doc_ids = process_dsr(relocate=relocate, batch_size=doc_batch_size)
 
     if not new_doc_ids:
@@ -775,7 +775,7 @@ def process_dsr_with_embedding(relocate=True, doc_batch_size=100, embed_batch_si
         return
 
     # Step 2: Dispatch embedding tasks
-    print(f"\n🚀 Step 2: Processing embeddings for {len(new_doc_ids)} new documents...")
+    print(f"\n[START] Step 2: Processing embeddings for {len(new_doc_ids)} new documents...")
 
     if use_celery:
         dispatch_embedding_tasks(new_doc_ids, batch_size=embed_batch_size)
@@ -815,7 +815,7 @@ if __name__ == "__main__":
             list_s3_dsr_status(args.s3_prefix)
         elif args.reprocess:
             # Reprocess specific files
-            print(f"🔄 Reprocessing files from S3: {args.reprocess}")
+            print(f"[PROCESS] Reprocessing files from S3: {args.reprocess}")
             reprocess_s3_files(
                 filenames=args.reprocess,
                 s3_prefix=args.s3_prefix,
@@ -825,16 +825,16 @@ if __name__ == "__main__":
             )
         elif args.no_embed:
             # Just load documents from S3 without embedding
-            print("🚀 Processing DSR documents from S3 (no embedding)...")
+            print("[START] Processing DSR documents from S3 (no embedding)...")
             new_doc_ids = process_dsr_s3(
                 s3_prefix=args.s3_prefix,
                 specific_files=args.s3_files,
                 batch_size=args.doc_batch_size
             )
-            print(f"✅ Loaded {len(new_doc_ids)} new documents")
+            print(f"[SUCCESS] Loaded {len(new_doc_ids)} new documents")
         else:
             # Full S3 workflow with embedding
-            print("🚀 Processing DSR documents from S3 with embedding...")
+            print("[START] Processing DSR documents from S3 with embedding...")
             process_dsr_s3_with_embedding(
                 s3_prefix=args.s3_prefix,
                 specific_files=args.s3_files,
@@ -846,12 +846,12 @@ if __name__ == "__main__":
         # Local processing (original behavior)
         if args.no_embed:
             # Just load documents without embedding
-            print("🚀 Processing DSR documents from local directory (no embedding)...")
+            print("[START] Processing DSR documents from local directory (no embedding)...")
             new_doc_ids = process_dsr(relocate=args.relocate, batch_size=args.doc_batch_size)
-            print(f"✅ Loaded {len(new_doc_ids)} new documents")
+            print(f"[SUCCESS] Loaded {len(new_doc_ids)} new documents")
         else:
             # Full workflow with embedding
-            print("🚀 Processing DSR documents from local directory with embedding...")
+            print("[START] Processing DSR documents from local directory with embedding...")
             use_celery = not args.no_celery
             process_dsr_with_embedding(
                 relocate=args.relocate,

@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 from datetime import date
 from sqlalchemy import text, or_, and_
 from shared.database.database import get_session
-from shared.models.models import BilateralRelationshipSummary
+from shared.models.models import BilateralRelationshipSummary, EventSummary
 
 
 def get_all_bilateral_summaries() -> List[Dict]:
@@ -264,4 +264,73 @@ def summary_to_dict(summary: BilateralRelationshipSummary) -> Dict:
         'version': summary.version,
         'is_deleted': summary.is_deleted,
         'deleted_at': summary.deleted_at
+    }
+
+
+def get_bilateral_events_by_materiality(
+    initiating_country: str,
+    recipient_country: str,
+    min_materiality: float = 6.0,
+    max_materiality: Optional[float] = None,
+    period_type: str = 'DAILY',
+    limit: int = 50
+) -> List[Dict]:
+    """
+    Get event summaries for a bilateral relationship filtered by materiality score.
+
+    Args:
+        initiating_country: Initiating country name
+        recipient_country: Recipient country name
+        min_materiality: Minimum material score (default 6.0 for high materiality)
+        max_materiality: Maximum material score (optional, for symbolic events use 5.0)
+        period_type: Event period type (DAILY, WEEKLY, MONTHLY)
+        limit: Maximum number of events to return
+
+    Returns:
+        List of event summary dicts
+    """
+    with get_session() as session:
+        query = session.query(EventSummary).filter(
+            EventSummary.initiating_country == initiating_country,
+            EventSummary.count_by_recipient.op('?')(recipient_country),  # JSONB contains key
+            EventSummary.period_type == period_type,
+            EventSummary.material_score.isnot(None)
+        )
+
+        # Apply materiality filters
+        if max_materiality is not None:
+            query = query.filter(
+                EventSummary.material_score >= min_materiality,
+                EventSummary.material_score <= max_materiality
+            )
+        else:
+            query = query.filter(EventSummary.material_score >= min_materiality)
+
+        # Order by material score descending, then by date descending
+        query = query.order_by(
+            EventSummary.material_score.desc(),
+            EventSummary.period_start.desc()
+        ).limit(limit)
+
+        events = query.all()
+
+        return [event_to_dict(event) for event in events]
+
+
+def event_to_dict(event: EventSummary) -> Dict:
+    """Convert EventSummary ORM object to dict."""
+    return {
+        'id': str(event.id),
+        'event_name': event.event_name,
+        'period_start': event.period_start,
+        'period_end': event.period_end,
+        'period_type': event.period_type,
+        'initiating_country': event.initiating_country,
+        'count_by_category': event.count_by_category,
+        'count_by_subcategory': event.count_by_subcategory,
+        'count_by_recipient': event.count_by_recipient,
+        'narrative_summary': event.narrative_summary,
+        'material_score': event.material_score,
+        'material_justification': event.material_justification,
+        'total_documents_across_categories': event.total_documents_across_categories
     }

@@ -108,8 +108,20 @@ Generate a comprehensive JSON response with the following structure:
     ],
 
     "material_assessment": {{
-        "score": 0.75,  // 0.0 to 1.0, where 1.0 = highly material/significant relationship
-        "justification": "Explanation of why this relationship rates this materiality score. Consider: volume of activity, strategic importance, resource commitments, geopolitical significance."
+        "score": <CALCULATE: 0.0 to 1.0 based on analysis below>,
+        "justification": "Detailed explanation of the materiality score. CRITICAL: Calculate the score based on:
+        - Volume of activity (document count, event frequency) - higher volume = higher score
+        - Strategic importance (economic ties, security cooperation, political alignment)
+        - Resource commitments (investments, aid, trade volume, infrastructure projects)
+        - Geopolitical significance (regional influence, global power dynamics)
+        - Relationship intensity and depth (frequency of high-level engagement)
+
+        Score Guidelines:
+        - 0.0-0.3: Minimal/symbolic engagement (few documents, mostly ceremonial)
+        - 0.3-0.5: Low-moderate engagement (limited but consistent activity)
+        - 0.5-0.7: Moderate-high engagement (substantial activity across multiple categories)
+        - 0.7-0.85: High strategic importance (major economic/security ties, frequent high-level engagement)
+        - 0.85-1.0: Critical bilateral relationship (comprehensive partnership, massive resource commitments, geopolitically vital)"
     }}
 }}
 
@@ -121,6 +133,15 @@ Generate a comprehensive JSON response with the following structure:
 - Note any unusual or noteworthy aspects of this bilateral relationship
 - Consider both the initiating country's goals and the recipient country's reception
 - Use specific examples from the event names provided
+
+**CRITICAL FOR MATERIAL SCORE:**
+- DO NOT use a generic 0.75 score for all relationships
+- CALCULATE the score based on the actual data provided above
+- Higher document counts (>5000) should generally score 0.7+
+- Moderate document counts (1000-5000) should score 0.4-0.7
+- Lower document counts (<1000) should score 0.2-0.5
+- Adjust based on strategic importance, not just volume
+- Provide specific quantitative reasoning in the justification
 
 Generate the JSON response now:"""
 
