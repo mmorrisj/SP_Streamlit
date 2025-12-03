@@ -12,9 +12,24 @@ from pathlib import Path
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-from services.agent.soft_power_agent import create_agent
+# Import agent - handle module not found gracefully
+try:
+    from services.agent.soft_power_agent import create_agent
+except ModuleNotFoundError as e:
+    st.error(f"""
+    **Agent module not found.** This feature requires the agentic capabilities to be installed.
+
+    Error: {str(e)}
+
+    Project root: {project_root}
+    Python path: {sys.path[:3]}
+
+    Please ensure you're running from the correct directory and the `services/agent` module exists.
+    """)
+    st.stop()
 
 
 # Page configuration
