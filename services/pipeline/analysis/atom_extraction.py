@@ -233,7 +233,7 @@ IMPORTANT: ONLY output the json. ONLY use the json format. ALL output values sho
         user_prompt = f'{title}: {body}'
         sys_prompt = extraction_prompt
         
-        response = gai(sys_prompt,user_prompt,model="gpt-4o")
+        response = gai(sys_prompt,user_prompt,model="gpt-4o-mini")
         gai_output = fetch_gai_content(response)
         output = process_output(gai_output)
         result[atom_id] = output

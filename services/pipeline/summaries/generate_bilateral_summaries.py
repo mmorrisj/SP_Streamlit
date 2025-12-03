@@ -567,7 +567,7 @@ def generate_bilateral_summary(
         response = gai(
             sys_prompt="You are an expert analyst of international relations and soft power diplomacy. Output valid JSON only.",
             user_prompt=prompt,
-            model="gpt-4o",
+            model="gpt-4o-mini",
             use_proxy=True
         )
 

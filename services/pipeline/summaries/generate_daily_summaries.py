@@ -62,44 +62,54 @@ def get_active_master_events(
     """
     query = text("""
         WITH master_events AS (
+            -- Get master events (master_event_id IS NULL) active on this date
             SELECT
-                m.id as master_id,
-                m.canonical_name,
-                m.primary_categories,
-                m.primary_recipients
-            FROM canonical_events m
-            WHERE m.master_event_id IS NULL
-              AND m.initiating_country = :country
-              AND m.first_mention_date <= :date
-              AND m.last_mention_date >= :date
+                ce.id as master_id,
+                ce.canonical_name,
+                ce.primary_categories,
+                ce.primary_recipients
+            FROM canonical_events ce
+            WHERE ce.master_event_id IS NULL
+              AND ce.initiating_country = :country
+              AND ce.first_mention_date <= :date
+              AND ce.last_mention_date >= :date
+        ),
+        event_family AS (
+            -- Get master events plus all their child events
+            SELECT
+                me.master_id,
+                me.canonical_name,
+                me.primary_categories,
+                me.primary_recipients,
+                ce.id as canonical_event_id
+            FROM master_events me
+            LEFT JOIN canonical_events ce ON (
+                ce.master_event_id = me.master_id OR ce.id = me.master_id
+            )
         ),
         daily_mentions AS (
+            -- Get mentions for this date
             SELECT
                 dem.canonical_event_id,
-                dem.mention_date,
-                dem.article_count,
                 dem.doc_ids
             FROM daily_event_mentions dem
             WHERE dem.mention_date = :date
         )
         SELECT
-            me.master_id,
-            me.canonical_name,
-            me.primary_categories,
-            me.primary_recipients,
+            ef.master_id,
+            ef.canonical_name,
+            ef.primary_categories,
+            ef.primary_recipients,
             COALESCE(
-                array_agg(DISTINCT unnested_doc ORDER BY unnested_doc),
+                array_agg(DISTINCT unnested_doc ORDER BY unnested_doc) FILTER (WHERE unnested_doc IS NOT NULL),
                 ARRAY[]::text[]
             ) as doc_ids,
-            COUNT(DISTINCT unnested_doc) as article_count
-        FROM master_events me
-        LEFT JOIN canonical_events c ON (
-            c.master_event_id = me.master_id OR c.id = me.master_id
-        )
-        LEFT JOIN daily_mentions dm ON dm.canonical_event_id = c.id
+            COUNT(DISTINCT unnested_doc) FILTER (WHERE unnested_doc IS NOT NULL) as article_count
+        FROM event_family ef
+        LEFT JOIN daily_mentions dm ON dm.canonical_event_id = ef.canonical_event_id
         LEFT JOIN LATERAL unnest(dm.doc_ids) unnested_doc ON true
-        GROUP BY me.master_id, me.canonical_name, me.primary_categories, me.primary_recipients
-        HAVING COUNT(DISTINCT unnested_doc) >= 3
+        GROUP BY ef.master_id, ef.canonical_name, ef.primary_categories, ef.primary_recipients
+        HAVING COUNT(DISTINCT unnested_doc) FILTER (WHERE unnested_doc IS NOT NULL) >= 3
         ORDER BY article_count DESC
     """)
 

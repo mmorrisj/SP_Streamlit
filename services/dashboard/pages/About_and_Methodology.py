@@ -188,6 +188,86 @@ with tab2:
     - Temporal progression tracking
     """)
 
+    st.subheader("3️⃣.1 Event Deduplication Methodology")
+    st.markdown("""
+    **Process**: Multi-stage deduplication to consolidate duplicate event mentions into unique canonical events.
+
+    The event deduplication pipeline is critical for transforming raw, noisy data into clean, analyzable events.
+    This process achieves a **10.7:1 deduplication ratio**, reducing 848K event mentions to 79K unique master events.
+    """)
+
+    # Deduplication metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Raw Event Mentions", "848,684", help="Total event mentions extracted from documents")
+    with col2:
+        st.metric("Event Clusters", "136,404", delta="-84%", help="After DBSCAN clustering")
+    with col3:
+        st.metric("Canonical Events", "105,399", delta="-23%", help="After LLM deconfliction")
+    with col4:
+        st.metric("Parent Canonical Events", "79,127", delta="-25%", help="Independent events after consolidation")
+
+    st.markdown("---")
+
+    st.markdown("""
+    **Stage 1: Raw Event Extraction**
+    - Documents can mention multiple events (e.g., one article covering 5 different diplomatic activities)
+    - Each event mention is stored as a separate record in `raw_events` table
+    - Structure: `(doc_id, event_name)` pairs
+    - **Result**: 848,684 raw event mentions (highly duplicated)
+
+    **Stage 2: Semantic Clustering (DBSCAN)**
+    - **Algorithm**: DBSCAN with sentence-transformer embeddings
+    - **Embedding Model**: all-MiniLM-L6-v2 (384-dimensional vectors)
+    - **Parameters**:
+      - Epsilon (ε) = 0.15 (strict similarity threshold)
+      - Min samples = 2 (minimum cluster size)
+    - **Process**:
+      1. Generate embeddings for each unique event name
+      2. Compute cosine similarity between embeddings
+      3. Group events with similarity ≥ 0.85 into clusters
+      4. Track cluster composition and source events
+    - **Deduplication**: 848,684 → 136,404 clusters (**6.2:1 ratio**)
+    - **Example**: "Trump's 20-point Gaza peace plan" mentioned 96 times → 1 cluster
+
+    **Stage 3: LLM Deconfliction**
+    - **Purpose**: Refine clusters by splitting mixed events or merging similar ones
+    - **Model**: GPT-4o-mini
+    - **Process**:
+      1. For each cluster, analyze event names and context
+      2. Determine if cluster represents one event or multiple
+      3. Split clusters containing distinct events
+      4. Merge highly similar canonical events
+      5. Generate standardized canonical event name
+    - **Deduplication**: 136,404 clusters → 105,399 canonical events (**0.77:1 ratio**)
+    - **Insight**: Most clusters map 1:1 to canonical events (LLM mostly validates, rarely splits)
+
+    **Stage 4: Canonical Event Consolidation**
+    - **Purpose**: Create parent-child hierarchy within canonical events for recurring events
+    - **Process**:
+      1. Group canonical events by country and month
+      2. Use embedding similarity (threshold: 0.85) to find related events
+      3. Select most prominent event (by article count) as the parent
+      4. Link child events to parent via `master_event_id` foreign key
+    - **Deduplication**: 105,399 canonical → 79,127 independent events (**0.75:1 ratio**)
+    - **Structure** (within `canonical_events` table):
+      - Parent canonical events: `master_event_id IS NULL` (79,127 events)
+      - Child canonical events: `master_event_id` points to parent (26,272 events)
+    - **Note**: There is no separate "master_events" table - consolidation creates hierarchy within canonical events
+
+    **Overall Deduplication Impact**:
+    - **Total Reduction**: 848,684 → 79,127 independent canonical events (**10.7:1 deduplication ratio**)
+    - **Quality**: Each independent canonical event represents ~10.7 original mentions
+    - **Traceability**: Full lineage maintained (raw → cluster → canonical with parent/child relationships)
+    - **Temporal Coverage**: Events tracked across months with consolidated parent-child view
+
+    **Why This Matters**:
+    - Eliminates duplicate reporting across news sources
+    - Enables accurate event counting and frequency analysis
+    - Supports temporal trend analysis without inflation
+    - Maintains granular detail while providing high-level summaries
+    """)
+
     st.subheader("4️⃣ Summary Generation")
     st.markdown("""
     **Process**: Generate human-readable summaries at multiple levels.
