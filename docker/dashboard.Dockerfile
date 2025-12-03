@@ -10,9 +10,10 @@ RUN apt-get update && apt-get install -y curl && \
     pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy shared modules and dashboard service
+# Copy shared modules and services
 COPY shared/ ./shared/
 COPY services/dashboard/ ./services/dashboard/
+COPY services/agent/ ./services/agent/
 
 EXPOSE 8501
 

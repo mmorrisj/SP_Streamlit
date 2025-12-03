@@ -46,6 +46,7 @@ services:
       - "8501:8501"
     volumes:
       - ./services/dashboard:/app/services/dashboard
+      - ./services/agent:/app/services/agent
       - ./shared:/app/shared
       - app_output:/app/output
     networks:
