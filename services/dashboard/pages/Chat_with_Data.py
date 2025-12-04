@@ -6,9 +6,10 @@ Ask questions about events, trends, relationships, and soft power activities.
 """
 
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import sys
 from pathlib import Path
+import yaml
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent.parent
@@ -32,6 +33,17 @@ except ModuleNotFoundError as e:
     st.stop()
 
 
+# Load config for country lists
+@st.cache_data
+def load_config():
+    config_path = project_root / "shared" / "config" / "config.yaml"
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+config = load_config()
+INFLUENCERS = config.get('influencers', [])
+RECIPIENTS = config.get('recipients', [])
+
 # Page configuration
 st.set_page_config(
     page_title="Chat with Data",
@@ -53,7 +65,76 @@ if 'agent' not in st.session_state:
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar with example questions and settings
+# Initialize filter state
+if 'filters' not in st.session_state:
+    st.session_state.filters = {
+        'start_date': date(2024, 8, 1),
+        'end_date': date.today(),
+        'initiating_country': None,
+        'recipient_countries': []
+    }
+
+# Sidebar with filters
+st.sidebar.header("🔍 Query Filters")
+
+# Date range filter
+st.sidebar.subheader("Date Range")
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    start_date = st.date_input(
+        "Start Date",
+        value=st.session_state.filters['start_date'],
+        min_value=date(2024, 1, 1),
+        max_value=date.today(),
+        key="filter_start_date"
+    )
+with col2:
+    end_date = st.date_input(
+        "End Date",
+        value=st.session_state.filters['end_date'],
+        min_value=date(2024, 1, 1),
+        max_value=date.today(),
+        key="filter_end_date"
+    )
+
+# Country filters
+st.sidebar.subheader("Countries")
+initiating_country = st.sidebar.selectbox(
+    "Initiating Country",
+    options=[None] + INFLUENCERS,
+    index=0,
+    help="Select an influencer country or leave blank for all"
+)
+
+recipient_countries = st.sidebar.multiselect(
+    "Recipient Country/ies",
+    options=RECIPIENTS,
+    default=st.session_state.filters['recipient_countries'],
+    help="Select one or more recipient countries"
+)
+
+# Update filters in session state
+st.session_state.filters.update({
+    'start_date': start_date,
+    'end_date': end_date,
+    'initiating_country': initiating_country,
+    'recipient_countries': recipient_countries
+})
+
+# Show active filters
+if any([initiating_country, recipient_countries, start_date != date(2024, 8, 1) or end_date != date.today()]):
+    st.sidebar.markdown("**Active Filters:**")
+    if start_date or end_date:
+        st.sidebar.info(f"📅 {start_date} to {end_date}")
+    if initiating_country:
+        st.sidebar.info(f"🌍 Initiating: {initiating_country}")
+    if recipient_countries:
+        recipients_str = ", ".join(recipient_countries)
+        st.sidebar.info(f"🎯 Recipients: {recipients_str}")
+
+st.sidebar.markdown("---")
+
+# Example questions
 st.sidebar.header("💡 Example Questions")
 st.sidebar.markdown("""
 **Event Queries:**
@@ -108,20 +189,46 @@ for message in st.session_state.messages:
 - Relevance Score: {source.get('relevance_score', 0):.3f}
 """)
 
+# Build filter context string
+def build_filter_context():
+    """Build a context string from active filters to pass to the agent."""
+    filters = st.session_state.filters
+    context_parts = []
+
+    if filters['start_date'] or filters['end_date']:
+        context_parts.append(f"Date range: {filters['start_date']} to {filters['end_date']}")
+
+    if filters['initiating_country']:
+        context_parts.append(f"Initiating country: {filters['initiating_country']}")
+
+    if filters['recipient_countries']:
+        recipients = ", ".join(filters['recipient_countries'])
+        context_parts.append(f"Recipient countries: {recipients}")
+
+    if context_parts:
+        return "ACTIVE FILTERS: " + "; ".join(context_parts)
+    return ""
+
 # Chat input
 if prompt := st.chat_input("Ask a question about soft power data..."):
-    # Add user message
+    # Build enhanced prompt with filter context
+    filter_context = build_filter_context()
+    enhanced_prompt = f"{filter_context}\n\n{prompt}" if filter_context else prompt
+
+    # Add user message (show original, not enhanced)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("user"):
         st.markdown(prompt)
+        if filter_context:
+            st.caption(f"🔍 {filter_context}")
 
     # Get agent response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
                 response_text, sources = st.session_state.agent.query(
-                    prompt,
+                    enhanced_prompt,
                     conversation_context=st.session_state.messages
                 )
 
