@@ -67,6 +67,13 @@ stores = {
     "yearly": yearly_store,
 }
 
+def get_vectorstore():
+    """
+    Returns all vector stores for the agent to use.
+    Returns: tuple of (chunk_store, summary_store, daily_store, weekly_store, monthly_store, yearly_store)
+    """
+    return chunk_store, summary_store, daily_store, weekly_store, monthly_store, yearly_store
+
 def get_embeddings_by_ids(store: PGVector, ids):
     """
     Fetch embeddings from pgvector for the given summary_ids in the given store (collection).

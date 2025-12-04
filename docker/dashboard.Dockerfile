@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y curl && \
 COPY shared/ ./shared/
 COPY services/dashboard/ ./services/dashboard/
 COPY services/agent/ ./services/agent/
+COPY services/pipeline/embeddings/ ./services/pipeline/embeddings/
+COPY services/pipeline/__init__.py ./services/pipeline/__init__.py
 
 EXPOSE 8501
 
