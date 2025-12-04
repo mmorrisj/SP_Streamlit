@@ -374,9 +374,9 @@ def parse_doc(dsr_doc):
     if not final_event_name:
         print(f"[WARNING]  Doc {doc.doc_id}: All event fields empty (event-name, project-name, projects)")
     elif not event_name_value and project_name_value:
-        print(f"ℹ️  Doc {doc.doc_id}: Using 'project-name' as fallback: '{project_name_value}'")
+        print(f"[INFO]  Doc {doc.doc_id}: Using 'project-name' as fallback: '{project_name_value}'")
     elif not event_name_value and not project_name_value and projects_value:
-        print(f"ℹ️  Doc {doc.doc_id}: Using 'projects' as fallback: '{projects_value}'")
+        print(f"[INFO]  Doc {doc.doc_id}: Using 'projects' as fallback: '{projects_value}'")
 
     return doc
    
