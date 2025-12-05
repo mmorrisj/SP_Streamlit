@@ -1,11 +1,18 @@
 import os
+import torch
 from langchain_community.vectorstores.pgvector import PGVector
 from langchain_huggingface import HuggingFaceEmbeddings
 from sqlalchemy import text
 import numpy as np
 from shared.database.database import get_engine
+
+# Auto-detect device: use CUDA if available, otherwise CPU
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device for embeddings: {device}")
+
 embedding_function = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": device}
 )
 
 def build_connection_string():

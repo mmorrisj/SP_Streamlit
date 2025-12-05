@@ -543,11 +543,9 @@ def embed_documents_direct(doc_ids, batch_size=50):
             batch_embedding_ids = []
 
             for document in documents:
-                # Check if already embedded (skip if it is)
-                if is_already_embedded(document.doc_id):
-                    continue
-
                 # Extract text for embedding
+                # Note: No need to check is_already_embedded() since we already filtered
+                # for documents without embeddings in the query above (line 534-538)
                 text = document_text_fn(document)
                 if not text:
                     continue

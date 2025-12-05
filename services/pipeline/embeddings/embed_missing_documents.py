@@ -197,6 +197,11 @@ Examples:
         type=int,
         help='Limit number of documents to embed (for testing)'
     )
+    parser.add_argument(
+        '--yes',
+        action='store_true',
+        help='Skip confirmation prompt (for non-interactive execution)'
+    )
 
     args = parser.parse_args()
 
@@ -230,10 +235,13 @@ Examples:
     print(f"Collection: {args.collection}")
     print(f"{'='*80}")
 
-    response = input("\nProceed with embedding? [y/N]: ").strip().lower()
-    if response != 'y':
-        print("Cancelled.")
-        sys.exit(0)
+    if not args.yes:
+        response = input("\nProceed with embedding? [y/N]: ").strip().lower()
+        if response != 'y':
+            print("Cancelled.")
+            sys.exit(0)
+    else:
+        print("\n--yes flag provided, proceeding automatically...")
 
     # Embed documents
     print(f"\nStarting direct embedding process...")
