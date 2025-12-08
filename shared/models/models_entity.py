@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
-from backend.database import Base
+from shared.database.database import Base
 
 
 # ============================================================================
