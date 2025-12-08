@@ -5,8 +5,8 @@ This script takes JSON output from entity_extraction.py and stores entities
 in the database, performing entity resolution/deduplication.
 
 Usage:
-    python backend/scripts/store_entities.py data/entity_extractions_China_20241208.json
-    python backend/scripts/store_entities.py data/entity_extractions_*.json --batch
+    python services/pipeline/entities/store_entities.py data/entity_extractions_China_20241208.json
+    python services/pipeline/entities/store_entities.py data/entity_extractions_*.json --batch
 """
 
 import argparse
@@ -22,8 +22,8 @@ sys.path.insert(0, '/home/user/SP_Streamlit')
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 
-from backend.database import get_session
-from backend.models_entity import (
+from shared.database.database import get_session
+from shared.models.models_entity import (
     Entity, DocumentEntity, EntityRelationship, EntityExtractionRun
 )
 

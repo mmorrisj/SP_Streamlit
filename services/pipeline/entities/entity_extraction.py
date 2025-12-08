@@ -5,10 +5,10 @@ Extracts organizations, companies, and key persons from document distilled_text,
 capturing their roles, topics, and relationships in soft power transactions.
 
 Usage:
-    python backend/scripts/entity_extraction.py --country China --limit 100
-    python backend/scripts/entity_extraction.py --country China --start-date 2024-01-01
-    python backend/scripts/entity_extraction.py --doc-id <specific_doc_id>
-    python backend/scripts/entity_extraction.py --dry-run --limit 10
+    python services/pipeline/entities/entity_extraction.py --country China --limit 100
+    python services/pipeline/entities/entity_extraction.py --country China --start-date 2024-01-01
+    python services/pipeline/entities/entity_extraction.py --doc-id <specific_doc_id>
+    python services/pipeline/entities/entity_extraction.py --dry-run --limit 10
 """
 
 import argparse
@@ -26,15 +26,15 @@ from sqlalchemy.dialects.postgresql import insert
 # Add parent directory to path for imports
 sys.path.insert(0, '/home/user/SP_Streamlit')
 
-from backend.database import get_session
-from backend.models import Document
-from backend.scripts.prompts_entity import (
+from shared.database.database import get_session
+from shared.models.models import Document
+from shared.utils.prompts_entity import (
     entity_extraction_prompt,
     ROLE_LABELS,
     TOPIC_LABELS,
     ENTITY_TYPES
 )
-from backend.scripts.utils import gai, find_json_objects, Config
+from shared.utils.utils import gai, find_json_objects, Config
 
 # Configure logging
 logging.basicConfig(
