@@ -4,6 +4,11 @@ Store extracted entities to the database with deduplication.
 This script takes JSON output from entity_extraction.py and stores entities
 in the database, performing entity resolution/deduplication.
 
+Features:
+- Entity deduplication by name/type/country
+- ON CONFLICT DO NOTHING for document_entities to prevent duplicates
+- Tracks doc_id source for full traceability
+
 Usage:
     python services/pipeline/entities/store_entities.py data/entity_extractions_China_20241208.json
     python services/pipeline/entities/store_entities.py data/entity_extractions_*.json --batch
@@ -14,13 +19,13 @@ import json
 import logging
 import sys
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from pathlib import Path
 
 sys.path.insert(0, '/home/user/SP_Streamlit')
 
-from sqlalchemy import func
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from shared.database.database import get_session
 from shared.models.models_entity import (
@@ -29,6 +34,21 @@ from shared.models.models_entity import (
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def get_existing_doc_entity_pairs(session) -> Set[tuple]:
+    """
+    Get set of (doc_id, entity_id) pairs that already exist in document_entities.
+    Used to prevent duplicate inserts.
+    """
+    try:
+        result = session.execute(text(
+            "SELECT doc_id, entity_id::text FROM document_entities"
+        ))
+        return {(row[0], row[1]) for row in result.fetchall()}
+    except Exception as e:
+        logger.warning(f"Could not query existing doc-entity pairs: {e}")
+        return set()
 
 
 def normalize_entity_name(name: str) -> str:
@@ -88,22 +108,41 @@ def store_entity(
     entity_data: Dict[str, Any],
     doc_id: str,
     doc_date: Optional[str],
-    model_used: str
-) -> tuple[Entity, DocumentEntity]:
+    model_used: str,
+    existing_pairs: Set[tuple] = None
+) -> tuple[Optional[Entity], Optional[DocumentEntity], bool]:
     """
     Store an entity and its document link, with deduplication.
 
+    Args:
+        session: Database session
+        entity_data: Extracted entity data
+        doc_id: Source document ID
+        doc_date: Source document date
+        model_used: LLM model used for extraction
+        existing_pairs: Set of (doc_id, entity_id) pairs already in database
+
     Returns:
-        Tuple of (Entity, DocumentEntity)
+        Tuple of (Entity, DocumentEntity, was_skipped)
+        - was_skipped is True if this doc-entity pair already existed
     """
     name = entity_data.get("name", "").strip()
     entity_type = entity_data.get("entity_type", "UNKNOWN")
     country = entity_data.get("country")
 
+    if not name:
+        logger.warning(f"Empty entity name in doc {doc_id}, skipping")
+        return None, None, True
+
     # Try to find existing entity
     entity = find_existing_entity(session, name, entity_type, country)
 
     if entity:
+        # Check if this doc-entity pair already exists (ON CONFLICT IGNORE logic)
+        if existing_pairs and (doc_id, str(entity.id)) in existing_pairs:
+            logger.debug(f"Skipping duplicate: doc {doc_id[:8]}... already linked to entity {entity.canonical_name}")
+            return entity, None, True
+
         # Update existing entity
         entity.mention_count += 1
 
@@ -154,37 +193,66 @@ def store_entity(
         session.flush()  # Get the ID
         logger.debug(f"Created new entity: {entity.canonical_name}")
 
-    # Create document-entity link
-    doc_entity = DocumentEntity(
-        doc_id=doc_id,
-        entity_id=entity.id,
-        side=entity_data.get("side", "unknown"),
-        role_label=entity_data.get("role_label", "UNKNOWN"),
-        topic_label=entity_data.get("topic_label", "UNKNOWN"),
-        role_description=entity_data.get("role_description"),
-        title_in_context=entity_data.get("title"),
-        organization_in_context=entity_data.get("parent_organization"),
-        confidence=entity_data.get("confidence", 1.0),
-        extraction_method="llm",
-        model_used=model_used
-    )
-    session.add(doc_entity)
+    # Create document-entity link with ON CONFLICT DO NOTHING via upsert
+    # Using PostgreSQL INSERT ... ON CONFLICT DO NOTHING
+    doc_entity_data = {
+        "doc_id": doc_id,
+        "entity_id": entity.id,
+        "side": entity_data.get("side", "unknown"),
+        "role_label": entity_data.get("role_label", "UNKNOWN"),
+        "topic_label": entity_data.get("topic_label", "UNKNOWN"),
+        "role_description": entity_data.get("role_description"),
+        "title_in_context": entity_data.get("title"),
+        "organization_in_context": entity_data.get("parent_organization"),
+        "confidence": entity_data.get("confidence", 1.0),
+        "extraction_method": "llm",
+        "model_used": model_used
+    }
 
-    return entity, doc_entity
+    # Use raw SQL for ON CONFLICT DO NOTHING since SQLAlchemy ORM doesn't support it directly
+    stmt = pg_insert(DocumentEntity.__table__).values(**doc_entity_data)
+    stmt = stmt.on_conflict_do_nothing(
+        index_elements=['doc_id', 'entity_id']  # Requires unique constraint on (doc_id, entity_id)
+    )
+
+    try:
+        result = session.execute(stmt)
+        # Check if row was actually inserted (rowcount=1) or ignored (rowcount=0)
+        if result.rowcount == 0:
+            logger.debug(f"Duplicate doc-entity link ignored: {doc_id[:8]}... <-> {entity.canonical_name}")
+            return entity, None, True
+
+        # Add to existing_pairs set for future checks in this session
+        if existing_pairs is not None:
+            existing_pairs.add((doc_id, str(entity.id)))
+
+        logger.debug(f"Created doc-entity link: {doc_id[:8]}... <-> {entity.canonical_name}")
+        return entity, doc_entity_data, False
+
+    except Exception as e:
+        logger.error(f"Error creating doc-entity link: {e}")
+        return entity, None, True
 
 
 def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, int]:
     """
     Process a JSON file of entity extractions and store to database.
 
+    Features:
+    - Skips already-processed doc-entity pairs (ON CONFLICT IGNORE)
+    - Tracks doc_id for full traceability
+    - Entity deduplication by name/type/country
+
     Returns:
         Statistics dict
     """
     stats = {
         "documents_processed": 0,
+        "documents_skipped": 0,
         "entities_created": 0,
         "entities_updated": 0,
         "document_links_created": 0,
+        "document_links_skipped": 0,
         "errors": 0
     }
 
@@ -197,6 +265,10 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
     logger.info(f"Processing {len(extractions)} document extractions from {file_path}")
 
     with get_session() as session:
+        # Get existing doc-entity pairs to skip duplicates
+        existing_pairs = get_existing_doc_entity_pairs(session)
+        logger.info(f"Found {len(existing_pairs)} existing doc-entity pairs in database")
+
         # Create extraction run record
         run = EntityExtractionRun(
             model_used=model_used,
@@ -218,24 +290,34 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
                 stats["errors"] += 1
                 continue
 
+            doc_had_new_links = False
             for entity_data in entities:
                 try:
-                    entity, doc_entity = store_entity(
-                        session, entity_data, doc_id, doc_date, model_used
+                    entity, doc_entity, was_skipped = store_entity(
+                        session, entity_data, doc_id, doc_date, model_used,
+                        existing_pairs=existing_pairs
                     )
-                    stats["document_links_created"] += 1
+
+                    if was_skipped:
+                        stats["document_links_skipped"] += 1
+                    else:
+                        stats["document_links_created"] += 1
+                        doc_had_new_links = True
 
                 except Exception as e:
                     logger.error(f"Error storing entity from doc {doc_id}: {e}")
                     stats["errors"] += 1
 
-            stats["documents_processed"] += 1
+            if doc_had_new_links:
+                stats["documents_processed"] += 1
+            else:
+                stats["documents_skipped"] += 1
 
-        # Calculate new vs updated
+        # Calculate new vs updated entities
         if not dry_run:
             new_entity_count = session.query(Entity).count()
             stats["entities_created"] = new_entity_count - existing_entity_count
-            stats["entities_updated"] = stats["document_links_created"] - stats["entities_created"]
+            stats["entities_updated"] = max(0, stats["document_links_created"] - stats["entities_created"])
 
             # Update run record
             run.documents_processed = stats["documents_processed"]
@@ -262,9 +344,11 @@ def main():
 
     total_stats = {
         "documents_processed": 0,
+        "documents_skipped": 0,
         "entities_created": 0,
         "entities_updated": 0,
         "document_links_created": 0,
+        "document_links_skipped": 0,
         "errors": 0
     }
 
@@ -291,11 +375,13 @@ def main():
     print("\n" + "="*50)
     print("STORAGE SUMMARY")
     print("="*50)
-    print(f"Documents processed:    {total_stats['documents_processed']}")
-    print(f"New entities created:   {total_stats['entities_created']}")
-    print(f"Existing entities updated: {total_stats['entities_updated']}")
-    print(f"Document links created: {total_stats['document_links_created']}")
-    print(f"Errors:                 {total_stats['errors']}")
+    print(f"Documents processed:      {total_stats['documents_processed']}")
+    print(f"Documents skipped:        {total_stats['documents_skipped']} (already in DB)")
+    print(f"New entities created:     {total_stats['entities_created']}")
+    print(f"Existing entities updated:{total_stats['entities_updated']}")
+    print(f"Document links created:   {total_stats['document_links_created']}")
+    print(f"Document links skipped:   {total_stats['document_links_skipped']} (duplicates)")
+    print(f"Errors:                   {total_stats['errors']}")
     print("="*50)
 
 

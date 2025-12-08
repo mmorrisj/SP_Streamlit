@@ -76,6 +76,13 @@ def upgrade() -> None:
     op.create_index('ix_doc_entity_role', 'document_entities', ['role_label'])
     op.create_index('ix_doc_entity_topic', 'document_entities', ['topic_label'])
 
+    # Unique constraint for ON CONFLICT DO NOTHING - prevents duplicate doc-entity pairs
+    op.create_unique_constraint(
+        'uq_document_entity_doc_entity',
+        'document_entities',
+        ['doc_id', 'entity_id']
+    )
+
     # Create entity_relationships table
     op.create_table(
         'entity_relationships',

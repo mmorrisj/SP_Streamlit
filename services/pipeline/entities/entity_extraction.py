@@ -9,6 +9,7 @@ Usage:
     python services/pipeline/entities/entity_extraction.py --country China --start-date 2024-01-01
     python services/pipeline/entities/entity_extraction.py --doc-id <specific_doc_id>
     python services/pipeline/entities/entity_extraction.py --dry-run --limit 10
+    python services/pipeline/entities/entity_extraction.py --country China --reprocess  # Force reprocess
 """
 
 import argparse
@@ -17,10 +18,10 @@ import logging
 import os
 import sys
 from datetime import datetime, date
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 import time
 
-from sqlalchemy import text, and_
+from sqlalchemy import text, and_, distinct
 from sqlalchemy.dialects.postgresql import insert
 
 # Add parent directory to path for imports
@@ -45,6 +46,36 @@ logger = logging.getLogger(__name__)
 
 # Load configuration
 cfg = Config.from_yaml()
+
+
+def get_processed_doc_ids(session) -> Set[str]:
+    """
+    Get set of doc_ids that have already been processed for entity extraction.
+
+    Queries the document_entities table to find all unique doc_ids.
+
+    Returns:
+        Set of doc_id strings that have already been processed
+    """
+    try:
+        # Check if table exists first
+        result = session.execute(text(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'document_entities')"
+        )).scalar()
+
+        if not result:
+            logger.info("document_entities table does not exist yet - no documents processed")
+            return set()
+
+        # Get all unique doc_ids from document_entities
+        result = session.execute(text("SELECT DISTINCT doc_id FROM document_entities"))
+        processed_ids = {row[0] for row in result.fetchall()}
+        logger.info(f"Found {len(processed_ids)} already-processed documents in document_entities table")
+        return processed_ids
+
+    except Exception as e:
+        logger.warning(f"Could not query processed doc_ids: {e}")
+        return set()
 
 
 def extract_entities_from_document(
@@ -160,12 +191,14 @@ def process_documents(
     end_date: Optional[date] = None,
     doc_ids: Optional[List[str]] = None,
     dry_run: bool = False,
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4o-mini",
+    reprocess: bool = False
 ) -> Dict[str, Any]:
     """
     Process documents and extract entities.
 
     Uses gai() from utils.py for LLM calls, which handles API proxy and fallback.
+    Automatically skips documents that have already been processed (unless --reprocess).
 
     Args:
         country: Initiating country to filter by
@@ -175,12 +208,14 @@ def process_documents(
         doc_ids: Specific document IDs to process
         dry_run: If True, don't save to database
         model: LLM model to use
+        reprocess: If True, reprocess documents even if already extracted
 
     Returns:
         Summary statistics of the extraction run
     """
     stats = {
         "documents_processed": 0,
+        "documents_skipped": 0,
         "entities_extracted": 0,
         "errors": 0,
         "validation_warnings": 0,
@@ -189,6 +224,11 @@ def process_documents(
     }
 
     with get_session() as session:
+        # Get already-processed doc_ids to skip (unless reprocess=True)
+        processed_doc_ids = set()
+        if not reprocess:
+            processed_doc_ids = get_processed_doc_ids(session)
+
         # Build query
         query = session.query(Document).filter(
             Document.salience_bool == "TRUE",
@@ -215,7 +255,16 @@ def process_documents(
             query = query.limit(limit)
 
         documents = query.all()
-        logger.info(f"Found {len(documents)} documents to process")
+        total_docs = len(documents)
+
+        # Filter out already-processed documents
+        if processed_doc_ids and not reprocess:
+            original_count = len(documents)
+            documents = [doc for doc in documents if doc.doc_id not in processed_doc_ids]
+            stats["documents_skipped"] = original_count - len(documents)
+            logger.info(f"Found {total_docs} matching documents, skipping {stats['documents_skipped']} already processed")
+
+        logger.info(f"Processing {len(documents)} new documents")
 
         all_extractions = []
 
@@ -284,6 +333,8 @@ def main():
     parser.add_argument("--doc-id", type=str, action="append", help="Specific doc_id to process")
     parser.add_argument("--dry-run", action="store_true", help="Don't save to database")
     parser.add_argument("--model", type=str, default="gpt-4o-mini", help="LLM model to use")
+    parser.add_argument("--reprocess", action="store_true",
+                        help="Force reprocess documents even if already extracted")
 
     args = parser.parse_args()
 
@@ -301,6 +352,7 @@ def main():
     logger.info(f"  Date range: {start_date} to {end_date}")
     logger.info(f"  Model: {args.model}")
     logger.info(f"  Dry run: {args.dry_run}")
+    logger.info(f"  Reprocess: {args.reprocess}")
 
     stats = process_documents(
         country=args.country,
@@ -309,13 +361,15 @@ def main():
         end_date=end_date,
         doc_ids=args.doc_id,
         dry_run=args.dry_run,
-        model=args.model
+        model=args.model,
+        reprocess=args.reprocess
     )
 
     # Print summary
     print("\n" + "="*50)
     print("EXTRACTION SUMMARY")
     print("="*50)
+    print(f"Documents skipped:   {stats.get('documents_skipped', 0)} (already processed)")
     print(f"Documents processed: {stats['documents_processed']}")
     print(f"Entities extracted:  {stats['entities_extracted']}")
     print(f"Errors:              {stats['errors']}")
