@@ -7,20 +7,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Development Server
 ```bash
 # Run Streamlit dashboard (local development)
-cd streamlit
+cd services/dashboard
 streamlit run app.py
 
 # Run via Docker (full stack)
 docker-compose up -d
 
 # Test database connection
-python test_db.py
+python -c "from shared.database.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
 ```
 
 ### Database Management
 ```bash
 # Initialize database (creates all tables)
-python -c "from backend.database import init_database; init_database()"
+python -c "from shared.database.database import init_database; init_database()"
 
 # Run Alembic migrations
 alembic upgrade head
@@ -29,10 +29,10 @@ alembic upgrade head
 alembic revision --autogenerate -m "description"
 
 # Database health check
-python -c "from backend.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
+python -c "from shared.database.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
 
 # View connection pool status
-python -c "from backend.database import get_pool_status; print(get_pool_status())"
+python -c "from shared.database.database import get_pool_status; print(get_pool_status())"
 ```
 
 ### Docker Commands
@@ -53,29 +53,84 @@ docker-compose logs -f [service-name]
 docker exec -it softpower_db psql -U $POSTGRES_USER -d $POSTGRES_DB
 ```
 
-### Backend Processing Scripts
+### Pipeline Processing Scripts
 ```bash
-# Run individual processing scripts
-python backend/scripts/atom.py                # Document ingestion
-python backend/scripts/atom_extraction.py     # AI analysis
-python backend/scripts/daily.py               # Daily summaries
-python backend/scripts/cluster_events.py      # Event clustering
-python backend/scripts/embeddings.py          # Generate embeddings
+# Document ingestion
+python services/pipeline/ingestion/atom.py                # Document ingestion
+python services/pipeline/ingestion/dsr.py                 # Process JSON files from S3
+python services/pipeline/ingestion/dsr.py --status        # Check processing status
+python services/pipeline/ingestion/dsr.py --no-embed      # Process without embeddings
 
-# S3 document processing (JSON files)
-python backend/scripts/dsr.py                 # Process JSON files from S3
-python backend/scripts/dsr.py --status        # Check processing status
-python backend/scripts/dsr.py --no-embed      # Process without embeddings
+# AI analysis
+python services/pipeline/analysis/atom_extraction.py      # AI analysis
+python services/pipeline/analysis/phase0_event_analysis.py  # Event analysis
+
+# Event Processing Pipeline
+
+## Daily Processing (Stage 1)
+# Cluster same-day events using DBSCAN + embeddings
+python services/pipeline/events/batch_cluster_events.py \
+    --country China --start-date 2024-08-01 --end-date 2024-08-31
+
+# LLM validates clusters and creates canonical_events
+python services/pipeline/events/llm_deconflict_clusters.py \
+    --country China --start-date 2024-08-01 --end-date 2024-08-31
+
+## Batch Consolidation (Stage 2) - Run periodically across entire dataset
+# Groups canonical events using embedding similarity
+python services/pipeline/events/consolidate_all_events.py --influencers
+
+# LLM validates consolidation, picks best names, splits incorrect groups
+python services/pipeline/events/llm_deconflict_canonical_events.py --influencers
+
+# Consolidates daily_event_mentions into multi-day events
+python services/pipeline/events/merge_canonical_events.py --influencers
+
+# Bilateral Relationship Summaries
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --init-country China --recipient-country Egypt         # Generate specific pair
+
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --init-country China --min-docs 500                    # All recipients for China (≥500 docs)
+
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --all --min-docs 1000                                  # All major pairs (≥1000 docs)
+
+python services/pipeline/summaries/generate_bilateral_summaries.py \
+    --init-country China --recipient-country Egypt --regenerate  # Update existing summary
+
+# Embeddings - Generation
+python services/pipeline/embeddings/embed_missing_documents.py                    # Embed documents
+python services/pipeline/embeddings/embed_missing_documents.py --status           # Check status
+python services/pipeline/embeddings/embed_event_summaries.py --yes                # Embed event summaries
+python services/pipeline/embeddings/embed_event_summaries.py --status             # Check event embedding status
+
+# Embeddings - Backup & Restore (FAST - recommended for database rebuilds)
+# Export all embeddings (saves ~45 hours of regeneration time!)
+python services/pipeline/embeddings/export_embeddings.py \
+    --output-dir ./embedding_backups/$(date +%Y%m%d) \
+    --include-event-summaries
+
+# Restore embeddings from backup (15-20 minutes vs 45 hours regeneration)
+python services/pipeline/embeddings/import_embeddings.py \
+    --input-dir ./embedding_backups/20241106
+
+# Export to S3 for long-term storage
+python services/pipeline/embeddings/export_embeddings.py \
+    --output-dir ./embedding_backups/$(date +%Y%m%d) \
+    --include-event-summaries \
+    --s3-bucket your-bucket \
+    --s3-prefix embeddings/backup/$(date +%Y%m%d)/
+
+# Restore from S3
+python services/pipeline/embeddings/import_embeddings.py \
+    --s3-bucket your-bucket \
+    --s3-prefix embeddings/backup/20241106/
+
+# See services/pipeline/embeddings/README_BACKUP_RESTORE.md for full documentation
 
 # FastAPI server (for S3 operations, runs on host)
-uvicorn backend.api:app --host 0.0.0.0 --port 8000 --reload
-
-# S3 to pgvector migration (automatically skips processed files)
-python backend/scripts/s3_to_pgvector.py --s3-prefix embeddings/ --collection chunk_embeddings
-python backend/scripts/s3_to_pgvector.py --dry-run     # Test without writing
-python backend/scripts/s3_to_pgvector.py --force       # Reprocess all files
-python backend/scripts/s3_to_pgvector.py view chunk_embeddings      # View processed files
-python backend/scripts/s3_to_pgvector.py reset chunk_embeddings --confirm  # Reset tracker
+uvicorn services.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## Architecture
@@ -93,6 +148,63 @@ This is a **Soft Power Analytics Dashboard** that processes diplomatic documents
 - **Infrastructure**: Docker Compose stack, Alembic migrations, Redis (for future Celery tasks)
 - **Storage**: AWS S3 for raw documents and embeddings (via boto3)
 
+### Directory Structure
+
+The project is organized into a **service-oriented monorepo** with clear separation of concerns:
+
+```
+SP_Streamlit/
+├── services/                    # Application services
+│   ├── api/                    # FastAPI service
+│   │   ├── main.py            # FastAPI app (was backend/api.py)
+│   │   ├── routes.py          # API routes
+│   │   ├── api_client.py      # S3 API client
+│   │   └── commands.py        # CLI commands
+│   │
+│   ├── dashboard/              # Streamlit dashboard
+│   │   ├── app.py             # Main dashboard app
+│   │   ├── pages/             # Dashboard pages
+│   │   ├── queries/           # Database queries
+│   │   └── charts/            # Chart components
+│   │
+│   └── pipeline/               # Data processing pipeline
+│       ├── ingestion/         # Document ingestion (atom.py, dsr.py)
+│       ├── analysis/          # AI analysis (atom_extraction.py)
+│       ├── events/            # Event processing (news_event_tracker.py)
+│       ├── embeddings/        # Vector embeddings (s3_to_pgvector.py)
+│       ├── migrations/        # Data migrations
+│       └── diagnostics/       # Diagnostic tools
+│
+├── shared/                     # Shared code across all services
+│   ├── models/                # SQLAlchemy models
+│   │   └── models.py          # Database models (was backend/models.py)
+│   ├── database/              # Database connection management
+│   │   └── database.py        # Connection pooling (was backend/database.py)
+│   ├── config/                # Configuration
+│   │   ├── config.yaml        # Main config file
+│   │   └── config.py          # Config helpers
+│   └── utils/                 # Shared utilities
+│       ├── utils.py           # Common utilities
+│       └── prompts.py         # LLM prompts
+│
+├── docker/                     # Docker configurations
+│   ├── api.Dockerfile         # API service Dockerfile
+│   ├── dashboard.Dockerfile   # Dashboard Dockerfile
+│   └── pipeline.Dockerfile    # Pipeline Dockerfile (future use)
+│
+├── alembic/                    # Database migrations
+├── docker-compose.yml          # Docker orchestration
+├── requirements.txt            # Unified Python dependencies
+└── CLAUDE.md                   # This file
+```
+
+**Migration Notes**:
+- All `backend/` code has been reorganized into `services/` and `shared/`
+- Old imports like `from backend.database import` → `from shared.database.database import`
+- Old imports like `from backend.scripts.utils import` → `from shared.utils.utils import`
+- Docker services renamed: `backend` → `api`, `streamlit` → `dashboard`
+- All services share the same `requirements.txt` at the root level
+
 ### Docker Architecture
 
 The application runs as a multi-container Docker stack:
@@ -101,13 +213,13 @@ The application runs as a multi-container Docker stack:
 ┌─────────────────────────────────────────────────────────────┐
 │                    Docker Network: softpower_net             │
 ├─────────────────────────────────────────────────────────────┤
-│  streamlit-app (port 8501)                                   │
-│  └─> Streamlit dashboard                                     │
+│  streamlit-dashboard (port 8501)                             │
+│  └─> services/dashboard → Streamlit UI                       │
 │                                                               │
-│  ml-backend (port 8000)                                      │
-│  └─> FastAPI + processing scripts                            │
+│  api-service (port 8000)                                     │
+│  └─> services/api → FastAPI + S3 operations                  │
 │                                                               │
-│  softpower_db (port 5433→5432)                              │
+│  softpower_db (port 5432)                                    │
 │  └─> PostgreSQL + pgvector                                   │
 │                                                               │
 │  redis (internal)                                            │
@@ -119,14 +231,15 @@ The application runs as a multi-container Docker stack:
 ```
 
 **Key Points**:
-- PostgreSQL exposed on host port 5433 (to avoid conflicts with local PostgreSQL on 5432)
-- Backend uses `host.docker.internal` to access host-based FastAPI S3 proxy (port 5001)
+- PostgreSQL exposed on host port 5432
+- API service uses `host.docker.internal` to access host-based FastAPI S3 proxy (port 5001)
 - Shared network `softpower_net` allows inter-container communication
 - Volume `postgres_data` persists database data
+- All services mount `shared/` directory for common code access
 
 ### Database Architecture
 
-**Modern SQLAlchemy 2.0 Setup**: The project recently migrated from Flask-SQLAlchemy to pure SQLAlchemy 2.0 with centralized connection management in `backend/database.py`.
+**Modern SQLAlchemy 2.0 Setup**: The project uses pure SQLAlchemy 2.0 with centralized connection management in `shared/database/database.py`.
 
 **Core Entity**: `Document` - Central table containing diplomatic documents with AI-generated analysis
 
@@ -136,7 +249,7 @@ The application runs as a multi-container Docker stack:
 - `projects` - Associated initiatives
 - `citations` - Source citations
 
-**Consolidated Event Models** (`backend/models_consolidated.py`):
+**Consolidated Event Models** (`shared/models/models.py`):
 - `EventSummary` - Unified event summaries with `period_type` enum (daily/weekly/monthly/yearly)
 - `PeriodSummary` - Aggregated summaries across all events for a time period
 - `EventSourceLink` - Traceability linking events to source documents
@@ -149,18 +262,55 @@ The application runs as a multi-container Docker stack:
 
 ### Processing Pipeline Architecture
 
-1. **Document Ingestion** (`atom.py`): Imports raw documents from various sources
-2. **AI Analysis** (`atom_extraction.py`): GPT-4 extracts salience, categories, countries, projects, locations
-3. **Event Detection** (`daily.py`): Groups related documents into daily events
-4. **Clustering** (`cluster_events.py`): Uses embeddings + HDBSCAN to identify event clusters across time
-5. **Summarization** (`event_summary.py`): Generates human-readable event descriptions
-6. **Embedding Generation** (`embeddings.py`, `embed_daily_summaries.py`): Creates vector representations
-7. **S3 Migration** (`s3_to_pgvector.py`): Populates pgvector from S3 parquet files
-8. **Dashboard** (`streamlit/app.py`): Streamlit visualization of trends and patterns
+1. **Document Ingestion** (`services/pipeline/ingestion/`): Imports raw documents from various sources
+2. **AI Analysis** (`services/pipeline/analysis/`): GPT-4 extracts salience, categories, countries, projects, locations
+3. **Event Processing** (`services/pipeline/events/`): Groups related documents into events and tracks news
+4. **Embedding Generation** (`services/pipeline/embeddings/`): Creates vector representations and syncs with S3
+5. **Dashboard** (`services/dashboard/`): Streamlit visualization of trends and patterns
+
+### Event Processing: Two-Stage Architecture
+
+The event processing pipeline uses a **two-stage batch consolidation approach**:
+
+**Stage 1: Daily Event Detection**
+1. `batch_cluster_events.py` - Clusters raw events per day using DBSCAN + embeddings
+   - Creates `event_clusters` table with batch numbers
+   - Groups similar events happening on the same day
+   - Does NOT link across days (by design)
+
+2. `llm_deconflict_clusters.py` - LLM validates and refines clusters
+   - Creates `canonical_events` (one per unique event per day)
+   - Creates `daily_event_mentions` (links events to source documents)
+   - Generates embeddings for each canonical event
+
+**Stage 2: Batch Consolidation (Across All Dates)**
+3. `consolidate_all_events.py` - Groups canonical events across entire dataset
+   - Uses embedding similarity (cosine ≥0.85)
+   - Sets `master_event_id` to create event hierarchy
+   - Master events: `master_event_id IS NULL`
+   - Child events: `master_event_id = master.id`
+
+4. `llm_deconflict_canonical_events.py` - LLM validates consolidation
+   - Verifies grouped events represent same real-world event
+   - Picks best canonical name
+   - Splits incorrectly merged groups
+
+5. `merge_canonical_events.py` - Creates multi-day events
+   - Consolidates `daily_event_mentions` from child to master events
+   - Deletes empty child canonical events
+   - Result: Master events span multiple days
+
+**Why Two Stages?**
+- Daily clustering handles day-to-day event detection
+- Batch consolidation has full dataset context for better temporal linking
+- LLM validation at both stages ensures quality
+- Separation of concerns: real-time processing vs. comprehensive consolidation
+
+**Traceability**: All events can be linked back to original documents via `daily_event_mentions` → `documents`
 
 ### Configuration Management
 
-**Primary Config**: `backend/config.yaml` - Central configuration for all processing parameters
+**Primary Config**: `shared/config/config.yaml` - Central configuration for all processing parameters
 - Database paths and credentials
 - AI model settings (GPT models via `aws.default_model`)
 - Processing thresholds and date ranges
@@ -178,18 +328,18 @@ The application runs as a multi-container Docker stack:
 
 ### Database Session Management
 
-The project uses SQLAlchemy 2.0 with a sophisticated `DatabaseManager` class in `backend/database.py`:
+The project uses SQLAlchemy 2.0 with a sophisticated `DatabaseManager` class in `shared/database/database.py`:
 
 ```python
 # Preferred: Context manager (auto-commit/rollback)
-from backend.database import get_session
+from shared.database.database import get_session
 
 with get_session() as session:
     documents = session.query(Document).filter(...).all()
     # Automatic commit on success, rollback on exception
 
 # Alternative: Manual session management (not recommended)
-from backend.database import create_session
+from shared.database.database import create_session
 
 session = create_session()
 try:
@@ -201,7 +351,7 @@ finally:
     session.close()
 
 # Decorator pattern for functions
-from backend.database import with_session
+from shared.database.database import with_session
 
 @with_session
 def process_documents(session, doc_ids):
@@ -216,20 +366,20 @@ def process_documents(session, doc_ids):
 - Pre-ping enabled for connection health checks
 - Configurable via environment variables
 
-**Important**: The codebase is mid-migration from Flask-SQLAlchemy to pure SQLAlchemy 2.0:
-- **Old pattern**: `backend/scripts/models.py` (Flask-SQLAlchemy models, being phased out)
-- **New pattern**: `backend/models.py` and `backend/models_consolidated.py` (Modern SQLAlchemy 2.0)
-- When writing new code, always use `backend/models.py` or `backend/models_consolidated.py`
+**Important**: All models are in `shared/models/models.py` - use this for all database operations
 
 ### Script Execution Patterns
 
-Backend processing scripts follow a consistent pattern:
+Pipeline processing scripts follow a consistent pattern:
 
 ```python
+from shared.database.database import get_session
+from shared.utils.utils import Config
+
 def main():
     with get_session() as session:
         # Load config
-        config = load_yaml_config('backend/config.yaml')
+        config = Config.from_yaml('shared/config/config.yaml')
 
         # Process data
         results = process_documents(session, config)

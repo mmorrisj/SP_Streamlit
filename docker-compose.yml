@@ -20,47 +20,60 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "5432:5432"
     networks:
       - softpower_net
 
   # -----------------------
-  # Streamlit Frontend
+  # Streamlit Dashboard
   # -----------------------
-  streamlit:
+  dashboard:
     build:
       context: .
-      dockerfile: streamlit/Dockerfile
-    container_name: streamlit-app
+      dockerfile: docker/dashboard.Dockerfile
+    container_name: streamlit-dashboard
     restart: unless-stopped
     env_file:
       - .env
     environment:
       DB_HOST: softpower_db
-      BACKEND_API_URL: http://backend:8000
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
+      BACKEND_API_URL: http://api:8000
+      API_URL: http://host.docker.internal:8000
+      FASTAPI_URL: http://host.docker.internal:8000/material_query
     ports:
       - "8501:8501"
     volumes:
-      - ./streamlit:/app/streamlit
+      - ./services/dashboard:/app/services/dashboard
+      - ./services/agent:/app/services/agent
+      - ./shared:/app/shared
       - app_output:/app/output
     networks:
       - softpower_net
     depends_on:
-      - backend
+      - api
 
   # -----------------------
-  # FastAPI Backend
+  # FastAPI API Service
   # -----------------------
-  backend:
+  api:
     build:
       context: .
-      dockerfile: backend/Dockerfile
-    container_name: ml-backend
+      dockerfile: docker/api.Dockerfile
+    container_name: api-service
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      DOCKER_ENV: "true"
       DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
       S3_PROXY_URL: http://host.docker.internal:5001
       FASTAPI_URL: http://host.docker.internal:5001/material_query
       API_URL: http://host.docker.internal:5001
@@ -68,7 +81,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app/backend
+      - ./services/api:/app/services/api
+      - ./services/pipeline:/app/services/pipeline
+      - ./shared:/app/shared
+      - ./data:/app/data
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - app_output:/app/output
@@ -95,19 +111,23 @@ services:
   migrate:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: docker/api.Dockerfile
     container_name: alembic-migrate
     env_file:
       - .env
     environment:
       DB_HOST: softpower_db
+      POSTGRES_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
     command: alembic upgrade head
     depends_on:
       - db
     networks:
       - softpower_net
     volumes:
-      - ./backend:/app/backend
+      - ./shared:/app/shared
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
     profiles:

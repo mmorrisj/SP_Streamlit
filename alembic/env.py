@@ -5,8 +5,8 @@ from sqlalchemy import pool
 from alembic import context
 
 # Import your database connection and models - now from project root
-from backend.database import get_engine
-from backend.models import Base
+from shared.database.database import get_engine
+from shared.models.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

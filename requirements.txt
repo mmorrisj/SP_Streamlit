@@ -1,30 +1,79 @@
-# Core FastAPI
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-boto3
+# ===========================================
+# Unified Requirements for SoftPower Project
+# ===========================================
 
-# Database
+# Core Dependencies (Shared across all services)
+# -----------------------------------------------
+python-dotenv
+pandas
+numpy
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
-alembic==1.12.1
+openpyxl
+python-docx
 
-# Environment and Configuration
+# Database & Migrations
+# -----------------------------------------------
+alembic==1.12.1
+pgvector==0.2.4
+
+# Embeddings & NLP
+# -----------------------------------------------
+sentence-transformers
+nltk
+transformers
+torch
+boto3
+
+# LangChain
+# -----------------------------------------------
+langchain
+langchain-community
+langchain-openai
+langchain-huggingface
+langchain-experimental
+
+# Clustering / ML
+# -----------------------------------------------
+hdbscan
+umap-learn
+scikit-learn
+
+# API Service (FastAPI)
+# -----------------------------------------------
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
 pydantic
 pydantic-settings
-python-dotenv
+
+# Task Queue
+# -----------------------------------------------
+celery
+redis
+
+# Dashboard (Streamlit)
+# -----------------------------------------------
+streamlit
+plotly
+altair
+requests
+streamlit-option-menu
+streamlit-aggrid
+streamlit-plotly-events
+streamlit-chat
+
+# Utilities
+# -----------------------------------------------
+click
+tabulate
+pyarrow
+
+# AI/LLM
+# -----------------------------------------------
+openai
 
 # Development and Testing
+# -----------------------------------------------
 pytest==7.4.3
 pytest-asyncio==0.21.1
 httpx==0.25.2
-
-# Future LangChain preparation (commented out for now)
-langchain==0.0.340
-langchain_community
-langchain_openai
-langchain_huggingface
-# langchain_pydantic
-# langchain_sqlalchemy
-langchain_experimental
-pgvector==0.2.4
-pyarrow
