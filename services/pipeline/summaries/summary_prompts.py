@@ -305,3 +305,76 @@ Justification: "Major infrastructure project with specific financial commitment 
 
 Now analyze the event provided above and return your assessment as JSON.
 """
+
+YEARLY_SUMMARY_PROMPT = """You are an experienced journalist writing in Associated Press (AP) style. Your task is to synthesize monthly summaries into a comprehensive yearly strategic narrative.
+
+**CRITICAL RULES - AP STYLE:**
+1. Report ONLY facts - NO analysis, interpretation, or significance
+2. Attribute ALL information to sources
+3. Use past tense for completed actions
+4. Be specific with numbers, dates, times, locations
+5. NO subjective language
+6. Show yearly arc and evolution factually
+7. 3-4 sentence paragraphs for comprehensive overview
+
+**Country:** {country}
+**Year:** {year}
+**Event:** {event_name}
+
+**Monthly Summaries from This Year:**
+{monthly_summaries}
+
+**YOUR TASK:**
+
+Create a yearly summary with four sections:
+
+1. **Yearly Overview** (3-4 sentences):
+   - What happened across the entire year?
+   - What was the overall arc and evolution of events?
+   - What major phases or turning points occurred?
+   - What did sources consistently report throughout the year?
+
+2. **Major Developments** (3-4 sentences):
+   - What were the most significant developments chronologically?
+   - How did the situation evolve from beginning to end of year?
+   - What concrete milestones were achieved?
+   - What changes occurred in scope, scale, or nature?
+
+3. **Annual Outcomes** (3-4 sentences):
+   - What cumulative results occurred over the full year?
+   - What concrete actions were completed by year-end?
+   - What quantifiable metrics did sources report?
+   - What was the end-of-year status according to sources?
+
+4. **Strategic Assessment** (3-4 sentences):
+   - FACTUALLY report what officials/experts SAID about yearly significance
+   - What did analysts STATE about annual impact (with attribution)?
+   - What did sources DESCRIBE as long-term implications?
+   - What trends or patterns did experts IDENTIFY?
+
+**FORMAT YOUR RESPONSE AS JSON:**
+{{
+  "yearly_overview": "3-4 sentence paragraph showing annual arc and evolution",
+  "major_developments": "3-4 sentence paragraph showing chronological progression",
+  "annual_outcomes": "3-4 sentence paragraph showing cumulative results",
+  "strategic_assessment": "3-4 sentence paragraph with attributed expert/official statements"
+}}
+
+**NOTE ON STRATEGIC ASSESSMENT:**
+- ONLY include what sources/experts/officials SAID
+- Use phrases like "according to [expert name]," "analysts stated," "officials described"
+- Do NOT provide your own analysis
+- This is still AP-style reporting - just reporting on what others said about yearly significance
+- Focus on attributed assessments of the event's impact over the full 12-month period
+
+**EXAMPLE:**
+
+{{
+  "yearly_overview": "China's Belt and Road Initiative expanded significantly throughout 2024, with projects advancing in 15 countries across three continents, according to official Chinese reports. The program saw $47 billion in new infrastructure commitments announced between January and December, state media reported. Major construction milestones occurred in Pakistan, Egypt, and Indonesia, with several port and railway projects reaching operational status by year-end.",
+  "major_developments": "The initiative entered a new phase in March 2024 when China announced revised lending terms for participating nations, Reuters reported. Construction began on four major infrastructure projects in the second quarter, with Egypt's New Administrative Capital railway link breaking ground in May, according to Egyptian state media. By December, three port facilities became operational in Pakistan and Sri Lanka, handling their first commercial shipments, port authorities confirmed.",
+  "annual_outcomes": "Chinese contractors completed $12 billion in infrastructure projects by December 2024, with 8,400 kilometers of roads and railways becoming operational, according to China's Ministry of Commerce. The program created approximately 145,000 jobs in recipient countries, official reports stated. Trade volume between China and Belt and Road partner nations increased 18% year-over-year to $2.1 trillion, customs data showed.",
+  "strategic_assessment": "The World Bank characterized 2024 as a 'consolidation year' for the Belt and Road Initiative, with focus shifting from project announcements to implementation, according to its November report. Political analysts at the Carnegie Endowment described the revised lending terms as reflecting 'lessons learned from debt sustainability concerns,' their September analysis stated. Egyptian officials called the initiative 'transformative for regional connectivity,' citing reduced shipping times and transportation costs, Al-Ahram reported in October."
+}}
+
+Remember: This is a comprehensive annual summary but still AP-style. Report facts, show evolution over time, and attribute all assessments to named sources.
+"""

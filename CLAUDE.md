@@ -65,10 +65,26 @@ python services/pipeline/ingestion/dsr.py --no-embed      # Process without embe
 python services/pipeline/analysis/atom_extraction.py      # AI analysis
 python services/pipeline/analysis/phase0_event_analysis.py  # Event analysis
 
-# Event processing
-python services/pipeline/events/news_event_tracker.py     # Event tracking
-python services/pipeline/events/process_daily_news.py     # Daily event processing
-python services/pipeline/events/process_date_range.py     # Process date range
+# Event Processing Pipeline
+
+## Daily Processing (Stage 1)
+# Cluster same-day events using DBSCAN + embeddings
+python services/pipeline/events/batch_cluster_events.py \
+    --country China --start-date 2024-08-01 --end-date 2024-08-31
+
+# LLM validates clusters and creates canonical_events
+python services/pipeline/events/llm_deconflict_clusters.py \
+    --country China --start-date 2024-08-01 --end-date 2024-08-31
+
+## Batch Consolidation (Stage 2) - Run periodically across entire dataset
+# Groups canonical events using embedding similarity
+python services/pipeline/events/consolidate_all_events.py --influencers
+
+# LLM validates consolidation, picks best names, splits incorrect groups
+python services/pipeline/events/llm_deconflict_canonical_events.py --influencers
+
+# Consolidates daily_event_mentions into multi-day events
+python services/pipeline/events/merge_canonical_events.py --influencers
 
 # Bilateral Relationship Summaries
 python services/pipeline/summaries/generate_bilateral_summaries.py \
@@ -251,6 +267,46 @@ The application runs as a multi-container Docker stack:
 3. **Event Processing** (`services/pipeline/events/`): Groups related documents into events and tracks news
 4. **Embedding Generation** (`services/pipeline/embeddings/`): Creates vector representations and syncs with S3
 5. **Dashboard** (`services/dashboard/`): Streamlit visualization of trends and patterns
+
+### Event Processing: Two-Stage Architecture
+
+The event processing pipeline uses a **two-stage batch consolidation approach**:
+
+**Stage 1: Daily Event Detection**
+1. `batch_cluster_events.py` - Clusters raw events per day using DBSCAN + embeddings
+   - Creates `event_clusters` table with batch numbers
+   - Groups similar events happening on the same day
+   - Does NOT link across days (by design)
+
+2. `llm_deconflict_clusters.py` - LLM validates and refines clusters
+   - Creates `canonical_events` (one per unique event per day)
+   - Creates `daily_event_mentions` (links events to source documents)
+   - Generates embeddings for each canonical event
+
+**Stage 2: Batch Consolidation (Across All Dates)**
+3. `consolidate_all_events.py` - Groups canonical events across entire dataset
+   - Uses embedding similarity (cosine ≥0.85)
+   - Sets `master_event_id` to create event hierarchy
+   - Master events: `master_event_id IS NULL`
+   - Child events: `master_event_id = master.id`
+
+4. `llm_deconflict_canonical_events.py` - LLM validates consolidation
+   - Verifies grouped events represent same real-world event
+   - Picks best canonical name
+   - Splits incorrectly merged groups
+
+5. `merge_canonical_events.py` - Creates multi-day events
+   - Consolidates `daily_event_mentions` from child to master events
+   - Deletes empty child canonical events
+   - Result: Master events span multiple days
+
+**Why Two Stages?**
+- Daily clustering handles day-to-day event detection
+- Batch consolidation has full dataset context for better temporal linking
+- LLM validation at both stages ensures quality
+- Separation of concerns: real-time processing vs. comprehensive consolidation
+
+**Traceability**: All events can be linked back to original documents via `daily_event_mentions` → `documents`
 
 ### Configuration Management
 

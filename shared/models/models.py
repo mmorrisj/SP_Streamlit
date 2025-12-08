@@ -581,6 +581,10 @@ class CanonicalEvent(Base):
     # Metadata
     primary_categories: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)
     primary_recipients: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)
+
+    # Materiality scoring (measures concrete vs symbolic nature)
+    material_score: Mapped[Optional[float]] = mapped_column(Numeric(precision=3, scale=1), nullable=True)
+    material_justification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Relationships
     daily_mentions = relationship("DailyEventMention", back_populates="canonical_event")

@@ -130,16 +130,41 @@ docker exec api-service python services/pipeline/events/llm_deconflict_clusters.
 
 **NOTE:** This step creates master events from canonical events by clustering across time.
 
-**Current Status:** There is no standalone script for this step yet. The temporal consolidation may be integrated into `llm_deconflict_clusters.py` or done via a separate temporal clustering script.
+**Implementation:** Three-script batch consolidation process
 
-**Goal:** Group canonical events across time to create master events
+**Scripts:**
+1. **consolidate_all_events.py** - Groups canonical events using embedding similarity
+   - Loads all canonical_events for each country (no date filtering)
+   - Clusters using cosine similarity on embeddings (threshold ≥0.85)
+   - Sets `master_event_id` to link related events
+   - Master events: `master_event_id IS NULL`
+   - Child events: `master_event_id = master.id`
 
-**Process (conceptual):**
-1. Load canonical_events from Step 2
-2. Cluster similar canonical events across time using HDBSCAN or DBSCAN
-3. Create master events (canonical_events with `master_event_id = NULL`)
-4. Link child canonical events to their master event via `master_event_id`
-5. Track story evolution (announcement → preparation → execution → aftermath)
+2. **llm_deconflict_canonical_events.py** - Validates groupings with LLM
+   - Reviews each event group to confirm they represent same real-world event
+   - Picks best canonical name from the group
+   - Splits incorrectly merged groups if needed
+   - Assigns new canonical names for split groups
+
+3. **merge_canonical_events.py** - Consolidates daily mentions into multi-day events
+   - Reassigns `daily_event_mentions` from child events to master events
+   - Handles date conflicts by merging article counts
+   - Deletes empty child canonical events
+   - Creates true multi-day event tracking
+
+**Process:**
+1. Load all canonical_events for a country (no time filtering)
+2. Cluster similar events using embedding cosine similarity
+3. Validate clusters with LLM (confirms same event, picks best name)
+4. Consolidate daily_event_mentions to create multi-day master events
+5. Track story evolution across days/weeks/months
+
+**Usage:**
+```bash
+python services/pipeline/events/consolidate_all_events.py --influencers
+python services/pipeline/events/llm_deconflict_canonical_events.py --influencers
+python services/pipeline/events/merge_canonical_events.py --influencers
+```
 
 **Output:**
 - Master events (canonical_events with `master_event_id IS NULL`)
