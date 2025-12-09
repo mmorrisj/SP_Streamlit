@@ -16,16 +16,13 @@ import argparse
 import json
 import logging
 import os
-import sys
 from datetime import datetime, date
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 import time
 
 from sqlalchemy import text, and_, distinct
 from sqlalchemy.dialects.postgresql import insert
-
-# Add parent directory to path for imports
-sys.path.insert(0, '/home/user/SP_Streamlit')
 
 from shared.database.database import get_session
 from shared.models.models import Document
@@ -231,7 +228,7 @@ def process_documents(
 
         # Build query
         query = session.query(Document).filter(
-            Document.salience_bool == "TRUE",
+            Document.salience_bool == "true",  # Lowercase to match database values
             Document.distilled_text.isnot(None),
             Document.distilled_text != ""
         )
@@ -312,14 +309,18 @@ def process_documents(
 
         # Save results if not dry run
         if not dry_run and all_extractions:
-            output_path = f"/home/user/SP_Streamlit/data/entity_extractions_{country}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            # Use relative path from project root
+            output_dir = Path(__file__).parent.parent.parent / "data" / "entity_extractions"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / f"entity_extractions_{country}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
             with open(output_path, 'w') as f:
                 json.dump({
                     "stats": stats,
                     "extractions": all_extractions
                 }, f, indent=2, default=str)
             logger.info(f"Saved extractions to {output_path}")
-            stats["output_file"] = output_path
+            stats["output_file"] = str(output_path)
 
         return stats
 

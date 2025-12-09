@@ -17,12 +17,9 @@ Usage:
 import argparse
 import json
 import logging
-import sys
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Set
 from pathlib import Path
-
-sys.path.insert(0, '/home/user/SP_Streamlit')
 
 from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
