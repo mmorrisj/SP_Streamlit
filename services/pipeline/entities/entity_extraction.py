@@ -30,7 +30,8 @@ from shared.utils.prompts_entity import (
     entity_extraction_prompt,
     ROLE_LABELS,
     TOPIC_LABELS,
-    ENTITY_TYPES
+    ENTITY_TYPES,
+    RELATIONSHIP_TYPES
 )
 from shared.utils.utils import gai, find_json_objects, Config
 
@@ -181,6 +182,49 @@ def validate_entity(entity: Dict[str, Any]) -> tuple[bool, List[str]]:
     return is_valid, warnings
 
 
+def validate_relationship(
+    relationship: Dict[str, Any],
+    entity_names: Set[str]
+) -> tuple[bool, List[str]]:
+    """
+    Validate an extracted relationship against defined types and entity names.
+
+    Args:
+        relationship: The relationship dict to validate
+        entity_names: Set of valid entity names from extraction
+
+    Returns:
+        Tuple of (is_valid, list_of_warnings)
+    """
+    warnings = []
+
+    # Check required fields
+    required_fields = ["source_entity", "target_entity", "relationship_type"]
+    for field in required_fields:
+        if not relationship.get(field):
+            warnings.append(f"Missing required field: {field}")
+
+    # Validate relationship_type
+    if relationship.get("relationship_type") and relationship["relationship_type"] not in RELATIONSHIP_TYPES:
+        warnings.append(f"Invalid relationship_type: {relationship['relationship_type']}")
+
+    # Validate source_entity exists in extracted entities
+    if relationship.get("source_entity") and relationship["source_entity"] not in entity_names:
+        warnings.append(f"source_entity '{relationship['source_entity']}' not in extracted entities")
+
+    # Validate target_entity exists in extracted entities
+    if relationship.get("target_entity") and relationship["target_entity"] not in entity_names:
+        warnings.append(f"target_entity '{relationship['target_entity']}' not in extracted entities")
+
+    # Validate confidence
+    valid_confidence = ["HIGH", "MEDIUM", "LOW"]
+    if relationship.get("confidence") and relationship["confidence"] not in valid_confidence:
+        warnings.append(f"Invalid confidence: {relationship['confidence']}")
+
+    is_valid = len([w for w in warnings if "Missing required" in w]) == 0
+    return is_valid, warnings
+
+
 def process_documents(
     country: str,
     limit: Optional[int] = None,
@@ -214,8 +258,10 @@ def process_documents(
         "documents_processed": 0,
         "documents_skipped": 0,
         "entities_extracted": 0,
+        "relationships_extracted": 0,
         "errors": 0,
         "validation_warnings": 0,
+        "relationship_warnings": 0,
         "start_time": datetime.utcnow().isoformat(),
         "model_used": model
     }
@@ -289,18 +335,41 @@ def process_documents(
             result["entities"] = valid_entities
             result["entity_count"] = len(valid_entities)
 
+            # Create set of valid entity names for relationship validation
+            entity_names = {ent.get("name") for ent in valid_entities if ent.get("name")}
+
+            # Validate relationships
+            valid_relationships = []
+            for rel in result.get("relationships", []):
+                is_valid, warnings = validate_relationship(rel, entity_names)
+                if warnings:
+                    stats["relationship_warnings"] += len(warnings)
+                    for w in warnings:
+                        logger.warning(f"  Relationship '{rel.get('source_entity', '?')} -> {rel.get('target_entity', '?')}': {w}")
+                if is_valid:
+                    valid_relationships.append(rel)
+
+            result["relationships"] = valid_relationships
+            result["relationship_count"] = len(valid_relationships)
+
             stats["documents_processed"] += 1
             stats["entities_extracted"] += len(valid_entities)
+            stats["relationships_extracted"] += len(valid_relationships)
 
             all_extractions.append(result)
 
             # Log progress
             if valid_entities:
-                logger.info(f"  Extracted {len(valid_entities)} entities")
+                logger.info(f"  Extracted {len(valid_entities)} entities, {len(valid_relationships)} relationships")
                 for ent in valid_entities[:3]:  # Show first 3
                     logger.info(f"    - {ent.get('name')} ({ent.get('entity_type')}, {ent.get('role_label')})")
                 if len(valid_entities) > 3:
-                    logger.info(f"    ... and {len(valid_entities) - 3} more")
+                    logger.info(f"    ... and {len(valid_entities) - 3} more entities")
+                if valid_relationships:
+                    for rel in valid_relationships[:2]:  # Show first 2 relationships
+                        logger.info(f"    ~ {rel.get('source_entity')} --[{rel.get('relationship_type')}]--> {rel.get('target_entity')}")
+                    if len(valid_relationships) > 2:
+                        logger.info(f"    ... and {len(valid_relationships) - 2} more relationships")
 
             # Rate limiting
             time.sleep(0.5)
@@ -370,13 +439,15 @@ def main():
     print("\n" + "="*50)
     print("EXTRACTION SUMMARY")
     print("="*50)
-    print(f"Documents skipped:   {stats.get('documents_skipped', 0)} (already processed)")
-    print(f"Documents processed: {stats['documents_processed']}")
-    print(f"Entities extracted:  {stats['entities_extracted']}")
-    print(f"Errors:              {stats['errors']}")
-    print(f"Validation warnings: {stats['validation_warnings']}")
+    print(f"Documents skipped:      {stats.get('documents_skipped', 0)} (already processed)")
+    print(f"Documents processed:    {stats['documents_processed']}")
+    print(f"Entities extracted:     {stats['entities_extracted']}")
+    print(f"Relationships extracted:{stats['relationships_extracted']}")
+    print(f"Errors:                 {stats['errors']}")
+    print(f"Entity warnings:        {stats['validation_warnings']}")
+    print(f"Relationship warnings:  {stats['relationship_warnings']}")
     if stats.get("output_file"):
-        print(f"Output file:         {stats['output_file']}")
+        print(f"Output file:            {stats['output_file']}")
     print("="*50)
 
 

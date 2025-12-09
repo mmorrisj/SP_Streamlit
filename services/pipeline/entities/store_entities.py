@@ -48,6 +48,30 @@ def get_existing_doc_entity_pairs(session) -> Set[tuple]:
         return set()
 
 
+def get_existing_relationships(session) -> Set[tuple]:
+    """
+    Get set of (source_entity_id, target_entity_id, relationship_type, doc_id) tuples
+    from existing relationships. Used to prevent duplicate doc contributions.
+
+    Note: EntityRelationship model stores sample_doc_ids as an array of doc_ids
+    that have contributed to this relationship. We expand this to track duplicates.
+    """
+    try:
+        # Get all relationships with their sample_doc_ids
+        result = session.execute(text(
+            """
+            SELECT source_entity_id::text, target_entity_id::text, relationship_type,
+                   unnest(sample_doc_ids) as doc_id
+            FROM entity_relationships
+            WHERE sample_doc_ids IS NOT NULL AND array_length(sample_doc_ids, 1) > 0
+            """
+        ))
+        return {(row[0], row[1], row[2], row[3]) for row in result.fetchall()}
+    except Exception as e:
+        logger.warning(f"Could not query existing relationships: {e}")
+        return set()
+
+
 def normalize_entity_name(name: str) -> str:
     """Normalize entity name for matching"""
     if not name:
@@ -231,6 +255,117 @@ def store_entity(
         return entity, None, True
 
 
+def store_relationship(
+    session,
+    rel_data: Dict[str, Any],
+    doc_id: str,
+    doc_date: Optional[str],
+    entity_name_to_id: Dict[str, str],
+    existing_rel_doc_pairs: Set[tuple]
+) -> tuple[bool, bool]:
+    """
+    Store a relationship between two entities with aggregation.
+
+    The EntityRelationship model aggregates observations across documents.
+    Each unique (source, target, type) triple is one relationship with
+    multiple observations.
+
+    Args:
+        session: Database session
+        rel_data: Relationship data from extraction
+        doc_id: Source document ID
+        doc_date: Source document date
+        entity_name_to_id: Mapping of entity names to their database IDs
+        existing_rel_doc_pairs: Set of (source_id, target_id, type, doc_id) seen
+
+    Returns:
+        Tuple of (was_created_or_updated, was_skipped)
+    """
+    source_name = rel_data.get("source_entity", "")
+    target_name = rel_data.get("target_entity", "")
+    rel_type = rel_data.get("relationship_type", "")
+
+    # Look up entity IDs
+    source_id = entity_name_to_id.get(source_name)
+    target_id = entity_name_to_id.get(target_name)
+
+    if not source_id or not target_id:
+        logger.warning(f"Cannot store relationship: entity not found for '{source_name}' or '{target_name}'")
+        return False, True
+
+    # Check if this doc has already contributed to this relationship
+    rel_doc_key = (source_id, target_id, rel_type, doc_id)
+    if rel_doc_key in existing_rel_doc_pairs:
+        logger.debug(f"Skipping duplicate: doc {doc_id[:8]}... already contributed to {source_name} --[{rel_type}]--> {target_name}")
+        return False, True
+
+    # Parse monetary value if present
+    monetary_value = rel_data.get("monetary_value")
+    if monetary_value is not None:
+        try:
+            monetary_value = float(monetary_value)
+        except (ValueError, TypeError):
+            monetary_value = None
+
+    # Map confidence string to float
+    confidence_map = {"HIGH": 0.9, "MEDIUM": 0.7, "LOW": 0.5}
+    confidence = confidence_map.get(rel_data.get("confidence", "MEDIUM"), 0.7)
+
+    # Parse observation date
+    observation_date = datetime.utcnow().date()
+    if doc_date:
+        try:
+            observation_date = datetime.strptime(doc_date, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    description = rel_data.get("relationship_description", "")
+
+    try:
+        # Try to find existing relationship
+        existing = session.query(EntityRelationship).filter(
+            EntityRelationship.source_entity_id == source_id,
+            EntityRelationship.target_entity_id == target_id,
+            EntityRelationship.relationship_type == rel_type
+        ).first()
+
+        if existing:
+            # Update existing relationship with new observation
+            existing.add_observation(
+                doc_id=doc_id,
+                description=description,
+                observation_date=observation_date,
+                confidence=confidence,
+                value_usd=monetary_value
+            )
+            logger.debug(f"Updated relationship: {source_name} --[{rel_type}]--> {target_name} (now {existing.observation_count} observations)")
+        else:
+            # Create new relationship
+            new_rel = EntityRelationship(
+                source_entity_id=source_id,
+                target_entity_id=target_id,
+                relationship_type=rel_type,
+                first_observed=observation_date,
+                last_observed=observation_date,
+                observation_count=1,
+                document_count=1,
+                sample_doc_ids=[doc_id],
+                sample_descriptions=[description] if description else [],
+                avg_confidence=confidence,
+                total_value_usd=monetary_value
+            )
+            session.add(new_rel)
+            logger.debug(f"Created relationship: {source_name} --[{rel_type}]--> {target_name}")
+
+        # Track that this doc has contributed
+        existing_rel_doc_pairs.add(rel_doc_key)
+        return True, False
+
+    except Exception as e:
+        logger.error(f"Error storing relationship: {e}")
+        return False, True
+
+
 def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, int]:
     """
     Process a JSON file of entity extractions and store to database.
@@ -239,6 +374,7 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
     - Skips already-processed doc-entity pairs (ON CONFLICT IGNORE)
     - Tracks doc_id for full traceability
     - Entity deduplication by name/type/country
+    - Stores entity relationships with deduplication
 
     Returns:
         Statistics dict
@@ -250,6 +386,8 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
         "entities_updated": 0,
         "document_links_created": 0,
         "document_links_skipped": 0,
+        "relationships_created": 0,
+        "relationships_skipped": 0,
         "errors": 0
     }
 
@@ -266,6 +404,10 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
         existing_pairs = get_existing_doc_entity_pairs(session)
         logger.info(f"Found {len(existing_pairs)} existing doc-entity pairs in database")
 
+        # Get existing (source, target, type, doc_id) tuples to skip duplicate doc contributions
+        existing_rel_doc_pairs = get_existing_relationships(session)
+        logger.info(f"Found {len(existing_rel_doc_pairs)} existing relationship-doc pairs in database")
+
         # Create extraction run record
         run = EntityExtractionRun(
             model_used=model_used,
@@ -281,19 +423,27 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
             doc_id = extraction.get("doc_id")
             doc_date = extraction.get("date")
             entities = extraction.get("entities", [])
+            relationships = extraction.get("relationships", [])
 
             if not doc_id:
                 logger.warning("Extraction missing doc_id, skipping")
                 stats["errors"] += 1
                 continue
 
+            # Build name-to-ID mapping as we process entities
+            entity_name_to_id = {}
             doc_had_new_links = False
+
             for entity_data in entities:
                 try:
                     entity, doc_entity, was_skipped = store_entity(
                         session, entity_data, doc_id, doc_date, model_used,
                         existing_pairs=existing_pairs
                     )
+
+                    # Track entity name -> ID mapping for relationship resolution
+                    if entity and entity_data.get("name"):
+                        entity_name_to_id[entity_data["name"]] = str(entity.id)
 
                     if was_skipped:
                         stats["document_links_skipped"] += 1
@@ -303,6 +453,23 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
 
                 except Exception as e:
                     logger.error(f"Error storing entity from doc {doc_id}: {e}")
+                    stats["errors"] += 1
+
+            # Process relationships after all entities are stored
+            for rel_data in relationships:
+                try:
+                    was_created, was_skipped = store_relationship(
+                        session, rel_data, doc_id, doc_date, entity_name_to_id,
+                        existing_rel_doc_pairs
+                    )
+
+                    if was_created:
+                        stats["relationships_created"] += 1
+                    elif was_skipped:
+                        stats["relationships_skipped"] += 1
+
+                except Exception as e:
+                    logger.error(f"Error storing relationship from doc {doc_id}: {e}")
                     stats["errors"] += 1
 
             if doc_had_new_links:
@@ -319,6 +486,7 @@ def process_extraction_file(file_path: str, dry_run: bool = False) -> Dict[str, 
             # Update run record
             run.documents_processed = stats["documents_processed"]
             run.entities_extracted = stats["document_links_created"]
+            run.relationships_extracted = stats["relationships_created"]
             run.errors = stats["errors"]
             run.completed_at = datetime.utcnow()
             run.status = "completed"
@@ -346,6 +514,8 @@ def main():
         "entities_updated": 0,
         "document_links_created": 0,
         "document_links_skipped": 0,
+        "relationships_created": 0,
+        "relationships_skipped": 0,
         "errors": 0
     }
 
@@ -378,6 +548,8 @@ def main():
     print(f"Existing entities updated:{total_stats['entities_updated']}")
     print(f"Document links created:   {total_stats['document_links_created']}")
     print(f"Document links skipped:   {total_stats['document_links_skipped']} (duplicates)")
+    print(f"Relationships created:    {total_stats['relationships_created']}")
+    print(f"Relationships skipped:    {total_stats['relationships_skipped']} (duplicates)")
     print(f"Errors:                   {total_stats['errors']}")
     print("="*50)
 
