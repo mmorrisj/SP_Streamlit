@@ -28,6 +28,7 @@ services:
   # Streamlit Dashboard
   # -----------------------
   dashboard:
+    image: softpower_streamlit-dashboard:latest
     build:
       context: .
       dockerfile: docker/dashboard.Dockerfile
@@ -60,6 +61,7 @@ services:
   # FastAPI API Service
   # -----------------------
   api:
+    image: softpower_streamlit-api:latest
     build:
       context: .
       dockerfile: docker/api.Dockerfile
@@ -109,6 +111,7 @@ services:
   # Alembic Migrations (run with `--profile migrate`)
   # -----------------------
   migrate:
+    image: softpower_streamlit-api:latest
     build:
       context: .
       dockerfile: docker/api.Dockerfile

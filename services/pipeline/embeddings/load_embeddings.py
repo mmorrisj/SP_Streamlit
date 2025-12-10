@@ -57,9 +57,48 @@ def parse_embedding_string(emb_str: str) -> np.ndarray:
     else:
         raise ValueError(f"Unexpected embedding type: {type(emb_str)}")
 
+def get_existing_doc_ids_bulk(doc_ids: List[str], collection_name: str = "chunk_embeddings") -> set:
+    """
+    Check which doc_ids already exist in the database (BULK operation for performance).
+
+    This is MUCH faster than checking each doc_id individually - does 1 query instead of N queries.
+
+    Args:
+        doc_ids: List of document IDs to check
+        collection_name: LangChain collection name
+
+    Returns:
+        Set of doc_ids that already exist in database
+    """
+    if not doc_ids:
+        return set()
+
+    # Use shared engine from database module
+    engine = get_engine()
+
+    with engine.connect() as conn:
+        # Query all existing doc_ids in ONE query instead of N queries
+        result = conn.execute(
+            text("""
+                SELECT DISTINCT cmetadata->>'doc_id' as doc_id
+                FROM langchain_pg_embedding
+                WHERE cmetadata->>'doc_id' = ANY(:doc_ids)
+                  AND collection_id = (
+                      SELECT uuid FROM langchain_pg_collection WHERE name = :collection
+                  )
+            """),
+            {"doc_ids": list(doc_ids), "collection": collection_name},
+        )
+
+        existing_ids = {row[0] for row in result}
+        return existing_ids
+
+
 def is_embedding_already_loaded(doc_id: str, collection_name: str = "chunk_embeddings") -> bool:
     """
     Check if a document already has embeddings in LangChain's table for the given collection.
+
+    DEPRECATED: Use get_existing_doc_ids_bulk() for better performance when checking multiple docs.
 
     Args:
         doc_id: Document ID to check
@@ -68,17 +107,9 @@ def is_embedding_already_loaded(doc_id: str, collection_name: str = "chunk_embed
     Returns:
         True if embedding exists, False otherwise
     """
-    from sqlalchemy import create_engine
+    # Use shared engine instead of creating new one every time
+    engine = get_engine()
 
-    # Build connection string using environment variables (same as embedding_vectorstore.py)
-    user = os.getenv("POSTGRES_USER", "matthew50")
-    password = os.getenv("POSTGRES_PASSWORD", "softpower")
-    db = os.getenv("POSTGRES_DB", "softpower-db")
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    connection_string = f"postgresql://{user}:{password}@{host}:{port}/{db}"
-
-    engine = create_engine(connection_string)
     with engine.connect() as conn:
         result = conn.execute(
             text("""
@@ -144,14 +175,14 @@ def load_parquet_from_s3(s3_key: str, api_url: Optional[str] = None) -> pd.DataF
     return df
 
 def insert_embeddings_batch(df: pd.DataFrame, collection_name: str = "chunk_embeddings",
-                            batch_size: int = 100, skip_existing: bool = True) -> Dict[str, int]:
+                            batch_size: int = 500, skip_existing: bool = True) -> Dict[str, int]:
     """
-    Insert embeddings from DataFrame into LangChain PGVector table.
+    Insert embeddings from DataFrame into LangChain PGVector table (OPTIMIZED).
 
     Args:
         df: DataFrame with columns: doc_id, embedding, text, and metadata columns
         collection_name: LangChain collection name (default: chunk_embeddings)
-        batch_size: Number of embeddings to insert per batch
+        batch_size: Number of embeddings to insert per batch (increased default to 500)
         skip_existing: Skip embeddings that already exist in the database
 
     Returns:
@@ -164,6 +195,14 @@ def insert_embeddings_batch(df: pd.DataFrame, collection_name: str = "chunk_embe
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
+
+    # OPTIMIZATION: Check ALL doc_ids at once before processing (1 query instead of N queries)
+    existing_doc_ids = set()
+    if skip_existing:
+        all_doc_ids = [str(doc_id) for doc_id in df['doc_id'].unique()]
+        print(f"  Checking {len(all_doc_ids):,} unique doc_ids against database...")
+        existing_doc_ids = get_existing_doc_ids_bulk(all_doc_ids, collection_name)
+        print(f"  Found {len(existing_doc_ids):,} already in database, will skip those")
 
     # Process in batches
     total_rows = len(df)
@@ -179,8 +218,8 @@ def insert_embeddings_batch(df: pd.DataFrame, collection_name: str = "chunk_embe
         for idx, row in batch_df.iterrows():
             doc_id = str(row['doc_id'])
 
-            # Skip if already loaded and skip_existing is True
-            if skip_existing and is_embedding_already_loaded(doc_id, collection_name):
+            # OPTIMIZED: O(1) lookup in set instead of database query
+            if skip_existing and doc_id in existing_doc_ids:
                 counts['skipped'] += 1
                 continue
 
@@ -230,7 +269,7 @@ def insert_embeddings_batch(df: pd.DataFrame, collection_name: str = "chunk_embe
                     ids=batch_ids
                 )
                 counts['inserted'] += len(batch_texts)
-                print(f"✅ Inserted batch {(batch_start//batch_size)+1}: {len(batch_texts)} embeddings")
+                print(f"✅ Inserted batch {(batch_start//batch_size)+1}: {len(batch_texts)} embeddings (total: {counts['inserted']:,})")
             except Exception as e:
                 print(f"❌ Error inserting batch {(batch_start//batch_size)+1}: {e}")
                 counts['errors'] += len(batch_texts)
@@ -613,8 +652,8 @@ if __name__ == "__main__":
 
     # Processing options
     parser.add_argument("--files", nargs="+", help="Specific files to process")
-    parser.add_argument("--batch-size", type=int, default=100,
-                       help="Batch size for inserting embeddings (default: 100)")
+    parser.add_argument("--batch-size", type=int, default=500,
+                       help="Batch size for inserting embeddings (default: 500, increased for better performance)")
     parser.add_argument("--force", action="store_true",
                        help="Force reprocessing of embeddings (don't skip existing)")
 

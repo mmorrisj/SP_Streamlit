@@ -20,6 +20,7 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import text, and_, distinct
 from sqlalchemy.dialects.postgresql import insert
@@ -233,13 +234,15 @@ def process_documents(
     doc_ids: Optional[List[str]] = None,
     dry_run: bool = False,
     model: str = "gpt-4o-mini",
-    reprocess: bool = False
+    reprocess: bool = False,
+    parallel_workers: int = 1
 ) -> Dict[str, Any]:
     """
     Process documents and extract entities.
 
     Uses gai() from utils.py for LLM calls, which handles API proxy and fallback.
     Automatically skips documents that have already been processed (unless --reprocess).
+    Supports parallel processing with multiple workers for faster extraction.
 
     Args:
         country: Initiating country to filter by
@@ -250,6 +253,7 @@ def process_documents(
         dry_run: If True, don't save to database
         model: LLM model to use
         reprocess: If True, reprocess documents even if already extracted
+        parallel_workers: Number of parallel workers (default 1 = sequential)
 
     Returns:
         Summary statistics of the extraction run
@@ -291,6 +295,11 @@ def process_documents(
         if doc_ids:
             query = query.filter(Document.doc_id.in_(doc_ids))
 
+        # CRITICAL FIX: Exclude already-processed documents BEFORE applying limit
+        if processed_doc_ids and not reprocess:
+            query = query.filter(~Document.doc_id.in_(processed_doc_ids))
+            logger.info(f"Excluding {len(processed_doc_ids)} already-processed documents from query")
+
         # Order by date descending (most recent first)
         query = query.order_by(Document.date.desc())
 
@@ -299,34 +308,32 @@ def process_documents(
 
         documents = query.all()
         total_docs = len(documents)
+        stats["documents_skipped"] = len(processed_doc_ids) if processed_doc_ids else 0
 
-        # Filter out already-processed documents
-        if processed_doc_ids and not reprocess:
-            original_count = len(documents)
-            documents = [doc for doc in documents if doc.doc_id not in processed_doc_ids]
-            stats["documents_skipped"] = original_count - len(documents)
-            logger.info(f"Found {total_docs} matching documents, skipping {stats['documents_skipped']} already processed")
+        logger.info(f"Found {total_docs} unprocessed documents to process")
 
-        logger.info(f"Processing {len(documents)} new documents")
+        logger.info(f"Processing {len(documents)} new documents with {parallel_workers} worker(s)")
 
         all_extractions = []
 
-        for i, doc in enumerate(documents):
+        # Helper function to process and validate a single document
+        def process_single_doc(doc_tuple):
+            i, doc = doc_tuple
             logger.info(f"Processing {i+1}/{len(documents)}: {doc.doc_id[:8]}... ({doc.date})")
 
             # Extract entities using gai() via extract_entities_from_document
             result = extract_entities_from_document(doc, model)
 
             if result.get("error"):
-                stats["errors"] += 1
-                continue
+                return {"type": "error", "result": result}
 
             # Validate entities
             valid_entities = []
+            entity_warnings = []
             for entity in result.get("entities", []):
                 is_valid, warnings = validate_entity(entity)
                 if warnings:
-                    stats["validation_warnings"] += len(warnings)
+                    entity_warnings.extend(warnings)
                     for w in warnings:
                         logger.warning(f"  Entity '{entity.get('name', 'unknown')}': {w}")
                 if is_valid:
@@ -340,10 +347,11 @@ def process_documents(
 
             # Validate relationships
             valid_relationships = []
+            rel_warnings = []
             for rel in result.get("relationships", []):
                 is_valid, warnings = validate_relationship(rel, entity_names)
                 if warnings:
-                    stats["relationship_warnings"] += len(warnings)
+                    rel_warnings.extend(warnings)
                     for w in warnings:
                         logger.warning(f"  Relationship '{rel.get('source_entity', '?')} -> {rel.get('target_entity', '?')}': {w}")
                 if is_valid:
@@ -351,12 +359,6 @@ def process_documents(
 
             result["relationships"] = valid_relationships
             result["relationship_count"] = len(valid_relationships)
-
-            stats["documents_processed"] += 1
-            stats["entities_extracted"] += len(valid_entities)
-            stats["relationships_extracted"] += len(valid_relationships)
-
-            all_extractions.append(result)
 
             # Log progress
             if valid_entities:
@@ -371,8 +373,56 @@ def process_documents(
                     if len(valid_relationships) > 2:
                         logger.info(f"    ... and {len(valid_relationships) - 2} more relationships")
 
-            # Rate limiting
-            time.sleep(0.5)
+            return {
+                "type": "success",
+                "result": result,
+                "entity_warnings": len(entity_warnings),
+                "rel_warnings": len(rel_warnings)
+            }
+
+        # Process documents in parallel or sequential
+        if parallel_workers > 1:
+            # Parallel processing with ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+                # Submit all documents
+                futures = {executor.submit(process_single_doc, (i, doc)): (i, doc)
+                          for i, doc in enumerate(documents)}
+
+                # Process results as they complete
+                for future in as_completed(futures):
+                    try:
+                        result_data = future.result()
+
+                        if result_data["type"] == "error":
+                            stats["errors"] += 1
+                        else:
+                            stats["documents_processed"] += 1
+                            stats["entities_extracted"] += result_data["result"]["entity_count"]
+                            stats["relationships_extracted"] += result_data["result"]["relationship_count"]
+                            stats["validation_warnings"] += result_data["entity_warnings"]
+                            stats["relationship_warnings"] += result_data["rel_warnings"]
+                            all_extractions.append(result_data["result"])
+
+                    except Exception as e:
+                        logger.error(f"Processing error: {e}")
+                        stats["errors"] += 1
+        else:
+            # Sequential processing (original behavior)
+            for i, doc in enumerate(documents):
+                result_data = process_single_doc((i, doc))
+
+                if result_data["type"] == "error":
+                    stats["errors"] += 1
+                else:
+                    stats["documents_processed"] += 1
+                    stats["entities_extracted"] += result_data["result"]["entity_count"]
+                    stats["relationships_extracted"] += result_data["result"]["relationship_count"]
+                    stats["validation_warnings"] += result_data["entity_warnings"]
+                    stats["relationship_warnings"] += result_data["rel_warnings"]
+                    all_extractions.append(result_data["result"])
+
+                # Rate limiting for sequential processing
+                time.sleep(0.5)
 
         stats["end_time"] = datetime.utcnow().isoformat()
 
@@ -405,6 +455,8 @@ def main():
     parser.add_argument("--model", type=str, default="gpt-4o-mini", help="LLM model to use")
     parser.add_argument("--reprocess", action="store_true",
                         help="Force reprocess documents even if already extracted")
+    parser.add_argument("--parallel-workers", type=int, default=1,
+                        help="Number of parallel workers for processing (default: 1 = sequential)")
 
     args = parser.parse_args()
 
@@ -423,6 +475,7 @@ def main():
     logger.info(f"  Model: {args.model}")
     logger.info(f"  Dry run: {args.dry_run}")
     logger.info(f"  Reprocess: {args.reprocess}")
+    logger.info(f"  Parallel workers: {args.parallel_workers}")
 
     stats = process_documents(
         country=args.country,
@@ -432,7 +485,8 @@ def main():
         doc_ids=args.doc_id,
         dry_run=args.dry_run,
         model=args.model,
-        reprocess=args.reprocess
+        reprocess=args.reprocess,
+        parallel_workers=args.parallel_workers
     )
 
     # Print summary
