@@ -6,7 +6,7 @@
 
 **Author:** Matt Morris, Data Scientist
 
-**Version:** 1.0
+**Version:** 2.0
 
 **Date:** December 2024
 
@@ -21,10 +21,13 @@
 5. [System Architecture](#system-architecture)
 6. [Prompt Engineering](#prompt-engineering)
 7. [Event Processing Pipeline](#event-processing-pipeline)
-8. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
-9. [Knowledge Distillation](#knowledge-distillation)
-10. [Limitations and Future Directions](#limitations-and-future-directions)
-11. [Conclusion](#conclusion)
+8. [Entity and Relationship Extraction](#entity-and-relationship-extraction)
+9. [Agentic RAG System](#agentic-rag-system)
+10. [Interactive Visualization](#interactive-visualization)
+11. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
+12. [Knowledge Distillation](#knowledge-distillation)
+13. [Limitations and Future Directions](#limitations-and-future-directions)
+14. [Conclusion](#conclusion)
 
 ---
 
@@ -39,6 +42,9 @@ Evaluations demonstrated that GAI models not only excelled in categorizing artic
 - Determine geocoordinates for geographic visualization
 - Track and consolidate events across large document corpora
 - Generate automated summaries and insights
+- **Extract entities and relationships** to build a network graph of actors involved in soft power transactions
+- **Provide conversational access** to the data through an agentic RAG (Retrieval-Augmented Generation) interface
+- **Visualize entity networks** through interactive graph visualizations
 
 The black-box nature of GAI inference poses an ongoing risk that this project mitigates through periodic evaluations of GAI outputs to monitor performance, with exploration of training student models using GAI outputs as a contingency.
 
@@ -346,6 +352,474 @@ Human intervention point where analysts can:
 
 ---
 
+## Entity and Relationship Extraction
+
+Building on the foundational document categorization and event extraction capabilities, the system expanded to include comprehensive **entity and relationship extraction**. This enables the construction of a knowledge graph representing the actors, organizations, and connections underlying soft power activities.
+
+### Motivation
+
+While event-level analysis provides insights into *what* happened, understanding *who* is involved and *how they interact* requires a deeper level of extraction. Entity and relationship extraction enables:
+
+- **Network Analysis**: Identifying key actors and their influence patterns
+- **Connection Discovery**: Finding hidden relationships between entities across documents
+- **Temporal Tracking**: Monitoring how entity involvement evolves over time
+- **Financial Flow Mapping**: Tracing monetary relationships between organizations
+
+### Entity Taxonomy
+
+The system extracts 11 types of entities:
+
+| Entity Type | Description | Examples |
+|-------------|-------------|----------|
+| **PERSON** | Individual officials, executives, diplomats | Wang Yi, Crown Prince Mohammed bin Salman |
+| **GOVERNMENT_AGENCY** | Ministries, departments, embassies | Ministry of Foreign Affairs, USAID |
+| **STATE_OWNED_ENTERPRISE** | Government-controlled companies | China National Petroleum Corporation, Saudi Aramco |
+| **PRIVATE_COMPANY** | Privately owned businesses | Huawei, Siemens |
+| **MULTILATERAL_ORG** | International bodies | UN, BRICS, SCO, African Union |
+| **NGO** | Non-governmental organizations | Red Cross, Doctors Without Borders |
+| **EDUCATIONAL_INSTITUTION** | Universities, research institutes | Confucius Institute, Cairo University |
+| **FINANCIAL_INSTITUTION** | Banks, investment funds | China Development Bank, World Bank |
+| **MILITARY_UNIT** | Armed forces, defense ministries | People's Liberation Army |
+| **MEDIA_ORGANIZATION** | News outlets, broadcasters | CGTN, Al Jazeera |
+| **RELIGIOUS_ORGANIZATION** | Religious bodies | Al-Azhar University |
+
+### Role Labels (25 Types)
+
+Each entity is assigned a role describing their function in the soft power transaction:
+
+**Diplomatic Roles:**
+- HEAD_OF_STATE, DIPLOMAT, NEGOTIATOR, GOVERNMENT_OFFICIAL, LEGISLATOR
+
+**Economic Roles:**
+- FINANCIER, INVESTOR, CONTRACTOR, DEVELOPER, TRADE_PARTNER, OPERATOR
+
+**Military Roles:**
+- MILITARY_OFFICIAL, DEFENSE_SUPPLIER, TRAINER
+
+**Cultural/Social Roles:**
+- CULTURAL_INSTITUTION, EDUCATOR, MEDIA_ENTITY, RELIGIOUS_ENTITY, HUMANITARIAN
+
+**Transaction-Specific Roles:**
+- BENEFICIARY, HOST, LOCAL_PARTNER, FACILITATOR, SIGNATORY
+
+### Topic Labels (30 Types)
+
+Entities are tagged with the domain of influence they operate in:
+
+**Economic Topics:**
+- INFRASTRUCTURE, ENERGY, FINANCE, TRADE, TECHNOLOGY, TELECOMMUNICATIONS, TRANSPORTATION, AGRICULTURE, MINING, MANUFACTURING
+
+**Diplomatic Topics:**
+- BILATERAL_RELATIONS, MULTILATERAL_FORUMS, CONFLICT_MEDIATION, TREATY_NEGOTIATION
+
+**Military Topics:**
+- ARMS_TRADE, MILITARY_COOPERATION, DEFENSE_TRAINING, SECURITY_ASSISTANCE
+
+**Social Topics:**
+- EDUCATION, HEALTHCARE, CULTURE, MEDIA, RELIGION, HUMANITARIAN_AID, TOURISM
+
+### Relationship Types (14 Types)
+
+The system captures directed relationships between entities:
+
+| Relationship Type | Description |
+|-------------------|-------------|
+| **FUNDS** | Provides money/financing to |
+| **INVESTS_IN** | Makes equity investment in |
+| **CONTRACTS_WITH** | Has contract/agreement with |
+| **PARTNERS_WITH** | Forms partnership/JV with |
+| **SIGNS_AGREEMENT** | Signs formal agreement with |
+| **MEETS_WITH** | Has meeting/diplomatic encounter with |
+| **EMPLOYS** | Has employment relationship with |
+| **OWNS** | Has ownership stake in |
+| **REPRESENTS** | Officially represents (person → organization) |
+| **HOSTS** | Hosts event/visit for |
+| **TRAINS** | Provides training to |
+| **SUPPLIES** | Provides goods/equipment to |
+| **MEDIATES** | Mediates between parties |
+| **ANNOUNCES** | Makes public announcement about |
+
+### Extraction Pipeline
+
+The entity extraction pipeline operates as follows:
+
+```
+Documents → Entity Extraction (GPT-4o-mini) → Validation →
+Deduplication → Database Storage → Relationship Aggregation
+```
+
+**Step 1: Document Selection**
+- Query documents with `salience_bool = true` and valid `distilled_text`
+- Filter by country, date range, or specific document IDs
+- Automatically skip already-processed documents (incremental processing)
+
+**Step 2: LLM Extraction**
+- Format prompt with document context (initiating/recipient country, category)
+- Call GPT-4o-mini to extract entities and relationships
+- Parse structured JSON output
+
+**Step 3: Validation**
+- Validate entity types against defined taxonomy
+- Validate role labels and topic labels
+- Validate relationship types and ensure source/target entities exist
+- Log warnings for invalid or missing fields
+
+**Step 4: Deduplication**
+- Match entities by canonical name (case-insensitive)
+- Match by aliases (stored as array)
+- For persons, match by name + country combination
+- Use `ON CONFLICT DO NOTHING` for document-entity pairs
+
+**Step 5: Relationship Aggregation**
+- Aggregate relationship observations across documents
+- Track `observation_count` and `document_count`
+- Maintain `first_observed` and `last_observed` dates
+- Sum `total_value_usd` for financial relationships
+- Store sample evidence (up to 10 document IDs per relationship)
+
+### Database Schema
+
+The entity system uses three core tables:
+
+**`entities`** - Canonical, deduplicated entities
+- UUID primary key
+- `canonical_name`, `entity_type`, `country`
+- `aliases` (array for deduplication)
+- `mention_count`, `first_seen_date`, `last_seen_date`
+- `primary_topics` (JSONB) - aggregated topic usage
+- `primary_roles` (JSONB) - aggregated role usage
+
+**`document_entities`** - Links documents to entities
+- Foreign keys to `documents` and `entities`
+- `side` (initiating/recipient/third_party)
+- `role_label`, `topic_label`, `role_description`
+- `confidence` score and `extraction_method`
+
+**`entity_relationships`** - Aggregated relationships
+- Source and target entity foreign keys
+- `relationship_type`
+- `observation_count`, `document_count`
+- `total_value_usd` (for financial relationships)
+- `sample_doc_ids` (array of evidence)
+
+### Parallel Processing
+
+The extraction pipeline supports parallel processing for improved throughput:
+
+```bash
+# Sequential processing (default)
+python services/pipeline/entities/entity_extraction.py --country China --limit 100
+
+# Parallel processing with 4 workers
+python services/pipeline/entities/entity_extraction.py --country China --limit 100 --parallel-workers 4
+
+# Force reprocess already-extracted documents
+python services/pipeline/entities/entity_extraction.py --country China --reprocess
+```
+
+### Entity Resolution
+
+A separate entity resolution prompt handles deduplication of extracted entities:
+
+- Identifies abbreviated vs. full names (CNPC vs. China National Petroleum Corporation)
+- Matches with/without titles (President Xi vs. Xi Jinping)
+- Handles transliteration variations
+- Groups merge candidates with confidence scores
+
+---
+
+## Agentic RAG System
+
+To enable dynamic, conversational access to the soft power data, the project developed an **Agentic RAG (Retrieval-Augmented Generation)** system. This system combines semantic search with structured analytics tools, allowing users to ask natural language questions and receive data-driven answers.
+
+### Architecture Overview
+
+The agentic system follows a three-step process:
+
+```
+User Query → Tool Selection (LLM) → Tool Execution → Response Generation (LLM)
+```
+
+**Step 1: Tool Selection**
+- The LLM analyzes the user's query to determine which tools would be most helpful
+- Returns a JSON array of tool names to invoke
+
+**Step 2: Tool Execution**
+- Selected tools are executed with appropriate parameters
+- Results are aggregated from multiple tools when needed
+
+**Step 3: Response Generation**
+- Tool results are formatted as context for the LLM
+- The LLM synthesizes a coherent, factual response
+- Sources are tracked for attribution
+
+### Available Tools
+
+The agent has access to seven specialized tools:
+
+| Tool | Purpose | Use Cases |
+|------|---------|-----------|
+| **search_events** | Semantic search across event summaries | "What events involve China and Africa?" |
+| **search_documents** | Search source documents | "Find detailed information about BRI projects" |
+| **get_country_stats** | Activity statistics for a country | "How active is Russia in Latin America?" |
+| **get_bilateral_summary** | Relationship summary between countries | "What is China's relationship with Egypt?" |
+| **get_trending_events** | Currently trending events | "What are the latest soft power activities?" |
+| **get_category_trends** | Category trend analysis | "How has economic cooperation evolved?" |
+| **compare_countries** | Compare activity across countries | "Compare China and Russia's influence" |
+
+### Query Engine
+
+The RAG query engine provides semantic search capabilities using vector embeddings:
+
+**Embedding Model:** `sentence-transformers/all-MiniLM-L6-v2` (384-dimensional)
+
+**Vector Stores:**
+- `chunk_store` - Document chunk embeddings
+- `summary_store` - Event summary embeddings
+- `daily_store`, `weekly_store`, `monthly_store`, `yearly_store` - Period-specific stores
+
+**Search Capabilities:**
+- Similarity search with relevance scores
+- Filtering by country, category, date range
+- Deduplication of document results
+- Hybrid search across events and documents
+
+### Conversation Management
+
+The agent maintains conversation history for context-aware responses:
+
+```python
+class SoftPowerAgent:
+    def __init__(self):
+        self.query_engine = QueryEngine()
+        self.conversation_history = []
+        self.tools = {
+            'search_events': self._search_events,
+            'search_documents': self._search_documents,
+            # ... additional tools
+        }
+```
+
+Each conversation turn records:
+- User query with timestamp
+- Assistant response with timestamp
+- Sources used for the response
+
+### System Prompt
+
+The agent operates under a specialized system prompt that defines its role:
+
+> You are an expert analyst specializing in soft power and international relations. You have access to a comprehensive database of soft power activities, including event summaries, source documents, bilateral relationship summaries, and activity statistics and trends.
+
+Guidelines include:
+- Always use tools to gather data before answering
+- Combine multiple tool results for comprehensive answers
+- Be specific with dates, countries, and categories
+- Format responses clearly with sections and bullet points
+- Include relevant metrics and statistics
+
+### Analytics Tools
+
+Beyond semantic search, the agent can invoke structured analytics:
+
+**Country Activity Stats:**
+```python
+get_country_activity_stats(country, start_date, end_date)
+# Returns: Events by type, top categories, top recipients
+```
+
+**Bilateral Relationship Summary:**
+```python
+get_bilateral_relationship_summary(initiating_country, recipient_country)
+# Returns: Relationship metrics, key events, document counts
+```
+
+**Trending Events:**
+```python
+get_trending_events(country, period_type, limit, days)
+# Returns: Events ranked by document count/recency
+```
+
+**Category Trends:**
+```python
+get_category_trends(category, country, date_range)
+# Returns: Monthly activity, top events, trend direction
+```
+
+**Country Comparison:**
+```python
+compare_countries(countries, date_range)
+# Returns: Comparative statistics across selected countries
+```
+
+---
+
+## Interactive Visualization
+
+The system provides two primary user interfaces for interacting with soft power data: a **conversational chat interface** and an **entity network visualization**.
+
+### Chat with Data Interface
+
+The "Chat with Data" page provides a conversational interface powered by the agentic RAG system.
+
+**Features:**
+- Real-time chat with conversation history
+- Sidebar filters for date range, initiating country, and recipient countries
+- Query context enhancement (filters automatically added to queries)
+- Source attribution with expandable details
+- Example queries to guide users
+
+**User Experience:**
+1. User enters a natural language question
+2. Active filters are automatically included in the query context
+3. Agent processes query using tools and semantic search
+4. Response displayed with markdown formatting
+5. Sources shown in expandable section with relevance scores
+
+**Example Queries:**
+- "What recent events involve China and Africa?"
+- "How has China's engagement with Latin America evolved?"
+- "What is the relationship between China and Egypt?"
+- "What cultural events has Turkey organized recently?"
+
+**Filter Integration:**
+```python
+def build_filter_context():
+    filters = st.session_state.filters
+    context_parts = []
+
+    if filters['start_date'] or filters['end_date']:
+        context_parts.append(f"Date range: {filters['start_date']} to {filters['end_date']}")
+
+    if filters['initiating_country']:
+        context_parts.append(f"Initiating country: {filters['initiating_country']}")
+
+    if filters['recipient_countries']:
+        recipients = ", ".join(filters['recipient_countries'])
+        context_parts.append(f"Recipient countries: {recipients}")
+
+    return "ACTIVE FILTERS: " + "; ".join(context_parts)
+```
+
+### Entity Network Visualization
+
+The "Entity Network" page provides an interactive graph visualization of entities and their relationships using **pyvis**.
+
+**Visual Encoding:**
+- **Node Size**: Based on mention count (more mentions = larger node)
+- **Node Color**: Based on entity type (11 distinct colors)
+- **Edge Width**: Based on observation count
+- **Edge Color**: Based on relationship type
+- **Arrow Direction**: Shows relationship direction (source → target)
+
+**Entity Type Colors:**
+
+| Entity Type | Color |
+|-------------|-------|
+| PERSON | Red (#FF6B6B) |
+| GOVERNMENT_AGENCY | Teal (#4ECDC4) |
+| STATE_OWNED_ENTERPRISE | Blue (#45B7D1) |
+| PRIVATE_COMPANY | Orange (#FFA07A) |
+| MULTILATERAL_ORG | Green (#98D8C8) |
+| FINANCIAL_INSTITUTION | Light Green (#6BCB77) |
+| EDUCATIONAL_INSTITUTION | Yellow (#FFD93D) |
+| NGO | Purple (#C7CEEA) |
+| MILITARY_UNIT | Pink (#FF6B9D) |
+| MEDIA_ORGANIZATION | Violet (#C780E8) |
+| RELIGIOUS_ORGANIZATION | Brown (#DDA15E) |
+
+**Relationship Type Colors:**
+
+| Relationship Type | Color |
+|-------------------|-------|
+| FUNDS | Green |
+| INVESTS_IN | Teal |
+| PARTNERS_WITH | Yellow |
+| MEETS_WITH | Red |
+| REPRESENTS | Purple |
+| SUPPLIES | Orange |
+| CONTRACTS_WITH | Blue |
+| SIGNS_AGREEMENT | Light Green |
+
+**Interactive Features:**
+- **Hover**: View entity/relationship details in tooltip
+- **Click and Drag**: Reposition nodes
+- **Scroll**: Zoom in/out
+- **Click Node**: Highlight connected edges
+- **Physics Toggle**: Enable/disable force-directed layout
+
+**Sidebar Filters:**
+- Country filter (multi-select)
+- Entity type filter
+- Relationship type filter
+- Minimum mention threshold (slider)
+- Maximum entities to display (slider)
+- Graph height adjustment
+- Physics and label toggles
+
+**Metrics Dashboard:**
+- Total entities displayed
+- Total relationships displayed
+- Average connections per entity
+- Entity type diversity count
+
+**Top Entities Table:**
+Shows the top 10 most connected entities with:
+- Entity name
+- Entity type
+- Country affiliation
+- Mention count
+- Connection count
+
+**Sample Data Mode:**
+For demonstration purposes, the visualization includes sample data when no entities are present in the database, featuring 10 sample entities with realistic relationships (e.g., China Development Bank, Saudi Aramco, Wang Yi).
+
+### Technical Implementation
+
+The network visualization is generated dynamically:
+
+```python
+def create_network_graph(entities, relationships, height_px, physics, show_labels):
+    net = Network(
+        height=f"{height_px}px",
+        width="100%",
+        bgcolor="#1E1E1E",
+        font_color="white",
+        directed=True
+    )
+
+    # Configure physics for force-directed layout
+    net.set_options("""
+    {
+      "physics": {
+        "enabled": true,
+        "barnesHut": {
+          "gravitationalConstant": -8000,
+          "centralGravity": 0.3,
+          "springLength": 150
+        }
+      }
+    }
+    """)
+
+    # Add nodes with size/color based on entity attributes
+    for entity in entities:
+        size = 10 + (entity['mentions'] * 1.5)
+        color = get_entity_color(entity['type'])
+        net.add_node(entity['id'], label=entity['name'], size=size, color=color)
+
+    # Add directed edges with tooltips
+    for rel in relationships:
+        width = 1 + (rel['count'] * 0.5)
+        net.add_edge(rel['source'], rel['target'],
+                     title=rel['type'], width=width,
+                     arrows={'to': {'enabled': True}})
+
+    return net.generate_html()
+```
+
+---
+
 ## Techniques and Lessons Learned
 
 ### Model Strategy & Cost Optimization
@@ -481,10 +955,24 @@ The adoption of GAI has enabled:
 - **Flexible adaptation** to evolving analytic requirements
 - **Expanded capabilities** beyond original project scope
 - **Scalable processing** of large document corpora
+- **Entity and relationship extraction** to build comprehensive knowledge graphs
+- **Conversational access** to data through an agentic RAG interface
+- **Interactive visualizations** for exploring entity networks
+
+The system has evolved from a document categorization tool to a comprehensive soft power analytics platform that includes:
+
+| Capability | Technology | Purpose |
+|------------|------------|---------|
+| Document Categorization | GPT-4o + custom prompts | Classify and extract soft power activities |
+| Event Consolidation | GPT-4.1 + embeddings | Group related coverage into unique events |
+| Entity Extraction | GPT-4o-mini + validation | Identify actors and organizations |
+| Relationship Mapping | GPT-4o-mini + aggregation | Build network graph of interactions |
+| Conversational Interface | Agentic RAG + tool selection | Natural language data access |
+| Network Visualization | Pyvis + Streamlit | Interactive entity exploration |
 
 As GAI technology continues to advance with improved accuracy, reduced costs, and expanded context windows, the framework established by this project positions the soft power analytics capability for continued evolution and enhancement.
 
-The combination of frontier models for complex reasoning, open-source embeddings for efficient retrieval, and distilled student models for cost-effective deployment represents a sustainable, adaptable approach to AI-powered analysis at scale.
+The combination of frontier models for complex reasoning, open-source embeddings for efficient retrieval, distilled student models for cost-effective deployment, and interactive user interfaces represents a sustainable, adaptable approach to AI-powered analysis at scale.
 
 ---
 
@@ -534,4 +1022,65 @@ The combination of frontier models for complex reasoning, open-source embeddings
 
 ---
 
-*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis.*
+## Appendix: Entity and Relationship Schema
+
+### Entity Types (11)
+
+| Type | Description |
+|------|-------------|
+| PERSON | Individual officials, executives, diplomats |
+| GOVERNMENT_AGENCY | Ministries, departments, embassies |
+| STATE_OWNED_ENTERPRISE | Government-controlled companies |
+| PRIVATE_COMPANY | Privately owned businesses |
+| MULTILATERAL_ORG | International bodies (UN, BRICS, SCO) |
+| NGO | Non-governmental organizations |
+| EDUCATIONAL_INSTITUTION | Universities, research institutes |
+| FINANCIAL_INSTITUTION | Banks, investment funds |
+| MILITARY_UNIT | Armed forces, defense ministries |
+| MEDIA_ORGANIZATION | News outlets, broadcasters |
+| RELIGIOUS_ORGANIZATION | Religious bodies |
+
+### Role Labels (25)
+
+**Diplomatic:** HEAD_OF_STATE, DIPLOMAT, NEGOTIATOR, GOVERNMENT_OFFICIAL, LEGISLATOR
+
+**Economic:** FINANCIER, INVESTOR, CONTRACTOR, DEVELOPER, TRADE_PARTNER, OPERATOR
+
+**Military:** MILITARY_OFFICIAL, DEFENSE_SUPPLIER, TRAINER
+
+**Cultural/Social:** CULTURAL_INSTITUTION, EDUCATOR, MEDIA_ENTITY, RELIGIOUS_ENTITY, HUMANITARIAN
+
+**Transaction:** BENEFICIARY, HOST, LOCAL_PARTNER, FACILITATOR, SIGNATORY
+
+### Topic Labels (30)
+
+**Economic:** INFRASTRUCTURE, ENERGY, FINANCE, TRADE, TECHNOLOGY, TELECOMMUNICATIONS, TRANSPORTATION, AGRICULTURE, MINING, MANUFACTURING
+
+**Diplomatic:** BILATERAL_RELATIONS, MULTILATERAL_FORUMS, CONFLICT_MEDIATION, TREATY_NEGOTIATION
+
+**Military:** ARMS_TRADE, MILITARY_COOPERATION, DEFENSE_TRAINING, SECURITY_ASSISTANCE
+
+**Social:** EDUCATION, HEALTHCARE, CULTURE, MEDIA, RELIGION, HUMANITARIAN_AID, TOURISM
+
+### Relationship Types (14)
+
+| Type | Description |
+|------|-------------|
+| FUNDS | Provides money/financing to |
+| INVESTS_IN | Makes equity investment in |
+| CONTRACTS_WITH | Has contract/agreement with |
+| PARTNERS_WITH | Forms partnership/JV with |
+| SIGNS_AGREEMENT | Signs formal agreement with |
+| MEETS_WITH | Has meeting/diplomatic encounter with |
+| EMPLOYS | Has employment relationship with |
+| OWNS | Has ownership stake in |
+| REPRESENTS | Officially represents (person → org) |
+| HOSTS | Hosts event/visit for |
+| TRAINS | Provides training to |
+| SUPPLIES | Provides goods/equipment to |
+| MEDIATES | Mediates between parties |
+| ANNOUNCES | Makes public announcement about |
+
+---
+
+*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 2.0 includes expanded coverage of entity extraction, relationship mapping, agentic RAG systems, and interactive visualization capabilities.*
