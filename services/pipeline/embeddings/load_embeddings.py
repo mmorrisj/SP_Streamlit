@@ -143,6 +143,97 @@ def load_parquet_from_s3(s3_key: str, api_url: Optional[str] = None) -> pd.DataF
     print(f"Loaded {len(df)} rows from S3 (direct)")
     return df
 
+def normalize_parquet_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize parquet DataFrame columns to expected format.
+
+    Handles two formats:
+    1. Direct format: doc_id, embedding, text columns
+    2. LangChain export format: uuid, collection_id, embedding, document, cmetadata, custom_id
+
+    Args:
+        df: DataFrame from parquet file
+
+    Returns:
+        DataFrame with normalized columns: doc_id, embedding, text
+    """
+    df = df.copy()
+
+    # If already in expected format, return as-is
+    if all(col in df.columns for col in ['doc_id', 'embedding', 'text']):
+        return df
+
+    # Handle LangChain export format (from export_embeddings.py)
+    if 'document' in df.columns and 'cmetadata' in df.columns:
+        print("  Detected LangChain export format, normalizing columns...")
+
+        # Map 'document' to 'text'
+        df['text'] = df['document']
+
+        # Extract doc_id from cmetadata
+        def extract_doc_id(cmetadata):
+            if cmetadata is None:
+                return None
+            if isinstance(cmetadata, str):
+                try:
+                    cmetadata = json.loads(cmetadata)
+                except (json.JSONDecodeError, ValueError):
+                    return None
+            if isinstance(cmetadata, dict):
+                return cmetadata.get('doc_id')
+            return None
+
+        df['doc_id'] = df['cmetadata'].apply(extract_doc_id)
+
+        # For rows missing doc_id in cmetadata, use custom_id or uuid as fallback
+        if 'custom_id' in df.columns:
+            df['doc_id'] = df['doc_id'].fillna(df['custom_id'])
+        if 'uuid' in df.columns:
+            df['doc_id'] = df['doc_id'].fillna(df['uuid'])
+
+        # Extract other metadata from cmetadata for optional fields
+        def extract_metadata_field(cmetadata, field):
+            if cmetadata is None:
+                return None
+            if isinstance(cmetadata, str):
+                try:
+                    cmetadata = json.loads(cmetadata)
+                except (json.JSONDecodeError, ValueError):
+                    return None
+            if isinstance(cmetadata, dict):
+                return cmetadata.get(field)
+            return None
+
+        # Extract common metadata fields if not already present
+        for field in ['chunk_index', 'chunk_start_word', 'chunk_end_word',
+                      'initiating_country', 'recipient_country', 'category']:
+            if field not in df.columns:
+                df[field] = df['cmetadata'].apply(lambda x: extract_metadata_field(x, field))
+
+        print(f"  Normalized {len(df)} rows from LangChain export format")
+
+    return df
+
+
+def is_embedding_file(filename: str) -> bool:
+    """
+    Check if a parquet file is an embedding file (vs event_summaries, event_source_links, etc.).
+
+    Args:
+        filename: Name of the parquet file
+
+    Returns:
+        True if this is an embedding file, False otherwise
+    """
+    # Files that are NOT embedding files
+    non_embedding_files = [
+        'event_summaries.parquet',
+        'event_source_links.parquet',
+    ]
+
+    return filename not in non_embedding_files
+
+
 def insert_embeddings_batch(df: pd.DataFrame, collection_name: str = "chunk_embeddings",
                             batch_size: int = 100, skip_existing: bool = True) -> Dict[str, int]:
     """
@@ -150,6 +241,7 @@ def insert_embeddings_batch(df: pd.DataFrame, collection_name: str = "chunk_embe
 
     Args:
         df: DataFrame with columns: doc_id, embedding, text, and metadata columns
+            OR LangChain export format: uuid, collection_id, embedding, document, cmetadata
         collection_name: LangChain collection name (default: chunk_embeddings)
         batch_size: Number of embeddings to insert per batch
         skip_existing: Skip embeddings that already exist in the database
@@ -159,7 +251,10 @@ def insert_embeddings_batch(df: pd.DataFrame, collection_name: str = "chunk_embe
     """
     counts = {'inserted': 0, 'skipped': 0, 'errors': 0}
 
-    # Validate required columns
+    # Normalize columns to expected format
+    df = normalize_parquet_columns(df)
+
+    # Validate required columns after normalization
     required_cols = ['doc_id', 'embedding', 'text']
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
@@ -406,6 +501,11 @@ def process_local_embeddings(directory: str = "data/processed_embeddings",
     total_counts = {'inserted': 0, 'skipped': 0, 'errors': 0}
 
     for filename in files_to_process:
+        # Skip non-embedding files (event_summaries, event_source_links, etc.)
+        if not is_embedding_file(filename):
+            print(f"⏭️  Skipping non-embedding file: {filename} (use import_embeddings.py for this file)")
+            continue
+
         try:
             file_path = os.path.join(directory, filename)
 
@@ -481,6 +581,11 @@ def process_s3_embeddings(s3_prefix: str = S3_TRACKER_PREFIX,
     for file_info in files_to_process:
         filename = file_info['filename']
         s3_key = file_info['key']
+
+        # Skip non-embedding files (event_summaries, event_source_links, etc.)
+        if not is_embedding_file(filename):
+            print(f"⏭️  Skipping non-embedding file: {filename} (use import_embeddings.py for this file)")
+            continue
 
         try:
             # Load parquet from S3
