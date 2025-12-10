@@ -23,11 +23,12 @@ Usage:
 
 import argparse
 import sys
+import io
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 from psycopg2.extras import execute_values
 
 # Add project root to path
@@ -37,25 +38,136 @@ sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
 from shared.database.database import get_engine, get_session
-import boto3
-from botocore.exceptions import ClientError
+from services.pipeline.embeddings.s3 import _get_api_client, bucket_name as default_bucket
+
+# Optional direct boto3 for fallback
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
+
+def list_s3_parquet_files_via_api(bucket: str, prefix: str) -> List[Dict]:
+    """List parquet files in S3 using the API client."""
+    client = _get_api_client()
+    if client:
+        try:
+            response = client.list_parquet_files(bucket=bucket, prefix=prefix)
+            files = response.get('files', [])
+            print(f"Found {len(files)} parquet files in s3://{bucket}/{prefix} (via API)")
+            return files
+        except Exception as e:
+            print(f"API client failed to list files: {e}")
+            return []
+    return []
+
+
+def download_parquet_via_api(bucket: str, key: str) -> Optional[pd.DataFrame]:
+    """Download a parquet file from S3 using the API client."""
+    client = _get_api_client()
+    if client:
+        try:
+            df = client.download_parquet_as_dataframe(bucket=bucket, key=key)
+            return df
+        except Exception as e:
+            print(f"API client failed to download {key}: {e}")
+            return None
+    return None
+
+
+def download_json_via_api(bucket: str, key: str) -> Optional[Dict]:
+    """Download a JSON file from S3 using the API client."""
+    client = _get_api_client()
+    if client:
+        try:
+            response = client.download_json_file(bucket=bucket, key=key)
+            return response.get('data')
+        except Exception as e:
+            print(f"API client failed to download {key}: {e}")
+            return None
+    return None
 
 
 def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> List[Path]:
-    """Download parquet files from S3 to local directory."""
+    """Download parquet files from S3 to local directory.
+
+    Uses API client proxy if available, falls back to direct boto3.
+    """
     print(f"Downloading from S3: s3://{bucket}/{prefix}")
+    local_dir.mkdir(parents=True, exist_ok=True)
+    downloaded_files = []
+
+    # Try API client first
+    client = _get_api_client()
+    if client:
+        try:
+            # List files via API
+            response = client.list_parquet_files(bucket=bucket, prefix=prefix)
+            files = response.get('files', [])
+
+            # Also try to get JSON files (manifest)
+            try:
+                json_response = client.list_json_files(bucket=bucket, prefix=prefix)
+                json_files = json_response.get('files', [])
+                files.extend([{'key': f['key'], 'filename': f['filename']} for f in json_files])
+            except Exception:
+                pass  # JSON listing might not be available
+
+            if not files:
+                print(f"[WARNING] No files found at s3://{bucket}/{prefix}")
+                return []
+
+            print(f"Found {len(files)} files to download (via API)")
+
+            for file_info in files:
+                key = file_info['key']
+                filename = file_info.get('filename', Path(key).name)
+
+                if not filename.endswith('.parquet') and not filename.endswith('.json'):
+                    continue
+
+                local_path = local_dir / filename
+
+                try:
+                    if filename.endswith('.parquet'):
+                        # Download parquet as DataFrame then save locally
+                        df = client.download_parquet_as_dataframe(bucket=bucket, key=key)
+                        df.to_parquet(local_path, compression='zstd', index=False)
+                    else:
+                        # Download JSON
+                        response = client.download_json_file(bucket=bucket, key=key)
+                        with open(local_path, 'w') as f:
+                            json.dump(response.get('data', {}), f, indent=2)
+
+                    print(f"  [OK] Downloaded {filename} (via API)")
+                    downloaded_files.append(local_path)
+                except Exception as e:
+                    print(f"  [ERROR] Failed to download {filename}: {e}")
+
+            return downloaded_files
+
+        except Exception as e:
+            print(f"API client failed, falling back to direct S3: {e}")
+
+    # Fallback to direct boto3 access
+    if not BOTO3_AVAILABLE:
+        print("[ERROR] Neither API client nor boto3 available for S3 access")
+        return []
 
     s3 = boto3.client('s3')
-    local_dir.mkdir(parents=True, exist_ok=True)
 
     # List all files with prefix
-    response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    try:
+        response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    except ClientError as e:
+        print(f"[ERROR] Failed to list S3 objects: {e}")
+        return []
 
     if 'Contents' not in response:
         print(f"[ERROR] No files found at s3://{bucket}/{prefix}")
         return []
-
-    downloaded_files = []
 
     for obj in response['Contents']:
         key = obj['Key']
@@ -68,7 +180,7 @@ def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> List[Path]:
 
         try:
             s3.download_file(bucket, key, str(local_path))
-            print(f"  [OK] Downloaded {filename}")
+            print(f"  [OK] Downloaded {filename} (direct)")
             downloaded_files.append(local_path)
         except ClientError as e:
             print(f"  [ERROR] Failed to download {filename}: {e}")
