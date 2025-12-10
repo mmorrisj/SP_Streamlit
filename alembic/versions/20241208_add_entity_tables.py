@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '20241208_entity'
-down_revision = None  # Update this to chain with your existing migrations
+down_revision = '005_canonical_material'  # Chain from latest migration
 branch_labels = None
 depends_on = None
 
@@ -75,6 +75,13 @@ def upgrade() -> None:
     op.create_index('ix_doc_entity_side', 'document_entities', ['side'])
     op.create_index('ix_doc_entity_role', 'document_entities', ['role_label'])
     op.create_index('ix_doc_entity_topic', 'document_entities', ['topic_label'])
+
+    # Unique constraint for ON CONFLICT DO NOTHING - prevents duplicate doc-entity pairs
+    op.create_unique_constraint(
+        'uq_document_entity_doc_entity',
+        'document_entities',
+        ['doc_id', 'entity_id']
+    )
 
     # Create entity_relationships table
     op.create_table(

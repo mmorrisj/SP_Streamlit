@@ -61,6 +61,7 @@ streamlit-option-menu
 streamlit-aggrid
 streamlit-plotly-events
 streamlit-chat
+pyvis
 
 # Utilities
 # -----------------------------------------------

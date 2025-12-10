@@ -28,6 +28,7 @@ from datetime import datetime
 import pandas as pd
 import json
 from typing import List, Dict
+from psycopg2.extras import execute_values
 
 # Add project root to path
 script_dir = Path(__file__).resolve().parent
@@ -145,7 +146,7 @@ def clear_collection(collection_name: str):
 
 def import_parquet_to_collection(parquet_file: Path, collection_name: str, dry_run: bool = False):
     """
-    Import embeddings from parquet file into a collection.
+    Import embeddings from parquet file into a collection using bulk inserts.
 
     Args:
         parquet_file: Path to parquet file
@@ -171,40 +172,54 @@ def import_parquet_to_collection(parquet_file: Path, collection_name: str, dry_r
     # Prepare data for bulk insert
     engine = get_engine()
 
-    # Insert in batches
-    batch_size = 1000
+    # Insert in batches using execute_values for much better performance
+    batch_size = 5000  # Increased from 1000 since bulk insert is much faster
     total_inserted = 0
 
-    with engine.connect() as conn:
+    # Get raw connection for execute_values
+    raw_conn = engine.raw_connection()
+
+    try:
+        cursor = raw_conn.cursor()
+
         for start_idx in range(0, len(df), batch_size):
             batch = df.iloc[start_idx:start_idx + batch_size]
 
-            # Build insert statement with ON CONFLICT DO NOTHING for idempotency
-            for _, row in batch.iterrows():
-                conn.execute(text("""
-                    INSERT INTO langchain_pg_embedding
-                    (uuid, collection_id, embedding, document, cmetadata, custom_id)
-                    VALUES (
-                        :uuid::uuid,
-                        :collection_id::uuid,
-                        :embedding::vector,
-                        :document,
-                        :cmetadata::json,
-                        :custom_id
-                    )
-                    ON CONFLICT (uuid) DO NOTHING
-                """), {
-                    "uuid": row['uuid'],
-                    "collection_id": collection_uuid,
-                    "embedding": row['embedding'],
-                    "document": row['document'],
-                    "cmetadata": json.dumps(row['cmetadata']),
-                    "custom_id": row['custom_id']
-                })
+            # Prepare values for bulk insert
+            values = [
+                (
+                    str(row['uuid']),
+                    collection_uuid,
+                    row['embedding'],  # Already in correct format from parquet
+                    row['document'],
+                    json.dumps(row['cmetadata']),
+                    row['custom_id']
+                )
+                for _, row in batch.iterrows()
+            ]
 
-            conn.commit()
+            # Bulk insert with ON CONFLICT DO NOTHING for idempotency
+            execute_values(
+                cursor,
+                """
+                INSERT INTO langchain_pg_embedding
+                (uuid, collection_id, embedding, document, cmetadata, custom_id)
+                VALUES %s
+                ON CONFLICT (uuid) DO NOTHING
+                """,
+                values,
+                template="(%s::uuid, %s::uuid, %s::vector, %s, %s::json, %s)",
+                page_size=1000
+            )
+
+            raw_conn.commit()
             total_inserted += len(batch)
             print(f"  [OK] Inserted batch {start_idx//batch_size + 1}: {len(batch)} embeddings (total: {total_inserted:,})")
+
+        cursor.close()
+
+    finally:
+        raw_conn.close()
 
     print(f"  [COMPLETE] Imported {total_inserted:,} embeddings into '{collection_name}'")
 

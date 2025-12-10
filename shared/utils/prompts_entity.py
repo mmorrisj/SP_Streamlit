@@ -93,8 +93,26 @@ ENTITY_TYPES = [
     "RELIGIOUS_ORGANIZATION", # Religious body, church, mosque
 ]
 
+# Relationship type labels
+RELATIONSHIP_TYPES = [
+    "FUNDS",               # Provides money/financing to
+    "INVESTS_IN",          # Makes equity investment in
+    "CONTRACTS_WITH",      # Has contract/agreement with
+    "PARTNERS_WITH",       # Forms partnership/JV with
+    "SIGNS_AGREEMENT",     # Signs formal agreement with
+    "MEETS_WITH",          # Has meeting/diplomatic encounter with
+    "EMPLOYS",             # Has employment relationship with
+    "OWNS",                # Has ownership stake in
+    "REPRESENTS",          # Officially represents (person->org)
+    "HOSTS",               # Hosts event/visit for
+    "TRAINS",              # Provides training to
+    "SUPPLIES",            # Provides goods/equipment to
+    "MEDIATES",            # Mediates between parties
+    "ANNOUNCES",           # Makes public announcement about
+]
 
-entity_extraction_prompt = '''You are an expert at identifying key actors in international soft power activities. Your task is to extract all significant entities (persons, organizations, companies) from the provided text and characterize their role in the soft power exchange.
+
+entity_extraction_prompt = '''You are an expert at identifying key actors in international soft power activities. Your task is to extract all significant entities (persons, organizations, companies) from the provided text, characterize their role in the soft power exchange, AND identify the relationships between them.
 
 CONTEXT:
 - Initiating Country: {initiating_country}
@@ -127,6 +145,30 @@ Extract every significant entity mentioned in the text. For each entity provide:
 8. **title**: For PERSON entities only - their official title/position (e.g., "Foreign Minister", "CEO")
 9. **parent_organization**: For PERSON entities - the organization they represent, if mentioned
 
+RELATIONSHIP EXTRACTION:
+After extracting entities, identify relationships between them. For each relationship provide:
+
+1. **source_entity**: Name of the entity initiating/performing the action (must match an entity name above)
+2. **target_entity**: Name of the entity receiving/affected by the action (must match an entity name above)
+3. **relationship_type**: One of:
+   - FUNDS: Provides money/financing to
+   - INVESTS_IN: Makes equity investment in
+   - CONTRACTS_WITH: Has contract/agreement with
+   - PARTNERS_WITH: Forms partnership/JV with
+   - SIGNS_AGREEMENT: Signs formal agreement with
+   - MEETS_WITH: Has meeting/diplomatic encounter with
+   - EMPLOYS: Has employment relationship with
+   - OWNS: Has ownership stake in
+   - REPRESENTS: Officially represents (person->org)
+   - HOSTS: Hosts event/visit for
+   - TRAINS: Provides training to
+   - SUPPLIES: Provides goods/equipment to
+   - MEDIATES: Mediates between parties
+   - ANNOUNCES: Makes public announcement about
+4. **relationship_description**: Brief description of the specific interaction
+5. **monetary_value**: If a financial relationship, the value in USD (null if not applicable)
+6. **confidence**: HIGH, MEDIUM, or LOW based on how explicit the relationship is in the text
+
 EXTRACTION RULES:
 - Extract ALL named entities, even if mentioned briefly
 - For persons, always try to identify their title and organization
@@ -135,6 +177,8 @@ EXTRACTION RULES:
 - Third-party entities (neither initiating nor recipient country) should use "third_party" for side
 - Be specific with role_label - choose the most precise label for the context
 - The topic_label should reflect what domain this entity operates in for THIS transaction
+- For relationships, only extract those explicitly stated or strongly implied in the text
+- Persons often REPRESENT organizations - capture these relationships
 
 OUTPUT FORMAT:
 Return a JSON object with the following structure:
@@ -172,9 +216,39 @@ Return a JSON object with the following structure:
       "role_description": "Joint venture partner for refinery project",
       "title": null,
       "parent_organization": null
+    }},
+    {{
+      "name": "Ministry of Foreign Affairs",
+      "entity_type": "GOVERNMENT_AGENCY",
+      "country": "China",
+      "side": "initiating",
+      "role_label": "GOVERNMENT_OFFICIAL",
+      "topic_label": "BILATERAL_RELATIONS",
+      "role_description": "Chinese foreign ministry overseeing diplomatic engagement",
+      "title": null,
+      "parent_organization": null
     }}
   ],
-  "entity_count": 3,
+  "relationships": [
+    {{
+      "source_entity": "China National Petroleum Corporation",
+      "target_entity": "Saudi Aramco",
+      "relationship_type": "PARTNERS_WITH",
+      "relationship_description": "Formed joint venture for refinery development project",
+      "monetary_value": null,
+      "confidence": "HIGH"
+    }},
+    {{
+      "source_entity": "Wang Yi",
+      "target_entity": "Ministry of Foreign Affairs",
+      "relationship_type": "REPRESENTS",
+      "relationship_description": "Foreign Minister representing the ministry in negotiations",
+      "monetary_value": null,
+      "confidence": "HIGH"
+    }}
+  ],
+  "entity_count": 4,
+  "relationship_count": 2,
   "primary_transaction_type": "ENERGY",
   "extraction_notes": "Brief note on any ambiguities or assumptions made"
 }}
@@ -184,6 +258,7 @@ IMPORTANT:
 - Extract entities even if information is partial - use null for unknown fields
 - Do not invent entities not mentioned in the text
 - Standardize country names (e.g., "PRC" -> "China", "UAE" -> "United Arab Emirates")
+- All relationship source_entity and target_entity names MUST match entity names in the entities array
 '''
 
 
