@@ -24,6 +24,7 @@ Usage:
 import argparse
 import sys
 import io
+import uuid
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -225,17 +226,18 @@ def ensure_collection_exists(collection_name: str) -> str:
         if row:
             return str(row[0])
 
-        # Create collection
+        # Create collection with generated UUID
+        new_uuid = str(uuid.uuid4())
         result = conn.execute(text("""
-            INSERT INTO langchain_pg_collection (name, cmetadata)
-            VALUES (:name, :metadata)
+            INSERT INTO langchain_pg_collection (uuid, name, cmetadata)
+            VALUES (:uuid, :name, :metadata)
             RETURNING uuid
-        """), {"name": collection_name, "metadata": json.dumps({})})
+        """), {"uuid": new_uuid, "name": collection_name, "metadata": json.dumps({})})
 
         conn.commit()
-        uuid = result.fetchone()[0]
-        print(f"  [CREATED] Collection '{collection_name}' with UUID {uuid}")
-        return str(uuid)
+        created_uuid = result.fetchone()[0]
+        print(f"  [CREATED] Collection '{collection_name}' with UUID {created_uuid}")
+        return str(created_uuid)
 
 
 def clear_collection(collection_name: str):
