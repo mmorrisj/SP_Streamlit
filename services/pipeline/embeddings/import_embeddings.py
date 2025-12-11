@@ -272,6 +272,7 @@ def import_parquet_to_collection(parquet_file: Path, collection_name: str, dry_r
     # Read parquet file
     df = pd.read_parquet(parquet_file)
     print(f"  Loaded {len(df):,} embeddings from file")
+    print(f"  Columns: {list(df.columns)}")
 
     if dry_run:
         print(f"  [DRY RUN] Would import {len(df):,} embeddings")
@@ -280,8 +281,52 @@ def import_parquet_to_collection(parquet_file: Path, collection_name: str, dry_r
     # Ensure collection exists
     collection_uuid = ensure_collection_exists(collection_name)
 
-    # Convert cmetadata from JSON strings back to dicts
-    df['cmetadata'] = df['cmetadata'].apply(lambda x: json.loads(x) if pd.notna(x) and x else {})
+    # Handle different column naming conventions
+    # Map alternative column names to expected names
+    column_mappings = {
+        'id': 'uuid',
+        'metadata': 'cmetadata',
+        'text': 'document',
+        'content': 'document',
+        'doc_id': 'custom_id',
+    }
+
+    for alt_name, expected_name in column_mappings.items():
+        if alt_name in df.columns and expected_name not in df.columns:
+            df[expected_name] = df[alt_name]
+            print(f"  [MAP] Column '{alt_name}' -> '{expected_name}'")
+
+    # Ensure required columns exist with defaults
+    if 'uuid' not in df.columns:
+        df['uuid'] = [str(uuid.uuid4()) for _ in range(len(df))]
+        print(f"  [GEN] Generated UUIDs for {len(df):,} rows")
+
+    if 'cmetadata' not in df.columns:
+        df['cmetadata'] = '{}'
+        print(f"  [DEFAULT] Added empty cmetadata")
+
+    if 'custom_id' not in df.columns:
+        df['custom_id'] = None
+        print(f"  [DEFAULT] Added null custom_id")
+
+    if 'document' not in df.columns:
+        df['document'] = ''
+        print(f"  [DEFAULT] Added empty document")
+
+    # Convert cmetadata from JSON strings back to dicts (handle both string and dict inputs)
+    def parse_cmetadata(x):
+        if pd.isna(x) or x is None or x == '':
+            return {}
+        if isinstance(x, dict):
+            return x
+        if isinstance(x, str):
+            try:
+                return json.loads(x)
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    df['cmetadata'] = df['cmetadata'].apply(parse_cmetadata)
 
     # Prepare data for bulk insert
     engine = get_engine()
