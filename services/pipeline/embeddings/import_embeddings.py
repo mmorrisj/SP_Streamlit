@@ -422,56 +422,100 @@ def import_event_summaries(parquet_file: Path, dry_run: bool = False, clear_exis
             session.commit()
             print(f"  [CLEAR] Deleted {result.rowcount:,} existing event summaries")
 
-    # Convert JSON strings back to JSONB
+    # Convert JSON strings back to dicts, then to JSON strings for insertion
     jsonb_cols = ['count_by_category', 'count_by_subcategory', 'count_by_recipient', 'count_by_source', 'narrative_summary']
     for col in jsonb_cols:
-        df[col] = df[col].apply(lambda x: json.loads(x) if pd.notna(x) and x else {})
+        df[col] = df[col].apply(lambda x: json.dumps(json.loads(x) if pd.notna(x) and x and isinstance(x, str) else (x if isinstance(x, dict) else {})))
 
-    # Use pandas to_sql for efficient import
+    # Handle NaN values - convert to None for proper SQL NULL handling
+    df = df.replace({np.nan: None})
+
+    # Convert UUID columns to strings
+    df['id'] = df['id'].astype(str)
+    if 'period_summary_id' in df.columns:
+        df['period_summary_id'] = df['period_summary_id'].apply(lambda x: str(x) if pd.notna(x) and x else None)
+
+    # Use raw connection for bulk insert with execute_values
     engine = get_engine()
+    raw_conn = engine.raw_connection()
 
-    # Insert in batches with ON CONFLICT handling
     batch_size = 500
     total_inserted = 0
 
-    with engine.connect() as conn:
+    try:
+        cursor = raw_conn.cursor()
+
         for start_idx in range(0, len(df), batch_size):
             batch = df.iloc[start_idx:start_idx + batch_size]
 
+            values = []
             for _, row in batch.iterrows():
-                conn.execute(text("""
-                    INSERT INTO event_summaries (
-                        id, period_type, period_start, period_end, event_name,
-                        initiating_country, first_observed_date, last_observed_date,
-                        status, period_summary_id, created_at, updated_at, created_by,
-                        is_deleted, deleted_at, category_count, subcategory_count,
-                        recipient_count, source_count, total_documents_across_categories,
-                        total_documents_across_subcategories, total_documents_across_recipients,
-                        total_documents_across_sources, count_by_category, count_by_subcategory,
-                        count_by_recipient, count_by_source, narrative_summary,
-                        material_score, material_justification
-                    ) VALUES (
-                        :id::uuid, :period_type, :period_start, :period_end, :event_name,
-                        :initiating_country, :first_observed_date, :last_observed_date,
-                        :status, :period_summary_id::uuid, :created_at, :updated_at, :created_by,
-                        :is_deleted, :deleted_at, :category_count, :subcategory_count,
-                        :recipient_count, :source_count, :total_documents_across_categories,
-                        :total_documents_across_subcategories, :total_documents_across_recipients,
-                        :total_documents_across_sources, :count_by_category::jsonb,
-                        :count_by_subcategory::jsonb, :count_by_recipient::jsonb,
-                        :count_by_source::jsonb, :narrative_summary::jsonb,
-                        :material_score, :material_justification
-                    )
-                    ON CONFLICT (id) DO UPDATE SET
-                        period_type = EXCLUDED.period_type,
-                        event_name = EXCLUDED.event_name,
-                        narrative_summary = EXCLUDED.narrative_summary,
-                        updated_at = EXCLUDED.updated_at
-                """), row.to_dict())
+                values.append((
+                    row['id'],
+                    row['period_type'],
+                    row['period_start'],
+                    row['period_end'],
+                    row['event_name'],
+                    row['initiating_country'],
+                    row['first_observed_date'],
+                    row['last_observed_date'],
+                    row['status'],
+                    row.get('period_summary_id'),
+                    row['created_at'],
+                    row['updated_at'],
+                    row.get('created_by'),
+                    row.get('is_deleted', False),
+                    row.get('deleted_at'),
+                    row.get('category_count', 0),
+                    row.get('subcategory_count', 0),
+                    row.get('recipient_count', 0),
+                    row.get('source_count', 0),
+                    row.get('total_documents_across_categories', 0),
+                    row.get('total_documents_across_subcategories', 0),
+                    row.get('total_documents_across_recipients', 0),
+                    row.get('total_documents_across_sources', 0),
+                    row.get('count_by_category', '{}'),
+                    row.get('count_by_subcategory', '{}'),
+                    row.get('count_by_recipient', '{}'),
+                    row.get('count_by_source', '{}'),
+                    row.get('narrative_summary', '{}'),
+                    row.get('material_score'),
+                    row.get('material_justification'),
+                ))
 
-            conn.commit()
+            execute_values(
+                cursor,
+                """
+                INSERT INTO event_summaries (
+                    id, period_type, period_start, period_end, event_name,
+                    initiating_country, first_observed_date, last_observed_date,
+                    status, period_summary_id, created_at, updated_at, created_by,
+                    is_deleted, deleted_at, category_count, subcategory_count,
+                    recipient_count, source_count, total_documents_across_categories,
+                    total_documents_across_subcategories, total_documents_across_recipients,
+                    total_documents_across_sources, count_by_category, count_by_subcategory,
+                    count_by_recipient, count_by_source, narrative_summary,
+                    material_score, material_justification
+                ) VALUES %s
+                ON CONFLICT (id) DO UPDATE SET
+                    period_type = EXCLUDED.period_type,
+                    event_name = EXCLUDED.event_name,
+                    narrative_summary = EXCLUDED.narrative_summary,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                values,
+                template="(%s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)",
+                page_size=100
+            )
+
+            raw_conn.commit()
             total_inserted += len(batch)
             print(f"  [OK] Inserted batch {start_idx//batch_size + 1}: {len(batch)} summaries (total: {total_inserted:,})")
+
+        cursor.close()
+
+    finally:
+        raw_conn.close()
 
     print(f"  [COMPLETE] Imported {total_inserted:,} event summaries")
 
@@ -495,31 +539,58 @@ def import_event_source_links(parquet_file: Path, dry_run: bool = False, clear_e
             session.commit()
             print(f"  [CLEAR] Deleted {result.rowcount:,} existing source links")
 
-    # Use pandas to_sql for efficient import
-    engine = get_engine()
+    # Convert UUID columns to strings
+    df['id'] = df['id'].astype(str)
+    df['event_summary_id'] = df['event_summary_id'].astype(str)
 
-    # Insert in batches
+    # Handle NaN values
+    df = df.replace({np.nan: None})
+
+    # Use raw connection for bulk insert with execute_values
+    engine = get_engine()
+    raw_conn = engine.raw_connection()
+
     batch_size = 1000
     total_inserted = 0
 
-    with engine.connect() as conn:
+    try:
+        cursor = raw_conn.cursor()
+
         for start_idx in range(0, len(df), batch_size):
             batch = df.iloc[start_idx:start_idx + batch_size]
 
-            for _, row in batch.iterrows():
-                conn.execute(text("""
-                    INSERT INTO event_source_links (
-                        id, event_summary_id, doc_id, contribution_weight, linked_at
-                    ) VALUES (
-                        :id::uuid, :event_summary_id::uuid, :doc_id,
-                        :contribution_weight, :linked_at
-                    )
-                    ON CONFLICT (id) DO NOTHING
-                """), row.to_dict())
+            values = [
+                (
+                    row['id'],
+                    row['event_summary_id'],
+                    row['doc_id'],
+                    row.get('contribution_weight'),
+                    row.get('linked_at'),
+                )
+                for _, row in batch.iterrows()
+            ]
 
-            conn.commit()
+            execute_values(
+                cursor,
+                """
+                INSERT INTO event_source_links (
+                    id, event_summary_id, doc_id, contribution_weight, linked_at
+                ) VALUES %s
+                ON CONFLICT (id) DO NOTHING
+                """,
+                values,
+                template="(%s::uuid, %s::uuid, %s, %s, %s)",
+                page_size=500
+            )
+
+            raw_conn.commit()
             total_inserted += len(batch)
             print(f"  [OK] Inserted batch {start_idx//batch_size + 1}: {len(batch)} links (total: {total_inserted:,})")
+
+        cursor.close()
+
+    finally:
+        raw_conn.close()
 
     print(f"  [COMPLETE] Imported {total_inserted:,} event source links")
 
