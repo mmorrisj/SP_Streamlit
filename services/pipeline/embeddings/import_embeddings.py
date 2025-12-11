@@ -28,6 +28,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+import numpy as np
 import json
 from typing import List, Dict, Optional
 from psycopg2.extras import execute_values
@@ -328,6 +329,25 @@ def import_parquet_to_collection(parquet_file: Path, collection_name: str, dry_r
 
     df['cmetadata'] = df['cmetadata'].apply(parse_cmetadata)
 
+    # Helper function to convert embedding to PostgreSQL vector format
+    def format_embedding(emb):
+        """Convert embedding to PostgreSQL vector string format."""
+        if emb is None:
+            return None
+        if isinstance(emb, np.ndarray):
+            return '[' + ','.join(str(x) for x in emb.tolist()) + ']'
+        if isinstance(emb, list):
+            return '[' + ','.join(str(x) for x in emb) + ']'
+        if isinstance(emb, str):
+            # Already in string format, ensure it has brackets
+            emb = emb.strip()
+            if not emb.startswith('['):
+                emb = '[' + emb
+            if not emb.endswith(']'):
+                emb = emb + ']'
+            return emb
+        return str(emb)
+
     # Prepare data for bulk insert
     engine = get_engine()
 
@@ -349,7 +369,7 @@ def import_parquet_to_collection(parquet_file: Path, collection_name: str, dry_r
                 (
                     str(row['uuid']),
                     collection_uuid,
-                    row['embedding'],  # Already in correct format from parquet
+                    format_embedding(row['embedding']),
                     row['document'],
                     json.dumps(row['cmetadata']),
                     row['custom_id']
