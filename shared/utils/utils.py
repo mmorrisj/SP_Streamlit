@@ -6,10 +6,10 @@ import time
 from pathlib import Path
 import yaml
 import ast
-# from openai import AzureOpenAI
+from openai import AzureOpenAI
 import json
-# import boto3
-# from botocore.exceptions import ClientError
+import boto3
+from botocore.exceptions import ClientError
 # import pandas as pd
 from functools import wraps
 
@@ -61,15 +61,71 @@ def get_secret():
     secret = get_secret_value_response['SecretString']
     return secret
  
-def initialize_client():
-    secret_string = get_secret()
+def get_db_secret(secret_name):
+    """
+    Fetches a specific secret from AWS Secrets Manager by name.
 
-    credentials = json.loads(secret_string)
-    client = AzureOpenAI(
-        azure_endpoint=credentials["endpoint"],
-        api_key=credentials["key"],
-        api_version=cfg.aws['api_version'],
+    Args:
+        secret_name: Name of the secret to fetch
+
+    Returns:
+        dict: Parsed JSON secret
+    """
+    region_name = cfg.aws.get('region_name', 'us-east-1')
+
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
     )
+
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+    except ClientError as e:
+        raise e
+
+    secret = get_secret_value_response['SecretString']
+    return json.loads(secret)
+
+def initialize_client(use_env_vars=False):
+    """
+    Initialize Azure OpenAI client.
+
+    Args:
+        use_env_vars: If True, use environment variables (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY).
+                     If False (default), use AWS Secrets Manager via boto3.
+
+    Returns:
+        AzureOpenAI client
+    """
+    if use_env_vars:
+        # Environment variables mode
+        azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+        api_key = os.getenv('AZURE_OPENAI_API_KEY')
+        api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
+
+        if not azure_endpoint or not api_key:
+            raise ValueError(
+                "AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set in environment variables "
+                "when use_env_vars=True"
+            )
+
+        client = AzureOpenAI(
+            azure_endpoint=azure_endpoint,
+            api_key=api_key,
+            api_version=api_version,
+        )
+    else:
+        # AWS Secrets Manager mode (default)
+        secret_string = get_secret()
+        credentials = json.loads(secret_string)
+
+        client = AzureOpenAI(
+            azure_endpoint=credentials["endpoint"],
+            api_key=credentials["key"],
+            api_version=cfg.aws.get('api_version', '2024-02-15-preview'),
+        )
+
     return client
 
 def fetch_gai_content(response):
@@ -157,51 +213,139 @@ def fetch_gai_response(sys_prompt,prompt,model):
 
 
 @rate_limit(min_interval=10.0)
-def gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=None):
+def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=None, azure_use_env=False):
     """
-    LLM call that routes through FastAPI proxy (designed for production deployment).
+    Unified LLM call supporting multiple backends.
 
     Args:
         sys_prompt: System prompt for the LLM
         user_prompt: User prompt for the LLM
         model: Model to use (default: gpt-4o-mini)
-        use_proxy: If True, use FastAPI proxy. If False, attempt direct OpenAI.
-                   If None (default), REQUIRES FASTAPI_URL environment variable.
+        source: Backend source - "proxy" (System 1, default), "azure" (System 2), or "openai" (direct)
+        use_proxy: [DEPRECATED] Use source="proxy" instead. Maintained for backward compatibility.
+        azure_use_env: If True with source="azure", use env vars instead of AWS Secrets Manager
 
     Environment Variables:
-        FASTAPI_URL: Required. Full URL to FastAPI endpoint (e.g., http://127.0.0.1:5001/material_query)
-                     Set this to enable LLM functionality.
+        FASTAPI_URL: Required for source="proxy"
+        AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY: Required for source="azure" with azure_use_env=True
+        OPENAI_PROJ_API: Required for source="openai"
 
     Returns:
         LLM response (parsed as JSON if possible, otherwise raw string)
 
     Raises:
-        ValueError: If FASTAPI_URL is not configured and use_proxy is None
+        ValueError: If required configuration is missing
         requests.RequestException: If FastAPI proxy call fails
     """
     import requests
 
-    # Determine routing mode
-    if use_proxy is None:
-        # Default mode: require FASTAPI_URL to be set
-        fastapi_url = os.getenv('FASTAPI_URL', '').strip()
+    # Handle backward compatibility with use_proxy parameter
+    if use_proxy is not None:
+        source = "proxy" if use_proxy else "openai"
 
-        if not fastapi_url:
-            raise ValueError(
-                "FASTAPI_URL environment variable not set. "
-                "LLM calls require the FastAPI proxy to be configured. "
-                "Set FASTAPI_URL=http://HOST:PORT/material_query in your .env file. "
-                "To bypass the proxy (not recommended for production), call gai(..., use_proxy=False)."
+    # AZURE OpenAI (System 2 default)
+    if source == "azure":
+        print(f"  [AZURE] Calling Azure OpenAI (credentials from {'env vars' if azure_use_env else 'AWS Secrets Manager'})")
+
+        try:
+            # Initialize Azure client
+            client = initialize_client(use_env_vars=azure_use_env)
+
+            # Get deployment name
+            if azure_use_env:
+                deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT', model)
+            else:
+                # Try to get deployment name from AWS Secrets Manager
+                try:
+                    secret_dict = get_db_secret('azure-open-ai-credentials')
+                    deployment = (
+                        secret_dict.get('deployment_name') or
+                        secret_dict.get('GPT_4_1_DEPLOYMENT_NAME') or
+                        model
+                    )
+                except Exception:
+                    # Fallback to model name if secret doesn't have deployment name
+                    deployment = model
+
+            # Make Azure OpenAI call
+            completion = client.chat.completions.create(
+                model=deployment,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=4000
             )
 
-        use_proxy = True
+            content = completion.choices[0].message.content
 
-    # Route through FastAPI proxy (recommended for production)
-    if use_proxy:
+            # Parse response
+            if isinstance(content, (dict, list)):
+                return content
+
+            if isinstance(content, str):
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    # Try to extract JSON from markdown-wrapped response
+                    match = re.search(r'(\[.*\]|\{.*\})', content, re.DOTALL)
+                    if match:
+                        try:
+                            return json.loads(match.group(1))
+                        except json.JSONDecodeError:
+                            pass
+                    return content
+
+            return content
+
+        except Exception as e:
+            error_msg = f"Azure OpenAI call failed: {e}"
+            print(f"ERROR: {error_msg}")
+            raise RuntimeError(error_msg) from e
+
+    # OPENAI Direct API
+    elif source == "openai":
+        print("  [OPENAI] Calling OpenAI API directly")
+
+        try:
+            from openai import OpenAI
+
+            api_key = os.getenv('OPENAI_PROJ_API')
+            if not api_key:
+                raise ValueError("OPENAI_PROJ_API not found in environment")
+
+            client = OpenAI(api_key=api_key)
+
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            content = completion.choices[0].message.content
+
+            if isinstance(content, (dict, list)):
+                return content
+
+            if isinstance(content, str):
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    return content
+
+            return content
+
+        except Exception as e:
+            print(f"ERROR: Direct OpenAI call failed: {e}")
+            raise
+
+    # PROXY (System 1, FastAPI → OpenAI)
+    elif source == "proxy":
         fastapi_url = os.getenv('FASTAPI_URL', '').strip()
 
         if not fastapi_url:
-            # Try to construct from API_URL if available
             api_url = os.getenv('API_URL', '').strip()
             if api_url:
                 fastapi_url = f"{api_url.rstrip('/')}/material_query"
@@ -224,16 +368,12 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=None):
             response.raise_for_status()
 
             data = response.json()
-
-            # Extract response content (FastAPI returns {"response": content})
             resp_content = data.get("response") if isinstance(data, dict) and "response" in data else data
 
-            # Try to parse as JSON if it's a string
             if isinstance(resp_content, str):
                 try:
                     return json.loads(resp_content)
                 except json.JSONDecodeError:
-                    # Try to extract JSON from markdown-wrapped response
                     match = re.search(r'(\[.*\]|\{.*\})', resp_content, re.DOTALL)
                     if match:
                         try:
@@ -253,52 +393,8 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=None):
             print(f"ERROR: {error_msg}")
             raise RuntimeError(error_msg) from e
 
-    # Direct OpenAI call (for local development only - not recommended for production)
     else:
-        print("  [WARNING] Bypassing FastAPI proxy and calling OpenAI directly")
-        print("  [WARNING] This mode is for local development only and requires OPENAI_PROJ_API env var")
-
-        try:
-            from openai import OpenAI
-
-            # Get API key from environment
-            api_key = os.getenv('OPENAI_PROJ_API')
-            if not api_key:
-                raise ValueError(
-                    "OPENAI_PROJ_API not found in environment. "
-                    "For production deployments, use the FastAPI proxy instead (use_proxy=True)."
-                )
-
-            # Initialize OpenAI client
-            client = OpenAI(api_key=api_key)
-
-            # Make API call
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            content = completion.choices[0].message.content
-
-            # If it's already a dict/list (parsed JSON)
-            if isinstance(content, (dict, list)):
-                return content
-
-            # If it's a string, try parsing as JSON
-            if isinstance(content, str):
-                try:
-                    return json.loads(content)
-                except json.JSONDecodeError:
-                    return content  # just return raw string if not JSON
-
-            # Fallback — return raw content
-            return content
-
-        except Exception as e:
-            print(f"ERROR: Direct OpenAI call failed: {e}")
-            raise
+        raise ValueError(f"Invalid source: {source}. Must be 'azure', 'openai', or 'proxy'")
 
 
 def clean_json_string(text):

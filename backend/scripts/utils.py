@@ -12,6 +12,7 @@ import json
 # from botocore.exceptions import ClientError
 # import pandas as pd
 from functools import wraps
+from openai import AzureOpenAI
 
 class Config:
     def __init__(self, **entries):
@@ -611,3 +612,107 @@ def extract_json_ast(text):
 #             df = pd.concat([df, file_df])
 #     df.reset_index(drop=True,inplace=True)        
 #     return df
+def query_gai_via_gateway(prompt,sys_prompt,model="gpt-4.1",response_only=False):
+    FAST_API_HOST = os.getenv("FAST_API_HOST", "localhost")
+    FASTAPI_URL = f"http://{FAST_API_HOST}:5001/query"
+    payload = {
+        "prompt": prompt,
+        "sys_prompt": sys_prompt,
+        "model": model,
+    }
+    try:
+        res = requests.post(FASTAPI_URL, json=payload)
+        return res.get("response")
+    except Exception as e:
+        return f"[Error from Gateway]: {e}"
+
+
+def get_db_secret(secret_name: str, region: str = "us-east-1") -> dict:
+    boto3_session = boto3.Session()
+    client = boto3_session.client("secretsmanager", region_name=region)
+    secret = client.get_secret_value(SecretId=secret_name)
+    return json.loads(secret["SecretString"])
+
+def initialize_client() -> AzureOpenAI:
+    creds = get_db_secret("azure-open-ai-credentials")
+    return AzureOpenAI(
+        azure_endpoint=creds["GPT_4_1_ENDPOINT"],
+        api_key=creds["GPT_4_1_KEY"],
+        api_version="2024-10-21",
+        timeout=60,
+    )
+
+def rate_limit(min_interval):
+    """
+    Decorator to enforce a minimum time between calls to a function.
+    """
+    def decorator(func):
+        last_time = [0]
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            elapsed = time.time() - last_time[0]
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+            result = func(*args, **kwargs)
+            last_time[0] = time.time()
+            return result
+        return wrapper
+    return decorator
+
+
+@rate_limit(min_interval=10.0)
+def fetch_gai_response(sys_prompt,prompt,model):
+    import re
+    gpt_client = initialize_client()
+    secret_name = "azure-open-ai-credentials"
+    secret_dict = get_db_secret(secret_name)
+    deployment = secret_dict['GPT_4_1_DEPLOYMENT_NAME']
+    sys_prompt = '''
+    You are an expert data analyst and consolidator of event lists. Review the following list of event names and consolidate duplicative or near duplicative events by returning a list of ids with the old id on the left and the consolidated id on the right. for example :
+
+    In: 
+    {'event_name': "China's Strategic Engagement in the Middle East",
+    'count': 319,
+    'id': 4},
+    {'event_name': 'BRICS Summit 2024 in Kazan', 'count': 178, 'id': 5},
+    {'event_name': "China's Diplomatic and Technological Influence in the Middle East",
+    'count': 173,
+    'id': 6},
+    {'event_name': 'BRICS Summit in Kazan', 'count': 128, 'id': 7},
+    {'event_name': 'China-Iran Economic and Diplomatic Engagement',
+    'count': 123,
+    'id': 8},
+    {'event_name': 'BRICS Summit and BRICS Plus Meeting in Kazan',
+    'count': 113,
+    'id': 10}...
+
+    Since 'BRICS Summit 2024 in Kazan' and 'BRICS Summit in Kazan' are referencing the same summit, they should be consolidated, the consolidated name is the one with the highest 'count', so the consolidated output for these events would  be [[7,5],[10,5],...]
+
+    Look across the provided list and identify similar instances of near duplicative event names and output a consolidated list of their ids.
+    Not every event_name needs to be condolidated, only consolidate the events that are clearly referencing the same event or are near duplicates.
+
+    IMPORTANT: ONLY output the list of consolidated  ids
+    '''
+    user_prompt = str(id_dct)
+
+
+    response = gpt_client.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": sys_prompt,
+            },
+            {
+                "role": "user",
+                "content": user_prompt,
+            }
+        ],
+        max_completion_tokens=5000,
+        temperature=1.0,
+        top_p=1.0,
+        frequency_penalty=0.0,
+        presence_penalty=0.0,
+        model=deployment
+    )
+    raw = response.choices[0].message.content
+

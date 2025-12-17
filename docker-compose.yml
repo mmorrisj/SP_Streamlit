@@ -89,6 +89,7 @@ services:
       - ./data:/app/data
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./material_exports:/app/material_exports
       - app_output:/app/output
     networks:
       - softpower_net
