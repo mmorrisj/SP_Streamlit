@@ -12,6 +12,7 @@ import json
 # from botocore.exceptions import ClientError
 # import pandas as pd
 from functools import wraps
+from openai import AzureOpenAI
 
 class Config:
     def __init__(self, **entries):
