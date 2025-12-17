@@ -26,8 +26,10 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+import numpy as np
 import json
 from typing import List, Optional
+from decimal import Decimal
 
 # Add project root to path
 script_dir = Path(__file__).resolve().parent
@@ -89,6 +91,17 @@ def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> List[Path]:
     return downloaded_files
 
 
+def safe_value(val, default=None):
+    """Return value if not NaN/None, otherwise return default."""
+    if val is None:
+        return default
+    if isinstance(val, float) and np.isnan(val):
+        return default
+    if pd.isna(val):
+        return default
+    return val
+
+
 def import_materiality_scores(
     input_files: List[Path],
     dry_run: bool = False,
@@ -109,7 +122,7 @@ def import_materiality_scores(
     print("="*80)
 
     if dry_run:
-        print("\n⚠️  DRY RUN MODE - No changes will be made to the database\n")
+        print("\n  DRY RUN MODE - No changes will be made to the database\n")
 
     total_events = 0
     updated_events = 0
@@ -126,6 +139,7 @@ def import_materiality_scores(
         try:
             df = pd.read_parquet(filepath)
             print(f"  Loaded {len(df):,} events from file")
+            print(f"  Columns: {list(df.columns)}")
         except Exception as e:
             print(f"  [ERROR] Failed to read parquet file: {e}")
             continue
@@ -133,7 +147,7 @@ def import_materiality_scores(
         total_events += len(df)
 
         # Process in batches
-        batch_size = 1000
+        batch_size = 100
 
         for i in range(0, len(df), batch_size):
             batch = df.iloc[i:i+batch_size]
@@ -144,60 +158,103 @@ def import_materiality_scores(
                 print("[DRY RUN]")
                 continue
 
+            batch_updated = 0
+            batch_created = 0
+            batch_skipped = 0
+            batch_errors = 0
+
             with get_session() as session:
                 for _, row in batch.iterrows():
                     try:
+                        event_id = str(row['id'])
+
                         # Check if event exists
                         existing = session.query(CanonicalEvent).filter(
-                            CanonicalEvent.id == row['id']
+                            CanonicalEvent.id == event_id
                         ).first()
 
                         if existing:
                             # Update existing event
-                            if existing.material_score and not overwrite:
+                            if existing.material_score is not None and not overwrite:
                                 # Skip - already has a score
-                                skipped_events += 1
+                                batch_skipped += 1
                                 continue
 
                             # Update score and justification
-                            existing.material_score = row['material_score'] if pd.notna(row['material_score']) else None
-                            existing.material_justification = row['material_justification'] if pd.notna(row['material_justification']) else None
+                            score = safe_value(row.get('material_score'))
+                            if isinstance(score, Decimal):
+                                score = float(score)
+                            existing.material_score = score
 
-                            updated_events += 1
+                            existing.material_justification = safe_value(row.get('material_justification'))
+
+                            batch_updated += 1
 
                         else:
                             # Create new event (if not update_only mode)
                             if update_only:
-                                skipped_events += 1
+                                batch_skipped += 1
                                 continue
 
+                            # Get score value
+                            score = safe_value(row.get('material_score'))
+                            if isinstance(score, Decimal):
+                                score = float(score)
+
+                            # Parse dates safely
+                            first_date = None
+                            last_date = None
+                            if safe_value(row.get('first_mention_date')):
+                                try:
+                                    first_date = pd.to_datetime(row['first_mention_date']).date()
+                                except:
+                                    pass
+                            if safe_value(row.get('last_mention_date')):
+                                try:
+                                    last_date = pd.to_datetime(row['last_mention_date']).date()
+                                except:
+                                    pass
+
                             new_event = CanonicalEvent(
-                                id=row['id'],
-                                canonical_name=row.get('canonical_name', 'Imported Event'),
-                                initiating_country=row['initiating_country'],
-                                first_mention_date=pd.to_datetime(row['first_mention_date']).date() if pd.notna(row.get('first_mention_date')) else None,
-                                last_mention_date=pd.to_datetime(row['last_mention_date']).date() if pd.notna(row.get('last_mention_date')) else None,
-                                material_score=row['material_score'] if pd.notna(row['material_score']) else None,
-                                material_justification=row['material_justification'] if pd.notna(row['material_justification']) else None,
-                                primary_recipients=row.get('primary_recipients') if pd.notna(row.get('primary_recipients')) else None,
-                                primary_categories=row.get('primary_categories') if pd.notna(row.get('primary_categories')) else None,
-                                total_articles=row.get('total_articles', 0),
-                                source_count=row.get('source_count', 0)
+                                id=event_id,
+                                canonical_name=safe_value(row.get('canonical_name'), 'Imported Event'),
+                                initiating_country=safe_value(row.get('initiating_country'), 'Unknown'),
+                                first_mention_date=first_date,
+                                last_mention_date=last_date,
+                                material_score=score,
+                                material_justification=safe_value(row.get('material_justification')),
+                                # Required fields with defaults
+                                story_phase=safe_value(row.get('story_phase'), 'EMERGING'),
+                                total_mention_days=safe_value(row.get('total_mention_days'), 1),
+                                total_articles=safe_value(row.get('total_articles'), 0),
+                                days_since_last_mention=safe_value(row.get('days_since_last_mention'), 0),
+                                source_count=safe_value(row.get('source_count'), 0),
+                                peak_daily_article_count=safe_value(row.get('peak_daily_article_count'), 0),
+                                # Optional fields
+                                unique_sources=safe_value(row.get('unique_sources'), []),
+                                alternative_names=safe_value(row.get('alternative_names'), []),
+                                primary_recipients=safe_value(row.get('primary_recipients')),
+                                primary_categories=safe_value(row.get('primary_categories')),
+                                key_facts=safe_value(row.get('key_facts'), '{}'),
                             )
 
                             session.add(new_event)
-                            created_events += 1
+                            batch_created += 1
 
                     except Exception as e:
-                        print(f"\n  [ERROR] Failed to process event ID {row['id']}: {e}")
-                        error_events += 1
+                        print(f"\n  [ERROR] Failed to process event ID {row.get('id', 'unknown')}: {e}")
+                        batch_errors += 1
                         session.rollback()
                         continue
 
                 # Commit batch
                 try:
                     session.commit()
-                    print("[OK]")
+                    updated_events += batch_updated
+                    created_events += batch_created
+                    skipped_events += batch_skipped
+                    error_events += batch_errors
+                    print(f"[OK] updated={batch_updated}, created={batch_created}, skipped={batch_skipped}, errors={batch_errors}")
                 except Exception as e:
                     print(f"[ERROR] Failed to commit batch: {e}")
                     session.rollback()
@@ -214,7 +271,7 @@ def import_materiality_scores(
     print(f"Error events: {error_events:,}")
 
     if dry_run:
-        print("\n⚠️  This was a dry run - no changes were made to the database")
+        print("\n  This was a dry run - no changes were made to the database")
         print("    Run without --dry-run to actually import the data")
 
 
