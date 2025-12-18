@@ -94,15 +94,29 @@ def convert_to_json_serializable(obj):
 
 
 def prepare_jsonb_field(val):
-    """Prepare a field for JSONB insertion - handles numpy arrays and converts to JSON string."""
-    if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
+    """Prepare a field for JSONB insertion - handles numpy arrays and converts to JSON string.
+
+    IMPORTANT: This function MUST return a JSON string (or None), never a Python object,
+    because PostgreSQL JSONB expects a string to be cast.
+    """
+    # Handle null/NaN values
+    if val is None:
         return None
+    try:
+        if isinstance(val, float) and np.isnan(val):
+            return None
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        # pd.isna() can fail on certain types like dicts
+        pass
 
     # If it's already a string, try to parse and re-serialize to ensure validity
     if isinstance(val, str):
         try:
             parsed = json.loads(val)
-            return json.dumps(convert_to_json_serializable(parsed))
+            result = json.dumps(convert_to_json_serializable(parsed))
+            return result
         except json.JSONDecodeError:
             return None
 
@@ -110,7 +124,37 @@ def prepare_jsonb_field(val):
     converted = convert_to_json_serializable(val)
     if converted is None:
         return None
-    return json.dumps(converted)
+
+    # Always return a JSON string, not a Python object
+    result = json.dumps(converted)
+    return result
+
+
+def prepare_text_array_field(val):
+    """Prepare a field for PostgreSQL text[] array insertion.
+
+    Converts JSON arrays or Python lists to PostgreSQL array format.
+    """
+    if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
+        return None
+
+    # Parse JSON string if needed
+    if isinstance(val, str):
+        try:
+            val = json.loads(val)
+        except json.JSONDecodeError:
+            return None
+
+    # Convert numpy array to list
+    if isinstance(val, np.ndarray):
+        val = val.tolist()
+
+    # Must be a list at this point
+    if not isinstance(val, list):
+        return None
+
+    # Return as Python list - psycopg2 will convert to PostgreSQL array
+    return [str(item) for item in val]
 
 
 def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> List[Path]:
@@ -221,14 +265,14 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
 
                 for _, row in batch.iterrows():
                     try:
-                        # Prepare JSONB fields - convert numpy arrays to JSON strings
-                        event_names = prepare_jsonb_field(row.get('event_names'))
-                        doc_ids = prepare_jsonb_field(row.get('doc_ids'))
+                        # Prepare array fields (text[]) and JSONB fields separately
+                        event_names = prepare_text_array_field(row.get('event_names'))
+                        doc_ids = prepare_text_array_field(row.get('doc_ids'))
                         refined_clusters = prepare_jsonb_field(row.get('refined_clusters'))
 
                         # Use savepoint so one failed row doesn't abort the whole batch
                         with session.begin_nested():
-                            # Insert using raw SQL with explicit JSONB casts
+                            # Insert - event_names/doc_ids are text[], refined_clusters is jsonb
                             session.execute(
                                 text("""
                                     INSERT INTO event_clusters (
@@ -237,7 +281,7 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
                                         processed, llm_deconflicted, created_at, refined_clusters
                                     ) VALUES (
                                         :id, :initiating_country, :cluster_date, :batch_number, :cluster_id,
-                                        CAST(:event_names AS jsonb), CAST(:doc_ids AS jsonb), :cluster_size, :is_noise, :representative_name,
+                                        :event_names, :doc_ids, :cluster_size, :is_noise, :representative_name,
                                         :processed, :llm_deconflicted, :created_at, CAST(:refined_clusters AS jsonb)
                                     )
                                     ON CONFLICT (id) DO NOTHING
@@ -334,9 +378,9 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
 
                 for _, row in batch.iterrows():
                     try:
-                        # Prepare JSONB fields - convert numpy arrays to JSON strings
-                        source_names = prepare_jsonb_field(row.get('source_names'))
-                        doc_ids = prepare_jsonb_field(row.get('doc_ids'))
+                        # Prepare text[] array fields (source_names and doc_ids are PostgreSQL text arrays)
+                        source_names = prepare_text_array_field(row.get('source_names'))
+                        doc_ids = prepare_text_array_field(row.get('doc_ids'))
 
                         # Use savepoint so one failed row doesn't abort the whole batch
                         with session.begin_nested():
@@ -350,8 +394,8 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
                                     ) VALUES (
                                         :id, :canonical_event_id, :initiating_country, :mention_date,
                                         :article_count, :consolidated_headline, :daily_summary,
-                                        CAST(:source_names AS jsonb), :source_diversity_score, :mention_context,
-                                        :news_intensity, CAST(:doc_ids AS jsonb)
+                                        :source_names, :source_diversity_score, :mention_context,
+                                        :news_intensity, :doc_ids
                                     )
                                     ON CONFLICT (id) DO NOTHING
                                 """),
