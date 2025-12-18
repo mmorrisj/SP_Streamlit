@@ -72,6 +72,47 @@ def parse_json_field(val):
     return val
 
 
+def convert_to_json_serializable(obj):
+    """Recursively convert numpy arrays and other non-JSON-serializable types to native Python types."""
+    if obj is None:
+        return None
+    if isinstance(obj, np.ndarray):
+        return [convert_to_json_serializable(item) for item in obj.tolist()]
+    if isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    if isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, dict):
+        return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_to_json_serializable(item) for item in obj]
+    if isinstance(obj, (pd.Timestamp, datetime)):
+        return obj.isoformat()
+    return obj
+
+
+def prepare_jsonb_field(val):
+    """Prepare a field for JSONB insertion - handles numpy arrays and converts to JSON string."""
+    if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
+        return None
+
+    # If it's already a string, try to parse and re-serialize to ensure validity
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return json.dumps(convert_to_json_serializable(parsed))
+        except json.JSONDecodeError:
+            return None
+
+    # Convert to JSON-serializable format and serialize
+    converted = convert_to_json_serializable(val)
+    if converted is None:
+        return None
+    return json.dumps(converted)
+
+
 def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> List[Path]:
     """Download parquet files from S3 to local directory."""
     if not BOTO3_AVAILABLE:
@@ -180,12 +221,12 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
 
                 for _, row in batch.iterrows():
                     try:
-                        # Parse JSON fields
-                        event_names = parse_json_field(row.get('event_names'))
-                        doc_ids = parse_json_field(row.get('doc_ids'))
-                        refined_clusters = parse_json_field(row.get('refined_clusters'))
+                        # Prepare JSONB fields - convert numpy arrays to JSON strings
+                        event_names = prepare_jsonb_field(row.get('event_names'))
+                        doc_ids = prepare_jsonb_field(row.get('doc_ids'))
+                        refined_clusters = prepare_jsonb_field(row.get('refined_clusters'))
 
-                        # Insert using raw SQL to handle arrays
+                        # Insert using raw SQL with explicit JSONB casts
                         session.execute(
                             text("""
                                 INSERT INTO event_clusters (
@@ -194,8 +235,8 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
                                     processed, llm_deconflicted, created_at, refined_clusters
                                 ) VALUES (
                                     :id, :initiating_country, :cluster_date, :batch_number, :cluster_id,
-                                    :event_names, :doc_ids, :cluster_size, :is_noise, :representative_name,
-                                    :processed, :llm_deconflicted, :created_at, :refined_clusters
+                                    :event_names::jsonb, :doc_ids::jsonb, :cluster_size, :is_noise, :representative_name,
+                                    :processed, :llm_deconflicted, :created_at, :refined_clusters::jsonb
                                 )
                                 ON CONFLICT (id) DO NOTHING
                             """),
@@ -291,9 +332,9 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
 
                 for _, row in batch.iterrows():
                     try:
-                        # Parse JSON fields
-                        source_names = parse_json_field(row.get('source_names'))
-                        doc_ids = parse_json_field(row.get('doc_ids'))
+                        # Prepare JSONB fields - convert numpy arrays to JSON strings
+                        source_names = prepare_jsonb_field(row.get('source_names'))
+                        doc_ids = prepare_jsonb_field(row.get('doc_ids'))
 
                         session.execute(
                             text("""
@@ -305,8 +346,8 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
                                 ) VALUES (
                                     :id, :canonical_event_id, :initiating_country, :mention_date,
                                     :article_count, :consolidated_headline, :daily_summary,
-                                    :source_names, :source_diversity_score, :mention_context,
-                                    :news_intensity, :doc_ids
+                                    :source_names::jsonb, :source_diversity_score, :mention_context,
+                                    :news_intensity, :doc_ids::jsonb
                                 )
                                 ON CONFLICT (id) DO NOTHING
                             """),
@@ -400,12 +441,12 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
 
                 for _, row in batch.iterrows():
                     try:
-                        # Parse JSONB fields
-                        count_by_category = parse_json_field(row.get('count_by_category'))
-                        count_by_subcategory = parse_json_field(row.get('count_by_subcategory'))
-                        count_by_recipient = parse_json_field(row.get('count_by_recipient'))
-                        count_by_source = parse_json_field(row.get('count_by_source'))
-                        narrative_summary = parse_json_field(row.get('narrative_summary'))
+                        # Prepare JSONB fields - convert numpy arrays to JSON strings
+                        count_by_category = prepare_jsonb_field(row.get('count_by_category')) or '{}'
+                        count_by_subcategory = prepare_jsonb_field(row.get('count_by_subcategory')) or '{}'
+                        count_by_recipient = prepare_jsonb_field(row.get('count_by_recipient')) or '{}'
+                        count_by_source = prepare_jsonb_field(row.get('count_by_source')) or '{}'
+                        narrative_summary = prepare_jsonb_field(row.get('narrative_summary'))
 
                         session.execute(
                             text("""
@@ -422,8 +463,8 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                     :initiating_country, :first_observed_date, :last_observed_date, :status::event_status,
                                     :created_at, :updated_at, :category_count, :subcategory_count,
                                     :recipient_count, :source_count, :total_documents_across_categories,
-                                    :count_by_category, :count_by_subcategory, :count_by_recipient,
-                                    :count_by_source, :narrative_summary, :material_score, :material_justification,
+                                    :count_by_category::jsonb, :count_by_subcategory::jsonb, :count_by_recipient::jsonb,
+                                    :count_by_source::jsonb, :narrative_summary::jsonb, :material_score, :material_justification,
                                     :is_deleted
                                 )
                                 ON CONFLICT (id) DO NOTHING
@@ -445,11 +486,11 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                 'recipient_count': int(row['recipient_count']) if safe_value(row.get('recipient_count')) else 0,
                                 'source_count': int(row['source_count']) if safe_value(row.get('source_count')) else 0,
                                 'total_documents_across_categories': int(row['total_documents_across_categories']) if safe_value(row.get('total_documents_across_categories')) else 0,
-                                'count_by_category': json.dumps(count_by_category) if count_by_category else '{}',
-                                'count_by_subcategory': json.dumps(count_by_subcategory) if count_by_subcategory else '{}',
-                                'count_by_recipient': json.dumps(count_by_recipient) if count_by_recipient else '{}',
-                                'count_by_source': json.dumps(count_by_source) if count_by_source else '{}',
-                                'narrative_summary': json.dumps(narrative_summary) if narrative_summary else None,
+                                'count_by_category': count_by_category,
+                                'count_by_subcategory': count_by_subcategory,
+                                'count_by_recipient': count_by_recipient,
+                                'count_by_source': count_by_source,
+                                'narrative_summary': narrative_summary,
                                 'material_score': float(row['material_score']) if safe_value(row.get('material_score')) else None,
                                 'material_justification': safe_value(row.get('material_justification')),
                                 'is_deleted': False
@@ -507,11 +548,27 @@ def main():
     elif args.input_dir:
         input_dir = Path(args.input_dir)
 
-        if not input_dir.exists():
+        try:
+            dir_exists = input_dir.exists()
+        except OSError as e:
+            # Handle stale file handle (common in Docker when directory was removed/recreated on host)
+            print(f"[ERROR] Cannot access input directory: {input_dir}")
+            print(f"        OS Error: {e}")
+            print(f"        This often happens in Docker when the directory was removed and recreated on the host.")
+            print(f"        Try: 1) Exit and re-enter the container, or 2) Use an absolute path")
+            return
+
+        if not dir_exists:
             print(f"[ERROR] Input directory does not exist: {input_dir}")
             return
 
-        input_files = list(input_dir.glob('*.parquet'))
+        try:
+            input_files = list(input_dir.glob('*.parquet'))
+        except OSError as e:
+            print(f"[ERROR] Cannot list files in directory: {input_dir}")
+            print(f"        OS Error: {e}")
+            print(f"        Try exiting and re-entering the Docker container.")
+            return
 
         if not input_files:
             print(f"[ERROR] No parquet files found in {input_dir}")
