@@ -507,11 +507,27 @@ def main():
     elif args.input_dir:
         input_dir = Path(args.input_dir)
 
-        if not input_dir.exists():
+        try:
+            dir_exists = input_dir.exists()
+        except OSError as e:
+            # Handle stale file handle (common in Docker when directory was removed/recreated on host)
+            print(f"[ERROR] Cannot access input directory: {input_dir}")
+            print(f"        OS Error: {e}")
+            print(f"        This often happens in Docker when the directory was removed and recreated on the host.")
+            print(f"        Try: 1) Exit and re-enter the container, or 2) Use an absolute path")
+            return
+
+        if not dir_exists:
             print(f"[ERROR] Input directory does not exist: {input_dir}")
             return
 
-        input_files = list(input_dir.glob('*.parquet'))
+        try:
+            input_files = list(input_dir.glob('*.parquet'))
+        except OSError as e:
+            print(f"[ERROR] Cannot list files in directory: {input_dir}")
+            print(f"        OS Error: {e}")
+            print(f"        Try exiting and re-entering the Docker container.")
+            return
 
         if not input_files:
             print(f"[ERROR] No parquet files found in {input_dir}")
