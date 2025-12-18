@@ -226,37 +226,39 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
                         doc_ids = prepare_jsonb_field(row.get('doc_ids'))
                         refined_clusters = prepare_jsonb_field(row.get('refined_clusters'))
 
-                        # Insert using raw SQL with explicit JSONB casts
-                        session.execute(
-                            text("""
-                                INSERT INTO event_clusters (
-                                    id, initiating_country, cluster_date, batch_number, cluster_id,
-                                    event_names, doc_ids, cluster_size, is_noise, representative_name,
-                                    processed, llm_deconflicted, created_at, refined_clusters
-                                ) VALUES (
-                                    :id, :initiating_country, :cluster_date, :batch_number, :cluster_id,
-                                    CAST(:event_names AS jsonb), CAST(:doc_ids AS jsonb), :cluster_size, :is_noise, :representative_name,
-                                    :processed, :llm_deconflicted, :created_at, CAST(:refined_clusters AS jsonb)
-                                )
-                                ON CONFLICT (id) DO NOTHING
-                            """),
-                            {
-                                'id': str(row['id']),
-                                'initiating_country': safe_value(row.get('initiating_country')),
-                                'cluster_date': pd.to_datetime(row['cluster_date']).date() if safe_value(row.get('cluster_date')) else None,
-                                'batch_number': int(row['batch_number']) if safe_value(row.get('batch_number')) else 0,
-                                'cluster_id': int(row['cluster_id']) if safe_value(row.get('cluster_id')) else 0,
-                                'event_names': event_names,
-                                'doc_ids': doc_ids,
-                                'cluster_size': int(row['cluster_size']) if safe_value(row.get('cluster_size')) else 0,
-                                'is_noise': bool(row['is_noise']) if safe_value(row.get('is_noise')) is not None else False,
-                                'representative_name': safe_value(row.get('representative_name')),
-                                'processed': bool(row['processed']) if safe_value(row.get('processed')) is not None else False,
-                                'llm_deconflicted': bool(row['llm_deconflicted']) if safe_value(row.get('llm_deconflicted')) is not None else False,
-                                'created_at': pd.to_datetime(row['created_at']) if safe_value(row.get('created_at')) else datetime.now(),
-                                'refined_clusters': refined_clusters
-                            }
-                        )
+                        # Use savepoint so one failed row doesn't abort the whole batch
+                        with session.begin_nested():
+                            # Insert using raw SQL with explicit JSONB casts
+                            session.execute(
+                                text("""
+                                    INSERT INTO event_clusters (
+                                        id, initiating_country, cluster_date, batch_number, cluster_id,
+                                        event_names, doc_ids, cluster_size, is_noise, representative_name,
+                                        processed, llm_deconflicted, created_at, refined_clusters
+                                    ) VALUES (
+                                        :id, :initiating_country, :cluster_date, :batch_number, :cluster_id,
+                                        CAST(:event_names AS jsonb), CAST(:doc_ids AS jsonb), :cluster_size, :is_noise, :representative_name,
+                                        :processed, :llm_deconflicted, :created_at, CAST(:refined_clusters AS jsonb)
+                                    )
+                                    ON CONFLICT (id) DO NOTHING
+                                """),
+                                {
+                                    'id': str(row['id']),
+                                    'initiating_country': safe_value(row.get('initiating_country')),
+                                    'cluster_date': pd.to_datetime(row['cluster_date']).date() if safe_value(row.get('cluster_date')) else None,
+                                    'batch_number': int(row['batch_number']) if safe_value(row.get('batch_number')) else 0,
+                                    'cluster_id': int(row['cluster_id']) if safe_value(row.get('cluster_id')) else 0,
+                                    'event_names': event_names,
+                                    'doc_ids': doc_ids,
+                                    'cluster_size': int(row['cluster_size']) if safe_value(row.get('cluster_size')) else 0,
+                                    'is_noise': bool(row['is_noise']) if safe_value(row.get('is_noise')) is not None else False,
+                                    'representative_name': safe_value(row.get('representative_name')),
+                                    'processed': bool(row['processed']) if safe_value(row.get('processed')) is not None else False,
+                                    'llm_deconflicted': bool(row['llm_deconflicted']) if safe_value(row.get('llm_deconflicted')) is not None else False,
+                                    'created_at': pd.to_datetime(row['created_at']) if safe_value(row.get('created_at')) else datetime.now(),
+                                    'refined_clusters': refined_clusters
+                                }
+                            )
                         batch_inserted += 1
 
                     except Exception as e:
@@ -336,36 +338,38 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
                         source_names = prepare_jsonb_field(row.get('source_names'))
                         doc_ids = prepare_jsonb_field(row.get('doc_ids'))
 
-                        session.execute(
-                            text("""
-                                INSERT INTO daily_event_mentions (
-                                    id, canonical_event_id, initiating_country, mention_date,
-                                    article_count, consolidated_headline, daily_summary,
-                                    source_names, source_diversity_score, mention_context,
-                                    news_intensity, doc_ids
-                                ) VALUES (
-                                    :id, :canonical_event_id, :initiating_country, :mention_date,
-                                    :article_count, :consolidated_headline, :daily_summary,
-                                    CAST(:source_names AS jsonb), :source_diversity_score, :mention_context,
-                                    :news_intensity, CAST(:doc_ids AS jsonb)
-                                )
-                                ON CONFLICT (id) DO NOTHING
-                            """),
-                            {
-                                'id': str(row['id']),
-                                'canonical_event_id': str(row['canonical_event_id']),
-                                'initiating_country': safe_value(row.get('initiating_country')),
-                                'mention_date': pd.to_datetime(row['mention_date']).date() if safe_value(row.get('mention_date')) else None,
-                                'article_count': int(row['article_count']) if safe_value(row.get('article_count')) else None,
-                                'consolidated_headline': safe_value(row.get('consolidated_headline')),
-                                'daily_summary': safe_value(row.get('daily_summary')),
-                                'source_names': source_names,
-                                'source_diversity_score': float(row['source_diversity_score']) if safe_value(row.get('source_diversity_score')) else None,
-                                'mention_context': safe_value(row.get('mention_context')),
-                                'news_intensity': safe_value(row.get('news_intensity')),
-                                'doc_ids': doc_ids
-                            }
-                        )
+                        # Use savepoint so one failed row doesn't abort the whole batch
+                        with session.begin_nested():
+                            session.execute(
+                                text("""
+                                    INSERT INTO daily_event_mentions (
+                                        id, canonical_event_id, initiating_country, mention_date,
+                                        article_count, consolidated_headline, daily_summary,
+                                        source_names, source_diversity_score, mention_context,
+                                        news_intensity, doc_ids
+                                    ) VALUES (
+                                        :id, :canonical_event_id, :initiating_country, :mention_date,
+                                        :article_count, :consolidated_headline, :daily_summary,
+                                        CAST(:source_names AS jsonb), :source_diversity_score, :mention_context,
+                                        :news_intensity, CAST(:doc_ids AS jsonb)
+                                    )
+                                    ON CONFLICT (id) DO NOTHING
+                                """),
+                                {
+                                    'id': str(row['id']),
+                                    'canonical_event_id': str(row['canonical_event_id']),
+                                    'initiating_country': safe_value(row.get('initiating_country')),
+                                    'mention_date': pd.to_datetime(row['mention_date']).date() if safe_value(row.get('mention_date')) else None,
+                                    'article_count': int(row['article_count']) if safe_value(row.get('article_count')) else None,
+                                    'consolidated_headline': safe_value(row.get('consolidated_headline')),
+                                    'daily_summary': safe_value(row.get('daily_summary')),
+                                    'source_names': source_names,
+                                    'source_diversity_score': float(row['source_diversity_score']) if safe_value(row.get('source_diversity_score')) else None,
+                                    'mention_context': safe_value(row.get('mention_context')),
+                                    'news_intensity': safe_value(row.get('news_intensity')),
+                                    'doc_ids': doc_ids
+                                }
+                            )
                         batch_inserted += 1
 
                     except Exception as e:
@@ -448,54 +452,56 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                         count_by_source = prepare_jsonb_field(row.get('count_by_source')) or '{}'
                         narrative_summary = prepare_jsonb_field(row.get('narrative_summary'))
 
-                        session.execute(
-                            text("""
-                                INSERT INTO event_summaries (
-                                    id, period_type, period_start, period_end, event_name,
-                                    initiating_country, first_observed_date, last_observed_date, status,
-                                    created_at, updated_at, category_count, subcategory_count,
-                                    recipient_count, source_count, total_documents_across_categories,
-                                    count_by_category, count_by_subcategory, count_by_recipient,
-                                    count_by_source, narrative_summary, material_score, material_justification,
-                                    is_deleted
-                                ) VALUES (
-                                    :id, CAST(:period_type AS event_period_type), :period_start, :period_end, :event_name,
-                                    :initiating_country, :first_observed_date, :last_observed_date, CAST(:status AS event_status),
-                                    :created_at, :updated_at, :category_count, :subcategory_count,
-                                    :recipient_count, :source_count, :total_documents_across_categories,
-                                    CAST(:count_by_category AS jsonb), CAST(:count_by_subcategory AS jsonb), CAST(:count_by_recipient AS jsonb),
-                                    CAST(:count_by_source AS jsonb), CAST(:narrative_summary AS jsonb), :material_score, :material_justification,
-                                    :is_deleted
-                                )
-                                ON CONFLICT (id) DO NOTHING
-                            """),
-                            {
-                                'id': str(row['id']),
-                                'period_type': safe_value(row.get('period_type'), 'DAILY'),
-                                'period_start': pd.to_datetime(row['period_start']).date() if safe_value(row.get('period_start')) else None,
-                                'period_end': pd.to_datetime(row['period_end']).date() if safe_value(row.get('period_end')) else None,
-                                'event_name': safe_value(row.get('event_name'), 'Unnamed Event'),
-                                'initiating_country': safe_value(row.get('initiating_country')),
-                                'first_observed_date': pd.to_datetime(row['first_observed_date']).date() if safe_value(row.get('first_observed_date')) else None,
-                                'last_observed_date': pd.to_datetime(row['last_observed_date']).date() if safe_value(row.get('last_observed_date')) else None,
-                                'status': safe_value(row.get('status'), 'ACTIVE'),
-                                'created_at': pd.to_datetime(row['created_at']) if safe_value(row.get('created_at')) else datetime.now(),
-                                'updated_at': pd.to_datetime(row['updated_at']) if safe_value(row.get('updated_at')) else None,
-                                'category_count': int(row['category_count']) if safe_value(row.get('category_count')) else 0,
-                                'subcategory_count': int(row['subcategory_count']) if safe_value(row.get('subcategory_count')) else 0,
-                                'recipient_count': int(row['recipient_count']) if safe_value(row.get('recipient_count')) else 0,
-                                'source_count': int(row['source_count']) if safe_value(row.get('source_count')) else 0,
-                                'total_documents_across_categories': int(row['total_documents_across_categories']) if safe_value(row.get('total_documents_across_categories')) else 0,
-                                'count_by_category': count_by_category,
-                                'count_by_subcategory': count_by_subcategory,
-                                'count_by_recipient': count_by_recipient,
-                                'count_by_source': count_by_source,
-                                'narrative_summary': narrative_summary,
-                                'material_score': float(row['material_score']) if safe_value(row.get('material_score')) else None,
-                                'material_justification': safe_value(row.get('material_justification')),
-                                'is_deleted': False
-                            }
-                        )
+                        # Use savepoint so one failed row doesn't abort the whole batch
+                        with session.begin_nested():
+                            session.execute(
+                                text("""
+                                    INSERT INTO event_summaries (
+                                        id, period_type, period_start, period_end, event_name,
+                                        initiating_country, first_observed_date, last_observed_date, status,
+                                        created_at, updated_at, category_count, subcategory_count,
+                                        recipient_count, source_count, total_documents_across_categories,
+                                        count_by_category, count_by_subcategory, count_by_recipient,
+                                        count_by_source, narrative_summary, material_score, material_justification,
+                                        is_deleted
+                                    ) VALUES (
+                                        :id, CAST(:period_type AS event_period_type), :period_start, :period_end, :event_name,
+                                        :initiating_country, :first_observed_date, :last_observed_date, CAST(:status AS event_status),
+                                        :created_at, :updated_at, :category_count, :subcategory_count,
+                                        :recipient_count, :source_count, :total_documents_across_categories,
+                                        CAST(:count_by_category AS jsonb), CAST(:count_by_subcategory AS jsonb), CAST(:count_by_recipient AS jsonb),
+                                        CAST(:count_by_source AS jsonb), CAST(:narrative_summary AS jsonb), :material_score, :material_justification,
+                                        :is_deleted
+                                    )
+                                    ON CONFLICT (id) DO NOTHING
+                                """),
+                                {
+                                    'id': str(row['id']),
+                                    'period_type': safe_value(row.get('period_type'), 'DAILY'),
+                                    'period_start': pd.to_datetime(row['period_start']).date() if safe_value(row.get('period_start')) else None,
+                                    'period_end': pd.to_datetime(row['period_end']).date() if safe_value(row.get('period_end')) else None,
+                                    'event_name': safe_value(row.get('event_name'), 'Unnamed Event'),
+                                    'initiating_country': safe_value(row.get('initiating_country')),
+                                    'first_observed_date': pd.to_datetime(row['first_observed_date']).date() if safe_value(row.get('first_observed_date')) else None,
+                                    'last_observed_date': pd.to_datetime(row['last_observed_date']).date() if safe_value(row.get('last_observed_date')) else None,
+                                    'status': safe_value(row.get('status'), 'ACTIVE'),
+                                    'created_at': pd.to_datetime(row['created_at']) if safe_value(row.get('created_at')) else datetime.now(),
+                                    'updated_at': pd.to_datetime(row['updated_at']) if safe_value(row.get('updated_at')) else None,
+                                    'category_count': int(row['category_count']) if safe_value(row.get('category_count')) else 0,
+                                    'subcategory_count': int(row['subcategory_count']) if safe_value(row.get('subcategory_count')) else 0,
+                                    'recipient_count': int(row['recipient_count']) if safe_value(row.get('recipient_count')) else 0,
+                                    'source_count': int(row['source_count']) if safe_value(row.get('source_count')) else 0,
+                                    'total_documents_across_categories': int(row['total_documents_across_categories']) if safe_value(row.get('total_documents_across_categories')) else 0,
+                                    'count_by_category': count_by_category,
+                                    'count_by_subcategory': count_by_subcategory,
+                                    'count_by_recipient': count_by_recipient,
+                                    'count_by_source': count_by_source,
+                                    'narrative_summary': narrative_summary,
+                                    'material_score': float(row['material_score']) if safe_value(row.get('material_score')) else None,
+                                    'material_justification': safe_value(row.get('material_justification')),
+                                    'is_deleted': False
+                                }
+                            )
                         batch_inserted += 1
 
                     except Exception as e:
