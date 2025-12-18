@@ -5,10 +5,14 @@ WORKDIR /app
 # Copy requirements
 COPY requirements.txt .
 
-# Install dependencies including curl for healthcheck
-RUN apt-get update && apt-get install -y curl && \
-    pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple && \
-    rm -rf /var/lib/apt/lists/*
+# Install build dependencies for hdbscan, then Python packages, then cleanup
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple \
+    && apt-get purge -y build-essential \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy shared modules and services
 COPY shared/ ./shared/
