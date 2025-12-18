@@ -94,15 +94,29 @@ def convert_to_json_serializable(obj):
 
 
 def prepare_jsonb_field(val):
-    """Prepare a field for JSONB insertion - handles numpy arrays and converts to JSON string."""
-    if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
+    """Prepare a field for JSONB insertion - handles numpy arrays and converts to JSON string.
+
+    IMPORTANT: This function MUST return a JSON string (or None), never a Python object,
+    because PostgreSQL JSONB expects a string to be cast.
+    """
+    # Handle null/NaN values
+    if val is None:
         return None
+    try:
+        if isinstance(val, float) and np.isnan(val):
+            return None
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        # pd.isna() can fail on certain types like dicts
+        pass
 
     # If it's already a string, try to parse and re-serialize to ensure validity
     if isinstance(val, str):
         try:
             parsed = json.loads(val)
-            return json.dumps(convert_to_json_serializable(parsed))
+            result = json.dumps(convert_to_json_serializable(parsed))
+            return result
         except json.JSONDecodeError:
             return None
 
@@ -110,7 +124,10 @@ def prepare_jsonb_field(val):
     converted = convert_to_json_serializable(val)
     if converted is None:
         return None
-    return json.dumps(converted)
+
+    # Always return a JSON string, not a Python object
+    result = json.dumps(converted)
+    return result
 
 
 def prepare_text_array_field(val):
