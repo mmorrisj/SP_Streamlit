@@ -235,8 +235,8 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
                                     processed, llm_deconflicted, created_at, refined_clusters
                                 ) VALUES (
                                     :id, :initiating_country, :cluster_date, :batch_number, :cluster_id,
-                                    :event_names::jsonb, :doc_ids::jsonb, :cluster_size, :is_noise, :representative_name,
-                                    :processed, :llm_deconflicted, :created_at, :refined_clusters::jsonb
+                                    CAST(:event_names AS jsonb), CAST(:doc_ids AS jsonb), :cluster_size, :is_noise, :representative_name,
+                                    :processed, :llm_deconflicted, :created_at, CAST(:refined_clusters AS jsonb)
                                 )
                                 ON CONFLICT (id) DO NOTHING
                             """),
@@ -346,8 +346,8 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
                                 ) VALUES (
                                     :id, :canonical_event_id, :initiating_country, :mention_date,
                                     :article_count, :consolidated_headline, :daily_summary,
-                                    :source_names::jsonb, :source_diversity_score, :mention_context,
-                                    :news_intensity, :doc_ids::jsonb
+                                    CAST(:source_names AS jsonb), :source_diversity_score, :mention_context,
+                                    :news_intensity, CAST(:doc_ids AS jsonb)
                                 )
                                 ON CONFLICT (id) DO NOTHING
                             """),
@@ -459,12 +459,12 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                     count_by_source, narrative_summary, material_score, material_justification,
                                     is_deleted
                                 ) VALUES (
-                                    :id, :period_type::event_period_type, :period_start, :period_end, :event_name,
-                                    :initiating_country, :first_observed_date, :last_observed_date, :status::event_status,
+                                    :id, CAST(:period_type AS event_period_type), :period_start, :period_end, :event_name,
+                                    :initiating_country, :first_observed_date, :last_observed_date, CAST(:status AS event_status),
                                     :created_at, :updated_at, :category_count, :subcategory_count,
                                     :recipient_count, :source_count, :total_documents_across_categories,
-                                    :count_by_category::jsonb, :count_by_subcategory::jsonb, :count_by_recipient::jsonb,
-                                    :count_by_source::jsonb, :narrative_summary::jsonb, :material_score, :material_justification,
+                                    CAST(:count_by_category AS jsonb), CAST(:count_by_subcategory AS jsonb), CAST(:count_by_recipient AS jsonb),
+                                    CAST(:count_by_source AS jsonb), CAST(:narrative_summary AS jsonb), :material_score, :material_justification,
                                     :is_deleted
                                 )
                                 ON CONFLICT (id) DO NOTHING
