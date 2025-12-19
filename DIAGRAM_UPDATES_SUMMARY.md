@@ -3,7 +3,7 @@
 ## Date: 2025-12-19
 ## Version: 2.0
 
-All three diagrams have been updated with high-priority fixes and medium-priority enhancements from [DIAGRAM_REVIEW.md](DIAGRAM_REVIEW.md).
+All four diagrams have been updated with high-priority fixes and medium-priority enhancements from [DIAGRAM_REVIEW.md](DIAGRAM_REVIEW.md) and [EVENT_CONSOLIDATION_DIAGRAM_REVIEW.md](EVENT_CONSOLIDATION_DIAGRAM_REVIEW.md).
 
 ---
 
@@ -158,25 +158,70 @@ All three diagrams have been updated with high-priority fixes and medium-priorit
 
 ---
 
-## Summary of Changes Across All Diagrams
+## 4. Event Consolidation Flowchart Updates
+
+### ✅ HIGH PRIORITY FIXES APPLIED
+
+**Fix 1: LLM Model Specification Added (Error 3)**
+- ✅ Added "Model: gpt-4o-mini (primary), gpt-4o (fallback)" to:
+  - Stage 1B: LLM Cluster Validation script
+  - Stage 2B: LLM Group Validation script
+
+**Fix 2: DBSCAN eps Variation Noted (Error 2)**
+- ✅ Updated DBSCAN Parameters box to show eps variation:
+  - "eps: Varies by country (typically 0.15-0.35)"
+  - 0.15 = Very tight (high precision)
+  - 0.25 = Moderate
+  - 0.35 = Loose (high recall)
+
+**Fix 3: Data Integrity Note Added (Addition 2)**
+- ✅ Added new DATA INTEGRITY STATUS box showing:
+  - 99.99% Complete
+  - 140,029 / 140,037 mentions have doc_ids
+  - Missing: 8 events (Iran: 6, Turkey: 1, Duplicates: 1)
+  - Impact: 0.006% (Negligible)
+
+**Fix 4: Processing Schedule Added (Addition 3)**
+- ✅ Added new PROCESSING SCHEDULE box showing:
+  - Stage 1: Daily clustering (runs daily or on-demand per country, incremental)
+  - Stage 2: Batch consolidation (runs periodically weekly/monthly, full dataset)
+
+### ✅ MEDIUM PRIORITY ENHANCEMENTS APPLIED
+
+**Enhancement 1: Row Counts Added to Tables (Addition 1)**
+- ✅ Updated table titles with row counts:
+  - `canonical_events TABLE (112,510 total events)`
+  - `daily_event_mentions TABLE (140,037 mentions)`
+
+**Enhancement 2: Version Info Added (Addition 8)**
+- ✅ Added footer:
+  - Diagram Version: 2.0
+  - Last Updated: 2025-12-19
+  - Status: High-priority fixes applied
+
+---
+
+## Summary of Changes Across All Four Diagrams
 
 ### Tables Added/Updated:
 - **2 missing tables added** (subcategories, recipient_countries)
-- **13 tables updated** with row counts
+- **15 tables updated** with row counts (13 in pipeline + 2 in event consolidation)
 - **1 new stage added** (Entity Extraction)
 
 ### Annotations Added:
-- **3 critical warnings** (embeddings backup, material score availability, data integrity)
+- **4 critical warnings** (embeddings backup, material score availability, 2x data integrity)
 - **5 progress indicators** (materiality scoring, entity extraction)
 - **4 documentation references** (CLAUDE.md, PIPELINE_STATUS.md, etc.)
 - **2 system architecture notes** (System 1 vs System 2)
-- **3 version footers** (all diagrams now versioned)
+- **4 version footers** (all diagrams now versioned)
+- **1 processing schedule** (daily vs periodic execution)
 
 ### Content Clarified:
-- **Model fallback strategy** (gpt-4o-mini → gpt-4o)
+- **Model fallback strategy** (gpt-4o-mini → gpt-4o) - added to all LLM stages
 - **Extraction field relationships** (12 core + 6 relationship tables)
 - **Material score limitations** (only 19.8% scored)
 - **Data integrity status** (99.99% complete)
+- **DBSCAN eps variation** (0.15-0.35 by country, not fixed)
 
 ---
 
@@ -205,12 +250,14 @@ All three diagrams have been updated with high-priority fixes and medium-priorit
 1. ✅ `docs/pipeline_flowchart.drawio` - 9 major updates
 2. ✅ `docs/summary_publication_flowchart.drawio` - 4 major updates
 3. ✅ `docs/gai_prompt_interactions_flowchart.drawio` - 5 major updates
+4. ✅ `docs/event_consolidation_flowchart.drawio` - 6 major updates (NEW)
 
 All files now at **Version 2.0** with high-priority fixes applied.
 
 ## Related Documentation
 
-- 📄 [DIAGRAM_REVIEW.md](DIAGRAM_REVIEW.md) - Complete review with all findings
+- 📄 [DIAGRAM_REVIEW.md](DIAGRAM_REVIEW.md) - Complete review with all findings (3 diagrams)
+- 📄 [EVENT_CONSOLIDATION_DIAGRAM_REVIEW.md](EVENT_CONSOLIDATION_DIAGRAM_REVIEW.md) - Event consolidation review (Grade A)
 - 📄 [LINKAGE_VERIFICATION.md](LINKAGE_VERIFICATION.md) - Data linkage details
 - 📄 [PIPELINE_STATUS.md](PIPELINE_STATUS.md) - Current pipeline status
 - 📄 [FULL_DATABASE_MIGRATION.md](FULL_DATABASE_MIGRATION.md) - Migration guide

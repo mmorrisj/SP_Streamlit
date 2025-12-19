@@ -37,8 +37,8 @@
         <mxCell id="stage1a-process" value="Process:&#xa;1. Load all raw_events for (country, date)&#xa;2. Generate embeddings (all-MiniLM-L6-v2)&#xa;3. Normalize names (lowercase, remove punctuation)&#xa;4. Apply DBSCAN clustering&#xa;5. Store clusters in event_clusters table" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="460" y="190" width="360" height="100" as="geometry" />
         </mxCell>
-        <mxCell id="stage1a-params" value="DBSCAN Parameters:&#xa;• Metric: Cosine distance&#xa;• eps: 0.15 (default) → similarity ≥ 0.85&#xa;• min_samples: 1 (allows singletons)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
-          <mxGeometry x="460" y="300" width="360" height="70" as="geometry" />
+        <mxCell id="stage1a-params" value="DBSCAN Parameters:&#xa;• Metric: Cosine distance&#xa;• eps: Varies by country (typically 0.15-0.35)&#xa;  - 0.15 = Very tight (high precision)&#xa;  - 0.25 = Moderate&#xa;  - 0.35 = Loose (high recall)&#xa;• min_samples: 1 (allows singletons)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="460" y="300" width="360" height="100" as="geometry" />
         </mxCell>
         <mxCell id="stage1a-output" value="Output: event_clusters table&#xa;(cluster_id, event_names[], doc_ids[], centroid_embedding)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="460" y="380" width="360" height="35" as="geometry" />
@@ -56,8 +56,8 @@
         <mxCell id="stage1b-box" value="STAGE 1B: LLM CLUSTER VALIDATION" style="swimlane;fontStyle=1;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="460" width="400" height="380" as="geometry" />
         </mxCell>
-        <mxCell id="stage1b-script" value="Script: llm_deconflict_clusters.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
-          <mxGeometry x="50" y="495" width="200" height="15" as="geometry" />
+        <mxCell id="stage1b-script" value="Script: llm_deconflict_clusters.py&#xa;Model: gpt-4o-mini (primary), gpt-4o (fallback)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="50" y="495" width="350" height="30" as="geometry" />
         </mxCell>
         <mxCell id="stage1b-scope" value="Scope: Within each DBSCAN cluster" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
           <mxGeometry x="60" y="515" width="360" height="25" as="geometry" />
@@ -81,7 +81,7 @@
         </mxCell>
 
         <!-- ==================== CANONICAL EVENTS TABLE ==================== -->
-        <mxCell id="canonical-box" value="canonical_events TABLE (Created in Stage 1B)" style="swimlane;fontStyle=1;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
+        <mxCell id="canonical-box" value="canonical_events TABLE (112,510 total events)" style="swimlane;fontStyle=1;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="490" y="620" width="350" height="220" as="geometry" />
         </mxCell>
         <mxCell id="canonical-schema" value="id: UUID (primary key)&#xa;master_event_id: UUID (NULL = master, FK = child)&#xa;canonical_name: TEXT&#xa;initiating_country: TEXT&#xa;first_mention_date: DATE&#xa;last_mention_date: DATE&#xa;total_mention_days: INTEGER&#xa;total_articles: INTEGER&#xa;embedding_vector: FLOAT[]&#xa;alternative_names: TEXT[]&#xa;primary_categories: JSONB&#xa;primary_recipients: JSONB&#xa;material_score: NUMERIC(3,1)&#xa;material_justification: TEXT" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;fontFamily=Courier New;spacingLeft=10;" vertex="1" parent="1">
@@ -89,8 +89,8 @@
         </mxCell>
 
         <!-- ==================== DAILY MENTIONS TABLE ==================== -->
-        <mxCell id="mentions-box" value="daily_event_mentions TABLE" style="swimlane;fontStyle=1;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
-          <mxGeometry x="890" y="460" width="280" height="180" as="geometry" />
+        <mxCell id="mentions-box" value="daily_event_mentions TABLE (140,037 mentions)" style="swimlane;fontStyle=1;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="890" y="460" width="300" height="180" as="geometry" />
         </mxCell>
         <mxCell id="mentions-schema" value="id: UUID&#xa;canonical_event_id: UUID (FK)&#xa;initiating_country: TEXT&#xa;mention_date: DATE&#xa;article_count: INTEGER&#xa;consolidated_headline: TEXT&#xa;doc_ids: TEXT[]&#xa;mention_context: TEXT&#xa;source_names: TEXT[]&#xa;&#xa;UNIQUE(canonical_event_id, mention_date)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;fontFamily=Courier New;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="900" y="490" width="260" height="140" as="geometry" />
@@ -136,8 +136,8 @@
         <mxCell id="stage2b-box" value="STAGE 2B: LLM GROUP VALIDATION" style="swimlane;fontStyle=1;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="490" y="1060" width="400" height="280" as="geometry" />
         </mxCell>
-        <mxCell id="stage2b-script" value="Script: llm_deconflict_canonical_events.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
-          <mxGeometry x="500" y="1095" width="250" height="15" as="geometry" />
+        <mxCell id="stage2b-script" value="Script: llm_deconflict_canonical_events.py&#xa;Model: gpt-4o-mini (primary), gpt-4o (fallback)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="500" y="1095" width="350" height="30" as="geometry" />
         </mxCell>
         <mxCell id="stage2b-scope" value="Scope: Groups linked by master_event_id" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
           <mxGeometry x="510" y="1115" width="360" height="25" as="geometry" />
@@ -292,12 +292,33 @@
           <mxGeometry x="1210" y="350" width="160" height="140" as="geometry" />
         </mxCell>
 
+        <!-- ==================== DATA INTEGRITY NOTE ==================== -->
+        <mxCell id="integrity-box" value="DATA INTEGRITY STATUS" style="swimlane;fontStyle=1;startSize=25;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="540" width="180" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="integrity-content" value="99.99% Complete&#xa;&#xa;Linkages:&#xa;140,029 / 140,037&#xa;mentions have doc_ids&#xa;&#xa;Missing: 8 events&#xa;• Iran: 6&#xa;• Turkey: 1&#xa;• Duplicates: 1&#xa;&#xa;Impact: 0.006%&#xa;(Negligible)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="570" width="160" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== PROCESSING SCHEDULE ==================== -->
+        <mxCell id="schedule-box" value="PROCESSING SCHEDULE" style="swimlane;fontStyle=1;startSize=25;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="730" width="180" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="schedule-content" value="Stage 1:&#xa;Daily Clustering&#xa;• Runs: Daily or&#xa;  on-demand per&#xa;  country&#xa;• Incremental&#xa;&#xa;Stage 2:&#xa;Batch Consolidation&#xa;• Runs: Periodically&#xa;  (weekly/monthly)&#xa;• Full dataset&#xa;• Updates master&#xa;  hierarchy" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=9;spacingLeft=10;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="760" width="160" height="160" as="geometry" />
+        </mxCell>
+
         <!-- ==================== EXAMPLE EVENT LIFECYCLE ==================== -->
         <mxCell id="example-box" value="EXAMPLE: EVENT TRACKED ACROSS 3 MONTHS" style="swimlane;fontStyle=1;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="1040" y="1580" width="350" height="220" as="geometry" />
         </mxCell>
         <mxCell id="example-content" value="Event: &quot;China-Arab States Cooperation Forum&quot;&#xa;&#xa;August 2024:&#xa;  • 15 mentions, 180 articles&#xa;  • &quot;Forum Announced&quot;, &quot;Preparations Begin&quot;&#xa;&#xa;September 2024:&#xa;  • 25 mentions, 450 articles (peak)&#xa;  • &quot;Forum Opens&quot;, &quot;Agreements Signed&quot;&#xa;&#xa;October 2024:&#xa;  • 8 mentions, 95 articles&#xa;  • &quot;Implementation Begins&quot;, &quot;Follow-up Meetings&quot;&#xa;&#xa;Total: 48 days tracked, 725 articles&#xa;Material Score: 7.8 (trade deals signed)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="1050" y="1610" width="330" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== VERSION INFO ==================== -->
+        <mxCell id="version-box" value="Diagram Version: 2.0 | Last Updated: 2025-12-19 | Status: High-priority fixes applied" style="text;html=1;strokeColor=#666666;fillColor=#f5f5f5;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=9;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="1830" width="950" height="25" as="geometry" />
         </mxCell>
 
       </root>
