@@ -1,0 +1,301 @@
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="Claude" version="22.0.0">
+  <diagram name="Summary Publication Flow" id="summary-pub-flow">
+    <mxGraphModel dx="1800" dy="1400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="2200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Summary Publication Generation Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="550" y="20" width="500" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== INPUT PARAMETERS ==================== -->
+        <mxCell id="input-box" value="INPUT PARAMETERS" style="swimlane;fontStyle=1;startSize=30;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="320" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="input-country" value="Initiating Country&#xa;(e.g., China, Russia, Iran, Turkey, USA)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="input-dates" value="Date Range&#xa;(start_date → end_date)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="60" y="170" width="280" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Config Reference -->
+        <mxCell id="config-box" value="config.yaml" style="swimlane;fontStyle=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="320" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="config-influencers" value="influencers: [China, Russia, Iran, Turkey, USA]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="275" width="280" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="config-recipients" value="recipients: [Bahrain, Egypt, Iraq, Israel, Jordan,&#xa;Kuwait, Lebanon, Oman, Qatar, Saudi Arabia, ...]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="305" width="280" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== DATA FILTERING ==================== -->
+        <mxCell id="filter-box" value="STEP 1: DATA FILTERING" style="swimlane;fontStyle=1;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="80" width="400" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="filter-docs" value="Filter documents table&#xa;WHERE initiating_country = [input]&#xa;AND date BETWEEN start_date AND end_date" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="440" y="120" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="filter-events" value="Filter canonical_events&#xa;WHERE initiating_country = [input]&#xa;AND daily_event_mentions.mention_date IN date_range" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="440" y="180" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="filter-bilateral" value="Check bilateral_relationship_summaries&#xa;FOR EACH recipient IN config.recipients&#xa;WHERE initiating_country = [input]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="440" y="240" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="filter-result" value="Result: Filtered dataset for analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="440" y="300" width="360" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== KEY EVENT SCORING ==================== -->
+        <mxCell id="scoring-box" value="STEP 2: KEY EVENT SCORING" style="swimlane;fontStyle=1;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="80" width="380" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="score-header" value="For each canonical_event, calculate:" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="900" y="115" width="340" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="score-articles" value="1. Article Count Score&#xa;   COUNT(daily_event_mentions) in date_range&#xa;   Higher count = Higher score" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="140" width="340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="score-recency" value="2. Recency Score&#xa;   Days between latest_mention and end_date&#xa;   More recent = Higher score" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="200" width="340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="score-material" value="3. Material Relevance Score&#xa;   material_score from canonical_events (1-10)&#xa;   Higher = More tangible/concrete" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="260" width="340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="score-formula" value="Combined Score = w1*articles + w2*recency + w3*material" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="900" y="320" width="340" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CATEGORY GROUPING ==================== -->
+        <mxCell id="category-box" value="STEP 3: GROUP BY SOFT POWER CATEGORY" style="swimlane;fontStyle=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="780" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- Category boxes -->
+        <mxCell id="cat-economic" value="ECONOMIC&#xa;&#xa;Trade, Infrastructure,&#xa;Investment, Energy,&#xa;Finance, Technology" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="170" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-diplomacy" value="DIPLOMACY&#xa;&#xa;Bilateral Agreements,&#xa;Global Governance,&#xa;Conflict Resolution" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="250" y="440" width="170" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-social" value="SOCIAL&#xa;&#xa;Culture, Education,&#xa;Healthcare, Media,&#xa;Religious, Diaspora" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="440" y="440" width="170" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-military" value="MILITARY&#xa;&#xa;Arms Sales, Training,&#xa;Joint Exercises,&#xa;Defense Cooperation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="630" y="440" width="170" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== RECIPIENT CHECK ==================== -->
+        <mxCell id="recipient-box" value="STEP 4: BILATERAL RECIPIENT CHECK" style="swimlane;fontStyle=1;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="400" width="380" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="recipient-loop" value="FOR EACH recipient IN config.recipients:" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="900" y="435" width="340" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="recipient-check1" value="Query events WHERE recipient_country = recipient&#xa;AND mention_date IN date_range" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="900" y="460" width="340" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="recipient-check2" value="Flag KEY UPDATES if:&#xa;• High material score events occurred&#xa;• Significant article volume increase&#xa;• New bilateral agreements detected" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="510" width="340" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CONTENT GENERATION ==================== -->
+        <mxCell id="content-box" value="STEP 5: CONTENT GENERATION (LLM: gpt-4o-mini)" style="swimlane;fontStyle=1;startSize=30;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="620" width="600" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="content-overview" value="Category Overview Paragraph&#xa;&#xa;For each category (Economic, Diplomacy, Social, Military):&#xa;• Summarize key themes and trends&#xa;• Highlight most significant developments&#xa;• Note shifts from previous periods" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="660" width="270" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="content-outcomes" value="Event Outcomes Paragraph&#xa;&#xa;For each TOP KEY EVENT:&#xa;• Event name and description&#xa;• Countries/actors involved&#xa;• Concrete outcomes or implications&#xa;• Future outlook/next steps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="350" y="660" width="270" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="content-bilateral" value="Bilateral Updates Section (if key updates flagged)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="60" y="770" width="560" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== METRICS SECTION ==================== -->
+        <mxCell id="metrics-box" value="STEP 6: QUANTITATIVE METRICS" style="swimlane;fontStyle=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="620" width="580" height="400" as="geometry" />
+        </mxCell>
+
+        <!-- Metrics Row 1 -->
+        <mxCell id="metric-by-cat" value="Articles by Category&#xa;&#xa;Economic: XXX&#xa;Diplomacy: XXX&#xa;Social: XXX&#xa;Military: XXX" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="700" y="660" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="metric-by-source" value="Articles by Source&#xa;&#xa;Source A: XXX&#xa;Source B: XXX&#xa;Source C: XXX&#xa;..." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="890" y="660" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="metric-by-recipient" value="Articles by Recipient&#xa;&#xa;Egypt: XXX&#xa;Saudi Arabia: XXX&#xa;Iraq: XXX&#xa;..." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="660" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Metrics Row 2 -->
+        <mxCell id="metric-histogram" value="Material Score Distribution&#xa;(Histogram)&#xa;&#xa;[1-2]: ████ XX%&#xa;[3-4]: ██████ XX%&#xa;[5-6]: ████████ XX%&#xa;[7-8]: ██████ XX%&#xa;[9-10]: ███ XX%" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="700" y="780" width="200" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="metric-avg-material" value="Avg Material Score&#xa;by Recipient Country&#xa;&#xa;Egypt: 6.2&#xa;Saudi Arabia: 7.1&#xa;Iraq: 5.8&#xa;Jordan: 4.9&#xa;..." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="780" width="160" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- Metrics Row 3 - Special Rankings -->
+        <mxCell id="metric-top-material" value="Top Events by Material Score&#xa;(Highest tangible impact)&#xa;&#xa;1. [Event] - Score: 9.2&#xa;2. [Event] - Score: 8.8&#xa;3. [Event] - Score: 8.5" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="700" y="930" width="260" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="metric-symbolic" value="Top Symbolic Events&#xa;(Low material, High articles)&#xa;&#xa;1. [Event] - Mat: 2.1, Arts: 450&#xa;2. [Event] - Mat: 1.8, Arts: 380&#xa;3. [Event] - Mat: 2.5, Arts: 320" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="980" y="930" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== OUTPUT ==================== -->
+        <mxCell id="output-box" value="FINAL OUTPUT: SUMMARY PUBLICATION" style="swimlane;fontStyle=1;startSize=30;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="880" width="600" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="output-structure" value="Publication Structure:&#xa;&#xa;1. Executive Summary&#xa;2. Economic Soft Power (Overview + Key Events)&#xa;3. Diplomatic Soft Power (Overview + Key Events)&#xa;4. Social Soft Power (Overview + Key Events)&#xa;5. Military Cooperation (Overview + Key Events)&#xa;6. Bilateral Relationship Updates&#xa;7. Quantitative Metrics Dashboard&#xa;8. Appendix: Full Event Listing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="920" width="560" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== DATABASE TABLES REFERENCE ==================== -->
+        <mxCell id="db-box" value="DATABASE TABLES USED" style="swimlane;fontStyle=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="80" width="200" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="db-docs" value="documents" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="115" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="db-canonical" value="canonical_events" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="165" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="db-mentions" value="daily_event_mentions" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="215" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="db-bilateral" value="bilateral_relationship_summaries" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="265" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="db-categories" value="categories" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="115" width="70" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="db-recipients" value="recipient_countries" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="165" width="70" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== ARROWS ==================== -->
+
+        <!-- Input to Filter -->
+        <mxCell id="arrow1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="input-box" target="filter-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Config to Filter -->
+        <mxCell id="arrow2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="config-box" target="filter-bilateral">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Filter to Scoring -->
+        <mxCell id="arrow3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="filter-box" target="scoring-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Filter to Categories -->
+        <mxCell id="arrow4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="filter-result" target="category-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="620" y="380" />
+              <mxPoint x="430" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Scoring to Categories -->
+        <mxCell id="arrow5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;" edge="1" parent="1" source="score-formula" target="category-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1070" y="370" />
+              <mxPoint x="820" y="370" />
+              <mxPoint x="820" y="490" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Config to Recipient Check -->
+        <mxCell id="arrow6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;" edge="1" parent="1" source="config-recipients" target="recipient-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="380" y="325" />
+              <mxPoint x="380" y="370" />
+              <mxPoint x="860" y="370" />
+              <mxPoint x="860" y="490" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Categories to Content -->
+        <mxCell id="arrow7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;" edge="1" parent="1" source="category-box" target="content-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Recipient to Content -->
+        <mxCell id="arrow8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="recipient-box" target="content-bilateral">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="660" y="590" />
+              <mxPoint x="660" y="785" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Filter to Metrics -->
+        <mxCell id="arrow9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;" edge="1" parent="1" source="filter-result" target="metrics-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="620" y="380" />
+              <mxPoint x="850" y="380" />
+              <mxPoint x="850" y="600" />
+              <mxPoint x="970" y="600" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Content to Output -->
+        <mxCell id="arrow10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#006EAF;" edge="1" parent="1" source="content-box" target="output-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Metrics to Output -->
+        <mxCell id="arrow11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#006EAF;" edge="1" parent="1" source="metric-top-material" target="output-structure">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="660" y="970" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== LEGEND ==================== -->
+        <mxCell id="legend-box" value="LEGEND" style="swimlane;fontStyle=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="380" width="200" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-input" value="Input/Config" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="415" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-process" value="Processing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="450" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-scoring" value="Scoring" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="485" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-table" value="DB Table" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="415" width="70" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Key Event Criteria Box -->
+        <mxCell id="criteria-box" value="KEY EVENT SELECTION CRITERIA" style="swimlane;fontStyle=1;startSize=25;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="560" width="200" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="criteria-list" value="1. Article Count&#xa;   (volume of coverage)&#xa;&#xa;2. Recency to End Date&#xa;   (temporal relevance)&#xa;&#xa;3. Material Score&#xa;   (tangible impact)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="590" width="180" height="100" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
