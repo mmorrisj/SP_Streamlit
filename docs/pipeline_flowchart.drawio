@@ -1,0 +1,355 @@
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="Claude" version="22.0.0">
+  <diagram name="Pipeline Architecture" id="pipeline-flow">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="2400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Soft Power Analytics Pipeline" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="600" y="20" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 0: DATA SOURCES ==================== -->
+        <mxCell id="source-group" value="Data Sources" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="200" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="s3-source" value="S3 Bucket (JSON/CSV)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="local-source" value="Local Files" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="60" y="160" width="160" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 0: INGESTION ==================== -->
+        <mxCell id="stage0-box" value="STAGE 0: DOCUMENT INGESTION" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="80" width="280" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="atom-script" value="atom.py&#xa;Clean CSV from ATOM feed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="320" y="120" width="240" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="dsr-script" value="dsr.py&#xa;Load JSON, create Documents&#xa;Flatten to normalized tables" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="320" y="170" width="240" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 0 Database Tables -->
+        <mxCell id="stage0-tables" value="Tables Created" style="swimlane;fontStyle=0;startSize=20;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="300" y="270" width="280" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="docs-table" value="documents" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="310" y="300" width="60" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="cats-table" value="categories" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="380" y="300" width="60" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="init-table" value="initiating_countries" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="450" y="300" width="60" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="raw-events-table" value="raw_events" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="520" y="300" width="60" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 1: AI ANALYSIS ==================== -->
+        <mxCell id="stage1-box" value="STAGE 1: AI ANALYSIS" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="640" y="80" width="300" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="atom-extract" value="atom_extraction.py&#xa;GPT-4 Analysis: Extract salience,&#xa;categories, countries, projects,&#xa;locations, event names" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="660" y="120" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="phase0" value="phase0_event_analysis.py&#xa;Statistical analysis of raw events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="660" y="200" width="260" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 1 Output -->
+        <mxCell id="stage1-output" value="documents table updated with:&#xa;salience, category, subcategory,&#xa;event_name, distilled_text, etc." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="640" y="280" width="300" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 2A: DAILY CLUSTERING ==================== -->
+        <mxCell id="stage2a-box" value="STAGE 2A: CLUSTER SAME-DAY EVENTS" style="swimlane;fontStyle=1;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="300" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="batch-cluster" value="batch_cluster_events.py&#xa;DBSCAN clustering (eps=0.15)&#xa;+ sentence-transformer embeddings&#xa;Group similar events per day" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="460" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="clusters-table" value="event_clusters" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="130" y="570" width="100" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 2B: LLM DECONFLICT CLUSTERS ==================== -->
+        <mxCell id="stage2b-box" value="STAGE 2B: LLM DECONFLICT CLUSTERS" style="swimlane;fontStyle=1;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="420" width="300" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-deconflict" value="llm_deconflict_clusters.py&#xa;GPT-4 validates clusters&#xa;Creates canonical_events (1/day)&#xa;Creates daily_event_mentions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="400" y="460" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 2B Tables -->
+        <mxCell id="canonical-table" value="canonical_events" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="400" y="570" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="daily-mentions-table" value="daily_event_mentions" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="520" y="570" width="100" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 3A: CONSOLIDATE EVENTS ==================== -->
+        <mxCell id="stage3a-box" value="STAGE 3A: CONSOLIDATE BY EMBEDDING" style="swimlane;fontStyle=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="420" width="300" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="consolidate" value="consolidate_all_events.py&#xa;Cosine similarity ≥0.85&#xa;Groups events across ALL dates&#xa;Sets master_event_id hierarchy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="740" y="460" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 3B: LLM VALIDATE CONSOLIDATION ==================== -->
+        <mxCell id="stage3b-box" value="STAGE 3B: LLM VALIDATE CONSOLIDATION" style="swimlane;fontStyle=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="660" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-validate" value="llm_deconflict_canonical_events.py&#xa;GPT-4 validates groups&#xa;Renames / Splits incorrect groups" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="60" y="700" width="260" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 3C: MERGE MULTI-DAY ==================== -->
+        <mxCell id="stage3c-box" value="STAGE 3C: MERGE INTO MULTI-DAY EVENTS" style="swimlane;fontStyle=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="660" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="merge" value="merge_canonical_events.py&#xa;Consolidate daily_event_mentions&#xa;Delete empty child events&#xa;Result: Multi-day master events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="400" y="700" width="260" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Master Events Result -->
+        <mxCell id="master-events" value="Master Events&#xa;(master_event_id IS NULL)&#xa;+ Multiple days of mentions&#xa;+ Full traceability to docs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="380" y="800" width="300" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== OPTIONAL: MATERIALITY SCORING ==================== -->
+        <mxCell id="materiality-box" value="OPTIONAL: MATERIALITY SCORING" style="swimlane;fontStyle=1;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="660" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="materiality" value="score_canonical_event_materiality.py&#xa;Score 1-10 (symbolic to tangible)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="740" y="700" width="260" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 4: EMBEDDINGS ==================== -->
+        <mxCell id="stage4-box" value="STAGE 4: EMBEDDINGS MANAGEMENT" style="swimlane;fontStyle=1;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="900" width="400" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="embed-docs" value="embed_missing_documents.py&#xa;Generate document embeddings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="60" y="940" width="180" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="embed-events" value="embed_event_summaries.py&#xa;Generate summary embeddings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="250" y="940" width="180" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="export-embed" value="export_embeddings.py&#xa;Backup to S3/local" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1000" width="180" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="import-embed" value="import_embeddings.py&#xa;Restore from backup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="250" y="1000" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Embeddings Tables -->
+        <mxCell id="langchain-table" value="langchain_pg_embedding" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="130" y="1080" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="collection-table" value="langchain_pg_collection" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="270" y="1080" width="120" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 5: EVENT SUMMARIES ==================== -->
+        <mxCell id="stage5-box" value="STAGE 5: EVENT SUMMARIES" style="swimlane;fontStyle=1;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="900" width="280" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="gen-summaries" value="generate_event_summaries.py&#xa;Create EventSummary records&#xa;AI narratives (daily/weekly/monthly)&#xa;Link to source documents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="500" y="940" width="240" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 5 Tables -->
+        <mxCell id="event-summaries-table" value="event_summaries" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="500" y="1040" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="source-links-table" value="event_source_links" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="620" y="1040" width="100" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== STAGE 6: BILATERAL SUMMARIES ==================== -->
+        <mxCell id="stage6-box" value="STAGE 6: BILATERAL &amp; CATEGORY SUMMARIES" style="swimlane;fontStyle=1;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="800" y="900" width="280" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="bilateral" value="generate_bilateral_summaries.py&#xa;Country pair relationship analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="820" y="940" width="240" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="category-sum" value="generate_country_category_summaries.py&#xa;Category-specific analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="820" y="990" width="240" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 6 Tables -->
+        <mxCell id="bilateral-table" value="bilateral_relationship_summaries" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1060" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-sum-table" value="country_category_summaries" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="940" y="1060" width="120" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== DASHBOARD ==================== -->
+        <mxCell id="dashboard-box" value="DASHBOARD VISUALIZATION" style="swimlane;fontStyle=1;startSize=30;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="1160" width="400" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="streamlit" value="Streamlit Dashboard (services/dashboard/)&#xa;Interactive visualization of trends,&#xa;events, bilateral relationships, and patterns" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1200" width="360" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== ARROWS / CONNECTIONS ==================== -->
+
+        <!-- Sources to Ingestion -->
+        <mxCell id="arrow1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="local-source" target="atom-script">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Ingestion to Tables -->
+        <mxCell id="arrow2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="dsr-script" target="docs-table">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Ingestion to AI Analysis -->
+        <mxCell id="arrow3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="stage0-box" target="stage1-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- AI Analysis Output -->
+        <mxCell id="arrow4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="phase0" target="stage1-output">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 1 to Stage 2A -->
+        <mxCell id="arrow5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="stage1-output" target="stage2a-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="380" />
+              <mxPoint x="190" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Stage 2A to Clusters -->
+        <mxCell id="arrow6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="batch-cluster" target="clusters-table">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 2A to Stage 2B -->
+        <mxCell id="arrow7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="stage2a-box" target="stage2b-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 2B to Tables -->
+        <mxCell id="arrow8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="llm-deconflict" target="canonical-table">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 2B to Stage 3A -->
+        <mxCell id="arrow9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;" edge="1" parent="1" source="stage2b-box" target="stage3a-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 3A to Stage 3B -->
+        <mxCell id="arrow10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;" edge="1" parent="1" source="stage3a-box" target="stage3b-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="870" y="620" />
+              <mxPoint x="870" y="640" />
+              <mxPoint x="190" y="640" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Stage 3B to Stage 3C -->
+        <mxCell id="arrow11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;" edge="1" parent="1" source="stage3b-box" target="stage3c-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 3C to Master Events -->
+        <mxCell id="arrow12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="stage3c-box" target="master-events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 3C to Materiality (optional) -->
+        <mxCell id="arrow13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="stage3c-box" target="materiality-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Master Events to Stage 4 -->
+        <mxCell id="arrow14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="master-events" target="stage4-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="530" y="880" />
+              <mxPoint x="240" y="880" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Master Events to Stage 5 -->
+        <mxCell id="arrow15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="master-events" target="stage5-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 5 to Tables -->
+        <mxCell id="arrow16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="gen-summaries" target="event-summaries-table">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 5 to Stage 6 -->
+        <mxCell id="arrow17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="stage5-box" target="stage6-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Stage 6 to Tables -->
+        <mxCell id="arrow18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="category-sum" target="bilateral-table">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- All to Dashboard -->
+        <mxCell id="arrow19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#006EAF;" edge="1" parent="1" source="event-summaries-table" target="dashboard-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#006EAF;" edge="1" parent="1" source="bilateral-table" target="dashboard-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="860" y="1140" />
+              <mxPoint x="580" y="1140" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arrow21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#006EAF;" edge="1" parent="1" source="langchain-table" target="dashboard-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="190" y="1140" />
+              <mxPoint x="580" y="1140" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== LEGEND ==================== -->
+        <mxCell id="legend-box" value="LEGEND" style="swimlane;fontStyle=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="80" width="200" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-script" value="Python Script" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="115" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-table" value="DB Table" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="150" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-stage" value="Stage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="190" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-optional" value="Optional" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="225" width="80" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Key Info Box -->
+        <mxCell id="key-info" value="KEY TECHNOLOGIES&#xa;&#xa;• GPT-4: LLM analysis &amp; validation&#xa;• DBSCAN: Event clustering&#xa;• Sentence-transformers: Embeddings&#xa;• PostgreSQL + pgvector: Storage&#xa;• Streamlit: Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="300" width="200" height="140" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
