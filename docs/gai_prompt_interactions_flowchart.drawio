@@ -1,0 +1,329 @@
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="Claude" version="22.0.0">
+  <diagram name="GAI Prompt Interactions" id="gai-prompts-flow">
+    <mxGraphModel dx="2000" dy="1600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="2000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="GAI (Generative AI) Prompt Interactions &amp; Flows" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="700" y="20" width="600" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Model: gpt-4o-mini via Azure OpenAI | Function: gai() in shared/utils/utils.py" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="700" y="55" width="600" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== GAI FUNCTION CORE ==================== -->
+        <mxCell id="gai-core" value="gai() FUNCTION - CENTRAL LLM INTERFACE" style="swimlane;fontStyle=1;startSize=30;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="820" y="100" width="360" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="gai-sig" value="gai(sys_prompt, user_prompt,&#xa;    model='gpt-4o-mini',&#xa;    source='proxy',&#xa;    azure_use_env=False)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Courier New;fontSize=11;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="840" y="140" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="gai-sources" value="Sources: 'proxy' (FastAPI→OpenAI) | 'azure' (Azure OpenAI) | 'openai' (Direct)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="840" y="210" width="320" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="gai-location" value="Location: shared/utils/utils.py:216-397" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=10;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="840" y="245" width="320" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== PROMPT DEFINITION FILES ==================== -->
+        <mxCell id="prompts-box" value="PROMPT DEFINITION FILES" style="swimlane;fontStyle=1;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="340" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="prompts-main" value="shared/utils/prompts.py&#xa;• extraction_prompt (11 fields)&#xa;• event_summary_prompt&#xa;• Core soft power analysis prompts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="135" width="300" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="prompts-entity" value="shared/utils/prompts_entity.py&#xa;• Entity extraction prompts&#xa;• Role/Topic label taxonomies" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="205" width="300" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="prompts-summary" value="SUMMARY PROMPTS" style="swimlane;fontStyle=1;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="100" width="340" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="prompts-sum-file" value="services/pipeline/summaries/summary_prompts.py&#xa;• DAILY_SUMMARY_PROMPT&#xa;• WEEKLY_SUMMARY_PROMPT&#xa;• MONTHLY_SUMMARY_PROMPT&#xa;• BILATERAL_SUMMARY_PROMPT&#xa;• AP Style journalism rules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="135" width="300" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CATEGORY 1: DOCUMENT PROCESSING ==================== -->
+        <mxCell id="cat1-header" value="CATEGORY 1: DOCUMENT PROCESSING" style="text;html=1;strokeColor=none;fillColor=#ffe6cc;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=14;fontStyle=1;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="320" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Salience Check -->
+        <mxCell id="salience-box" value="1. SALIENCE ASSESSMENT" style="swimlane;fontStyle=1;startSize=25;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="360" width="340" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="salience-script" value="Script: atom_salience.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="50" y="390" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="salience-purpose" value="Purpose: Determine if document discusses soft power" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="60" y="410" width="300" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="salience-sys" value="System Prompt:&#xa;'You are an international relations expert&#xa;on soft power influence...'" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="300" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="salience-user" value="User Prompt: {title}: {body}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="490" width="300" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="salience-output" value="Output: { &quot;salience&quot;: true/false }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="60" y="520" width="300" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Full Extraction -->
+        <mxCell id="extract-box" value="2. FULL METADATA EXTRACTION" style="swimlane;fontStyle=1;startSize=25;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="360" width="340" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="extract-script" value="Script: atom_extraction.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="410" y="390" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="extract-purpose" value="Purpose: Extract comprehensive soft power metadata" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="420" y="410" width="300" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="extract-sys" value="System Prompt (extraction_prompt):&#xa;'Expert in tracking soft power engagements'&#xa;11-step extraction process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="420" y="440" width="300" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="extract-fields" value="Extracted Fields:&#xa;1. salience-justification (200 words)&#xa;2. salience-bool&#xa;3. category (Economic/Social/Diplomacy/Military)&#xa;4. category-justification&#xa;5. subcategory&#xa;6. initiating-country&#xa;7. recipient-country&#xa;8. project-name&#xa;9. LAT_LONG, location&#xa;10. monetary-commitment&#xa;11. distilled-text&#xa;12. event-name" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="420" y="495" width="300" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="extract-output" value="Output: JSON with all 12 fields" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="420" y="640" width="300" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CATEGORY 2: EVENT PROCESSING ==================== -->
+        <mxCell id="cat2-header" value="CATEGORY 2: EVENT CLUSTERING &amp; VALIDATION" style="text;html=1;strokeColor=none;fillColor=#f8cecc;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=14;fontStyle=1;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="780" y="320" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Cluster Deconfliction -->
+        <mxCell id="cluster-box" value="3. CLUSTER DECONFLICTION (Stage 1B)" style="swimlane;fontStyle=1;startSize=25;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="780" y="360" width="340" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster-script" value="Script: llm_deconflict_clusters.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="790" y="390" width="250" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster-purpose" value="Purpose: Validate DBSCAN clusters, create canonical events" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="800" y="410" width="300" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster-sys" value="System Prompt:&#xa;'Expert at tracking events across lifecycle&#xa;stages: Announcement → Preparation →&#xa;Execution → Continuation → Aftermath'&#xa;Group names referring to SAME event" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="800" y="440" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster-user" value="User Prompt:&#xa;• Numbered list of event names from cluster&#xa;• Chain-of-thought analysis steps&#xa;• Identify core events, match lifecycle stages" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="800" y="525" width="300" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster-output" value="Output: {&#xa;  &quot;reasoning&quot;: &quot;...&quot;,&#xa;  &quot;same_event&quot;: true/false,&#xa;  &quot;groups&quot;: [[1,2,3], [4,5]],&#xa;  &quot;stages_identified&quot;: [...],&#xa;  &quot;confidence&quot;: 0.95&#xa;}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;fontFamily=Courier New;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="800" y="595" width="300" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Canonical Deconfliction -->
+        <mxCell id="canonical-box" value="4. CANONICAL EVENT VALIDATION (Stage 2B)" style="swimlane;fontStyle=1;startSize=25;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="360" width="340" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="canonical-script" value="Script: llm_deconflict_canonical_events.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="1150" y="390" width="280" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="canonical-purpose" value="Purpose: Validate consolidated groups, pick best names" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="410" width="300" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="canonical-sys" value="System Prompt:&#xa;'Expert analyzing event names for grouping'&#xa;Determine if names refer to SAME event&#xa;Pick best canonical name&#xa;Identify if group should be split" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="440" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="canonical-user" value="User Prompt:&#xa;• Event names with article counts&#xa;• Days mentioned for each event&#xa;• Guidelines for same/different decisions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="525" width="300" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="canonical-output" value="Output: {&#xa;  &quot;same_event&quot;: true/false,&#xa;  &quot;best_canonical_name&quot;: &quot;...&quot;,&#xa;  &quot;reasoning&quot;: &quot;...&quot;,&#xa;  &quot;should_split&quot;: true/false,&#xa;  &quot;split_groups&quot;: [...]&#xa;}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;fontFamily=Courier New;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="595" width="300" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CATEGORY 3: MATERIALITY SCORING ==================== -->
+        <mxCell id="cat3-header" value="CATEGORY 3: MATERIALITY SCORING" style="text;html=1;strokeColor=none;fillColor=#e1d5e7;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=14;fontStyle=1;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="1520" y="320" width="400" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Materiality Scoring -->
+        <mxCell id="material-box" value="5. MATERIALITY SCORING" style="swimlane;fontStyle=1;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1520" y="360" width="400" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="material-script" value="Script: score_canonical_event_materiality.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="1530" y="390" width="280" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="material-purpose" value="Purpose: Score concrete vs. symbolic impact (1-10)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="410" width="360" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="material-scale" value="Scoring Scale:&#xa;&#xa;1-3: SYMBOLIC&#xa;     Speeches, cultural events, statements&#xa;     No material commitments&#xa;&#xa;4-6: MIXED&#xa;     MOUs with unclear implementation&#xa;     Modest commitments (&lt;$10M)&#xa;&#xa;7-10: SUBSTANTIVE&#xa;     Major infrastructure (&gt;$10M)&#xa;     Trade deals, military equipment&#xa;     Specific financial amounts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="440" width="360" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="material-output" value="Output: {&#xa;  &quot;material_score&quot;: 7.5,&#xa;  &quot;justification&quot;: &quot;...&quot;&#xa;}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="620" width="360" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CATEGORY 4: ENTITY EXTRACTION ==================== -->
+        <mxCell id="cat4-header" value="CATEGORY 4: ENTITY EXTRACTION" style="text;html=1;strokeColor=none;fillColor=#dae8fc;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=14;fontStyle=1;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="700" width="340" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Entity Extraction -->
+        <mxCell id="entity-box" value="6. ENTITY &amp; RELATIONSHIP EXTRACTION" style="swimlane;fontStyle=1;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="740" width="340" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="entity-script" value="Script: entity_extraction.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="50" y="770" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="entity-purpose" value="Purpose: Extract organizations, persons, relationships" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="60" y="790" width="300" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="entity-types" value="Entity Types:&#xa;PERSON, GOVERNMENT_AGENCY, COMPANY,&#xa;NGO, INTERNATIONAL_ORG, MILITARY&#xa;&#xa;Role Labels:&#xa;HEAD_OF_STATE, DIPLOMAT, FINANCIER,&#xa;MILITARY_OFFICIAL, BUSINESS_EXEC...&#xa;&#xa;Topic Labels:&#xa;INFRASTRUCTURE, ENERGY, FINANCE,&#xa;TRADE, MILITARY, CULTURAL..." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="60" y="820" width="300" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="entity-output" value="Output: { entities: [...], relationships: [...] }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="60" y="965" width="300" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CATEGORY 5: SUMMARY GENERATION ==================== -->
+        <mxCell id="cat5-header" value="CATEGORY 5: AP-STYLE SUMMARY GENERATION" style="text;html=1;strokeColor=none;fillColor=#d5e8d4;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=14;fontStyle=1;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="420" y="700" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Daily Summary -->
+        <mxCell id="daily-box" value="7. DAILY SUMMARIES" style="swimlane;fontStyle=1;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="740" width="220" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="daily-script" value="generate_daily_summaries.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="430" y="770" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="daily-rules" value="AP Style Rules:&#xa;• Report ONLY facts&#xa;• Attribute ALL info to sources&#xa;• Use past tense&#xa;• Be specific (numbers,&#xa;  dates, times)&#xa;• NO subjective language" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="430" y="790" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="daily-sections" value="Sections:&#xa;1. Overview (2-3 sentences)&#xa;   What, when, where, who&#xa;2. Outcomes (2-3 sentences)&#xa;   Results, statements, actions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="430" y="895" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="daily-output" value="{ overview, outcomes }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="430" y="980" width="200" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Weekly Summary -->
+        <mxCell id="weekly-box" value="8. WEEKLY SUMMARIES" style="swimlane;fontStyle=1;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="660" y="740" width="220" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="weekly-script" value="generate_weekly_summaries.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="670" y="770" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="weekly-input" value="Input:&#xa;Synthesizes daily summaries&#xa;into weekly narrative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="670" y="790" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="weekly-sections" value="Sections:&#xa;1. Overview&#xa;   What happened across week&#xa;2. Outcomes&#xa;   Cumulative results, patterns&#xa;3. Progression&#xa;   Day-by-day evolution&#xa;   Changes over time" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="670" y="845" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="weekly-output" value="{ overview, outcomes,&#xa;  progression }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="670" y="960" width="200" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Monthly Summary -->
+        <mxCell id="monthly-box" value="9. MONTHLY SUMMARIES" style="swimlane;fontStyle=1;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="900" y="740" width="220" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="monthly-script" value="generate_monthly_summaries.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="910" y="770" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="monthly-input" value="Input:&#xa;Synthesizes weekly summaries&#xa;into monthly narrative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="910" y="790" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="monthly-sections" value="Sections:&#xa;1. Monthly Overview&#xa;   Overall arc of events&#xa;2. Key Outcomes&#xa;   Cumulative results&#xa;3. Strategic Significance&#xa;   What officials/experts&#xa;   SAID (with attribution)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="910" y="845" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="monthly-output" value="{ monthly_overview,&#xa;  key_outcomes,&#xa;  strategic_significance }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="910" y="960" width="200" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== CATEGORY 6: BILATERAL ANALYSIS ==================== -->
+        <mxCell id="cat6-header" value="CATEGORY 6: BILATERAL &amp; RELATIONSHIP ANALYSIS" style="text;html=1;strokeColor=none;fillColor=#fff2cc;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=14;fontStyle=1;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="1160" y="700" width="460" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Bilateral Summary -->
+        <mxCell id="bilateral-box" value="10. BILATERAL RELATIONSHIP SUMMARIES" style="swimlane;fontStyle=1;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="740" width="460" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="bilateral-script" value="Script: generate_bilateral_summaries.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="1170" y="770" width="280" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="bilateral-purpose" value="Purpose: Comprehensive bilateral relationship analysis" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="790" width="420" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="bilateral-input" value="Inputs:&#xa;• Time period, total documents/events&#xa;• Category breakdown&#xa;• Temporal trends&#xa;• Sample recent event names" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="820" width="420" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="bilateral-output-box" value="Output Structure:&#xa;{&#xa;  &quot;overview&quot;: &quot;2-3 paragraph summary&quot;,&#xa;  &quot;key_themes&quot;: [&quot;Theme 1&quot;, &quot;Theme 2&quot;, ...],&#xa;  &quot;major_initiatives&quot;: [&#xa;    { name, description, timeframe, categories }&#xa;  ],&#xa;  &quot;trend_analysis&quot;: &quot;...&quot;,&#xa;  &quot;current_status&quot;: &quot;...&quot;,&#xa;  &quot;notable_developments&quot;: [...],&#xa;  &quot;material_assessment&quot;: {&#xa;    &quot;score&quot;: 0.75,&#xa;    &quot;justification&quot;: &quot;...&quot;&#xa;  }&#xa;}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;fontFamily=Courier New;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="895" width="420" height="175" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== SUMMARY HIERARCHY FLOW ==================== -->
+        <mxCell id="hierarchy-box" value="SUMMARY HIERARCHY FLOW" style="swimlane;fontStyle=1;startSize=25;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1640" y="740" width="300" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="hier-daily" value="Daily Summaries" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="780" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hier-weekly" value="Weekly Summaries" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="840" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hier-monthly" value="Monthly Summaries" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="900" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hier-yearly" value="Yearly Summaries" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="960" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hier-bilateral" value="Bilateral Summaries" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="1020" width="180" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Hierarchy arrows -->
+        <mxCell id="hier-arrow1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="hier-daily" target="hier-weekly">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hier-arrow2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="hier-weekly" target="hier-monthly">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hier-arrow3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="hier-monthly" target="hier-yearly">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== LEGEND ==================== -->
+        <mxCell id="legend-box" value="LEGEND" style="swimlane;fontStyle=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="100" width="200" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-sys" value="System Prompt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1980" y="135" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-user" value="User Prompt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1980" y="170" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-output" value="JSON Output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1980" y="205" width="80" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-purpose" value="Purpose" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1980" y="240" width="80" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- GAI Interactions Count -->
+        <mxCell id="count-box" value="GAI INTERACTION SUMMARY" style="swimlane;fontStyle=1;startSize=25;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="300" width="200" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="count-list" value="Total GAI Calls: 10+&#xa;&#xa;Document Processing: 2&#xa;Event Validation: 2&#xa;Materiality Scoring: 1&#xa;Entity Extraction: 1&#xa;Summary Generation: 4+&#xa;&#xa;Model: gpt-4o-mini&#xa;Backend: Azure OpenAI" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1970" y="330" width="180" height="160" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== MAIN FLOW ARROWS ==================== -->
+
+        <!-- Prompts to GAI -->
+        <mxCell id="flow1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;" edge="1" parent="1" source="prompts-box" target="gai-core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="prompts-summary" target="gai-core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
