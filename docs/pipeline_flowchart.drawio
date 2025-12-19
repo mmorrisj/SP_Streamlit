@@ -53,7 +53,7 @@
         <mxCell id="stage1-box" value="STAGE 1: AI ANALYSIS" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="640" y="80" width="300" height="180" as="geometry" />
         </mxCell>
-        <mxCell id="atom-extract" value="atom_extraction.py&#xa;GPT-4 Analysis: Extract salience,&#xa;categories, countries, projects,&#xa;locations, event names" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+        <mxCell id="atom-extract" value="atom_extraction.py&#xa;LLM Analysis (gpt-4o-mini): Extract salience,&#xa;categories, countries, projects,&#xa;locations, event names" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
           <mxGeometry x="660" y="120" width="260" height="70" as="geometry" />
         </mxCell>
         <mxCell id="phase0" value="phase0_event_analysis.py&#xa;Statistical analysis of raw events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
@@ -81,7 +81,7 @@
         <mxCell id="stage2b-box" value="STAGE 2B: LLM DECONFLICT CLUSTERS" style="swimlane;fontStyle=1;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="380" y="420" width="300" height="140" as="geometry" />
         </mxCell>
-        <mxCell id="llm-deconflict" value="llm_deconflict_clusters.py&#xa;GPT-4 validates clusters&#xa;Creates canonical_events (1/day)&#xa;Creates daily_event_mentions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+        <mxCell id="llm-deconflict" value="llm_deconflict_clusters.py&#xa;LLM validates clusters (gpt-4o-mini)&#xa;Creates canonical_events (1/day)&#xa;Creates daily_event_mentions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
           <mxGeometry x="400" y="460" width="260" height="80" as="geometry" />
         </mxCell>
 
@@ -105,7 +105,7 @@
         <mxCell id="stage3b-box" value="STAGE 3B: LLM VALIDATE CONSOLIDATION" style="swimlane;fontStyle=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="660" width="300" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="llm-validate" value="llm_deconflict_canonical_events.py&#xa;GPT-4 validates groups&#xa;Renames / Splits incorrect groups" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="llm-validate" value="llm_deconflict_canonical_events.py&#xa;LLM validates groups (gpt-4o-mini)&#xa;Renames / Splits incorrect groups" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="60" y="700" width="260" height="60" as="geometry" />
         </mxCell>
 
@@ -345,7 +345,7 @@
         </mxCell>
 
         <!-- Key Info Box -->
-        <mxCell id="key-info" value="KEY TECHNOLOGIES&#xa;&#xa;• GPT-4: LLM analysis &amp; validation&#xa;• DBSCAN: Event clustering&#xa;• Sentence-transformers: Embeddings&#xa;• PostgreSQL + pgvector: Storage&#xa;• Streamlit: Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;" vertex="1" parent="1">
+        <mxCell id="key-info" value="KEY TECHNOLOGIES&#xa;&#xa;• Azure OpenAI (gpt-4o-mini): LLM analysis&#xa;• DBSCAN: Event clustering&#xa;• Sentence-transformers: Embeddings&#xa;• PostgreSQL + pgvector: Storage&#xa;• Streamlit: Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="1080" y="300" width="200" height="140" as="geometry" />
         </mxCell>
 
