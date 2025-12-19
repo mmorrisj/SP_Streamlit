@@ -102,7 +102,7 @@ def check_doc_id_references(session):
         # Check each doc_id
         for doc_id in doc_ids:
             check = session.execute(text("""
-                SELECT COUNT(*) FROM softpower_documents WHERE id = :doc_id
+                SELECT COUNT(*) FROM documents WHERE doc_id = :doc_id
             """), {'doc_id': doc_id}).fetchone()[0]
 
             if check == 0:
@@ -201,7 +201,7 @@ def get_pipeline_statistics(session):
     print_section("5. OVERALL PIPELINE STATISTICS")
 
     # Documents
-    doc_count = session.execute(text('SELECT COUNT(*) FROM softpower_documents')).fetchone()[0]
+    doc_count = session.execute(text('SELECT COUNT(*) FROM documents')).fetchone()[0]
     print(f"📄 Documents: {doc_count:,}")
 
     # Event Clusters
@@ -340,10 +340,14 @@ def main():
                 print("  2. Review the event clustering and LLM deconfliction process")
                 print("  3. Ensure all scripts properly populate doc_ids when creating mentions")
                 print("  4. Consider backfilling missing doc_ids from event_clusters if possible")
+                print("\nTO INVESTIGATE THE ROOT CAUSE:")
+                print("  • Check llm_deconflict_clusters.py - does it copy doc_ids to daily_event_mentions?")
+                print("  • Check merge_canonical_events.py - does it preserve doc_ids during consolidation?")
+                print("  • Review any manual data imports or migrations")
             else:
                 print("✅ ALL DATA INTEGRITY CHECKS PASSED")
                 print("\nThe event pipeline has proper linkage:")
-                print("  Documents ← daily_event_mentions ← canonical_events")
+                print("  documents ← daily_event_mentions ← canonical_events")
 
     except Exception as e:
         print(f"\n❌ ERROR: {e}")

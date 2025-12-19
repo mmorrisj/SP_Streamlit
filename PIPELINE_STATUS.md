@@ -11,7 +11,7 @@
 ```
 Raw Documents (S3/Local)
     ↓ [ingestion/dsr.py, atom.py]
-softpower_documents table
+documents table
     ↓ [analysis/atom_extraction.py]
 AI-extracted metadata (categories, countries, events)
     ↓ [events/batch_cluster_events.py]
@@ -39,12 +39,12 @@ Streamlit visualization
 ### 1. Document Ingestion
 **Status:** ✅ **COMPLETE**
 
-- All documents ingested into `softpower_documents` table
+- All documents ingested into `documents` table
 - Documents stored in both PostgreSQL and S3
 - Metadata extracted and normalized
 
 **Tables:**
-- `softpower_documents` (base documents)
+- `documents` (base documents, pk: doc_id)
 - `categories`, `subcategories` (normalized relationships)
 - `initiating_countries`, `recipient_countries`
 - `raw_events` (document-level events)
@@ -143,11 +143,11 @@ Streamlit visualization
 
 **Expected Linkage:**
 ```
-softpower_documents (doc_id)
+documents (doc_id: Text)
     ↑ (referenced by)
-daily_event_mentions.doc_ids[]
+daily_event_mentions.doc_ids[] (ARRAY Text)
     ↑ (links to)
-canonical_events (via canonical_event_id)
+canonical_events (via canonical_event_id FK)
 ```
 
 **Schema from models.py:**
@@ -356,6 +356,9 @@ docker-compose up -d
 
 # Check database health
 python -c "from shared.database.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
+
+# Connect to database directly
+docker exec -it softpower_db psql -U matthew50 -d softpower-db
 ```
 
 ### Import errors during data migration:
