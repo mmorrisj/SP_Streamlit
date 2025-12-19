@@ -9,8 +9,8 @@
         <mxCell id="title" value="GAI (Generative AI) Prompt Interactions &amp; Flows" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" vertex="1" parent="1">
           <mxGeometry x="700" y="20" width="600" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="subtitle" value="Model: gpt-4o-mini via Azure OpenAI | Function: gai() in shared/utils/utils.py" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=2" vertex="1" parent="1">
-          <mxGeometry x="700" y="55" width="600" height="25" as="geometry" />
+        <mxCell id="subtitle" value="Models: gpt-4o-mini (primary), gpt-4o (fallback) | Backend: Azure OpenAI (System 2) / Proxy/Direct (System 1)&#xa;Function: gai() in shared/utils/utils.py" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="650" y="55" width="700" height="35" as="geometry" />
         </mxCell>
 
         <!-- ==================== GAI FUNCTION CORE ==================== -->
@@ -72,7 +72,7 @@
 
         <!-- Full Extraction -->
         <mxCell id="extract-box" value="2. FULL METADATA EXTRACTION" style="swimlane;fontStyle=1;startSize=25;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1">
-          <mxGeometry x="400" y="360" width="340" height="320" as="geometry" />
+          <mxGeometry x="400" y="360" width="340" height="340" as="geometry" />
         </mxCell>
         <mxCell id="extract-script" value="Script: atom_extraction.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
           <mxGeometry x="410" y="390" width="200" height="15" as="geometry" />
@@ -83,11 +83,11 @@
         <mxCell id="extract-sys" value="System Prompt (extraction_prompt):&#xa;'Expert in tracking soft power engagements'&#xa;11-step extraction process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
           <mxGeometry x="420" y="440" width="300" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="extract-fields" value="Extracted Fields:&#xa;1. salience-justification (200 words)&#xa;2. salience-bool&#xa;3. category (Economic/Social/Diplomacy/Military)&#xa;4. category-justification&#xa;5. subcategory&#xa;6. initiating-country&#xa;7. recipient-country&#xa;8. project-name&#xa;9. LAT_LONG, location&#xa;10. monetary-commitment&#xa;11. distilled-text&#xa;12. event-name" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
-          <mxGeometry x="420" y="495" width="300" height="140" as="geometry" />
+        <mxCell id="extract-fields" value="Extracted Fields (12 core + relationships):&#xa;1-2. Salience (justification + boolean)&#xa;3-5. Category classification&#xa;6-7. Countries (→ relationship tables)&#xa;8-11. Optional metadata (projects, locations, amounts)&#xa;12-13. Distilled text + event names&#xa;&#xa;Result: Updates documents table +&#xa;        Populates 6 relationship tables&#xa;        (categories, subcategories, initiating_countries,&#xa;         recipient_countries, raw_events, ...)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=8;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="420" y="495" width="300" height="150" as="geometry" />
         </mxCell>
-        <mxCell id="extract-output" value="Output: JSON with all 12 fields" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;" vertex="1" parent="1">
-          <mxGeometry x="420" y="640" width="300" height="25" as="geometry" />
+        <mxCell id="extract-output" value="Output: JSON with 12 core fields&#xa;+ Many-to-many relationship insertions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;fontFamily=Courier New;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="420" y="655" width="300" height="35" as="geometry" />
         </mxCell>
 
         <!-- ==================== CATEGORY 2: EVENT PROCESSING ==================== -->
@@ -141,20 +141,23 @@
         </mxCell>
 
         <!-- Materiality Scoring -->
-        <mxCell id="material-box" value="5. MATERIALITY SCORING" style="swimlane;fontStyle=1;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
-          <mxGeometry x="1520" y="360" width="400" height="320" as="geometry" />
+        <mxCell id="material-box" value="5. MATERIALITY SCORING (IN PROGRESS - 19.8% COMPLETE)" style="swimlane;fontStyle=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1520" y="360" width="400" height="360" as="geometry" />
         </mxCell>
         <mxCell id="material-script" value="Script: score_canonical_event_materiality.py" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontStyle=2" vertex="1" parent="1">
-          <mxGeometry x="1530" y="390" width="280" height="15" as="geometry" />
+          <mxGeometry x="1530" y="395" width="280" height="15" as="geometry" />
         </mxCell>
         <mxCell id="material-purpose" value="Purpose: Score concrete vs. symbolic impact (1-10)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
-          <mxGeometry x="1540" y="410" width="360" height="25" as="geometry" />
+          <mxGeometry x="1540" y="415" width="360" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="material-progress" value="Progress: 22,235 / 112,510 scored&#xa;China: 84.8% | Russia: 21.2% | Iran: 7.1%&#xa;Next: Iran on System 2 (Azure)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;fontStyle=2;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="445" width="360" height="45" as="geometry" />
         </mxCell>
         <mxCell id="material-scale" value="Scoring Scale:&#xa;&#xa;1-3: SYMBOLIC&#xa;     Speeches, cultural events, statements&#xa;     No material commitments&#xa;&#xa;4-6: MIXED&#xa;     MOUs with unclear implementation&#xa;     Modest commitments (&lt;$10M)&#xa;&#xa;7-10: SUBSTANTIVE&#xa;     Major infrastructure (&gt;$10M)&#xa;     Trade deals, military equipment&#xa;     Specific financial amounts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="1540" y="440" width="360" height="170" as="geometry" />
+          <mxGeometry x="1540" y="500" width="360" height="170" as="geometry" />
         </mxCell>
         <mxCell id="material-output" value="Output: {&#xa;  &quot;material_score&quot;: 7.5,&#xa;  &quot;justification&quot;: &quot;...&quot;&#xa;}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontFamily=Courier New;align=left;spacingLeft=5;" vertex="1" parent="1">
-          <mxGeometry x="1540" y="620" width="360" height="55" as="geometry" />
+          <mxGeometry x="1540" y="680" width="360" height="35" as="geometry" />
         </mxCell>
 
         <!-- ==================== CATEGORY 4: ENTITY EXTRACTION ==================== -->
@@ -307,10 +310,15 @@
 
         <!-- GAI Interactions Count -->
         <mxCell id="count-box" value="GAI INTERACTION SUMMARY" style="swimlane;fontStyle=1;startSize=25;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
-          <mxGeometry x="1960" y="300" width="200" height="200" as="geometry" />
+          <mxGeometry x="1960" y="300" width="220" height="220" as="geometry" />
         </mxCell>
-        <mxCell id="count-list" value="Total GAI Calls: 10+&#xa;&#xa;Document Processing: 2&#xa;Event Validation: 2&#xa;Materiality Scoring: 1&#xa;Entity Extraction: 1&#xa;Summary Generation: 4+&#xa;&#xa;Model: gpt-4o-mini&#xa;Backend: Azure OpenAI" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="1970" y="330" width="180" height="160" as="geometry" />
+        <mxCell id="count-list" value="Total GAI Calls: 10+&#xa;&#xa;Document Processing: 2&#xa;Event Validation: 2&#xa;Materiality Scoring: 1 (19.8% done)&#xa;Entity Extraction: 1 (87% done China)&#xa;Summary Generation: 4+&#xa;&#xa;Models:&#xa;• gpt-4o-mini (primary)&#xa;• gpt-4o (fallback on errors)&#xa;&#xa;Backend:&#xa;• System 1: Proxy/Direct OpenAI&#xa;• System 2: Azure OpenAI" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=9;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1970" y="330" width="200" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- Version Info -->
+        <mxCell id="version-info" value="Diagram Version: 2.0&#xa;Last Updated: 2025-12-19&#xa;Status: High-priority fixes applied" style="text;html=1;strokeColor=#666666;fillColor=#f5f5f5;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=9;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="540" width="220" height="40" as="geometry" />
         </mxCell>
 
         <!-- ==================== MAIN FLOW ARROWS ==================== -->
