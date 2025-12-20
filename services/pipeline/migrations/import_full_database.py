@@ -14,6 +14,12 @@ Usage:
     # Clear and import (WARNING: destructive!)
     python services/pipeline/migrations/import_full_database.py --input-dir ./full_export --clear-existing
 
+    # Import from S3
+    python services/pipeline/migrations/import_full_database.py --s3-bucket my-bucket --s3-prefix db-exports/20241120/
+
+    # Import from S3 with dry run
+    python services/pipeline/migrations/import_full_database.py --s3-bucket my-bucket --s3-prefix db-exports/20241120/ --dry-run
+
 Tables imported (in order):
     1. documents
     2. Normalized relationships
@@ -24,6 +30,7 @@ Tables imported (in order):
 import argparse
 import sys
 import json
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -37,6 +44,143 @@ sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
 from shared.database.database import get_engine, get_session
+
+# Optional S3 support
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
+# Try to import the API client for S3 operations
+try:
+    from services.pipeline.embeddings.s3 import _get_api_client, bucket_name as default_bucket
+    API_CLIENT_AVAILABLE = True
+except ImportError:
+    API_CLIENT_AVAILABLE = False
+    default_bucket = 'morris-sp-bucket'
+
+
+def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> List[Path]:
+    """Download parquet and JSON files from S3 to local directory.
+
+    Uses API client proxy if available, falls back to direct boto3.
+
+    Args:
+        bucket: S3 bucket name
+        prefix: S3 prefix (folder path)
+        local_dir: Local directory to download files to
+
+    Returns:
+        List of paths to downloaded files
+    """
+    print(f"\nDownloading from S3: s3://{bucket}/{prefix}")
+    local_dir.mkdir(parents=True, exist_ok=True)
+    downloaded_files = []
+
+    # Ensure prefix ends with /
+    if prefix and not prefix.endswith('/'):
+        prefix = prefix + '/'
+
+    # Try API client first
+    if API_CLIENT_AVAILABLE:
+        client = _get_api_client()
+        if client:
+            try:
+                # List parquet files via API
+                response = client.list_parquet_files(bucket=bucket, prefix=prefix)
+                files = response.get('files', [])
+
+                # Also try to get JSON files (manifest)
+                try:
+                    json_response = client.list_json_files(bucket=bucket, prefix=prefix)
+                    json_files = json_response.get('files', [])
+                    files.extend([{'key': f['key'], 'filename': f['filename']} for f in json_files])
+                except Exception:
+                    pass  # JSON listing might not be available
+
+                if not files:
+                    print(f"[WARNING] No files found at s3://{bucket}/{prefix}")
+                    return []
+
+                print(f"Found {len(files)} files to download (via API)")
+
+                for file_info in files:
+                    key = file_info['key']
+                    filename = file_info.get('filename', Path(key).name)
+
+                    if not filename.endswith('.parquet') and not filename.endswith('.json'):
+                        continue
+
+                    local_path = local_dir / filename
+
+                    try:
+                        if filename.endswith('.parquet'):
+                            # Download parquet as DataFrame then save locally
+                            df = client.download_parquet_as_dataframe(bucket=bucket, key=key)
+                            df.to_parquet(local_path, compression='zstd', index=False)
+                        else:
+                            # Download JSON
+                            response = client.download_json_file(bucket=bucket, key=key)
+                            with open(local_path, 'w') as f:
+                                json.dump(response.get('data', {}), f, indent=2)
+
+                        print(f"  [OK] Downloaded {filename} (via API)")
+                        downloaded_files.append(local_path)
+                    except Exception as e:
+                        print(f"  [ERROR] Failed to download {filename}: {e}")
+
+                return downloaded_files
+
+            except Exception as e:
+                print(f"API client failed, falling back to direct S3: {e}")
+
+    # Fallback to direct boto3 access
+    if not BOTO3_AVAILABLE:
+        print("[ERROR] Neither API client nor boto3 available for S3 access")
+        return []
+
+    print("Using direct boto3 access...")
+    s3 = boto3.client('s3')
+
+    # List all files with prefix using paginator for large directories
+    try:
+        paginator = s3.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+
+        all_objects = []
+        for page in pages:
+            if 'Contents' in page:
+                all_objects.extend(page['Contents'])
+
+    except ClientError as e:
+        print(f"[ERROR] Failed to list S3 objects: {e}")
+        return []
+
+    if not all_objects:
+        print(f"[ERROR] No files found at s3://{bucket}/{prefix}")
+        return []
+
+    print(f"Found {len(all_objects)} objects in S3")
+
+    for obj in all_objects:
+        key = obj['Key']
+        filename = Path(key).name
+
+        if not filename.endswith('.parquet') and not filename.endswith('.json'):
+            continue
+
+        local_path = local_dir / filename
+
+        try:
+            s3.download_file(bucket, key, str(local_path))
+            print(f"  [OK] Downloaded {filename} (direct)")
+            downloaded_files.append(local_path)
+        except ClientError as e:
+            print(f"  [ERROR] Failed to download {filename}: {e}")
+
+    return downloaded_files
 
 
 def safe_value(val, default=None):
@@ -499,21 +643,59 @@ def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Import full database from System 1 export')
-    parser.add_argument('--input-dir', type=str, required=True,
+    parser = argparse.ArgumentParser(
+        description='Import full database from System 1 export',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('--input-dir', type=str,
                        help='Input directory containing parquet files and manifest.json')
+    parser.add_argument('--s3-bucket', type=str,
+                       help='Download from S3 bucket (alternative to --input-dir)')
+    parser.add_argument('--s3-prefix', type=str, default='db-exports/',
+                       help='S3 prefix for files (default: db-exports/)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Test import without making changes')
     parser.add_argument('--clear-existing', action='store_true',
                        help='Clear existing data before import (WARNING: destructive!)')
+    parser.add_argument('--keep-temp', action='store_true',
+                       help='Keep temporary files after S3 import (for debugging)')
 
     args = parser.parse_args()
 
-    import_full_database(
-        input_dir=args.input_dir,
-        dry_run=args.dry_run,
-        clear_existing=args.clear_existing
-    )
+    # Validate arguments
+    if not args.input_dir and not args.s3_bucket:
+        parser.error("Must specify either --input-dir or --s3-bucket")
+
+    if args.input_dir and args.s3_bucket:
+        parser.error("Cannot specify both --input-dir and --s3-bucket")
+
+    # Handle S3 source
+    temp_dir = None
+    if args.s3_bucket:
+        temp_dir = Path('./temp_db_import')
+        downloaded = download_from_s3(args.s3_bucket, args.s3_prefix, temp_dir)
+
+        if not downloaded:
+            print("[ERROR] No files downloaded from S3. Aborting.")
+            return
+
+        input_dir = temp_dir
+    else:
+        input_dir = Path(args.input_dir)
+
+    try:
+        import_full_database(
+            input_dir=input_dir,
+            dry_run=args.dry_run,
+            clear_existing=args.clear_existing
+        )
+    finally:
+        # Clean up temp files if downloaded from S3
+        if temp_dir and temp_dir.exists() and not args.keep_temp:
+            print(f"\n[OK] Cleaning up temporary files from {temp_dir}")
+            shutil.rmtree(temp_dir)
+        elif temp_dir and args.keep_temp:
+            print(f"\n[INFO] Temporary files kept at {temp_dir}")
 
 
 if __name__ == "__main__":
