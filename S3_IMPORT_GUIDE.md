@@ -58,22 +58,22 @@ python services/pipeline/migrations/import_full_database.py --input-dir ./full_d
 ### Option 2: Import from S3 (NEW!)
 
 ```bash
-# Import from S3 bucket
-python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket your-bucket-name \
-    --s3-prefix full_db_export/
+# Import from default S3 location (morris-sp-bucket/full_db_export/)
+python services/pipeline/migrations/import_full_database.py
 
-# Dry run from S3
+# Import from custom S3 bucket
 python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket your-bucket-name \
-    --s3-prefix full_db_export/ \
-    --dry-run
+    --s3-bucket your-bucket-name
 
-# Clear and import from S3
+# Import from custom S3 prefix
 python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket your-bucket-name \
-    --s3-prefix full_db_export/ \
-    --clear-existing
+    --s3-prefix exports/custom_path/
+
+# Dry run from S3 (uses defaults)
+python services/pipeline/migrations/import_full_database.py --dry-run
+
+# Clear and import from S3 (uses defaults)
+python services/pipeline/migrations/import_full_database.py --clear-existing
 ```
 
 ---
@@ -143,13 +143,13 @@ python -c "from services.pipeline.embeddings.s3 import _get_api_client; print('S
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--input-dir` | Yes* | Local directory with parquet files |
-| `--s3-bucket` | Yes* | S3 bucket name |
+| `--input-dir` | No | Local directory with parquet files (overrides S3 defaults) |
+| `--s3-bucket` | No | S3 bucket name (default: `morris-sp-bucket`) |
 | `--s3-prefix` | No | S3 prefix/path (default: `full_db_export/`) |
 | `--dry-run` | No | Test import without changes |
 | `--clear-existing` | No | Clear tables before import (⚠️ destructive!) |
 
-*Either `--input-dir` OR `--s3-bucket` is required (mutually exclusive)
+**Note:** If no arguments provided, imports from `s3://morris-sp-bucket/full_db_export/` by default. Use `--input-dir` to import from local files instead.
 
 ---
 
@@ -182,33 +182,39 @@ python services/pipeline/migrations/export_full_database.py \
 
 ### Import Examples
 
-#### Example 4: Quick Local Import
+#### Example 4: Quick S3 Import (Uses Defaults)
+```bash
+# Imports from s3://morris-sp-bucket/full_db_export/
+python services/pipeline/migrations/import_full_database.py
+```
+
+#### Example 5: Local Import
 ```bash
 python services/pipeline/migrations/import_full_database.py --input-dir ./full_db_export
 ```
 
-#### Example 5: S3 Import from Specific Bucket
+#### Example 6: S3 Import from Custom Bucket
 ```bash
 python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket morris-sp-bucket \
-    --s3-prefix exports/system1/full_db_export/
+    --s3-bucket your-bucket-name
 ```
 
-#### Example 6: Test S3 Import (Dry Run)
+#### Example 7: S3 Import from Custom Prefix
 ```bash
 python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket morris-sp-bucket \
-    --s3-prefix full_db_export/ \
-    --dry-run
+    --s3-prefix exports/system1/20241222/
 ```
 
-#### Example 7: Fresh Import from S3 (Clear Existing)
+#### Example 8: Test S3 Import (Dry Run)
+```bash
+# Tests import from default S3 location without making changes
+python services/pipeline/migrations/import_full_database.py --dry-run
+```
+
+#### Example 9: Fresh Import from S3 (Clear Existing)
 ```bash
 # ⚠️ WARNING: This will delete all existing data!
-python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket morris-sp-bucket \
-    --s3-prefix full_db_export/ \
-    --clear-existing
+python services/pipeline/migrations/import_full_database.py --clear-existing
 ```
 
 ---
@@ -254,15 +260,18 @@ python services/pipeline/migrations/import_full_database.py \
    # Export locally and automatically upload to S3
    python services/pipeline/migrations/export_full_database.py \
        --output-dir ./full_db_export \
-       --s3-bucket your-bucket \
+       --s3-bucket morris-sp-bucket \
        --s3-prefix full_db_export/
    ```
 
 2. **On System 2 - Download and Import:**
    ```bash
-   # Download from S3 and import automatically
+   # Download from S3 and import automatically (uses defaults)
+   python services/pipeline/migrations/import_full_database.py
+
+   # Or explicitly specify (same as above)
    python services/pipeline/migrations/import_full_database.py \
-       --s3-bucket your-bucket \
+       --s3-bucket morris-sp-bucket \
        --s3-prefix full_db_export/
    ```
 

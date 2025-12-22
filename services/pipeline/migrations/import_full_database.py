@@ -731,10 +731,10 @@ def main():
     )
     parser.add_argument('--input-dir', type=str,
                        help='Input directory containing parquet files and manifest.json')
-    parser.add_argument('--s3-bucket', type=str,
-                       help='Download from S3 bucket (alternative to --input-dir)')
-    parser.add_argument('--s3-prefix', type=str, default='db-exports/',
-                       help='S3 prefix for files (default: db-exports/)')
+    parser.add_argument('--s3-bucket', type=str, default='morris-sp-bucket',
+                       help='Download from S3 bucket (default: morris-sp-bucket)')
+    parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
+                       help='S3 prefix for files (default: full_db_export/)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Test import without making changes')
     parser.add_argument('--clear-existing', action='store_true',
@@ -744,17 +744,19 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate arguments
-    if not args.input_dir and not args.s3_bucket:
-        parser.error("Must specify either --input-dir or --s3-bucket")
+    # Validate arguments - --input-dir takes priority if specified
+    if args.input_dir:
+        # Using local directory - ignore S3 settings even if they have defaults
+        input_source = 'local'
+    else:
+        # Using S3 (with defaults or user-specified values)
+        input_source = 's3'
 
-    if args.input_dir and args.s3_bucket:
-        parser.error("Cannot specify both --input-dir and --s3-bucket")
-
-    # Handle S3 source
+    # Handle source (S3 or local)
     temp_dir = None
-    if args.s3_bucket:
+    if input_source == 's3':
         temp_dir = Path('./temp_db_import')
+        print(f"\n[S3] Downloading from s3://{args.s3_bucket}/{args.s3_prefix}")
         downloaded = download_from_s3(args.s3_bucket, args.s3_prefix, temp_dir)
 
         if not downloaded:

@@ -222,16 +222,16 @@ with get_session() as session:
 # On System 2
 cd /path/to/SP_Streamlit
 
-# Dry run - downloads from S3 but makes no changes
-PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket morris-sp-bucket \
-    --s3-prefix full_db_export/ \
-    --dry-run
+# Dry run - downloads from S3 but makes no changes (uses default s3://morris-sp-bucket/full_db_export/)
+PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py --dry-run
 ```
 
 **Actual Import from S3**
 ```bash
-# Downloads from S3 and imports all data
+# Downloads from S3 and imports all data (uses default s3://morris-sp-bucket/full_db_export/)
+PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py
+
+# Or explicitly specify bucket/prefix (same as above)
 PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
     --s3-bucket morris-sp-bucket \
     --s3-prefix full_db_export/
@@ -239,11 +239,8 @@ PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full
 
 **Import from S3 with Clear (WARNING: Destroys Existing Data!)**
 ```bash
-# Clear all existing data and import fresh from S3
-PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
-    --s3-bucket morris-sp-bucket \
-    --s3-prefix full_db_export/ \
-    --clear-existing
+# Clear all existing data and import fresh from S3 (uses defaults)
+PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py --clear-existing
 
 # Will prompt: Type 'yes' to continue:
 ```
@@ -647,11 +644,19 @@ Both export and import scripts now support S3 for seamless cloud-based migration
 - **Auto Cleanup**: Temporary files deleted after import completes
 - **Same Validation**: Full manifest validation and row count verification
 - **Dry Run Support**: Test S3 import without making changes
+- **Smart Defaults**: Defaults to `s3://morris-sp-bucket/full_db_export/` for easy migration
 
 ### Requirements
 - FastAPI S3 proxy running (port 8000 by default)
 - `API_URL` environment variable set
 - S3 bucket with appropriate permissions
+
+### Default Values
+- **Import Bucket**: `morris-sp-bucket` (can override with `--s3-bucket`)
+- **Import Prefix**: `full_db_export/` (can override with `--s3-prefix`)
+- **Export Prefix**: `full_db_export/` (can override with `--s3-prefix`)
+
+**Simplest Import**: Just run `python services/pipeline/migrations/import_full_database.py` and it will automatically download from the default S3 location.
 
 See [S3_IMPORT_GUIDE.md](S3_IMPORT_GUIDE.md) for detailed documentation.
 
