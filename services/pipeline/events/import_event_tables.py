@@ -382,6 +382,13 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
                         source_names = prepare_text_array_field(row.get('source_names'))
                         doc_ids = prepare_text_array_field(row.get('doc_ids'))
 
+                        # Provide defaults for NOT NULL columns
+                        # source_names is NOT NULL in the schema, default to empty array
+                        if source_names is None:
+                            source_names = []
+                        # source_diversity_score has default=0.0 in schema
+                        source_diversity_score = float(row['source_diversity_score']) if safe_value(row.get('source_diversity_score')) else 0.0
+
                         # Use savepoint so one failed row doesn't abort the whole batch
                         with session.begin_nested():
                             session.execute(
@@ -404,11 +411,11 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
                                     'canonical_event_id': str(row['canonical_event_id']),
                                     'initiating_country': safe_value(row.get('initiating_country')),
                                     'mention_date': pd.to_datetime(row['mention_date']).date() if safe_value(row.get('mention_date')) else None,
-                                    'article_count': int(row['article_count']) if safe_value(row.get('article_count')) else None,
+                                    'article_count': int(row['article_count']) if safe_value(row.get('article_count')) else 0,
                                     'consolidated_headline': safe_value(row.get('consolidated_headline')),
                                     'daily_summary': safe_value(row.get('daily_summary')),
                                     'source_names': source_names,
-                                    'source_diversity_score': float(row['source_diversity_score']) if safe_value(row.get('source_diversity_score')) else None,
+                                    'source_diversity_score': source_diversity_score,
                                     'mention_context': safe_value(row.get('mention_context')),
                                     'news_intensity': safe_value(row.get('news_intensity')),
                                     'doc_ids': doc_ids
