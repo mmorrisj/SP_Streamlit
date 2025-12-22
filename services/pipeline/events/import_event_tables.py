@@ -512,6 +512,7 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                         initiating_country, first_observed_date, last_observed_date, status,
                                         created_at, updated_at, category_count, subcategory_count,
                                         recipient_count, source_count, total_documents_across_categories,
+                                        total_documents_across_subcategories,
                                         count_by_category, count_by_subcategory, count_by_recipient,
                                         count_by_source, narrative_summary, material_score, material_justification,
                                         is_deleted
@@ -520,6 +521,7 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                         :initiating_country, :first_observed_date, :last_observed_date, :status,
                                         :created_at, :updated_at, :category_count, :subcategory_count,
                                         :recipient_count, :source_count, :total_documents_across_categories,
+                                        :total_documents_across_subcategories,
                                         CAST(:count_by_category AS jsonb), CAST(:count_by_subcategory AS jsonb), CAST(:count_by_recipient AS jsonb),
                                         CAST(:count_by_source AS jsonb), CAST(:narrative_summary AS jsonb), :material_score, :material_justification,
                                         :is_deleted
@@ -543,6 +545,7 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                     'recipient_count': int(row['recipient_count']) if safe_value(row.get('recipient_count')) else 0,
                                     'source_count': int(row['source_count']) if safe_value(row.get('source_count')) else 0,
                                     'total_documents_across_categories': int(row['total_documents_across_categories']) if safe_value(row.get('total_documents_across_categories')) else 0,
+                                    'total_documents_across_subcategories': int(row['total_documents_across_subcategories']) if safe_value(row.get('total_documents_across_subcategories')) else 0,
                                     'count_by_category': count_by_category,
                                     'count_by_subcategory': count_by_subcategory,
                                     'count_by_recipient': count_by_recipient,
