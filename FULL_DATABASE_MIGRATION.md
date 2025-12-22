@@ -62,14 +62,25 @@ The export/import process preserves **ALL** linkages between tables:
 
 ## Step 1: Export from System 1
 
-### Quick Export (Recommended)
+### Quick Export (Local Only)
 ```bash
 # On System 1
 cd /c/Users/mmorr/Desktop/Apps/SP_Streamlit
 
-# Export everything
+# Export everything to local directory
 PYTHONPATH=/c/Users/mmorr/Desktop/Apps/SP_Streamlit python services/pipeline/migrations/export_full_database.py \
     --output-dir ./full_db_export
+```
+
+### Export with S3 Upload (Recommended for System 2 Migration)
+```bash
+# Export locally AND automatically upload to S3
+PYTHONPATH=/c/Users/mmorr/Desktop/Apps/SP_Streamlit python services/pipeline/migrations/export_full_database.py \
+    --output-dir ./full_db_export \
+    --s3-bucket morris-sp-bucket \
+    --s3-prefix full_db_export/
+
+# System 2 can then import directly from S3 (see Step 4)
 ```
 
 ### Docker Export
@@ -77,6 +88,12 @@ PYTHONPATH=/c/Users/mmorr/Desktop/Apps/SP_Streamlit python services/pipeline/mig
 # If running in Docker
 docker exec -it api-service python services/pipeline/migrations/export_full_database.py \
     --output-dir /app/full_db_export
+
+# Or with S3 upload
+docker exec -it api-service python services/pipeline/migrations/export_full_database.py \
+    --output-dir /app/full_db_export \
+    --s3-bucket morris-sp-bucket \
+    --s3-prefix full_db_export/
 ```
 
 ### Export Options
@@ -84,6 +101,13 @@ docker exec -it api-service python services/pipeline/migrations/export_full_data
 # Skip optional tables (bilateral summaries)
 python services/pipeline/migrations/export_full_database.py \
     --output-dir ./full_db_export \
+    --skip-optional
+
+# With S3 upload and custom prefix
+python services/pipeline/migrations/export_full_database.py \
+    --output-dir ./full_db_export \
+    --s3-bucket morris-sp-bucket \
+    --s3-prefix exports/system1/$(date +%Y%m%d)/ \
     --skip-optional
 ```
 
@@ -122,13 +146,19 @@ Manifest: ./full_db_export/manifest.json
 
 ## Step 2: Transfer Files to System 2
 
-### Option A: Direct Copy (if same network)
+### Option A: S3 (Recommended - Automatic)
+```bash
+# If you used --s3-bucket during export, files are already in S3!
+# System 2 can import directly - NO transfer needed (see Step 4)
+```
+
+### Option B: Direct Copy (if same network)
 ```bash
 # Copy entire directory to System 2
 scp -r ./full_db_export user@system2:/path/to/SP_Streamlit/
 ```
 
-### Option B: USB Drive
+### Option C: USB Drive
 ```bash
 # Copy to USB
 cp -r ./full_db_export /media/usb/
@@ -137,13 +167,12 @@ cp -r ./full_db_export /media/usb/
 cp -r /media/usb/full_db_export /path/to/SP_Streamlit/
 ```
 
-### Option C: Cloud Storage
+### Option D: Manual S3 Upload (if not done during export)
 ```bash
-# Upload to S3 (optional - requires AWS CLI)
-aws s3 sync ./full_db_export s3://your-bucket/migrations/system1_export_20241218/
+# Upload to S3 manually using AWS CLI
+aws s3 sync ./full_db_export s3://your-bucket/full_db_export/
 
-# Download on System 2
-aws s3 sync s3://your-bucket/migrations/system1_export_20241218/ ./full_db_export
+# System 2 can then import directly from S3 (see Step 4)
 ```
 
 ---
@@ -186,25 +215,57 @@ with get_session() as session:
 
 ## Step 4: Import on System 2
 
-### Test Import (Dry Run - Recommended First!)
+### Option A: Import from S3 (Recommended)
+
+**Test Import (Dry Run - Recommended First!)**
 ```bash
 # On System 2
 cd /path/to/SP_Streamlit
 
+# Dry run - downloads from S3 but makes no changes
+PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
+    --s3-bucket morris-sp-bucket \
+    --s3-prefix full_db_export/ \
+    --dry-run
+```
+
+**Actual Import from S3**
+```bash
+# Downloads from S3 and imports all data
+PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
+    --s3-bucket morris-sp-bucket \
+    --s3-prefix full_db_export/
+```
+
+**Import from S3 with Clear (WARNING: Destroys Existing Data!)**
+```bash
+# Clear all existing data and import fresh from S3
+PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
+    --s3-bucket morris-sp-bucket \
+    --s3-prefix full_db_export/ \
+    --clear-existing
+
+# Will prompt: Type 'yes' to continue:
+```
+
+### Option B: Import from Local Directory
+
+**Test Import (Dry Run)**
+```bash
 # Dry run - no changes made
 PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
     --input-dir ./full_db_export \
     --dry-run
 ```
 
-### Actual Import
+**Actual Import**
 ```bash
-# Import all data
+# Import all data from local directory
 PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
     --input-dir ./full_db_export
 ```
 
-### Import with Clear (WARNING: Destroys Existing Data!)
+**Import with Clear (WARNING: Destroys Existing Data!)**
 ```bash
 # Clear all existing data and import fresh
 PYTHONPATH=/path/to/SP_Streamlit python services/pipeline/migrations/import_full_database.py \
@@ -568,6 +629,31 @@ for table in manifest['tables']:
 5. **Monitor Both Systems**
    - System 1: OpenAI proxy
    - System 2: Azure OpenAI
+
+---
+
+## S3 Support Details
+
+Both export and import scripts now support S3 for seamless cloud-based migration:
+
+### Export S3 Features
+- **Automatic Upload**: Export locally and upload to S3 in one command
+- **Local Backup**: Export files remain on local disk after S3 upload
+- **Progress Tracking**: Shows upload progress every 10 files
+- **Custom Paths**: Support for dated or custom S3 prefixes
+
+### Import S3 Features
+- **Automatic Download**: Downloads from S3 to temporary directory
+- **Auto Cleanup**: Temporary files deleted after import completes
+- **Same Validation**: Full manifest validation and row count verification
+- **Dry Run Support**: Test S3 import without making changes
+
+### Requirements
+- FastAPI S3 proxy running (port 8000 by default)
+- `API_URL` environment variable set
+- S3 bucket with appropriate permissions
+
+See [S3_IMPORT_GUIDE.md](S3_IMPORT_GUIDE.md) for detailed documentation.
 
 ---
 

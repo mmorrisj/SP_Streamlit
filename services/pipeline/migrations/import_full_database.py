@@ -5,11 +5,14 @@ Imports ALL tables from System 1 export to System 2 in the correct dependency or
 This replicates the exact database state from System 1.
 
 Usage:
+    # Import from local directory
+    python services/pipeline/migrations/import_full_database.py --input-dir ./full_export
+
+    # Import from S3
+    python services/pipeline/migrations/import_full_database.py --s3-bucket my-bucket --s3-prefix full_db_export/
+
     # Test import (dry run)
     python services/pipeline/migrations/import_full_database.py --input-dir ./full_export --dry-run
-
-    # Actual import
-    python services/pipeline/migrations/import_full_database.py --input-dir ./full_export
 
     # Clear and import (WARNING: destructive!)
     python services/pipeline/migrations/import_full_database.py --input-dir ./full_export --clear-existing
@@ -37,6 +40,14 @@ sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
 from shared.database.database import get_engine, get_session
+
+# S3 support (optional)
+try:
+    from services.pipeline.embeddings.s3 import _get_api_client
+    S3_AVAILABLE = True
+except ImportError:
+    S3_AVAILABLE = False
+    _get_api_client = None
 
 
 def safe_value(val, default=None):
@@ -136,6 +147,85 @@ def prepare_float_array_field(val):
         return None
 
     return [float(item) for item in val]
+
+
+def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> bool:
+    """Download all files from S3 to local directory.
+
+    Args:
+        bucket: S3 bucket name
+        prefix: S3 prefix (directory path)
+        local_dir: Local directory to download to
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not S3_AVAILABLE or not _get_api_client:
+        print("[ERROR] S3 support not available. Install required dependencies or use --input-dir.")
+        return False
+
+    print(f"\n[S3] Downloading from s3://{bucket}/{prefix}")
+    local_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        client = _get_api_client()
+        if not client:
+            print("[ERROR] Could not connect to S3 API client")
+            return False
+
+        # List all files in the prefix
+        response = client.list_parquet_files(bucket=bucket, prefix=prefix)
+        files = response.get('files', [])
+
+        # Also get JSON files (manifest)
+        try:
+            json_response = client.list_json_files(bucket=bucket, prefix=prefix)
+            json_files = json_response.get('files', [])
+            files.extend([{'key': f['key'], 'filename': f['filename']} for f in json_files])
+        except Exception:
+            pass  # JSON listing might not be available
+
+        if not files:
+            print(f"[WARNING] No files found at s3://{bucket}/{prefix}")
+            return False
+
+        print(f"[S3] Found {len(files)} files to download")
+
+        # Download each file
+        downloaded_count = 0
+        for file_info in files:
+            key = file_info['key']
+            filename = file_info.get('filename', Path(key).name)
+
+            if not filename.endswith('.parquet') and not filename.endswith('.json'):
+                continue
+
+            local_path = local_dir / filename
+
+            try:
+                if filename.endswith('.parquet'):
+                    # Download parquet as DataFrame then save locally
+                    df = client.download_parquet_as_dataframe(bucket=bucket, key=key)
+                    df.to_parquet(local_path, compression='zstd', index=False)
+                else:
+                    # Download JSON (manifest)
+                    response = client.download_json_file(bucket=bucket, key=key)
+                    with open(local_path, 'w') as f:
+                        json.dump(response.get('data', {}), f, indent=2)
+
+                downloaded_count += 1
+                if downloaded_count % 10 == 0:
+                    print(f"  [S3] Downloaded {downloaded_count}/{len(files)} files...")
+            except Exception as e:
+                print(f"  [ERROR] Failed to download {filename}: {e}")
+                return False
+
+        print(f"[S3] Successfully downloaded {downloaded_count} files to {local_dir}")
+        return True
+
+    except Exception as e:
+        print(f"[ERROR] S3 download failed: {e}")
+        return False
 
 
 def clear_table(session, table_name: str):
@@ -500,8 +590,19 @@ def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing:
 
 def main():
     parser = argparse.ArgumentParser(description='Import full database from System 1 export')
-    parser.add_argument('--input-dir', type=str, required=True,
-                       help='Input directory containing parquet files and manifest.json')
+
+    # Input source (local or S3)
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument('--input-dir', type=str,
+                             help='Local directory containing parquet files and manifest.json')
+    source_group.add_argument('--s3-bucket', type=str,
+                             help='S3 bucket containing export files')
+
+    # S3 options
+    parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
+                       help='S3 prefix (directory path) for export files (default: full_db_export/)')
+
+    # Import options
     parser.add_argument('--dry-run', action='store_true',
                        help='Test import without making changes')
     parser.add_argument('--clear-existing', action='store_true',
@@ -509,11 +610,45 @@ def main():
 
     args = parser.parse_args()
 
-    import_full_database(
-        input_dir=args.input_dir,
-        dry_run=args.dry_run,
-        clear_existing=args.clear_existing
-    )
+    # Determine input directory
+    input_dir = args.input_dir
+    temp_dir = None
+
+    # If using S3, download to temporary directory first
+    if args.s3_bucket:
+        if not S3_AVAILABLE:
+            print("[ERROR] S3 support not available. Install required dependencies or use --input-dir.")
+            sys.exit(1)
+
+        import tempfile
+        temp_dir = Path(tempfile.mkdtemp(prefix='full_db_import_'))
+        print(f"[S3] Using temporary directory: {temp_dir}")
+
+        success = download_from_s3(
+            bucket=args.s3_bucket,
+            prefix=args.s3_prefix,
+            local_dir=temp_dir
+        )
+
+        if not success:
+            print("[ERROR] Failed to download from S3")
+            sys.exit(1)
+
+        input_dir = str(temp_dir)
+
+    try:
+        # Perform the import
+        import_full_database(
+            input_dir=input_dir,
+            dry_run=args.dry_run,
+            clear_existing=args.clear_existing
+        )
+    finally:
+        # Clean up temporary directory if created
+        if temp_dir and temp_dir.exists():
+            import shutil
+            print(f"\n[S3] Cleaning up temporary directory: {temp_dir}")
+            shutil.rmtree(temp_dir)
 
 
 if __name__ == "__main__":
