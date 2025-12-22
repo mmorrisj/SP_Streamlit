@@ -62,7 +62,11 @@ try:
     API_CLIENT_AVAILABLE = True
 except ImportError:
     API_CLIENT_AVAILABLE = False
+    _get_api_client = None
     default_bucket = 'morris-sp-bucket'
+
+# S3 support is available if we have the API client
+S3_AVAILABLE = API_CLIENT_AVAILABLE
 
 
 def download_from_s3(bucket: str, prefix: str, local_dir: Path) -> List[Path]:
