@@ -8,11 +8,12 @@ Usage:
     # Export to local directory
     python services/pipeline/migrations/export_full_database.py --output-dir ./full_export
 
-    # Export to local directory and upload to S3
-    python services/pipeline/migrations/export_full_database.py \
-        --output-dir ./full_export \
-        --s3-bucket my-bucket \
-        --s3-prefix full_db_export/
+    # Export and upload to S3
+    python services/pipeline/migrations/export_full_database.py --output-dir ./full_export \
+        --s3-bucket my-bucket --s3-prefix db-exports/20241120/
+
+    # Export with custom batch size
+    python services/pipeline/migrations/export_full_database.py --output-dir ./full_export --batch-size 5000
 
 Tables exported (in order):
     1. documents (base table - 496,783 rows)
@@ -42,13 +43,13 @@ sys.path.insert(0, str(project_root))
 from sqlalchemy import text
 from shared.database.database import get_engine, get_session
 
-# S3 support (optional)
+# Optional S3 support
 try:
-    from services.pipeline.embeddings.s3 import _get_api_client
-    S3_AVAILABLE = True
+    import boto3
+    from botocore.exceptions import ClientError
+    BOTO3_AVAILABLE = True
 except ImportError:
-    S3_AVAILABLE = False
-    _get_api_client = None
+    BOTO3_AVAILABLE = False
 
 # Table export order (respects foreign key dependencies)
 EXPORT_ORDER = [
@@ -387,92 +388,78 @@ def export_all_tables(output_dir: Path, include_optional: bool = True):
         print(f"{table['table']:<40} {table['total_rows']:>14,} {len(table['files']):>9} {table['status']:<10}")
 
 
-def upload_to_s3(local_dir: Path, bucket: str, prefix: str) -> bool:
-    """Upload all export files to S3.
+def upload_to_s3(output_dir: Path, bucket: str, prefix: str) -> List[str]:
+    """Upload exported files to S3.
 
     Args:
-        local_dir: Local directory containing export files
+        output_dir: Local directory containing exported files
         bucket: S3 bucket name
-        prefix: S3 prefix (directory path)
+        prefix: S3 prefix (folder path)
 
     Returns:
-        True if successful, False otherwise
+        List of uploaded S3 keys
     """
-    if not S3_AVAILABLE or not _get_api_client:
-        print("\n[ERROR] S3 support not available. Install required dependencies.")
-        return False
+    if not BOTO3_AVAILABLE:
+        print("[ERROR] boto3 not available for S3 upload")
+        return []
 
     print(f"\n{'='*80}")
     print("UPLOADING TO S3")
-    print(f"{'='*80}")
-    print(f"Source: {local_dir}")
+    print("="*80)
     print(f"Destination: s3://{bucket}/{prefix}")
 
-    try:
-        client = _get_api_client()
-        if not client:
-            print("[ERROR] Could not connect to S3 API client")
-            return False
+    # Ensure prefix ends with /
+    if prefix and not prefix.endswith('/'):
+        prefix = prefix + '/'
 
-        # Get all files to upload (parquet + manifest)
-        files_to_upload = list(local_dir.glob('*.parquet')) + list(local_dir.glob('*.json'))
+    s3 = boto3.client('s3')
+    uploaded_keys = []
 
-        if not files_to_upload:
-            print("[WARNING] No files found to upload")
-            return False
+    # Get all parquet and json files
+    files_to_upload = list(output_dir.glob('*.parquet')) + list(output_dir.glob('*.json'))
 
-        print(f"\n[S3] Found {len(files_to_upload)} files to upload")
+    print(f"Found {len(files_to_upload)} files to upload")
 
-        # Upload each file
-        uploaded_count = 0
-        for file_path in files_to_upload:
-            key = f"{prefix.rstrip('/')}/{file_path.name}"
+    for local_file in files_to_upload:
+        s3_key = f"{prefix}{local_file.name}"
 
-            try:
-                # Read file as binary
-                with open(file_path, 'rb') as f:
-                    file_data = f.read()
+        try:
+            file_size_mb = local_file.stat().st_size / 1024 / 1024
+            print(f"  Uploading {local_file.name} ({file_size_mb:.2f} MB)...", end=" ")
 
-                # Upload via API client
-                response = client.upload_file(
-                    bucket=bucket,
-                    key=key,
-                    file_data=file_data,
-                    content_type='application/octet-stream'
-                )
+            s3.upload_file(
+                str(local_file),
+                bucket,
+                s3_key
+            )
 
-                uploaded_count += 1
-                if uploaded_count % 10 == 0:
-                    print(f"  [S3] Uploaded {uploaded_count}/{len(files_to_upload)} files...")
+            print(f"[OK]")
+            uploaded_keys.append(s3_key)
 
-            except Exception as e:
-                print(f"  [ERROR] Failed to upload {file_path.name}: {e}")
-                return False
+        except ClientError as e:
+            print(f"[ERROR] {e}")
 
-        print(f"\n[S3] Successfully uploaded {uploaded_count} files to s3://{bucket}/{prefix}")
-        return True
-
-    except Exception as e:
-        print(f"\n[ERROR] S3 upload failed: {e}")
-        return False
+    print(f"\n[OK] Uploaded {len(uploaded_keys)} files to s3://{bucket}/{prefix}")
+    return uploaded_keys
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Export full database for System 2 migration')
+    parser = argparse.ArgumentParser(
+        description='Export full database for System 2 migration',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument('--output-dir', type=str, required=True,
                        help='Output directory for parquet files')
     parser.add_argument('--skip-optional', action='store_true',
                        help='Skip optional tables (bilateral summaries, etc.)')
-
-    # S3 upload options (optional)
     parser.add_argument('--s3-bucket', type=str,
-                       help='S3 bucket to upload export files (optional)')
-    parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
-                       help='S3 prefix/path for upload (default: full_db_export/)')
+                       help='Upload to S3 bucket after export (optional)')
+    parser.add_argument('--s3-prefix', type=str, default='db-exports/',
+                       help='S3 prefix for uploaded files (default: db-exports/)')
 
     args = parser.parse_args()
 
-    # Export to local directory
+    # Run export
     export_all_tables(
         output_dir=args.output_dir,
         include_optional=not args.skip_optional
@@ -480,20 +467,21 @@ def main():
 
     # Upload to S3 if requested
     if args.s3_bucket:
-        success = upload_to_s3(
-            local_dir=Path(args.output_dir),
+        if not BOTO3_AVAILABLE:
+            print("\n[ERROR] Cannot upload to S3: boto3 not installed")
+            print("Install with: pip install boto3")
+            return
+
+        uploaded = upload_to_s3(
+            output_dir=Path(args.output_dir),
             bucket=args.s3_bucket,
             prefix=args.s3_prefix
         )
 
-        if success:
-            print(f"\n✅ Export and S3 upload completed successfully!")
-        else:
-            print(f"\n⚠️ Export completed, but S3 upload failed")
-            sys.exit(1)
-    else:
-        print(f"\n✅ Export completed successfully!")
-        print(f"    To upload to S3, re-run with --s3-bucket option")
+        if uploaded:
+            print(f"\nTo restore from S3, use:")
+            print(f"  python services/pipeline/migrations/import_full_database.py \\")
+            print(f"      --s3-bucket {args.s3_bucket} --s3-prefix {args.s3_prefix}")
 
 
 if __name__ == "__main__":
