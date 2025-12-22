@@ -516,8 +516,8 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                         count_by_source, narrative_summary, material_score, material_justification,
                                         is_deleted
                                     ) VALUES (
-                                        :id, CAST(:period_type AS event_period_type), :period_start, :period_end, :event_name,
-                                        :initiating_country, :first_observed_date, :last_observed_date, CAST(:status AS event_status),
+                                        :id, :period_type, :period_start, :period_end, :event_name,
+                                        :initiating_country, :first_observed_date, :last_observed_date, :status,
                                         :created_at, :updated_at, :category_count, :subcategory_count,
                                         :recipient_count, :source_count, :total_documents_across_categories,
                                         CAST(:count_by_category AS jsonb), CAST(:count_by_subcategory AS jsonb), CAST(:count_by_recipient AS jsonb),
