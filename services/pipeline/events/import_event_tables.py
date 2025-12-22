@@ -270,6 +270,12 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
                         doc_ids = prepare_text_array_field(row.get('doc_ids'))
                         refined_clusters = prepare_jsonb_field(row.get('refined_clusters'))
 
+                        # Provide defaults for NOT NULL array columns
+                        if event_names is None:
+                            event_names = []
+                        if doc_ids is None:
+                            doc_ids = []
+
                         # Use savepoint so one failed row doesn't abort the whole batch
                         with session.begin_nested():
                             # Insert - event_names/doc_ids are text[], refined_clusters is jsonb
@@ -288,7 +294,7 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
                                 """),
                                 {
                                     'id': str(row['id']),
-                                    'initiating_country': safe_value(row.get('initiating_country')),
+                                    'initiating_country': safe_value(row.get('initiating_country'), ''),
                                     'cluster_date': pd.to_datetime(row['cluster_date']).date() if safe_value(row.get('cluster_date')) else None,
                                     'batch_number': int(row['batch_number']) if safe_value(row.get('batch_number')) else 0,
                                     'cluster_id': int(row['cluster_id']) if safe_value(row.get('cluster_id')) else 0,
@@ -512,7 +518,8 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                         initiating_country, first_observed_date, last_observed_date, status,
                                         created_at, updated_at, category_count, subcategory_count,
                                         recipient_count, source_count, total_documents_across_categories,
-                                        total_documents_across_subcategories,
+                                        total_documents_across_subcategories, total_documents_across_recipients,
+                                        total_documents_across_sources,
                                         count_by_category, count_by_subcategory, count_by_recipient,
                                         count_by_source, narrative_summary, material_score, material_justification,
                                         is_deleted
@@ -521,7 +528,8 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                         :initiating_country, :first_observed_date, :last_observed_date, :status,
                                         :created_at, :updated_at, :category_count, :subcategory_count,
                                         :recipient_count, :source_count, :total_documents_across_categories,
-                                        :total_documents_across_subcategories,
+                                        :total_documents_across_subcategories, :total_documents_across_recipients,
+                                        :total_documents_across_sources,
                                         CAST(:count_by_category AS jsonb), CAST(:count_by_subcategory AS jsonb), CAST(:count_by_recipient AS jsonb),
                                         CAST(:count_by_source AS jsonb), CAST(:narrative_summary AS jsonb), :material_score, :material_justification,
                                         :is_deleted
@@ -546,6 +554,8 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
                                     'source_count': int(row['source_count']) if safe_value(row.get('source_count')) else 0,
                                     'total_documents_across_categories': int(row['total_documents_across_categories']) if safe_value(row.get('total_documents_across_categories')) else 0,
                                     'total_documents_across_subcategories': int(row['total_documents_across_subcategories']) if safe_value(row.get('total_documents_across_subcategories')) else 0,
+                                    'total_documents_across_recipients': int(row['total_documents_across_recipients']) if safe_value(row.get('total_documents_across_recipients')) else 0,
+                                    'total_documents_across_sources': int(row['total_documents_across_sources']) if safe_value(row.get('total_documents_across_sources')) else 0,
                                     'count_by_category': count_by_category,
                                     'count_by_subcategory': count_by_subcategory,
                                     'count_by_recipient': count_by_recipient,
