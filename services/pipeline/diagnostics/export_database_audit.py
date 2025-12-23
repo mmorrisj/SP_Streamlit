@@ -115,14 +115,24 @@ def export_audit(output_file: Path):
     output.append("1. TABLE OVERVIEW")
     output.append("=" * 80)
 
-    tables_df = run_query("""
-        SELECT
-            relname as table_name,
-            n_live_tup as row_count
-        FROM pg_stat_user_tables
+    # Get list of all tables
+    table_names = run_query("""
+        SELECT tablename as table_name
+        FROM pg_tables
         WHERE schemaname = 'public'
-        ORDER BY n_live_tup DESC
-    """)
+        ORDER BY tablename
+    """)['table_name'].tolist()
+
+    # Count rows in each table (actual counts, not estimates)
+    table_counts = []
+    for table in table_names:
+        try:
+            count = run_scalar(f"SELECT COUNT(*) FROM {table}")
+            table_counts.append({'table_name': table, 'row_count': count})
+        except Exception as e:
+            table_counts.append({'table_name': table, 'row_count': 0})
+
+    tables_df = pd.DataFrame(table_counts).sort_values('row_count', ascending=False)
 
     output.append(f"\nTotal tables: {len(tables_df)}")
     output.append(f"Total rows: {tables_df['row_count'].sum():,}")
