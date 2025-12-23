@@ -331,6 +331,8 @@ def import_event_clusters(input_files: List[Path], dry_run: bool = False):
     print(f"Inserted: {inserted_rows:,}")
     print(f"Errors: {error_rows:,}")
 
+    return inserted_rows
+
 
 def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
     """Import daily_event_mentions table."""
@@ -448,6 +450,8 @@ def import_daily_event_mentions(input_files: List[Path], dry_run: bool = False):
     print(f"Total mentions: {total_rows:,}")
     print(f"Inserted: {inserted_rows:,}")
     print(f"Errors: {error_rows:,}")
+
+    return inserted_rows
 
 
 def import_event_summaries(input_files: List[Path], dry_run: bool = False):
@@ -587,6 +591,8 @@ def import_event_summaries(input_files: List[Path], dry_run: bool = False):
     print(f"Total summaries: {total_rows:,}")
     print(f"Inserted: {inserted_rows:,}")
     print(f"Errors: {error_rows:,}")
+
+    return inserted_rows
 
 
 def main():

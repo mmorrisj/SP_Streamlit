@@ -454,8 +454,8 @@ def main():
                        help='Skip optional tables (bilateral summaries, etc.)')
     parser.add_argument('--s3-bucket', type=str,
                        help='Upload to S3 bucket after export (optional)')
-    parser.add_argument('--s3-prefix', type=str, default='db-exports/',
-                       help='S3 prefix for uploaded files (default: db-exports/)')
+    parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
+                       help='S3 prefix for uploaded files (default: full_db_export/)')
 
     args = parser.parse_args()
 
