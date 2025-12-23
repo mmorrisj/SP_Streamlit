@@ -647,8 +647,15 @@ def import_canonical_events(files: List[Path], session, dry_run: bool = False) -
     return total_imported
 
 
-def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing: bool = False):
-    """Import full database from export directory."""
+def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing: bool = False, tables: Optional[List[str]] = None):
+    """Import full database from export directory.
+
+    Args:
+        input_dir: Directory containing exported parquet files and manifest.json
+        dry_run: If True, don't make any database changes
+        clear_existing: If True, clear existing data before import (WARNING: destructive!)
+        tables: If specified, only import these specific tables
+    """
     input_dir = Path(input_dir)
 
     # Load manifest
@@ -661,19 +668,32 @@ def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing:
         manifest = json.load(f)
 
     print("\n" + "="*80)
-    print("FULL DATABASE IMPORT")
+    print("DATABASE IMPORT")
     print("="*80)
     print(f"\nInput directory: {input_dir}")
     print(f"Export timestamp: {manifest['export_timestamp']}")
-    print(f"Total tables: {len(manifest['tables'])}")
-    print(f"Total rows: {manifest['total_rows']:,}")
-    print(f"Total size: {manifest['total_size_mb']:.2f} MB")
+
+    # Filter tables if specific tables requested
+    import_tables = manifest['tables']
+    if tables:
+        import_tables = [t for t in manifest['tables'] if t['table'] in tables]
+        if len(import_tables) == 0:
+            print(f"\n[ERROR] No matching tables found in manifest. Available tables:")
+            for t in manifest['tables']:
+                print(f"  - {t['table']}")
+            return
+        print(f"Target tables: {', '.join([t['table'] for t in import_tables])}")
+    else:
+        print(f"Total tables: {len(import_tables)}")
+
+    total_rows = sum(t.get('total_rows', 0) for t in import_tables if t.get('status') == 'success')
+    print(f"Total rows: {total_rows:,}")
 
     if dry_run:
         print("\n⚠️  DRY RUN MODE - No changes will be made to the database")
 
     if clear_existing and not dry_run:
-        print("\n⚠️  WARNING: This will clear all existing data!")
+        print("\n⚠️  WARNING: This will clear data from selected tables!")
         response = input("Type 'yes' to continue: ")
         if response.lower() != 'yes':
             print("Aborted.")
@@ -685,11 +705,11 @@ def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing:
         # Clear tables if requested
         if clear_existing and not dry_run:
             print("\nClearing existing tables...")
-            for table_info in reversed(manifest['tables']):  # Reverse order for FK constraints
+            for table_info in reversed(import_tables):  # Reverse order for FK constraints
                 clear_table(session, table_info['table'])
 
         # Import tables
-        for table_info in manifest['tables']:
+        for table_info in import_tables:
             if table_info['status'] != 'success':
                 print(f"\n[SKIP] {table_info['table']} - not exported successfully")
                 continue
@@ -739,10 +759,29 @@ def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing:
 def main():
     parser = argparse.ArgumentParser(
         description='Import full database from System 1 export',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Import all tables from S3 (default location)
+  python %(prog)s
+
+  # Import only canonical_events (for embeddings fix)
+  python %(prog)s --tables canonical_events
+
+  # Import event tables only from local directory
+  python %(prog)s --input-dir ./full_export --tables canonical_events daily_event_mentions
+
+  # Import all from custom S3 location
+  python %(prog)s --s3-bucket my-bucket --s3-prefix exports/20241220/
+
+  # Dry run to test import
+  python %(prog)s --dry-run
+        """
     )
     parser.add_argument('--input-dir', type=str,
                        help='Input directory containing parquet files and manifest.json')
+    parser.add_argument('--tables', nargs='+',
+                       help='Import only specific tables (e.g., --tables canonical_events)')
     parser.add_argument('--s3-bucket', type=str, default='morris-sp-bucket',
                        help='Download from S3 bucket (default: morris-sp-bucket)')
     parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
@@ -783,7 +822,8 @@ def main():
         import_full_database(
             input_dir=input_dir,
             dry_run=args.dry_run,
-            clear_existing=args.clear_existing
+            clear_existing=args.clear_existing,
+            tables=args.tables
         )
     finally:
         # Clean up temp files if downloaded from S3

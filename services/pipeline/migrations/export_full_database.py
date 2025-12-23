@@ -34,6 +34,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 import pandas as pd
+import numpy as np
 
 # Add project root to path
 script_dir = Path(__file__).resolve().parent
@@ -212,14 +213,63 @@ def convert_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
                 if hasattr(val, '__class__') and 'UUID' in str(val.__class__):
                     df[col] = df[col].astype(str)
 
-    # Convert JSONB columns to JSON strings
+    # Convert PostgreSQL array columns (like embedding_vector, alternative_names)
+    # These come through as strings like "{1.0,2.0,3.0}" or lists
+    array_columns = []
+    for col in df.columns:
+        if 'embedding' in col.lower() or 'vector' in col.lower() or col in ['alternative_names', 'unique_sources']:
+            array_columns.append(col)
+
+    for col in array_columns:
+        if col in df.columns:
+            def parse_pg_array(val):
+                # Handle None first
+                if val is None:
+                    return None
+
+                # Check for pandas NA/NaN - but avoid numpy array truthiness issue
+                try:
+                    if pd.isna(val):
+                        return None
+                except (ValueError, TypeError):
+                    # pd.isna() can fail on arrays/sequences, continue processing
+                    pass
+
+                # Already a list or numpy array
+                if isinstance(val, (list, np.ndarray)):
+                    # Convert numpy array to list
+                    if isinstance(val, np.ndarray):
+                        return val.tolist()
+                    return val
+
+                # PostgreSQL array string format: {1.0,2.0,3.0}
+                if isinstance(val, str):
+                    val = val.strip()
+                    if val.startswith('{') and val.endswith('}'):
+                        val = val[1:-1]  # Remove braces
+                        if not val:  # Empty array
+                            return []
+                        try:
+                            # Try parsing as floats (for embeddings)
+                            if 'embedding' in col.lower() or 'vector' in col.lower():
+                                return [float(x.strip()) for x in val.split(',') if x.strip()]
+                            else:
+                                # Text arrays
+                                return [x.strip().strip('"') for x in val.split(',') if x.strip()]
+                        except (ValueError, AttributeError):
+                            return None
+                return None
+
+            df[col] = df[col].apply(parse_pg_array)
+
+    # Convert JSONB columns to JSON strings (but not arrays we just handled)
     jsonb_columns = []
     for col in df.columns:
-        if df[col].dtype == 'object':
+        if col not in array_columns and df[col].dtype == 'object':
             sample = df[col].dropna().head(1)
             if len(sample) > 0:
                 val = sample.iloc[0]
-                if isinstance(val, dict) or isinstance(val, list):
+                if isinstance(val, dict):  # Only dicts, not lists (arrays handled above)
                     jsonb_columns.append(col)
 
     for col in jsonb_columns:
@@ -296,16 +346,25 @@ def export_table(session, table_config: Dict, output_dir: Path, file_num: int = 
     }
 
 
-def export_all_tables(output_dir: Path, include_optional: bool = True):
-    """Export all tables to the output directory."""
+def export_all_tables(output_dir: Path, include_optional: bool = True, tables: Optional[List[str]] = None):
+    """Export all tables to the output directory.
+
+    Args:
+        output_dir: Directory to export files to
+        include_optional: Include optional tables like bilateral summaries
+        tables: If specified, only export these specific tables (names from EXPORT_ORDER)
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "="*80)
-    print("FULL DATABASE EXPORT")
+    print("DATABASE EXPORT")
     print("="*80)
     print(f"\nOutput directory: {output_dir}")
     print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    if tables:
+        print(f"Target tables: {', '.join(tables)}")
 
     manifest = {
         'export_timestamp': datetime.now().isoformat(),
@@ -317,8 +376,18 @@ def export_all_tables(output_dir: Path, include_optional: bool = True):
     }
 
     with get_session() as session:
+        # Filter tables if specific tables requested
+        export_tables = EXPORT_ORDER
+        if tables:
+            export_tables = [t for t in EXPORT_ORDER if t['name'] in tables]
+            if len(export_tables) == 0:
+                print(f"\n[ERROR] No matching tables found. Available tables:")
+                for t in EXPORT_ORDER:
+                    print(f"  - {t['name']}")
+                return
+
         # Export required tables
-        for table_config in EXPORT_ORDER:
+        for table_config in export_tables:
             try:
                 result = export_table(session, table_config, output_dir)
                 manifest['tables'].append(result)
@@ -446,12 +515,28 @@ def upload_to_s3(output_dir: Path, bucket: str, prefix: str) -> List[str]:
 def main():
     parser = argparse.ArgumentParser(
         description='Export full database for System 2 migration',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Export all tables
+  python %(prog)s --output-dir ./full_export
+
+  # Export only canonical_events (for embeddings fix)
+  python %(prog)s --output-dir ./embeddings_export --tables canonical_events
+
+  # Export event tables only
+  python %(prog)s --output-dir ./events_export --tables event_clusters canonical_events daily_event_mentions
+
+  # Export and upload to S3
+  python %(prog)s --output-dir ./full_export --s3-bucket morris-sp-bucket --s3-prefix full_db_export/
+        """
     )
     parser.add_argument('--output-dir', type=str, required=True,
                        help='Output directory for parquet files')
     parser.add_argument('--skip-optional', action='store_true',
                        help='Skip optional tables (bilateral summaries, etc.)')
+    parser.add_argument('--tables', nargs='+',
+                       help='Export only specific tables (e.g., --tables canonical_events)')
     parser.add_argument('--s3-bucket', type=str,
                        help='Upload to S3 bucket after export (optional)')
     parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
@@ -462,7 +547,8 @@ def main():
     # Run export
     export_all_tables(
         output_dir=args.output_dir,
-        include_optional=not args.skip_optional
+        include_optional=not args.skip_optional,
+        tables=args.tables
     )
 
     # Upload to S3 if requested

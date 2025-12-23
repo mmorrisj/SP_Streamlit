@@ -89,9 +89,12 @@ def load_all_canonical_events(
     }).fetchall()
 
     events = []
+    skipped_no_embedding = 0
+
     for row in result:
         # Skip events without embeddings
         if row[3] is None:
+            skipped_no_embedding += 1
             continue
 
         events.append({
@@ -107,12 +110,16 @@ def load_all_canonical_events(
             'total_articles': row[9] or 0
         })
 
+    if skipped_no_embedding > 0:
+        print(f"  [WARNING] Skipped {skipped_no_embedding:,} events without embeddings")
+
     return events
 
 
 def find_similar_events(
     events: List[Dict],
-    similarity_threshold: float = 0.85
+    similarity_threshold: float = 0.85,
+    verbose: bool = True
 ) -> List[List[int]]:
     """
     Find groups of similar events using embedding cosine similarity.
@@ -120,6 +127,7 @@ def find_similar_events(
     Args:
         events: List of event dicts with 'embedding' field
         similarity_threshold: Minimum cosine similarity to consider events related
+        verbose: Print progress indicators
 
     Returns:
         List of event index groups (each group is a list of indices into events list)
@@ -127,19 +135,38 @@ def find_similar_events(
     if len(events) == 0:
         return []
 
+    n = len(events)
+
+    if verbose:
+        print(f"  Building embedding matrix ({n:,} events)...")
+
     # Build embedding matrix
     embeddings = np.vstack([e['embedding'] for e in events])
+
+    if verbose:
+        matrix_size_mb = (n * n * 8) / (1024 * 1024)  # 8 bytes per float64
+        print(f"  Computing similarity matrix ({n:,} x {n:,} = {matrix_size_mb:.1f} MB)...")
+        print(f"  This may take several minutes for large datasets...")
 
     # Compute pairwise similarities
     similarities = cosine_similarity(embeddings)
 
+    if verbose:
+        print(f"  Finding connected components (threshold={similarity_threshold})...")
+
     # Find connected components using similarity threshold
     # Using iterative DFS to avoid recursion depth issues with large clusters
-    n = len(events)
     visited = [False] * n
     groups = []
 
+    # Progress tracking for large datasets
+    progress_interval = max(1000, n // 10)  # Report every 10% or every 1000 events
+
     for i in range(n):
+        if verbose and i > 0 and i % progress_interval == 0:
+            progress_pct = (i / n) * 100
+            print(f"    Progress: {i:,}/{n:,} events processed ({progress_pct:.1f}%), found {len(groups):,} groups so far")
+
         if not visited[i]:
             # Iterative DFS using a stack
             group = []
