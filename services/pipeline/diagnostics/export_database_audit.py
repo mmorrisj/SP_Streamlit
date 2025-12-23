@@ -640,16 +640,16 @@ def export_audit(output_file: Path):
 def main():
     parser = argparse.ArgumentParser(description='Export database audit to text file')
     parser.add_argument('--output', type=str,
-                       help='Output file path (default: saves to project root)')
+                       help='Output file path (default: saves to diagnostics directory)')
 
     args = parser.parse_args()
 
-    # Default: Save to project root (accessible from host when running in Docker)
+    # Default: Save to diagnostics directory (accessible from host when running in Docker)
     if args.output:
         output_file = Path(args.output)
     else:
-        # Save to project root which is mounted in Docker
-        output_file = project_root / 'database_audit_report.txt'
+        # Save to diagnostics directory where this script is located
+        output_file = script_dir / 'database_audit_report.txt'
 
     print(f"Executing database audit...")
     print(f"Connecting to {DB_NAME} @ {DB_HOST}:{DB_PORT}")
