@@ -134,23 +134,31 @@ def find_similar_events(
     similarities = cosine_similarity(embeddings)
 
     # Find connected components using similarity threshold
+    # Using iterative DFS to avoid recursion depth issues with large clusters
     n = len(events)
     visited = [False] * n
     groups = []
 
-    def dfs(idx, group):
-        """Depth-first search to find connected events"""
-        visited[idx] = True
-        group.append(idx)
-
-        for j in range(n):
-            if not visited[j] and similarities[idx][j] >= similarity_threshold:
-                dfs(j, group)
-
     for i in range(n):
         if not visited[i]:
+            # Iterative DFS using a stack
             group = []
-            dfs(i, group)
+            stack = [i]
+
+            while stack:
+                idx = stack.pop()
+
+                if visited[idx]:
+                    continue
+
+                visited[idx] = True
+                group.append(idx)
+
+                # Add unvisited similar events to stack
+                for j in range(n):
+                    if not visited[j] and similarities[idx][j] >= similarity_threshold:
+                        stack.append(j)
+
             if len(group) > 1:  # Only include groups with multiple events
                 groups.append(group)
 
