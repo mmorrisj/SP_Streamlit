@@ -721,10 +721,18 @@ def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing:
     print(f"{'Table':<40} {'Imported':<15} {'Expected':<15} {'Status':<10}")
     print("-" * 80)
     for table_name, result in results.items():
-        print(f"{table_name:<40} {result['imported']:>14,} {result['expected']:>14,} {result['status']:<10}")
+        imported = result.get('imported')
+        expected = result.get('expected')
+        status = result.get('status', 'unknown')
 
-    total_imported = sum(r['imported'] for r in results.values())
-    total_expected = sum(r['expected'] for r in results.values())
+        # Handle None values for tables with unimplemented imports
+        if imported is None or expected is None:
+            print(f"{table_name:<40} {'N/A':>14} {'N/A':>14} {status:<10}")
+        else:
+            print(f"{table_name:<40} {imported:>14,} {expected:>14,} {status:<10}")
+
+    total_imported = sum(r['imported'] for r in results.values() if r.get('imported') is not None)
+    total_expected = sum(r['expected'] for r in results.values() if r.get('expected') is not None)
     print(f"\n{'TOTAL':<40} {total_imported:>14,} {total_expected:>14,}")
 
 
