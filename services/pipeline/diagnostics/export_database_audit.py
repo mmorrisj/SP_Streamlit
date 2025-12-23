@@ -224,7 +224,7 @@ def export_audit(output_file: Path):
     # Salience
     salience_dist = run_query("""
         SELECT
-            CASE WHEN salience_bool THEN 'Salient' ELSE 'Not Salient' END as salience,
+            salience_bool as salience,
             COUNT(*) as doc_count
         FROM documents
         WHERE salience_bool IS NOT NULL
