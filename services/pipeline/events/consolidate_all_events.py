@@ -147,10 +147,24 @@ def find_similar_events(
     if verbose:
         matrix_size_mb = (n * n * 8) / (1024 * 1024)  # 8 bytes per float64
         print(f"  Computing similarity matrix ({n:,} x {n:,} = {matrix_size_mb:.1f} MB)...")
-        print(f"  This may take several minutes for large datasets...")
+        print(f"  Using chunked computation to avoid memory issues...")
 
-    # Compute pairwise similarities
-    similarities = cosine_similarity(embeddings)
+    # Compute pairwise similarities in chunks to avoid memory corruption
+    chunk_size = 1000  # Process 1000 rows at a time
+    similarities = np.zeros((n, n), dtype=np.float32)  # Use float32 to save memory
+
+    for start_idx in range(0, n, chunk_size):
+        end_idx = min(start_idx + chunk_size, n)
+        chunk = embeddings[start_idx:end_idx]
+        similarities[start_idx:end_idx] = cosine_similarity(chunk, embeddings).astype(np.float32)
+
+        if verbose and start_idx > 0 and start_idx % (chunk_size * 5) == 0:
+            progress = (end_idx / n) * 100
+            print(f"    Similarity computation: {progress:.1f}% complete ({end_idx:,}/{n:,})")
+
+        # Clean up chunk
+        del chunk
+        gc.collect()
 
     if verbose:
         print(f"  Finding connected components (threshold={similarity_threshold})...")
