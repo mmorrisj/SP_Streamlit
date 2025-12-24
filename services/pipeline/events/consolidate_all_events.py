@@ -34,6 +34,7 @@ See EVENT_PROCESSING_ARCHITECTURE.md for complete pipeline documentation.
 import argparse
 import yaml
 import numpy as np
+import gc
 from typing import List, Dict
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import text
@@ -189,6 +190,12 @@ def find_similar_events(
             if len(group) > 1:  # Only include groups with multiple events
                 groups.append(group)
 
+    # Explicitly clean up large matrices to avoid memory corruption
+    del embeddings
+    del similarities
+    del visited
+    gc.collect()
+
     return groups
 
 
@@ -288,6 +295,11 @@ def consolidate_country(
             print(f"\n  [COMMITTED] Updated {stats['updated']} canonical events")
     elif dry_run and verbose:
         print(f"\n  [DRY RUN] Would update {stats['consolidated'] - stats['groups']} canonical events")
+
+    # Clean up event data before returning
+    del events
+    del groups
+    gc.collect()
 
     return stats
 
