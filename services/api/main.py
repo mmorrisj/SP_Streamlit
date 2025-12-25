@@ -70,11 +70,11 @@ def material_gai_query(input: QueryInput):
     env = os.getenv('ENV', 'development').lower()
 
     if env == 'production':
-        # PRODUCTION: Use existing Azure OpenAI flow via utils.gai()
+        # PRODUCTION: Use Azure OpenAI directly (not proxy - avoid infinite loop!)
         # Default to gpt-4.1-mini for production Azure deployment
         model = input.model if input.model != "gpt-4.1" else "gpt-4.1-mini"
-        print(f"→ Using Azure OpenAI (production mode) with model: {model}")
-        content = gai(input.sys_prompt, input.prompt, model)
+        print(f"→ [AZURE] Using Azure OpenAI (production mode) with model: {model}")
+        content = gai(input.sys_prompt, input.prompt, model, source="azure")
         return {"response": content}
     else:
         # DEVELOPMENT: Use direct OpenAI API
