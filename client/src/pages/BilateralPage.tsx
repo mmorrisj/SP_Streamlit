@@ -107,6 +107,56 @@ export default function BilateralPage() {
         </div>
       </header>
 
+      {/* Key Insights */}
+      <div className="chart-card" style={{ background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)', border: '1px solid #bae6fd' }}>
+        <h3 style={{ color: '#0c4a6e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          💡 Key Insights
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginTop: '1rem' }}>
+          <div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1', fontWeight: 600, marginBottom: '0.5rem' }}>Most Active Category</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0c4a6e' }}>
+              {overview.top_categories[0]?.category || 'N/A'}
+            </div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1' }}>
+              {overview.top_categories[0]?.count.toLocaleString() || 0} documents
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1', fontWeight: 600, marginBottom: '0.5rem' }}>Recent Activity</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0c4a6e' }}>
+              {overview.activity_trend[overview.activity_trend.length - 1]?.count || 0}
+            </div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1' }}>
+              documents this week
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1', fontWeight: 600, marginBottom: '0.5rem' }}>Activity Trend</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0c4a6e' }}>
+              {overview.activity_trend.length > 1
+                ? (overview.activity_trend[overview.activity_trend.length - 1]?.count || 0) > (overview.activity_trend[overview.activity_trend.length - 2]?.count || 0)
+                  ? '📈 Increasing'
+                  : '📉 Decreasing'
+                : '➡️ Stable'
+              }
+            </div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1' }}>
+              over last 12 weeks
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1', fontWeight: 600, marginBottom: '0.5rem' }}>Weekly Average</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0c4a6e' }}>
+              {Math.round(overview.activity_trend.reduce((sum, item) => sum + item.count, 0) / Math.max(overview.activity_trend.length, 1))}
+            </div>
+            <div style={{ fontSize: '0.875rem', color: '#0369a1' }}>
+              documents per week
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Activity Trend */}
       <div className="chart-card">
         <h3>Activity Trend (Last 12 Weeks)</h3>
