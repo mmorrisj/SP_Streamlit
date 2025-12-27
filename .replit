@@ -1,0 +1,61 @@
+modules = ["bash", "python-3.11", "nodejs-20", "postgresql-16"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+packages = ["arrow-cpp", "glibcLocales", "libxcrypt", "pkg-config", "postgresql"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "React Frontend"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "FastAPI Backend"
+
+[[workflows.workflow]]
+name = "React Frontend"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd client && npm run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow]]
+name = "FastAPI Backend"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PYTHONPATH=/home/runner/workspace uvicorn server.main:app --host localhost --port 8000 --reload"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+exposeLocalhost = true
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "PYTHONPATH=/home/runner/workspace uvicorn server.main:app --host 0.0.0.0 --port 5000"]
+build = ["bash", "-c", "cd client && npm run build"]

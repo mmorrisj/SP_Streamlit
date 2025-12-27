@@ -22,7 +22,7 @@ class Config:
         self.__dict__.update(entries)
 
     @classmethod
-    def from_yaml(cls, yaml_path='./shared/config/config.yaml'):
+    def from_yaml(cls, yaml_path=None):
         if yaml_path is None:
             yaml_path = Path(__file__).resolve().parent.parent / 'config' / 'config.yaml'
         else:
