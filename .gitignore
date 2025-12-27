@@ -66,3 +66,7 @@ htmlcov/
 data/processed_embeddings/
 material_exports/
 event_exports/
+*.json
+*.csv
+*.docx
+*.zip
