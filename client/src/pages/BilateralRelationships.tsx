@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { Users } from 'lucide-react'
 import './Pages.css'
@@ -10,6 +11,8 @@ interface BilateralData {
 }
 
 export default function BilateralRelationships() {
+  const navigate = useNavigate()
+
   const { data, isLoading } = useQuery({
     queryKey: ['bilateral'],
     queryFn: async () => {
@@ -22,7 +25,20 @@ export default function BilateralRelationships() {
     <div className="page">
       <header className="page-header">
         <h1>Bilateral Relationships</h1>
-        <p>Analysis of diplomatic interactions between countries</p>
+        <p>Analysis of diplomatic interactions between countries.</p>
+        <div style={{
+          background: '#e0f2fe',
+          padding: '0.75rem 1rem',
+          borderRadius: '8px',
+          marginTop: '1rem',
+          border: '1px solid #bae6fd',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem'
+        }}>
+          <Users size={18} style={{ color: '#0c4a6e' }} />
+          <span style={{ color: '#0c4a6e', fontWeight: 500 }}>💡 Click any relationship below to see detailed analytics, trends, and document summaries</span>
+        </div>
       </header>
 
       {isLoading ? (
@@ -67,7 +83,12 @@ export default function BilateralRelationships() {
               <tbody>
                 {data?.relationships?.length > 0 ? (
                   data.relationships.map((rel: BilateralData, idx: number) => (
-                    <tr key={idx}>
+                    <tr
+                      key={idx}
+                      onClick={() => navigate(`/bilateral/${rel.initiating_country}/${rel.recipient_country}`)}
+                      style={{ cursor: 'pointer' }}
+                      className="clickable-row"
+                    >
                       <td>{rel.initiating_country}</td>
                       <td>{rel.recipient_country}</td>
                       <td>{rel.count}</td>

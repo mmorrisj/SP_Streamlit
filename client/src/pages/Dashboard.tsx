@@ -90,7 +90,7 @@ export default function Dashboard() {
                 cx="50%"
                 cy="50%"
                 outerRadius={100}
-                label={({ category, percent }) => `${category} (${(percent * 100).toFixed(0)}%)`}
+                label={(entry: any) => `${entry.category} (${((entry.percent || 0) * 100).toFixed(0)}%)`}
               >
                 {(data?.category_distribution || []).map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

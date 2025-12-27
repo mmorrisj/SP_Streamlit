@@ -10,11 +10,6 @@ interface CategoryData {
   count: number
 }
 
-interface SubcategoryData {
-  subcategory: string
-  count: number
-}
-
 export default function Categories() {
   const { data, isLoading } = useQuery({
     queryKey: ['categories'],
@@ -47,7 +42,7 @@ export default function Categories() {
                     cx="50%"
                     cy="50%"
                     outerRadius={120}
-                    label={({ category, percent }) => `${category} (${(percent * 100).toFixed(0)}%)`}
+                    label={(entry: any) => `${entry.category} (${((entry.percent || 0) * 100).toFixed(0)}%)`}
                   >
                     {data.categories.map((_: CategoryData, index: number) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

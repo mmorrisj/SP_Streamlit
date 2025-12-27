@@ -1,0 +1,225 @@
+.influencer-page {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.influencer-header {
+  background: linear-gradient(135deg, #1a365d 0%, #2d4a7c 100%);
+  color: white;
+  padding: 3rem 2rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.influencer-title h1 {
+  font-size: 3rem;
+  margin: 0 0 0.5rem 0;
+  font-weight: 700;
+}
+
+.influencer-subtitle {
+  font-size: 1.2rem;
+  margin: 0;
+  opacity: 0.9;
+}
+
+.influencer-stats-inline {
+  display: flex;
+  gap: 3rem;
+}
+
+.inline-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.inline-stat-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.inline-stat-label {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 0.25rem;
+}
+
+.section {
+  margin-bottom: 3rem;
+}
+
+.section h2 {
+  font-size: 1.8rem;
+  margin-bottom: 1.5rem;
+  color: #1a365d;
+  border-bottom: 3px solid #1a365d;
+  padding-bottom: 0.5rem;
+}
+
+.events-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+}
+
+.event-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.event-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.event-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.event-header h4 {
+  font-size: 1.1rem;
+  margin: 0;
+  color: #1a365d;
+  flex: 1;
+  padding-right: 1rem;
+}
+
+.event-date {
+  font-size: 0.85rem;
+  color: #64748b;
+  white-space: nowrap;
+  background: #f1f5f9;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+}
+
+.event-summary {
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.6;
+  margin: 0 0 1rem 0;
+}
+
+.event-meta {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.activities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.activity-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.activity-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+.activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.activity-header h4 {
+  font-size: 1.15rem;
+  margin: 0;
+  color: #1a365d;
+  flex: 1;
+  padding-right: 1rem;
+}
+
+.activity-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.activity-date {
+  font-size: 0.85rem;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+}
+
+.activity-recipient {
+  font-size: 0.85rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.activity-text {
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.7;
+  margin: 0 0 1rem 0;
+}
+
+.activity-event {
+  font-size: 0.9rem;
+  color: #64748b;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border-left: 3px solid #1a365d;
+  border-radius: 4px;
+}
+
+.activity-event strong {
+  color: #1a365d;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .influencer-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+
+  .influencer-title h1 {
+    font-size: 2.2rem;
+  }
+
+  .influencer-stats-inline {
+    width: 100%;
+    justify-content: space-around;
+  }
+
+  .events-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-header {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .activity-meta {
+    align-items: flex-start;
+  }
+}

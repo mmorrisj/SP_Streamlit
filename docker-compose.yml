@@ -58,7 +58,7 @@ services:
       - api
 
   # -----------------------
-  # FastAPI API Service
+  # FastAPI API Service (Serves React UI + API endpoints)
   # -----------------------
   api:
     image: softpower_streamlit-api:latest
@@ -83,9 +83,11 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./services/api:/app/services/api
+      - ./server:/app/server                      # NEW: React-serving API
+      - ./services/api:/app/services/api          # OLD: Legacy API endpoints
       - ./services/pipeline:/app/services/pipeline
       - ./shared:/app/shared
+      - ./client/dist:/app/client/dist            # NEW: Built React static files
       - ./data:/app/data
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini

@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3, Globe } from 'lucide-react'
 import './Layout.css'
 
 const navItems = [
@@ -9,6 +9,14 @@ const navItems = [
   { path: '/summaries', label: 'Summaries', icon: Folder },
   { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/categories', label: 'Categories', icon: BarChart3 },
+]
+
+const influencers = [
+  { country: 'China', path: '/influencer/China' },
+  { country: 'Iran', path: '/influencer/Iran' },
+  { country: 'Russia', path: '/influencer/Russia' },
+  { country: 'Turkey', path: '/influencer/Turkey' },
+  { country: 'United States', path: '/influencer/United States' },
 ]
 
 export default function Layout() {
@@ -30,6 +38,22 @@ export default function Layout() {
               <span>{label}</span>
             </NavLink>
           ))}
+
+          <div className="nav-section">
+            <div className="nav-section-title">
+              <Globe size={16} />
+              <span>Influencers</span>
+            </div>
+            {influencers.map(({ country, path }) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) => `nav-item nav-sub-item ${isActive ? 'active' : ''}`}
+              >
+                <span>{country}</span>
+              </NavLink>
+            ))}
+          </div>
         </nav>
       </aside>
       <main className="main-content">

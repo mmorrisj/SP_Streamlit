@@ -1,27 +1,43 @@
+# Environment
 .env
+.env.local
+.env.*.local
+
+# IDEs
 .vscode/
+.idea/
+.pycharm/
+*.iml
+
+# Node / React
 node_modules/
-dist/
+client/dist/           # Built React files (build during deployment)
+client/.vite/
 .DS_Store
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 coverage/
-.idea/
-*.iml
+
+# Logs
 *.log
-.pycharm/
+nul
+
+# Python cache
 *__pycache__/*
 *.pyc
 *.pyo
 *.pyd
+*pycache*
+
+# Databases
 *.sqlite3
 *.db
-/venv/*
-*pycache*
-*.exe.*
 *.parquet
-nul
+
+# Misc
+/venv/*
+*.exe.*
 
 # Python
 __pycache__/
@@ -66,7 +82,20 @@ htmlcov/
 data/processed_embeddings/
 material_exports/
 event_exports/
+full_db_export/
+embedding_backups/
 *.json
 *.csv
 *.docx
 *.zip
+
+# Temporary helper scripts (optional - keep if useful)
+# start-*.bat
+# check-status.bat
+# create-separate-repo.bat
+
+# Temporary log files
+backfill_log.txt
+database_audit_report.txt
+export_log.txt
+rag_validation_output.txt

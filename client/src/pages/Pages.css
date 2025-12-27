@@ -306,3 +306,25 @@
   color: #555;
   line-height: 1.6;
 }
+
+/* Clickable table rows */
+.clickable-row {
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+}
+
+.clickable-row:hover {
+  background: #e0f2fe !important;
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(26, 54, 93, 0.1);
+}
+
+.clickable-row:hover td:last-child::after {
+  content: '→';
+  position: absolute;
+  right: 1rem;
+  color: #1a365d;
+  font-weight: bold;
+  font-size: 1.2rem;
+}

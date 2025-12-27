@@ -65,20 +65,22 @@ def material_gai_query(input: QueryInput):
         OPENAI_PROJ_API: OpenAI API key (for development)
     """
     import json
+    print(f"DEBUG: Endpoint called with model={input.model}")
 
     # Check environment
     env = os.getenv('ENV', 'development').lower()
+    print(f"DEBUG: Environment mode: {env}")
 
     if env == 'production':
         # PRODUCTION: Use Azure OpenAI directly (not proxy - avoid infinite loop!)
         # Default to gpt-4.1-mini for production Azure deployment
         model = input.model if input.model != "gpt-4.1" else "gpt-4.1-mini"
-        print(f"→ [AZURE] Using Azure OpenAI (production mode) with model: {model}")
+        print(f"[AZURE] Using Azure OpenAI (production mode) with model: {model}")
         content = gai(input.sys_prompt, input.prompt, model, source="azure")
         return {"response": content}
     else:
         # DEVELOPMENT: Use direct OpenAI API
-        print("→ Using OpenAI API (development mode)")
+        print("Using OpenAI API (development mode)")
         from openai import OpenAI
 
         # Get API key from environment
@@ -90,8 +92,18 @@ def material_gai_query(input: QueryInput):
             )
 
         try:
-            # Initialize OpenAI client
+            # Debug: Check OpenAI version and module path
+            import openai
+            print(f"DEBUG: OpenAI version: {openai.__version__}")
+            print(f"DEBUG: OpenAI module path: {openai.__file__}")
+            print(f"DEBUG: API key length: {len(api_key)}")
+
+            # Initialize OpenAI client - explicitly pass only api_key
+            import inspect
+            print(f"DEBUG: OpenAI.__init__ signature: {inspect.signature(OpenAI.__init__)}")
+
             client = OpenAI(api_key=api_key)
+            print("DEBUG: OpenAI client created successfully")
 
             # Make API call
             completion = client.chat.completions.create(
@@ -114,6 +126,8 @@ def material_gai_query(input: QueryInput):
                 return {"response": content}
 
         except Exception as e:
+            import traceback
+            print(f"DEBUG: Full traceback:\n{traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
 
 @app.get("/")
