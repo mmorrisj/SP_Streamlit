@@ -28,8 +28,16 @@ Usage:
     # Process from config.yaml influencers
     python llm_deconflict_clusters.py --influencers --start-date 2024-08-01 --end-date 2024-08-31
 
+    # Custom checkpoint frequency for more frequent commits
+    python llm_deconflict_clusters.py --country China --checkpoint-frequency 5
+
     # Dry run (no database writes)
     python llm_deconflict_clusters.py --country China --date 2024-08-01 --dry-run
+
+Checkpoint/Resume:
+    The script automatically resumes from where it left off by only processing clusters where
+    llm_deconflicted=False. Progress is committed every --checkpoint-frequency clusters (default: 10)
+    within each batch. If interrupted, simply re-run the same command to continue.
 """
 
 import argparse
@@ -595,7 +603,8 @@ For each potential group, verify:
         session,
         country: str,
         target_date: date,
-        batch_number: int
+        batch_number: int,
+        checkpoint_frequency: int = 10
     ) -> Dict[str, int]:
         """
         Process all clusters in a batch with LLM deconfliction.
@@ -605,6 +614,7 @@ For each potential group, verify:
             country: Initiating country
             target_date: Cluster date
             batch_number: Batch number
+            checkpoint_frequency: Commit every N clusters for checkpointing (default: 10)
 
         Returns:
             Dict with statistics:
@@ -637,7 +647,9 @@ For each potential group, verify:
         if self.verbose:
             print(f"  Processing {len(clusters)} clusters in batch {batch_number}...")
 
-        for cluster in clusters:
+        clusters_since_commit = 0
+
+        for i, cluster in enumerate(clusters, 1):
             llm_result = None
 
             # Check if LLM review is needed
@@ -685,11 +697,23 @@ For each potential group, verify:
                         stats['canonical_events_updated'] += 1
                     stats['daily_mentions_created'] += 1
 
-        # Commit changes (unless dry run)
-        if not self.dry_run:
+            clusters_since_commit += 1
+
+            # Periodic checkpoint commits for long batches
+            if not self.dry_run and clusters_since_commit >= checkpoint_frequency:
+                session.commit()
+                if self.verbose:
+                    print(f"  [CHECKPOINT] Committed progress ({i}/{len(clusters)} clusters in batch {batch_number})")
+                clusters_since_commit = 0
+
+        # Final commit for any remaining changes (unless dry run)
+        if not self.dry_run and clusters_since_commit > 0:
             session.commit()
             if self.verbose:
-                print(f"  [OK] Committed batch {batch_number} to database")
+                print(f"  [OK] Committed final changes for batch {batch_number}")
+        elif not self.dry_run:
+            if self.verbose:
+                print(f"  [OK] Batch {batch_number} completed (all changes already committed)")
         else:
             if self.verbose:
                 print(f"  [OK] Dry run - no changes committed")
@@ -700,7 +724,8 @@ For each potential group, verify:
         self,
         session,
         country: str,
-        target_date: date
+        target_date: date,
+        checkpoint_frequency: int = 10
     ) -> Dict[str, Any]:
         """
         Process all batches for a specific country and date.
@@ -709,6 +734,7 @@ For each potential group, verify:
             session: Database session
             country: Initiating country
             target_date: Cluster date
+            checkpoint_frequency: Commit every N clusters within a batch (default: 10)
 
         Returns:
             Dict with overall statistics
@@ -741,7 +767,8 @@ For each potential group, verify:
                 session,
                 country=batch['initiating_country'],
                 target_date=batch['cluster_date'],
-                batch_number=batch['batch_number']
+                batch_number=batch['batch_number'],
+                checkpoint_frequency=checkpoint_frequency
             )
 
             # Aggregate statistics
@@ -793,6 +820,8 @@ def main():
                        help='Print detailed progress (default: True)')
     parser.add_argument('--quiet', action='store_true',
                        help='Suppress detailed output')
+    parser.add_argument('--checkpoint-frequency', type=int, default=10,
+                       help='Commit every N clusters within a batch (default: 10, for checkpointing)')
 
     args = parser.parse_args()
 
@@ -801,6 +830,7 @@ def main():
 
     # Initialize processor
     processor = LLMClusterDeconfliction(dry_run=args.dry_run, verbose=verbose)
+    checkpoint_frequency = args.checkpoint_frequency
 
     # Print header
     print("=" * 60)
@@ -815,7 +845,7 @@ def main():
         if args.country and args.date:
             # Process specific country and date
             target_date = datetime.strptime(args.date, '%Y-%m-%d').date()
-            processor.process_country_date(session, args.country, target_date)
+            processor.process_country_date(session, args.country, target_date, checkpoint_frequency)
 
         elif args.influencers and args.start_date and args.end_date:
             # Process all influencer countries for date range
@@ -837,7 +867,7 @@ def main():
 
             while current_date <= end_date:
                 for country in influencers:
-                    processor.process_country_date(session, country, current_date)
+                    processor.process_country_date(session, country, current_date, checkpoint_frequency)
 
                 current_date += timedelta(days=1)
 
@@ -854,7 +884,8 @@ def main():
                 processor.process_country_date(
                     session,
                     batch['initiating_country'],
-                    batch['cluster_date']
+                    batch['cluster_date'],
+                    checkpoint_frequency
                 )
 
         else:

@@ -548,6 +548,10 @@ class CanonicalEvent(Base):
         nullable=True
     )
 
+    # LLM validation tracking (for Stage 2B checkpoint/resume)
+    llm_validated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    llm_validated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     # Core identity
     canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
     initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
@@ -602,6 +606,7 @@ class CanonicalEvent(Base):
         Index("ix_canonical_event_story_phase", "story_phase"),
         Index("ix_canonical_event_days_since", "days_since_last_mention"),
         Index("ix_canonical_event_master", "master_event_id"),
+        Index("ix_canonical_event_llm_validated", "llm_validated"),
     )
 
 class DailyEventMention(Base):

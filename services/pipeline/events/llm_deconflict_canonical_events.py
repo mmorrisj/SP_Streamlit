@@ -31,8 +31,19 @@ Usage:
     # Process all influencers
     python llm_deconflict_canonical_events.py --influencers
 
+    # Resume from last checkpoint (skip already-validated groups)
+    python llm_deconflict_canonical_events.py --influencers --resume
+
+    # Custom batch size for more frequent checkpointing
+    python llm_deconflict_canonical_events.py --country China --batch-size 5
+
     # Dry run
     python llm_deconflict_canonical_events.py --all --dry-run
+
+Checkpoint/Resume:
+    The script now commits progress every --batch-size groups (default: 10) and marks
+    each master event as llm_validated=True after processing. If interrupted, use the
+    --resume flag to skip already-validated groups and continue where you left off.
 
 See EVENT_PROCESSING_ARCHITECTURE.md for complete pipeline documentation.
 """
@@ -63,10 +74,16 @@ def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
 
 def load_event_groups(
     session,
-    country: Optional[str] = None
+    country: Optional[str] = None,
+    resume: bool = False
 ) -> Dict[str, List[Dict]]:
     """
     Load all consolidated event groups.
+
+    Args:
+        session: Database session
+        country: Filter by specific country (optional)
+        resume: If True, skip groups that have already been validated by LLM
 
     Returns:
         Dict mapping master_event_id to list of events in that group
@@ -89,6 +106,16 @@ def load_event_groups(
     if country:
         query += " AND ce.initiating_country = :country"
         params['country'] = country
+
+    # If resume mode, exclude groups where master event is already validated
+    if resume:
+        query += """
+            AND ce.master_event_id IN (
+                SELECT id FROM canonical_events
+                WHERE master_event_id IS NULL
+                AND llm_validated = FALSE
+            )
+        """
 
     query += """
         GROUP BY ce.id, ce.canonical_name, ce.initiating_country, ce.master_event_id, ce.alternative_names
@@ -131,6 +158,10 @@ def load_event_groups(
 
     if country:
         master_query += " AND ce.initiating_country = :country"
+
+    # If resume mode, only load unvalidated master events
+    if resume:
+        master_query += " AND ce.llm_validated = FALSE"
 
     master_query += """
         GROUP BY ce.id, ce.canonical_name, ce.initiating_country, ce.alternative_names
@@ -292,10 +323,20 @@ def process_country(
     session,
     country: str,
     dry_run: bool = False,
-    verbose: bool = True
+    verbose: bool = True,
+    resume: bool = False,
+    batch_size: int = 10
 ) -> Dict[str, int]:
     """
     Process all event groups for a specific country.
+
+    Args:
+        session: Database session
+        country: Country to process
+        dry_run: If True, don't save changes
+        verbose: If True, print progress
+        resume: If True, skip already-validated groups
+        batch_size: Commit every N groups (for checkpointing)
 
     Returns:
         Statistics dict
@@ -303,33 +344,49 @@ def process_country(
     if verbose:
         print(f"\n{'='*80}")
         print(f"LLM Deconfliction: {country}")
+        if resume:
+            print(f"  [RESUME MODE] Skipping already-validated groups")
         print(f"{'='*80}")
 
     # Load event groups
-    groups = load_event_groups(session, country)
+    groups = load_event_groups(session, country, resume=resume)
 
     if len(groups) == 0:
         if verbose:
             print(f"  No consolidated event groups found")
-        return {'groups': 0, 'validated': 0, 'split': 0, 'renamed': 0}
+        return {'groups': 0, 'validated': 0, 'split': 0, 'renamed': 0, 'skipped': 0}
 
     if verbose:
-        print(f"  Found {len(groups)} consolidated event groups")
+        print(f"  Found {len(groups)} consolidated event groups to process")
 
     stats = {
         'groups': len(groups),
         'validated': 0,
         'split': 0,
-        'renamed': 0
+        'renamed': 0,
+        'skipped': 0
     }
+
+    # Track groups processed since last commit
+    groups_since_commit = 0
 
     # Process each group
     for i, (master_id, group_events) in enumerate(groups.items(), 1):
-        if verbose and i % 100 == 0:
+        if verbose and i % 10 == 0:
             print(f"  Progress: {i}/{len(groups)} groups processed...")
 
         # Skip single-event groups
         if len(group_events) <= 1:
+            stats['skipped'] += 1
+
+            # Still mark as validated
+            if not dry_run:
+                session.execute(
+                    text("""UPDATE canonical_events
+                           SET llm_validated = TRUE, llm_validated_at = NOW()
+                           WHERE id = :master_id"""),
+                    {'master_id': master_id}
+                )
             continue
 
         # Get LLM review
@@ -378,9 +435,13 @@ def process_country(
                     # Set this event as the new master for this subgroup
                     new_master_id = best_event['id']
 
-                    # Clear its master_event_id (make it a master)
+                    # Clear its master_event_id (make it a master) and mark as validated
                     session.execute(
-                        text('UPDATE canonical_events SET master_event_id = NULL WHERE id = :new_master'),
+                        text("""UPDATE canonical_events
+                               SET master_event_id = NULL,
+                                   llm_validated = TRUE,
+                                   llm_validated_at = NOW()
+                               WHERE id = :new_master"""),
                         {'new_master': new_master_id}
                     )
 
@@ -426,22 +487,64 @@ def process_country(
                             {'new_master': new_master_id, 'old_master': old_master_id}
                         )
 
-                        # Set new master's master_event_id to NULL
+                        # Set new master's master_event_id to NULL and mark as validated
                         session.execute(
-                            text('UPDATE canonical_events SET master_event_id = NULL WHERE id = :new_master'),
+                            text("""UPDATE canonical_events
+                                   SET master_event_id = NULL,
+                                       llm_validated = TRUE,
+                                       llm_validated_at = NOW()
+                                   WHERE id = :new_master"""),
                             {'new_master': new_master_id}
                         )
 
                         if verbose:
                             print(f"    [UPDATED] Swapped master event")
+                    else:
+                        # Mark current master as validated
+                        if not dry_run:
+                            session.execute(
+                                text("""UPDATE canonical_events
+                                       SET llm_validated = TRUE,
+                                           llm_validated_at = NOW()
+                                       WHERE id = :master_id"""),
+                                {'master_id': group_events[0]['id']}
+                            )
+            else:
+                # No changes needed, just mark as validated
+                if not dry_run:
+                    session.execute(
+                        text("""UPDATE canonical_events
+                               SET llm_validated = TRUE,
+                                   llm_validated_at = NOW()
+                               WHERE id = :master_id"""),
+                        {'master_id': master_id}
+                    )
+        else:
+            # No changes needed, just mark as validated
+            if not dry_run:
+                session.execute(
+                    text("""UPDATE canonical_events
+                           SET llm_validated = TRUE,
+                               llm_validated_at = NOW()
+                           WHERE id = :master_id"""),
+                    {'master_id': master_id}
+                )
 
         stats['validated'] += 1
+        groups_since_commit += 1
 
-    # Commit if not dry run
-    if not dry_run and (stats['renamed'] > 0 or stats['split'] > 0):
+        # Commit every batch_size groups for checkpoint/resume capability
+        if not dry_run and groups_since_commit >= batch_size:
+            session.commit()
+            if verbose:
+                print(f"  [CHECKPOINT] Committed progress ({i}/{len(groups)} groups)")
+            groups_since_commit = 0
+
+    # Final commit for any remaining changes
+    if not dry_run and groups_since_commit > 0:
         session.commit()
         if verbose:
-            print(f"\n  [COMMITTED] Renamed {stats['renamed']} groups")
+            print(f"\n  [COMMITTED] Final batch")
 
     return stats
 
@@ -461,6 +564,8 @@ def main():
     # Options
     parser.add_argument('--dry-run', action='store_true', help='Preview without saving to database')
     parser.add_argument('--verbose', action='store_true', default=True, help='Print detailed progress')
+    parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint (skip already-validated groups)')
+    parser.add_argument('--batch-size', type=int, default=10, help='Commit every N groups (default: 10, for checkpointing)')
 
     args = parser.parse_args()
 
@@ -491,7 +596,8 @@ def main():
         'total_groups': 0,
         'total_validated': 0,
         'total_split': 0,
-        'total_renamed': 0
+        'total_renamed': 0,
+        'total_skipped': 0
     }
 
     with get_session() as session:
@@ -506,11 +612,19 @@ def main():
             countries = [row[0] for row in result]
 
         for country in countries:
-            stats = process_country(session, country, args.dry_run, args.verbose)
+            stats = process_country(
+                session,
+                country,
+                dry_run=args.dry_run,
+                verbose=args.verbose,
+                resume=args.resume,
+                batch_size=args.batch_size
+            )
             overall_stats['total_groups'] += stats['groups']
             overall_stats['total_validated'] += stats['validated']
             overall_stats['total_split'] += stats['split']
             overall_stats['total_renamed'] += stats['renamed']
+            overall_stats['total_skipped'] += stats.get('skipped', 0)
 
     print()
     print("="*80)
@@ -520,6 +634,9 @@ def main():
     print(f"Groups validated: {overall_stats['total_validated']}")
     print(f"Groups split: {overall_stats['total_split']}")
     print(f"Groups renamed: {overall_stats['total_renamed']}")
+    print(f"Groups skipped (single-event): {overall_stats['total_skipped']}")
+    if args.resume:
+        print(f"\n[RESUME MODE] Already-validated groups were skipped")
     print("="*80)
 
 
