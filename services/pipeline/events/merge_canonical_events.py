@@ -10,11 +10,14 @@ PIPELINE CONTEXT:
   - Stage 2C: THIS SCRIPT - Consolidates daily_event_mentions into multi-day events
 
 WHAT THIS SCRIPT DOES:
-  1. For each master event (master_event_id IS NULL)
-  2. Find all child events (master_event_id = master.id)
+  1. For each LLM-validated master event (master_event_id IS NULL AND llm_validated = TRUE)
+  2. Find all child events for that master (master_event_id = master.id)
   3. Reassign all daily_event_mentions from children to master
   4. Handle date conflicts by merging article counts
   5. Delete the now-empty child canonical events
+
+IMPORTANT: Only processes validated masters to prevent over-consolidation errors from Stage 2A
+(Children are never individually validated - validation applies to the entire group via the master)
 
 RESULT:
   - Master events have MULTIPLE days of daily_event_mentions
@@ -73,12 +76,15 @@ def merge_canonical_events_for_country(
         print(f"Merging Canonical Events: {country}")
         print('='*80)
 
-    # Get all master events for this country
+    # Get all LLM-validated master events for this country
+    # IMPORTANT: Only process masters that have been validated by LLM in Stage 2B
+    # This ensures we only merge children of validated consolidations
     master_events = session.execute(text('''
         SELECT id, canonical_name
         FROM canonical_events
         WHERE initiating_country = :country
           AND master_event_id IS NULL
+          AND llm_validated = TRUE
         ORDER BY canonical_name
     '''), {'country': country}).fetchall()
 
@@ -99,7 +105,9 @@ def merge_canonical_events_for_country(
 
     # Process each master event
     for master_id, master_name in master_events:
-        # Find all child events
+        # Find all child events for this validated master
+        # NOTE: We already filtered for validated masters above, so all these children
+        # are part of a validated consolidation and safe to merge
         child_events = session.execute(text('''
             SELECT id, canonical_name
             FROM canonical_events

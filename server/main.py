@@ -24,7 +24,7 @@ app = FastAPI(title="Soft Power API", version="1.0.0")
 STATIC_DIR = Path(__file__).parent.parent / "client" / "dist"
 
 # Load config.yaml for influencers and recipients lists
-CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
+CONFIG_PATH = Path(__file__).parent.parent / "shared" / "config" / "config.yaml"
 with open(CONFIG_PATH, 'r') as f:
     CONFIG = yaml.safe_load(f)
 
