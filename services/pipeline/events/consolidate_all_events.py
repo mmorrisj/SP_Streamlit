@@ -28,6 +28,12 @@ Usage:
     # Dry run to see what would be consolidated
     python consolidate_all_events.py --influencers --dry-run
 
+    # Force re-consolidation (resets existing consolidations first)
+    python consolidate_all_events.py --country China --force
+
+IMPORTANT: Running multiple times without --force will skip already-consolidated events
+to prevent accumulation. Use --force to reset and re-run with different parameters.
+
 See EVENT_PROCESSING_ARCHITECTURE.md for complete pipeline documentation.
 """
 
@@ -218,7 +224,8 @@ def consolidate_country(
     country: str,
     similarity_threshold: float = 0.85,
     dry_run: bool = False,
-    verbose: bool = True
+    verbose: bool = True,
+    force: bool = False
 ) -> Dict[str, int]:
     """
     Consolidate all events for a specific country.
@@ -229,6 +236,7 @@ def consolidate_country(
         similarity_threshold: Cosine similarity threshold for merging events
         dry_run: If True, don't save changes to database
         verbose: Print progress
+        force: If True, reset existing consolidations before running
 
     Returns:
         Dict with statistics
@@ -237,6 +245,31 @@ def consolidate_country(
         print(f"\n" + "=" * 80)
         print(f"Consolidating: {country}")
         print("=" * 80)
+
+    # Check if consolidation already exists
+    existing_consolidations = session.execute(text('''
+        SELECT COUNT(*)
+        FROM canonical_events
+        WHERE initiating_country = :country
+        AND master_event_id IS NOT NULL
+    '''), {'country': country}).scalar()
+
+    if existing_consolidations > 0 and not force and not dry_run:
+        print(f"\n  [WARNING] {existing_consolidations} events already consolidated for {country}")
+        print(f"  To prevent accumulation of multiple consolidation runs:")
+        print(f"    - Use --force to reset and re-consolidate")
+        print(f"    - Or manually reset: UPDATE canonical_events SET master_event_id = NULL WHERE initiating_country = '{country}'")
+        return {'events': 0, 'groups': 0, 'consolidated': 0, 'updated': 0, 'skipped': True}
+
+    if force and not dry_run:
+        if verbose:
+            print(f"  [FORCE MODE] Resetting {existing_consolidations} existing consolidations...")
+        session.execute(text('''
+            UPDATE canonical_events
+            SET master_event_id = NULL
+            WHERE initiating_country = :country
+        '''), {'country': country})
+        session.commit()
 
     # Load ALL canonical events for this country
     events = load_all_canonical_events(session, country)
@@ -335,6 +368,7 @@ def main():
 
     # Options
     parser.add_argument('--dry-run', action='store_true', help='Show what would be consolidated without saving')
+    parser.add_argument('--force', action='store_true', help='Reset existing consolidations before running (prevents accumulation)')
     parser.add_argument('--verbose', action='store_true', default=True, help='Print detailed progress')
 
     args = parser.parse_args()
@@ -356,6 +390,8 @@ def main():
     print(f"Similarity threshold: {args.similarity_threshold}")
     if args.dry_run:
         print("[DRY RUN MODE] No changes will be saved")
+    if args.force:
+        print("[FORCE MODE] Resetting existing consolidations before running")
     print("=" * 80)
 
     overall_stats = {
@@ -372,7 +408,8 @@ def main():
                 country,
                 args.similarity_threshold,
                 args.dry_run,
-                args.verbose
+                args.verbose,
+                args.force
             )
 
             overall_stats['total_events'] += stats['events']
