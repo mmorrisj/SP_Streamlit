@@ -335,9 +335,9 @@ For each potential group, verify:
             if self.verbose:
                 print(f"    Sending {len(unique_names)} event names to LLM for review...")
 
-            # Use direct OpenAI call (bypassing FastAPI proxy to avoid recursion)
-            # OPENAI_PROJ_API is already set in environment
-            response = gai(sys_prompt, user_prompt, model="gpt-4o-mini", use_proxy=False)
+            # Use FastAPI proxy for Azure OpenAI (or direct OpenAI if OPENAI_PROJ_API is set)
+            # The gai() function auto-detects based on environment variables
+            response = gai(sys_prompt, user_prompt, model="gpt-4o-mini")
 
             # Parse JSON response (handle both dict and string)
             if isinstance(response, str):
