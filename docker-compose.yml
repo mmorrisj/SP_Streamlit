@@ -37,6 +37,7 @@ services:
     env_file:
       - .env
     environment:
+      DOCKER_ENV: "true"
       DB_HOST: softpower_db
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
@@ -123,6 +124,7 @@ services:
     env_file:
       - .env
     environment:
+      DOCKER_ENV: "true"
       DB_HOST: softpower_db
       POSTGRES_HOST: softpower_db
       DB_PORT: 5432

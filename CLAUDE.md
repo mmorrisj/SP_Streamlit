@@ -5,16 +5,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ### Development Server
-```bash
-# Run Streamlit dashboard (local development)
-cd services/dashboard
-streamlit run app.py
 
-# Run via Docker (full stack)
+**Option 1: Docker (Recommended for Development)**
+```bash
+# Start full stack (Streamlit, FastAPI, PostgreSQL, Redis)
 docker-compose up -d
 
 # Test database connection
 python -c "from shared.database.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
+```
+
+**Option 2: Non-Docker (Bare Metal / Production)**
+```bash
+# Automated startup (all services)
+./start_services.sh all          # Linux/macOS
+.\start_services.ps1 -Service all  # Windows
+
+# Manual startup (individual services)
+# Terminal 1 - FastAPI
+source venv/bin/activate
+cd services/api
+uvicorn main:app --host 0.0.0.0 --port 5001 --reload
+
+# Terminal 2 - Streamlit
+source venv/bin/activate
+cd services/dashboard
+streamlit run app.py
+
+# Stop non-Docker services
+./start_services.sh stop         # Linux/macOS
+.\start_services.ps1 -Stop       # Windows
+
+# See SETUP_NON_DOCKER.md for full installation guide
 ```
 
 ### Database Management
@@ -141,11 +163,13 @@ This is a **Soft Power Analytics Dashboard** that processes diplomatic documents
 **Data Flow**: S3 Raw Documents → Document Ingestion → AI Analysis → Event Detection → Clustering → Vector Embeddings → Dashboard Visualization
 
 ### Technology Stack
-- **Backend**: SQLAlchemy 2.0 with sophisticated connection pooling, FastAPI for S3 operations
+- **Backend**: SQLAlchemy 2.0 with sophisticated connection pooling, FastAPI for API and static file serving
 - **Database**: PostgreSQL with pgvector extension for embeddings
-- **Frontend**: Streamlit for interactive dashboards
+- **Frontend**:
+  - **React + TypeScript + Vite** - Modern web interface (primary UI at client/)
+  - **Streamlit** - Analytics and data exploration dashboard (services/dashboard/)
 - **AI/ML**: OpenAI GPT models (via `CLAUDE_KEY`), sentence-transformers, HDBSCAN clustering
-- **Infrastructure**: Docker Compose stack, Alembic migrations, Redis (for future Celery tasks)
+- **Infrastructure**: Docker Compose stack (optional), Alembic migrations, Redis (for future Celery tasks)
 - **Storage**: AWS S3 for raw documents and embeddings (via boto3)
 
 ### Directory Structure
@@ -154,14 +178,29 @@ The project is organized into a **service-oriented monorepo** with clear separat
 
 ```
 SP_Streamlit/
+├── client/                      # React frontend (Vite + TypeScript)
+│   ├── src/                    # React source code
+│   │   ├── pages/             # Page components
+│   │   ├── components/        # Reusable components
+│   │   ├── services/          # API client services
+│   │   ├── hooks/             # React hooks
+│   │   └── App.tsx            # Main app component
+│   ├── dist/                  # Production build output (created by npm run build)
+│   ├── package.json           # Node.js dependencies
+│   ├── vite.config.ts         # Vite configuration
+│   └── tsconfig.json          # TypeScript configuration
+│
+├── server/                      # Production FastAPI server (serves React + API)
+│   └── main.py                # FastAPI app that serves client/dist + /api/* endpoints
+│
 ├── services/                    # Application services
-│   ├── api/                    # FastAPI service
-│   │   ├── main.py            # FastAPI app (was backend/api.py)
+│   ├── api/                    # FastAPI API-only service (development mode)
+│   │   ├── main.py            # FastAPI app with API endpoints only
 │   │   ├── routes.py          # API routes
 │   │   ├── api_client.py      # S3 API client
 │   │   └── commands.py        # CLI commands
 │   │
-│   ├── dashboard/              # Streamlit dashboard
+│   ├── dashboard/              # Streamlit analytics dashboard
 │   │   ├── app.py             # Main dashboard app
 │   │   ├── pages/             # Dashboard pages
 │   │   ├── queries/           # Database queries
@@ -195,6 +234,10 @@ SP_Streamlit/
 ├── alembic/                    # Database migrations
 ├── docker-compose.yml          # Docker orchestration
 ├── requirements.txt            # Unified Python dependencies
+├── start_services.sh           # Non-Docker startup script (Linux/macOS)
+├── start_services.ps1          # Non-Docker startup script (Windows)
+├── QUICKSTART.md               # Quick start guide
+├── SETUP_NON_DOCKER.md         # Non-Docker installation guide
 └── CLAUDE.md                   # This file
 ```
 
@@ -236,6 +279,37 @@ The application runs as a multi-container Docker stack:
 - Shared network `softpower_net` allows inter-container communication
 - Volume `postgres_data` persists database data
 - All services mount `shared/` directory for common code access
+
+### Deployment Modes
+
+The project supports **both Docker and non-Docker deployments** with automatic environment detection:
+
+**Docker Mode** (detected via `DOCKER_ENV=true` environment variable):
+- All services run in containers
+- Database host: `softpower_db` (container name)
+- API URL: `http://host.docker.internal:5001`
+- Start with: `docker-compose up -d`
+
+**Non-Docker Mode** (default when `DOCKER_ENV` is not set):
+- Services run directly on host system
+- Database host: `localhost` (from `.env`)
+- API URL: `http://localhost:5001` (from `.env`)
+- Start with: `./start_services.sh all` or `.\start_services.ps1 -Service all`
+
+**Environment Variable Hierarchy**:
+```
+1. Docker: docker-compose.yml overrides (DB_HOST=softpower_db, DOCKER_ENV=true)
+2. Non-Docker: .env file values (DB_HOST=localhost)
+3. Code defaults: Hardcoded fallbacks in shared/database/database.py
+```
+
+**Benefits of Dual Support**:
+- ✅ Flexibility: Choose deployment method based on infrastructure
+- ✅ Development: Docker for full stack, non-Docker for faster iteration
+- ✅ Production: Bare metal on VPS/EC2 without Docker overhead
+- ✅ Debugging: Direct Python debugging without container layers
+
+**See [SETUP_NON_DOCKER.md](SETUP_NON_DOCKER.md) for complete non-Docker installation guide.**
 
 ### Database Architecture
 
