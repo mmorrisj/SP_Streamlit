@@ -316,12 +316,30 @@ The event processing pipeline uses a **two-stage batch consolidation approach**:
 - Processing thresholds and date ranges
 - Country/category taxonomies
 - Clustering parameters (eps, min_samples, threshold)
+- S3 bucket and prefix configuration (see below)
+
+**S3 Configuration** (in `shared/config/config.yaml`):
+```yaml
+s3:
+  bucket: "your-bucket-name"      # S3 bucket name
+  region: "us-east-1"             # AWS region
+  prefixes:
+    dsr_extracts: "dsr_extracts/" # Document extracts
+    embeddings: "embeddings/"      # Embedding backups
+    exports: "exports/"            # Data exports
+    backups: "backups/"            # General backups
+```
+
+Environment variable overrides:
+- `S3_BUCKET` - Overrides `s3.bucket` from config
+- `S3_REGION` - Overrides `s3.region` from config
 
 **Environment Variables**: `.env` file for sensitive data
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DB_HOST`, `DB_PORT`
 - `CLAUDE_KEY` (for OpenAI API access)
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (for S3)
 - `API_URL` (FastAPI endpoint for S3 operations)
+- `S3_BUCKET`, `S3_REGION` (optional S3 overrides)
 - Database tuning: `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE`
 
 ## Development Patterns
@@ -445,24 +463,30 @@ S3 operations use a two-tier architecture:
 
 1. **FastAPI Server** (`backend/api.py`): Runs on host with AWS credentials, provides S3 proxy endpoints
 2. **API Client** (`backend/api_client.py`): Used by scripts to access S3 via FastAPI
+3. **S3 Config** (`services/pipeline/embeddings/s3.py`): Provides config-based bucket/prefix helpers
 
 ```python
+from services.pipeline.embeddings.s3 import get_bucket_name, get_s3_prefix
 from backend.api_client import get_s3_api_client
+
+# Get bucket from config.yaml (or S3_BUCKET env var)
+bucket = get_bucket_name()
+prefix = get_s3_prefix('embeddings')  # Returns 'embeddings/' from config
 
 # Initialize client
 client = get_s3_api_client()  # Auto-detects API_URL from env
 
 # List parquet files
 files = client.list_parquet_files(
-    bucket='morris-sp-bucket',
-    prefix='embeddings/',
+    bucket=bucket,
+    prefix=prefix,
     max_keys=1000
 )
 
 # Download parquet as DataFrame
 df = client.download_parquet_as_dataframe(
-    bucket='morris-sp-bucket',
-    key='embeddings/chunk_2024-08-01.parquet'
+    bucket=bucket,
+    key=f'{prefix}chunk_2024-08-01.parquet'
 )
 ```
 

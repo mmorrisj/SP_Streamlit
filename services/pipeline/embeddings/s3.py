@@ -9,9 +9,34 @@ from services.api.main import get_s3_api_client
 cfg = Config.from_yaml()
 
 session = boto3.Session()
-# (2) Create an S3 client or resource
-s3_client= boto3.client('s3')
-bucket_name = 'morris-sp-bucket'
+# Create an S3 client
+s3_client = boto3.client('s3')
+
+# S3 Configuration from config.yaml (with fallback to environment/defaults)
+def get_s3_config():
+    """Get S3 configuration from config.yaml with environment variable overrides."""
+    s3_cfg = cfg.get('s3', {})
+    return {
+        'bucket': os.getenv('S3_BUCKET', s3_cfg.get('bucket', 'morris-sp-bucket')),
+        'region': os.getenv('S3_REGION', s3_cfg.get('region', 'us-east-1')),
+        'prefixes': s3_cfg.get('prefixes', {
+            'dsr_extracts': 'dsr_extracts/',
+            'embeddings': 'embeddings/',
+            'exports': 'exports/',
+            'backups': 'backups/'
+        })
+    }
+
+def get_bucket_name():
+    """Get the S3 bucket name from config."""
+    return get_s3_config()['bucket']
+
+def get_s3_prefix(prefix_key: str) -> str:
+    """Get an S3 prefix by key (e.g., 'dsr_extracts', 'embeddings')."""
+    return get_s3_config()['prefixes'].get(prefix_key, prefix_key)
+
+# Default bucket name (for backwards compatibility)
+bucket_name = get_bucket_name()
 
 # S3 API Client configuration (lazy initialization)
 _use_api_client = os.getenv('USE_S3_API_CLIENT', 'true').lower() == 'true'
@@ -40,26 +65,32 @@ def file_exists(bucket, key):
             return False
         else:
             raise  # re-raise unexpected errors
-def s3_upload(directory,file_type,s3_dir,bucket='morris-sp-bucket',force=False):
-    # Upload .json files if they don't already exist
+def s3_upload(directory, file_type, s3_dir, bucket=None, force=False):
+    """Upload files to S3. Uses bucket from config if not specified."""
+    bucket = bucket or get_bucket_name()
+    # Upload files if they don't already exist
     for filename in os.listdir(directory):
         if filename.endswith(file_type):
             full_path = os.path.join(directory, filename)
             s3_key = f'{s3_dir}/{filename}'
             if force:
-                print(f"Uploading {filename} to s3://{bucket_name}/{s3_key}")
-                s3_client.upload_file(full_path, bucket_name, s3_key)
+                print(f"Uploading {filename} to s3://{bucket}/{s3_key}")
+                s3_client.upload_file(full_path, bucket, s3_key)
             else:
                 if file_exists(bucket, s3_key):
                     print(f"Skipping {filename} — already exists in S3.")
                 else:
-                    print(f"Uploading {filename} to s3://{bucket_name}/{s3_key}")
-                    s3_client.upload_file(full_path, bucket_name, s3_key)
+                    print(f"Uploading {filename} to s3://{bucket}/{s3_key}")
+                    s3_client.upload_file(full_path, bucket, s3_key)
     print("Upload complete.")
 
-    
-    
-bucket_path = f"s3://{bucket_name}/dsr_extracts/"
+
+def get_bucket_path(prefix_key: str = 'dsr_extracts') -> str:
+    """Get full S3 path for a prefix key."""
+    return f"s3://{get_bucket_name()}/{get_s3_prefix(prefix_key)}"
+
+# Legacy variable for backwards compatibility
+bucket_path = get_bucket_path('dsr_extracts')
 
 def load_processed_files_tracker(s3_prefix: str = "dsr_extracts/", api_url: Optional[str] = None) -> Dict[str, Any]:
     """

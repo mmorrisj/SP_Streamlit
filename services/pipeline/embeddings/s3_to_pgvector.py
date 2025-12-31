@@ -47,14 +47,17 @@ from services.pipeline.embeddings.embedding_vectorstore import (
 # API Client for S3 operations (runs outside Docker)
 from services.api.api_client import get_s3_api_client
 
+# S3 configuration from config.yaml
+from services.pipeline.embeddings.s3 import get_bucket_name, get_s3_prefix
+
 
 class S3ToPgVectorMigrator:
     """Handles migration of embeddings from S3 parquet files to pgvector database."""
 
     def __init__(
         self,
-        bucket_name: str = 'morris-sp-bucket',
-        s3_prefix: str = 'embeddings/',
+        bucket_name: str = None,
+        s3_prefix: str = None,
         collection_name: str = 'chunk_embeddings',
         dry_run: bool = False,
         force_reprocess: bool = False,
@@ -73,7 +76,9 @@ class S3ToPgVectorMigrator:
             tracker_dir: Local directory to store processed file tracker
             api_url: FastAPI URL for S3 operations (default: from env or localhost:8000)
         """
-        self.bucket_name = bucket_name
+        # Use config defaults if not specified
+        self.bucket_name = bucket_name or get_bucket_name()
+        s3_prefix = s3_prefix or get_s3_prefix('embeddings')
         self.s3_prefix = s3_prefix.rstrip('/') + '/'
         self.collection_name = collection_name
         self.dry_run = dry_run
@@ -647,13 +652,13 @@ def main():
     migrate_parser = subparsers.add_parser('migrate', help='Migrate parquet files to pgvector')
     migrate_parser.add_argument(
         '--bucket',
-        default='morris-sp-bucket',
-        help='S3 bucket name (default: morris-sp-bucket)'
+        default=None,
+        help='S3 bucket name (default: from config.yaml s3.bucket)'
     )
     migrate_parser.add_argument(
         '--s3-prefix',
-        default='embeddings/',
-        help='S3 prefix/folder containing parquet files (default: embeddings/)'
+        default=None,
+        help='S3 prefix/folder containing parquet files (default: from config.yaml s3.prefixes.embeddings)'
     )
     migrate_parser.add_argument(
         '--collection',
@@ -721,13 +726,13 @@ def main():
         # Old-style usage without subcommands - default to migrate
         parser.add_argument(
             '--bucket',
-            default='morris-sp-bucket',
-            help='S3 bucket name (default: morris-sp-bucket)'
+            default=None,
+            help='S3 bucket name (default: from config.yaml s3.bucket)'
         )
         parser.add_argument(
             '--s3-prefix',
-            default='embeddings/',
-            help='S3 prefix/folder containing parquet files (default: embeddings/)'
+            default=None,
+            help='S3 prefix/folder containing parquet files (default: from config.yaml s3.prefixes.embeddings)'
         )
         parser.add_argument(
             '--collection',
