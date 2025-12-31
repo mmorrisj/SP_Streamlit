@@ -10,9 +10,20 @@ aws:
   secret_name: "AZURE_OPENAI_API_KEY_NORTHCENTRALUS"
   region_name: "us-east-1"
   api_version: "2024-08-01-preview"
-  4_1_model: gpt-4o-mini 
+  4_1_model: gpt-4o-mini
   4_1_version: '2025-04-14'
   default_model: "gpt-4o-mini"
+
+# S3 Configuration - Override these for different environments
+s3:
+  bucket: "morris-sp-bucket"
+  region: "us-east-1"
+  prefixes:
+    dsr_extracts: "dsr_extracts/"
+    embeddings: "embeddings/"
+    exports: "exports/"
+    backups: "backups/"
+
 text_field: 'BODY'
 identifier: 'ATOM ID'
 gai_output: 'GAI Output'

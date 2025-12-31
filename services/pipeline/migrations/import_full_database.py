@@ -58,8 +58,9 @@ except ImportError:
 
 # Try to import the API client for S3 operations
 try:
-    from services.pipeline.embeddings.s3 import _get_api_client, bucket_name as default_bucket
+    from services.pipeline.embeddings.s3 import _get_api_client, get_bucket_name
     API_CLIENT_AVAILABLE = True
+    default_bucket = get_bucket_name()
 except ImportError:
     API_CLIENT_AVAILABLE = False
     _get_api_client = None
@@ -782,8 +783,8 @@ Examples:
                        help='Input directory containing parquet files and manifest.json')
     parser.add_argument('--tables', nargs='+',
                        help='Import only specific tables (e.g., --tables canonical_events)')
-    parser.add_argument('--s3-bucket', type=str, default='morris-sp-bucket',
-                       help='Download from S3 bucket (default: morris-sp-bucket)')
+    parser.add_argument('--s3-bucket', type=str, default=default_bucket,
+                       help=f'Download from S3 bucket (default: {default_bucket} from config.yaml)')
     parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
                        help='S3 prefix for files (default: full_db_export/)')
     parser.add_argument('--dry-run', action='store_true',
