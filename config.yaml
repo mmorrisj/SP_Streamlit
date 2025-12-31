@@ -25,15 +25,7 @@ sample_size: 10
 delete_after_processing: False
 create_sample: False
 atom_collection: 'ne_auto'
-report_months:
-  - '2024-07'
-  - '2024-08'
-  - '2024-09'
-  - '2024-10'
-  - '2024-11'
-  - '2024-12'
-  - '2025-01'
-  - '2025-02'
+
 event_models:
   - 'all-MiniLM-L6-v2'
   - 'paraphrase-mpnet-base-v2'
