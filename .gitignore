@@ -99,3 +99,7 @@ backfill_log.txt
 database_audit_report.txt
 export_log.txt
 rag_validation_output.txt
+# Consolidated data directory (all runtime data)
+_data/
+!_data/.gitkeep
+!_data/*/.gitkeep
