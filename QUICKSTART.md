@@ -2,7 +2,7 @@
 
 ## Choose Your Deployment Method
 
-### Docker (Recommended for Development)
+### Docker Compose (Recommended for Development)
 ```bash
 # One-time setup
 docker-compose up -d
@@ -12,6 +12,20 @@ docker-compose --profile migrate up
 docker-compose up -d      # Start
 docker-compose down       # Stop
 docker-compose logs -f    # View logs
+```
+
+### Docker Only (No Compose - for systems with Docker but not docker-compose)
+```bash
+# One-time setup
+./deploy-docker-only.sh start        # Linux/macOS
+.\deploy-docker-only.ps1 start       # Windows
+
+./deploy-docker-only.sh migrate      # Run migrations
+
+# Daily usage
+./deploy-docker-only.sh start        # Start
+./deploy-docker-only.sh stop         # Stop
+./deploy-docker-only.sh logs         # View logs
 ```
 
 ### Non-Docker (Production / No Docker Available)
@@ -50,7 +64,7 @@ cd ..
 
 ## Access Points
 
-### Docker Mode
+### Docker Compose Mode & Docker Only Mode
 - **React App**: http://localhost:8000 (served by FastAPI)
 - **API**: http://localhost:8000/api/*
 - **Streamlit Dashboard**: http://localhost:8501
@@ -70,11 +84,14 @@ cd ..
 
 ## Running Pipeline Scripts
 
-Both modes use the same commands:
+All modes use similar commands:
 
 ```bash
-# Docker mode - run inside container
-docker exec -it api-service python services/pipeline/events/batch_cluster_events.py --country China
+# Docker Compose mode - run inside container
+docker-compose exec api python services/pipeline/events/batch_cluster_events.py --country China
+
+# Docker Only mode - run inside container
+docker exec softpower_api_prod python services/pipeline/events/batch_cluster_events.py --country China
 
 # Non-Docker mode - run from venv
 source venv/bin/activate
@@ -105,6 +122,9 @@ source venv/bin/activate  # Non-Docker only
 ```
 
 ## Full Documentation
-- Docker setup: See [CLAUDE.md](CLAUDE.md) Docker sections
-- Non-Docker setup: See [SETUP_NON_DOCKER.md](SETUP_NON_DOCKER.md)
-- Pipeline commands: See [CLAUDE.md](CLAUDE.md) Pipeline sections
+- **Docker Compose setup**: See [CLAUDE.md](CLAUDE.md) Docker sections
+- **Docker Only setup** (no compose): See [DOCKER_NO_COMPOSE.md](DOCKER_NO_COMPOSE.md)
+- **Docker command reference**: See [DOCKER_COMMAND_REFERENCE.md](DOCKER_COMMAND_REFERENCE.md)
+- **Non-Docker setup**: See [SETUP_NON_DOCKER.md](SETUP_NON_DOCKER.md)
+- **Docker Hub deployment**: See [DOCKER_HUB_DEPLOYMENT.md](DOCKER_HUB_DEPLOYMENT.md)
+- **Pipeline commands**: See [CLAUDE.md](CLAUDE.md) Pipeline sections

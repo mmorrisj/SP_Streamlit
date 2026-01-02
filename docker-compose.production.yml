@@ -1,0 +1,160 @@
+# Docker Compose for Production Deployment from Docker Hub
+# This file is for END USERS who want to deploy the app from pre-built images
+#
+# Usage:
+#   1. Copy this file and .env.example to your server
+#   2. Configure .env with your credentials
+#   3. Run: docker-compose -f docker-compose.production.yml up -d
+#   4. Run migrations: docker-compose -f docker-compose.production.yml run --rm migrate
+#
+# Note: Replace 'yourusername' with the actual Docker Hub username throughout
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database with pgvector
+  db:
+    image: ankane/pgvector:latest
+    container_name: softpower_db_prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    networks:
+      - softpower_net_prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-matthew50}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis (for future task queue)
+  redis:
+    image: redis:7-alpine
+    container_name: softpower_redis_prod
+    networks:
+      - softpower_net_prod
+    restart: unless-stopped
+
+  # API Service + React Frontend
+  # Replace 'yourusername' with actual Docker Hub username
+  api:
+    image: yourusername/softpower-api:latest
+    container_name: softpower_api_prod
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # Docker mode flag
+      DOCKER_ENV: "true"
+
+      # Database connection
+      DB_HOST: softpower_db_prod
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+
+      # Database tuning
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+
+      # Redis
+      REDIS_URL: redis://redis:6379
+
+      # API Keys (REQUIRED - set in .env)
+      CLAUDE_KEY: ${CLAUDE_KEY}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API}
+
+      # AWS S3 (optional)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+
+      # API URLs
+      API_URL: ${API_URL:-http://host.docker.internal:5001}
+      FASTAPI_URL: ${FASTAPI_URL:-http://api:8000/material_query}
+    networks:
+      - softpower_net_prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Streamlit Dashboard
+  # Replace 'yourusername' with actual Docker Hub username
+  dashboard:
+    image: yourusername/softpower-dashboard:latest
+    container_name: softpower_dashboard_prod
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    environment:
+      # Docker mode flag
+      DOCKER_ENV: "true"
+
+      # Database connection
+      DB_HOST: softpower_db_prod
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+
+      # Database tuning
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+
+      # API URLs
+      API_URL: http://api:8000
+      FASTAPI_URL: http://api:8000/material_query
+    networks:
+      - softpower_net_prod
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  # Database Migration Service (run once)
+  migrate:
+    image: yourusername/softpower-api:latest
+    container_name: softpower_migrate_prod
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: softpower_db_prod
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+    command: alembic upgrade head
+    networks:
+      - softpower_net_prod
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+
+networks:
+  softpower_net_prod:
+    driver: bridge
+
+volumes:
+  postgres_data_prod:
+    driver: local
