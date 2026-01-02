@@ -1,0 +1,298 @@
+# ============================================
+#  Full Production Stack - Complete System
+#  Database + Pipeline + Web App + Streamlit
+# ============================================
+#
+# This is a comprehensive production deployment with:
+#   - Database tier: PostgreSQL + pgvector + pgAdmin
+#   - Processing tier: Pipeline workers for data processing
+#   - Application tier: React web app + Streamlit + FastAPI
+#   - Infrastructure: Redis, networks, volumes
+#
+# Usage:
+#   Build & start:  docker-compose -f docker-compose.full.yml up -d --build
+#   Migrations:     docker-compose -f docker-compose.full.yml --profile migrate up
+#   Pipeline task:  docker-compose -f docker-compose.full.yml exec pipeline python services/pipeline/ingestion/dsr.py
+#   Logs:           docker-compose -f docker-compose.full.yml logs -f [service-name]
+#   Stop all:       docker-compose -f docker-compose.full.yml down
+
+name: softpower_full
+
+services:
+  # ============================================
+  # DATABASE TIER
+  # ============================================
+
+  # PostgreSQL + pgvector
+  db:
+    image: ankane/pgvector:latest
+    container_name: softpower_db
+    restart: unless-stopped
+    shm_size: "2gb"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    networks:
+      - softpower_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-matthew50} -d ${POSTGRES_DB:-softpower-db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # pgAdmin - Database Management UI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: softpower_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@softpower.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    networks:
+      - softpower_net
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - management  # Optional, start with --profile management
+
+  # Redis - Task Queue & Caching
+  redis:
+    image: redis:7-alpine
+    container_name: softpower_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - softpower_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # PROCESSING TIER
+  # ============================================
+
+  # Pipeline Worker - Data Processing
+  pipeline:
+    image: softpower-pipeline:latest
+    build:
+      context: .
+      dockerfile: docker/pipeline.Dockerfile
+    container_name: softpower_pipeline
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+      REDIS_URL: redis://softpower_redis:6379
+      # GPU support (if available)
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - ./services/pipeline:/app/services/pipeline
+      - ./shared:/app/shared
+      - ./_data:/app/_data
+      - ./shared/config/config.yaml:/app/shared/config/config.yaml
+    networks:
+      - softpower_net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Keep container running for exec commands
+    command: tail -f /dev/null
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ============================================
+  # APPLICATION TIER
+  # ============================================
+
+  # React Web App + FastAPI
+  api:
+    image: softpower-production:latest
+    build:
+      context: .
+      dockerfile: docker/api-production.Dockerfile
+      args:
+        - NODE_ENV=production
+    container_name: softpower_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      NODE_ENV: "production"
+      DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+      REDIS_URL: redis://softpower_redis:6379
+      # S3 configuration
+      S3_PROXY_URL: http://host.docker.internal:5001
+      FASTAPI_URL: http://host.docker.internal:5001/material_query
+      API_URL: http://host.docker.internal:5001
+      USE_S3_API_CLIENT: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./shared/config/config.yaml:/app/shared/config/config.yaml:ro
+      - ./_data:/app/_data
+    networks:
+      - softpower_net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # Streamlit Dashboard
+  dashboard:
+    image: softpower-dashboard:latest
+    build:
+      context: .
+      dockerfile: docker/dashboard.Dockerfile
+    container_name: softpower_dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+      BACKEND_API_URL: http://softpower_api:8000
+      API_URL: http://softpower_api:8000
+      FASTAPI_URL: http://softpower_api:8000/material_query
+      REDIS_URL: redis://softpower_redis:6379
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./services/dashboard:/app/services/dashboard:ro
+      - ./shared:/app/shared:ro
+    networks:
+      - softpower_net
+    depends_on:
+      api:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8501/_stcore/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ============================================
+  # INFRASTRUCTURE
+  # ============================================
+
+  # Database Migrations (run with --profile migrate)
+  migrate:
+    image: softpower-production:latest
+    build:
+      context: .
+      dockerfile: docker/api-production.Dockerfile
+    container_name: softpower_migrate
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: softpower_db
+      POSTGRES_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+    command: alembic upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - softpower_net
+    volumes:
+      - ./shared:/app/shared
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    profiles:
+      - migrate
+
+# ============================================
+# VOLUMES
+# ============================================
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  softpower_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

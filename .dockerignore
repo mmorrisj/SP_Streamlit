@@ -1,0 +1,137 @@
+# ============================================
+# Docker Build Context Exclusions
+# ============================================
+# Reduces build context size and speeds up builds
+
+# ============================================
+# Node.js / React
+# ============================================
+client/node_modules/
+client/dist/
+client/.vite/
+client/.eslintcache
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+.hypothesis/
+
+# ============================================
+# Data Directories
+# ============================================
+_data/
+data/
+output/
+exports/
+backups/
+embedding_exports/
+event_exports/
+materiality_exports/
+full_db_export/
+test_export/
+
+# ============================================
+# Archives & Documentation
+# ============================================
+docs/archive/
+archive/
+streamlit_old_backup/
+*.md
+!README.md
+!CLAUDE.md
+
+# ============================================
+# Environment & Secrets
+# ============================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# ============================================
+# IDE & Editor Files
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================
+# Git
+# ============================================
+.git/
+.gitignore
+.gitattributes
+
+# ============================================
+# Docker
+# ============================================
+docker-compose.override.yml
+Dockerfile
+*.Dockerfile
+.dockerignore
+
+# ============================================
+# CI/CD
+# ============================================
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# ============================================
+# Database
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+
+# ============================================
+# Temporary Files
+# ============================================
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+.cache/
