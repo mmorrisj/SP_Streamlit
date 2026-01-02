@@ -1,6 +1,6 @@
 import json
 import os
-from shared.utils.utils import Config
+from shared.utils.utils import cfg  # Import the already-loaded config
 from shared.models.models import Document, RawEvent, Category, Subcategory, InitiatingCountry, RecipientCountry
 from shared.database.database import get_session, init_database, get_engine
 from services.pipeline.embeddings.embedding_vectorstore import chunk_store
@@ -8,8 +8,6 @@ from datetime import datetime
 from sqlalchemy.sql import text
 from services.pipeline.embeddings.s3 import load_dsr_from_s3, reprocess_files, list_s3_json_files
 from typing import List, Optional
-
-cfg = Config.from_yaml()
 
 def split_multi(val):
     """Split multi-value fields by semicolon, following the dispatcher pattern."""

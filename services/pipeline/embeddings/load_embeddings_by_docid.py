@@ -41,7 +41,7 @@ sys.path.insert(0, str(project_root))
 from sqlalchemy import text
 from shared.database.database import get_session, get_engine
 from shared.models.models import Document
-from shared.utils.utils import Config
+from shared.utils.utils import cfg  # Import the already-loaded config
 
 # LangChain imports
 from langchain_community.vectorstores.pgvector import PGVector
@@ -52,8 +52,6 @@ from services.pipeline.embeddings.embedding_vectorstore import (
 
 # API Client for S3 operations
 from services.api.api_client import get_s3_api_client
-
-cfg = Config.from_yaml()
 
 
 class EmbeddingLoader:

@@ -34,7 +34,7 @@ from shared.utils.prompts_entity import (
     ENTITY_TYPES,
     RELATIONSHIP_TYPES
 )
-from shared.utils.utils import gai, find_json_objects, Config
+from shared.utils.utils import gai, find_json_objects, cfg  # Import the already-loaded config
 
 # Configure logging
 logging.basicConfig(
@@ -42,9 +42,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Load configuration
-cfg = Config.from_yaml()
 
 
 def get_processed_doc_ids(session) -> Set[str]:

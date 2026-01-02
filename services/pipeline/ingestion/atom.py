@@ -1,8 +1,7 @@
 import os
 import pandas as pd
-from shared.utils.utils import Config, concatenate_files
+from shared.utils.utils import cfg, concatenate_files  # Import the already-loaded config
 from datetime import datetime
-cfg = Config.from_yaml()
 
 def clean_atom_output(df,fields,process_body,filter_fields,qry=None):
     try:

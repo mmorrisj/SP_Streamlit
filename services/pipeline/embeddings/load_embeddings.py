@@ -27,12 +27,10 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from sqlalchemy import text
 from shared.database.database import get_session, get_engine
-from shared.utils.utils import Config
+from shared.utils.utils import cfg  # Import the already-loaded config
 from services.pipeline.embeddings.embedding_vectorstore import chunk_store
 from services.pipeline.embeddings.s3 import _get_api_client, bucket_name
 import ast
-
-cfg = Config.from_yaml()
 
 # Tracker file locations
 LOCAL_TRACKER_FILE = "data/processed_embeddings/.processed_tracker.json"
