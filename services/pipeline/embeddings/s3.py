@@ -2,11 +2,9 @@ import boto3
 import os
 import json
 from botocore.exceptions import ClientError
-from shared.utils.utils import Config
+from shared.utils.utils import cfg  # Import the already-loaded config
 from typing import List, Dict, Any, Optional
 from services.api.main import get_s3_api_client
-
-cfg = Config.from_yaml()
 
 session = boto3.Session()
 # Create an S3 client
@@ -15,7 +13,8 @@ s3_client = boto3.client('s3')
 # S3 Configuration from config.yaml (with fallback to environment/defaults)
 def get_s3_config():
     """Get S3 configuration from config.yaml with environment variable overrides."""
-    s3_cfg = cfg.get('s3', {})
+    # Access s3 config from the Config object's __dict__
+    s3_cfg = getattr(cfg, 's3', {}) if cfg else {}
     return {
         'bucket': os.getenv('S3_BUCKET', s3_cfg.get('bucket', 'morris-sp-bucket')),
         'region': os.getenv('S3_REGION', s3_cfg.get('region', 'us-east-1')),
