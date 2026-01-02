@@ -461,7 +461,7 @@ def upload_to_s3(files: list, bucket: str, prefix: str):
 
 def main():
     parser = argparse.ArgumentParser(description='Export event tables to parquet files')
-    parser.add_argument('--output-dir', type=str, default='./event_exports',
+    parser.add_argument('--output-dir', type=str, default='./_data/exports/events',
                         help='Output directory for parquet files')
     parser.add_argument('--tables', nargs='+',
                         choices=['event_clusters', 'daily_event_mentions', 'event_summaries', 'all'],

@@ -528,7 +528,7 @@ Examples:
   python %(prog)s --output-dir ./events_export --tables event_clusters canonical_events daily_event_mentions
 
   # Export and upload to S3
-  python %(prog)s --output-dir ./full_export --s3-bucket morris-sp-bucket --s3-prefix full_db_export/
+  python %(prog)s --output-dir ./full_export --s3-bucket morris-sp-bucket --s3-prefix exports/database/
         """
     )
     parser.add_argument('--output-dir', type=str, required=True,
@@ -539,8 +539,8 @@ Examples:
                        help='Export only specific tables (e.g., --tables canonical_events)')
     parser.add_argument('--s3-bucket', type=str,
                        help='Upload to S3 bucket after export (optional)')
-    parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
-                       help='S3 prefix for uploaded files (default: full_db_export/)')
+    parser.add_argument('--s3-prefix', type=str, default='exports/database/',
+                       help='S3 prefix for uploaded files (default: exports/database/)')
 
     args = parser.parse_args()
 

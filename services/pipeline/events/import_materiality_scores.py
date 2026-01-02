@@ -6,19 +6,19 @@ and updates the canonical_events table. This is useful for migrating scores betw
 
 Usage:
     # Import from local directory
-    python services/pipeline/events/import_materiality_scores.py --input-dir ./materiality_exports
+    python services/pipeline/events/import_materiality_scores.py --input-dir ./_data/exports/materiality
 
     # Import from S3
     python services/pipeline/events/import_materiality_scores.py --s3-bucket my-bucket --s3-prefix materiality/backup/
 
     # Dry run (don't actually import, just show what would be imported)
-    python services/pipeline/events/import_materiality_scores.py --input-dir ./materiality_exports --dry-run
+    python services/pipeline/events/import_materiality_scores.py --input-dir ./_data/exports/materiality --dry-run
 
     # Only update existing events (don't create new ones)
-    python services/pipeline/events/import_materiality_scores.py --input-dir ./materiality_exports --update-only
+    python services/pipeline/events/import_materiality_scores.py --input-dir ./_data/exports/materiality --update-only
 
     # Overwrite existing scores
-    python services/pipeline/events/import_materiality_scores.py --input-dir ./materiality_exports --overwrite
+    python services/pipeline/events/import_materiality_scores.py --input-dir ./_data/exports/materiality --overwrite
 """
 
 import argparse

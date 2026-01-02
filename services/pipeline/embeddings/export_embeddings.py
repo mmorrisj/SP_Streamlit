@@ -5,7 +5,7 @@ This script exports all embeddings and event summaries to compressed parquet fil
 for fast backup and restoration. This is much faster than regenerating embeddings.
 
 Usage:
-    # Export everything to default location (./embedding_exports/)
+    # Export everything to default location (./_data/exports/embeddings/)
     python services/pipeline/embeddings/export_embeddings.py
 
     # Export to specific directory
@@ -312,8 +312,8 @@ def main():
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='./embedding_exports',
-        help='Directory to store exported parquet files (default: ./embedding_exports)'
+        default='./_data/exports/embeddings',
+        help='Directory to store exported parquet files (default: ./_data/exports/embeddings)'
     )
     parser.add_argument(
         '--collections',

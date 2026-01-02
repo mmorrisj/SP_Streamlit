@@ -232,7 +232,7 @@ def upload_to_s3(files: list, bucket: str, prefix: str):
 
 def main():
     parser = argparse.ArgumentParser(description='Export materiality scores to parquet files')
-    parser.add_argument('--output-dir', type=str, default='./materiality_exports',
+    parser.add_argument('--output-dir', type=str, default='./_data/exports/materiality',
                         help='Output directory for parquet files')
     parser.add_argument('--countries', nargs='+', help='Countries to export (default: all)')
     parser.add_argument('--scored-only', action='store_true',

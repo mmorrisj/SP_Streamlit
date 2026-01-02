@@ -60,7 +60,7 @@ class EmbeddingLoader:
     def __init__(
         self,
         source: str = 'local',
-        local_dir: str = './data/processed_embeddings',
+        local_dir: str = './_data/processed/embeddings',
         s3_bucket: str = 'morris-sp-bucket',
         s3_prefix: str = 'embeddings/',
         collection_name: str = 'chunk_embeddings',
@@ -653,8 +653,8 @@ Examples:
     # Local source options
     parser.add_argument(
         '--local-dir',
-        default='./data/processed_embeddings',
-        help='Local directory containing parquet files (default: ./data/processed_embeddings)'
+        default='./_data/processed/embeddings',
+        help='Local directory containing parquet files (default: ./_data/processed/embeddings)'
     )
 
     # S3 source options

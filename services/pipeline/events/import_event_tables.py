@@ -8,19 +8,19 @@ Imports event-related tables from parquet files created by export_event_tables.p
 
 Usage:
     # Import from local directory
-    python services/pipeline/events/import_event_tables.py --input-dir ./event_exports
+    python services/pipeline/events/import_event_tables.py --input-dir ./_data/exports/events
 
     # Import from S3
     python services/pipeline/events/import_event_tables.py --s3-bucket my-bucket --s3-prefix events/backup/
 
     # Dry run (don't actually import)
-    python services/pipeline/events/import_event_tables.py --input-dir ./event_exports --dry-run
+    python services/pipeline/events/import_event_tables.py --input-dir ./_data/exports/events --dry-run
 
     # Import specific tables only
-    python services/pipeline/events/import_event_tables.py --input-dir ./event_exports --tables event_clusters
+    python services/pipeline/events/import_event_tables.py --input-dir ./_data/exports/events --tables event_clusters
 
     # Clear existing data before import
-    python services/pipeline/events/import_event_tables.py --input-dir ./event_exports --clear-existing
+    python services/pipeline/events/import_event_tables.py --input-dir ./_data/exports/events --clear-existing
 """
 
 import argparse

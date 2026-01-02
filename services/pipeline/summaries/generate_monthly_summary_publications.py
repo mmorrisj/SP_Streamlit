@@ -154,7 +154,7 @@ def format_summary_for_publication(summaries: List[Dict], country: str, start_da
     return publication
 
 
-def save_publication(publication: Dict, output_dir: str = 'output/publications'):
+def save_publication(publication: Dict, output_dir: str = '_data/publications'):
     """Save publication to JSON file"""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -196,7 +196,7 @@ def main():
     parser.add_argument('--start-date', type=str, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', type=str, help='End date (YYYY-MM-DD)')
     parser.add_argument('--month', type=str, help='Month to process (YYYY-MM), alternative to start/end dates')
-    parser.add_argument('--output-dir', type=str, default='output/publications', help='Output directory for publications')
+    parser.add_argument('--output-dir', type=str, default='_data/publications', help='Output directory for publications')
 
     args = parser.parse_args()
 

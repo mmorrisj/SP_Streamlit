@@ -6,7 +6,7 @@ and stores them in the appropriate LangChain vector store collection.
 
 Usage:
     # Load from local directory
-    python load_embeddings.py --source local --directory data/processed_embeddings
+    python load_embeddings.py --source local --directory _data/processed/embeddings
 
     # Load from S3
     python load_embeddings.py --source s3 --s3-prefix embeddings/
@@ -33,7 +33,7 @@ from services.pipeline.embeddings.s3 import _get_api_client, bucket_name
 import ast
 
 # Tracker file locations
-LOCAL_TRACKER_FILE = "data/processed_embeddings/.processed_tracker.json"
+LOCAL_TRACKER_FILE = "_data/processed/embeddings/.processed_tracker.json"
 S3_TRACKER_PREFIX = "embeddings/"
 
 def parse_embedding_string(emb_str: str) -> np.ndarray:
@@ -499,7 +499,7 @@ def list_s3_parquet_files(s3_prefix: str = S3_TRACKER_PREFIX) -> List[Dict[str, 
         print(f"Error listing S3 files: {e}")
         raise
 
-def process_local_embeddings(directory: str = "data/processed_embeddings",
+def process_local_embeddings(directory: str = "_data/processed/embeddings",
                             specific_files: Optional[List[str]] = None,
                             batch_size: int = 100,
                             skip_existing: bool = True) -> Dict[str, int]:
@@ -656,7 +656,7 @@ def process_s3_embeddings(s3_prefix: str = S3_TRACKER_PREFIX,
 
     return total_counts
 
-def show_local_status(directory: str = "data/processed_embeddings"):
+def show_local_status(directory: str = "_data/processed/embeddings"):
     """Show status of local parquet files."""
     print(f"📊 Local Embedding Files Status")
     print("=" * 60)
@@ -704,7 +704,7 @@ def show_s3_status(s3_prefix: str = S3_TRACKER_PREFIX):
     if tracker_data.get('last_updated'):
         print(f"\n🕒 Last tracker update: {tracker_data['last_updated']}")
 
-def reprocess_local_files(filenames: List[str], directory: str = "data/processed_embeddings"):
+def reprocess_local_files(filenames: List[str], directory: str = "_data/processed/embeddings"):
     """Remove files from local processed list to allow reprocessing."""
     tracker_data = load_local_processed_tracker()
     processed_files = tracker_data['processed_files']
@@ -748,8 +748,8 @@ if __name__ == "__main__":
     # Data source options
     parser.add_argument("--source", choices=["local", "s3"], default="local",
                        help="Data source: local directory or S3 bucket (default: local)")
-    parser.add_argument("--directory", type=str, default="data/processed_embeddings",
-                       help="Local directory containing parquet files (default: data/processed_embeddings)")
+    parser.add_argument("--directory", type=str, default="_data/processed/embeddings",
+                       help="Local directory containing parquet files (default: _data/processed/embeddings)")
     parser.add_argument("--s3-prefix", type=str, default="embeddings/",
                        help="S3 prefix/folder for parquet files (default: embeddings/)")
 

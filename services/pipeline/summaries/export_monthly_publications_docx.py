@@ -304,7 +304,7 @@ def main():
     parser.add_argument('--month', type=str, help='Month in YYYY-MM format (uses full month)')
     parser.add_argument('--start-date', type=str, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', type=str, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--output-dir', type=str, default='output/publications',
+    parser.add_argument('--output-dir', type=str, default='_data/publications',
                        help='Output directory for DOCX and CSV files')
 
     args = parser.parse_args()

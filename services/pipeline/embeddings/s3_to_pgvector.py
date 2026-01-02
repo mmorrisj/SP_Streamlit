@@ -61,7 +61,7 @@ class S3ToPgVectorMigrator:
         collection_name: str = 'chunk_embeddings',
         dry_run: bool = False,
         force_reprocess: bool = False,
-        tracker_dir: str = './data/processed_embeddings',
+        tracker_dir: str = './_data/processed/embeddings',
         api_url: Optional[str] = None
     ):
         """
@@ -596,7 +596,7 @@ class S3ToPgVectorMigrator:
         }
 
 
-def view_tracker(collection_name: str, tracker_dir: str = './data/processed_embeddings'):
+def view_tracker(collection_name: str, tracker_dir: str = './_data/processed/embeddings'):
     """View processed files for a collection."""
     tracker_file = Path(tracker_dir) / f"{collection_name}_processed.json"
 
@@ -623,7 +623,7 @@ def view_tracker(collection_name: str, tracker_dir: str = './data/processed_embe
             print(f"{filename:<50} {processed_at:<25} {doc_count:<10}")
 
 
-def reset_tracker(collection_name: str, tracker_dir: str = './data/processed_embeddings', confirm: bool = False):
+def reset_tracker(collection_name: str, tracker_dir: str = './_data/processed/embeddings', confirm: bool = False):
     """Reset processed files tracker for a collection."""
     tracker_file = Path(tracker_dir) / f"{collection_name}_processed.json"
 
@@ -683,8 +683,8 @@ def main():
     )
     migrate_parser.add_argument(
         '--tracker-dir',
-        default='./data/processed_embeddings',
-        help='Directory to store processed file tracker (default: ./data/processed_embeddings)'
+        default='./_data/processed/embeddings',
+        help='Directory to store processed file tracker (default: ./_data/processed/embeddings)'
     )
     migrate_parser.add_argument(
         '--api-url',
@@ -700,8 +700,8 @@ def main():
     )
     view_parser.add_argument(
         '--tracker-dir',
-        default='./data/processed_embeddings',
-        help='Directory containing tracker files (default: ./data/processed_embeddings)'
+        default='./_data/processed/embeddings',
+        help='Directory containing tracker files (default: ./_data/processed/embeddings)'
     )
 
     # Reset tracker command
@@ -712,8 +712,8 @@ def main():
     )
     reset_parser.add_argument(
         '--tracker-dir',
-        default='./data/processed_embeddings',
-        help='Directory containing tracker files (default: ./data/processed_embeddings)'
+        default='./_data/processed/embeddings',
+        help='Directory containing tracker files (default: ./_data/processed/embeddings)'
     )
     reset_parser.add_argument(
         '--confirm',
@@ -757,8 +757,8 @@ def main():
         )
         parser.add_argument(
             '--tracker-dir',
-            default='./data/processed_embeddings',
-            help='Directory to store processed file tracker (default: ./data/processed_embeddings)'
+            default='./_data/processed/embeddings',
+            help='Directory to store processed file tracker (default: ./_data/processed/embeddings)'
         )
         parser.add_argument(
             '--api-url',

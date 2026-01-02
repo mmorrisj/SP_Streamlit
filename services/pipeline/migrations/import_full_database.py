@@ -9,7 +9,7 @@ Usage:
     python services/pipeline/migrations/import_full_database.py --input-dir ./full_export
 
     # Import from S3
-    python services/pipeline/migrations/import_full_database.py --s3-bucket my-bucket --s3-prefix full_db_export/
+    python services/pipeline/migrations/import_full_database.py --s3-bucket my-bucket --s3-prefix exports/database/
 
     # Test import (dry run)
     python services/pipeline/migrations/import_full_database.py --input-dir ./full_export --dry-run
@@ -785,8 +785,8 @@ Examples:
                        help='Import only specific tables (e.g., --tables canonical_events)')
     parser.add_argument('--s3-bucket', type=str, default=default_bucket,
                        help=f'Download from S3 bucket (default: {default_bucket} from config.yaml)')
-    parser.add_argument('--s3-prefix', type=str, default='full_db_export/',
-                       help='S3 prefix for files (default: full_db_export/)')
+    parser.add_argument('--s3-prefix', type=str, default='exports/database/',
+                       help='S3 prefix for files (default: exports/database/)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Test import without making changes')
     parser.add_argument('--clear-existing', action='store_true',
