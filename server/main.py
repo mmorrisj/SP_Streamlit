@@ -31,6 +31,44 @@ with open(CONFIG_PATH, 'r') as f:
 INFLUENCERS = CONFIG.get('influencers', [])
 RECIPIENTS = CONFIG.get('recipients', [])
 
+# Hardcoded mapping of subcategories to their parent categories
+# This is necessary because the database stores them separately without a direct link
+SUBCATEGORY_TO_CATEGORY = {
+    # Economic
+    'Trade': 'Economic',
+    'Infrastructure': 'Economic',
+    'Food': 'Economic',
+    'Technology': 'Economic',
+    'Tourism': 'Economic',
+    'Industrial': 'Economic',
+    'Raw Materials': 'Economic',
+    'Energy': 'Economic',
+    'Finance': 'Economic',
+
+    # Social
+    'Culture': 'Social',
+    'Education': 'Social',
+    'Healthcare': 'Social',
+    'Housing': 'Social',
+    'Media': 'Social',
+    'Politics': 'Social',
+    'Religious': 'Social',
+    'Cultural': 'Social',
+    'Diaspora Engagement': 'Social',
+
+    # Military
+    'Sales': 'Military',
+    'Joint Exercises': 'Military',
+    'Training': 'Military',
+
+    # Diplomacy
+    'Bilateral/Multilateral Agreements': 'Diplomacy',
+    'Multilateral/Bilateral Commitments': 'Diplomacy',
+    'Conflict Resolution': 'Diplomacy',
+    'Global Governance Participation': 'Diplomacy',
+    'Conferences': 'Diplomacy',
+}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -665,6 +703,568 @@ def get_influencer_events(country: str, limit: int = Query(default=10, ge=1, le=
 
         return InfluencerEventsResponse(events=event_list)
 
+# ===== COMPREHENSIVE METRICS ENDPOINTS =====
+
+class OverallMetrics(BaseModel):
+    total_documents: int
+    total_relationships: int
+    active_influencers: int
+    active_recipients: int
+    category_breakdown: list
+    subcategory_breakdown: list
+    influencer_comparison: list
+    monthly_trend: list
+    category_by_influencer: list
+
+class InfluencerMetrics(BaseModel):
+    influencer: str
+    total_documents: int
+    category_breakdown: list
+    subcategory_breakdown: list
+    recipient_breakdown: list
+    monthly_trend: list
+    source_breakdown: list
+
+class BilateralMetrics(BaseModel):
+    influencer: str
+    recipient: str
+    total_documents: int
+    category_breakdown: list
+    subcategory_breakdown: list
+    monthly_trend: list
+    source_breakdown: list
+    recent_highlights: list
+
+class RecipientMetrics(BaseModel):
+    recipient: str
+    total_documents: int
+    influencer_breakdown: list
+    category_breakdown: list
+    subcategory_breakdown: list
+    monthly_trend: list
+    source_breakdown: list
+    recent_events: list
+
+@app.get("/api/metrics/overall", response_model=OverallMetrics)
+def get_overall_metrics():
+    """Get comprehensive overall metrics across all influencers and recipients."""
+    with get_session() as session:
+        # Total documents
+        total_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).scalar() or 0
+
+        # Total relationships
+        total_relationships = session.query(
+            func.count(func.distinct(
+                func.concat(InitiatingCountry.initiating_country, '|', RecipientCountry.recipient_country)
+            ))
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == InitiatingCountry.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).scalar() or 0
+
+        # Active influencers (with at least 1 document)
+        active_influencers = len(INFLUENCERS)  # All have data in your case
+
+        # Active recipients
+        active_recipients = session.query(
+            func.count(func.distinct(RecipientCountry.recipient_country))
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == RecipientCountry.doc_id).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).scalar() or 0
+
+        # Category breakdown
+        category_breakdown = session.query(
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Category.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Category.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(Category.category).order_by(
+            func.count(func.distinct(Category.doc_id)).desc()
+        ).all()
+
+        # Subcategory breakdown (top 20)
+        subcategory_breakdown = session.query(
+            Subcategory.subcategory,
+            func.count(func.distinct(Subcategory.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Subcategory.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Subcategory.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(Subcategory.subcategory).order_by(
+            func.count(func.distinct(Subcategory.doc_id)).desc()
+        ).limit(20).all()
+
+        # Influencer comparison (document count per influencer)
+        influencer_comparison = session.query(
+            InitiatingCountry.initiating_country,
+            func.count(func.distinct(InitiatingCountry.doc_id)).label('count')
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == InitiatingCountry.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(InitiatingCountry.initiating_country).order_by(
+            func.count(func.distinct(InitiatingCountry.doc_id)).desc()
+        ).all()
+
+        # Monthly trend (last 12 months)
+        monthly_trend = session.query(
+            func.date_trunc('month', Document.date).label('month'),
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Document.date.isnot(None)
+        ).group_by(func.date_trunc('month', Document.date)).order_by(
+            func.date_trunc('month', Document.date).desc()
+        ).limit(12).all()
+
+        # Category by influencer (matrix data)
+        category_by_influencer_raw = session.query(
+            InitiatingCountry.initiating_country,
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Category.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Category.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(
+            InitiatingCountry.initiating_country,
+            Category.category
+        ).all()
+
+        # Format category by influencer as list of dicts
+        category_by_influencer = [
+            {"influencer": row[0], "category": row[1], "count": row[2]}
+            for row in category_by_influencer_raw
+        ]
+
+        return OverallMetrics(
+            total_documents=total_docs,
+            total_relationships=total_relationships,
+            active_influencers=active_influencers,
+            active_recipients=active_recipients,
+            category_breakdown=[{"category": cat, "count": count} for cat, count in category_breakdown],
+            subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
+            influencer_comparison=[{"influencer": inf, "count": count} for inf, count in influencer_comparison],
+            monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
+            category_by_influencer=category_by_influencer
+        )
+
+@app.get("/api/metrics/influencer/{country}", response_model=InfluencerMetrics)
+def get_influencer_metrics(country: str):
+    """Get comprehensive metrics for a specific influencer with category/subcategory breakdowns."""
+    with get_session() as session:
+        if country not in INFLUENCERS:
+            return {"error": f"{country} is not a recognized influencer"}
+
+        # Total documents
+        total_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).scalar() or 0
+
+        # Category breakdown
+        category_breakdown = session.query(
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Category.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Category.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(Category.category).order_by(
+            func.count(func.distinct(Category.doc_id)).desc()
+        ).all()
+
+        # Subcategory breakdown (all)
+        subcategory_breakdown = session.query(
+            Subcategory.subcategory,
+            func.count(func.distinct(Subcategory.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Subcategory.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Subcategory.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(Subcategory.subcategory).order_by(
+            func.count(func.distinct(Subcategory.doc_id)).desc()
+        ).all()
+
+        # Recipient breakdown
+        recipient_breakdown = session.query(
+            RecipientCountry.recipient_country,
+            func.count(func.distinct(RecipientCountry.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == RecipientCountry.doc_id).filter(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(RecipientCountry.recipient_country).order_by(
+            func.count(func.distinct(RecipientCountry.doc_id)).desc()
+        ).all()
+
+        # Monthly trend
+        monthly_trend = session.query(
+            func.date_trunc('month', Document.date).label('month'),
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Document.date.isnot(None)
+        ).group_by(func.date_trunc('month', Document.date)).order_by(
+            func.date_trunc('month', Document.date).desc()
+        ).limit(12).all()
+
+        # Source breakdown (top 20 news sources)
+        source_breakdown = session.query(
+            Document.source_name,
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Document.source_name.isnot(None)
+        ).group_by(Document.source_name).order_by(
+            func.count(func.distinct(Document.doc_id)).desc()
+        ).limit(20).all()
+
+        return InfluencerMetrics(
+            influencer=country,
+            total_documents=total_docs,
+            category_breakdown=[{"category": cat, "count": count} for cat, count in category_breakdown],
+            subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
+            recipient_breakdown=[{"recipient": recip, "count": count} for recip, count in recipient_breakdown],
+            monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
+            source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown]
+        )
+
+@app.get("/api/metrics/bilateral/{influencer}/{recipient}", response_model=BilateralMetrics)
+def get_bilateral_metrics(influencer: str, recipient: str):
+    """Get comprehensive bilateral metrics with category and subcategory breakdowns."""
+    with get_session() as session:
+        if influencer not in INFLUENCERS:
+            return {"error": f"{influencer} is not a recognized influencer"}
+        if recipient not in RECIPIENTS:
+            return {"error": f"{recipient} is not a recognized recipient"}
+
+        # Total documents
+        total_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient
+        ).scalar() or 0
+
+        # Category breakdown
+        category_breakdown = session.query(
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Category.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Category.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient
+        ).group_by(Category.category).order_by(
+            func.count(func.distinct(Category.doc_id)).desc()
+        ).all()
+
+        # Subcategory breakdown (all)
+        subcategory_breakdown = session.query(
+            Subcategory.subcategory,
+            func.count(func.distinct(Subcategory.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Subcategory.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Subcategory.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient
+        ).group_by(Subcategory.subcategory).order_by(
+            func.count(func.distinct(Subcategory.doc_id)).desc()
+        ).all()
+
+        # Monthly trend
+        monthly_trend = session.query(
+            func.date_trunc('month', Document.date).label('month'),
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient,
+            Document.date.isnot(None)
+        ).group_by(func.date_trunc('month', Document.date)).order_by(
+            func.date_trunc('month', Document.date).desc()
+        ).limit(12).all()
+
+        # Source breakdown (top 20 news sources)
+        source_breakdown = session.query(
+            Document.source_name,
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient,
+            Document.source_name.isnot(None)
+        ).group_by(Document.source_name).order_by(
+            func.count(func.distinct(Document.doc_id)).desc()
+        ).limit(20).all()
+
+        # Recent highlights (top 5 documents with highest salience scores or most recent)
+        recent_highlights = session.query(
+            Document.doc_id,
+            Document.title,
+            Document.date,
+            Document.distilled_text,
+            Document.salience_justification,
+            Category.category,
+            Subcategory.subcategory
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).join(
+            Category,
+            Category.doc_id == Document.doc_id,
+            isouter=True
+        ).join(
+            Subcategory,
+            Subcategory.doc_id == Document.doc_id,
+            isouter=True
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient,
+            Document.distilled_text.isnot(None)
+        ).order_by(Document.date.desc()).limit(5).all()
+
+        highlights = []
+        for doc in recent_highlights:
+            highlights.append({
+                "doc_id": doc.doc_id,
+                "title": doc.title,
+                "date": str(doc.date) if doc.date else None,
+                "distilled_text": doc.distilled_text,
+                "salience_justification": doc.salience_justification,
+                "category": doc.category,
+                "subcategory": doc.subcategory
+            })
+
+        return BilateralMetrics(
+            influencer=influencer,
+            recipient=recipient,
+            total_documents=total_docs,
+            category_breakdown=[{"category": cat, "count": count} for cat, count in category_breakdown],
+            subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
+            monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
+            source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown],
+            recent_highlights=highlights
+        )
+
+@app.get("/api/metrics/recipient/{country}", response_model=RecipientMetrics)
+def get_recipient_metrics(country: str):
+    """Get comprehensive metrics for a specific recipient across all influencers."""
+    with get_session() as session:
+        if country not in RECIPIENTS:
+            return {"error": f"{country} is not a recognized recipient"}
+
+        # Total documents for this recipient from all influencers
+        total_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).scalar() or 0
+
+        # Influencer breakdown (which influencers engage with this recipient)
+        influencer_breakdown = session.query(
+            InitiatingCountry.initiating_country,
+            func.count(func.distinct(InitiatingCountry.doc_id)).label('count')
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == InitiatingCountry.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(InitiatingCountry.initiating_country).order_by(
+            func.count(func.distinct(InitiatingCountry.doc_id)).desc()
+        ).all()
+
+        # Category breakdown
+        category_breakdown = session.query(
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Category.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Category.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(Category.category).order_by(
+            func.count(func.distinct(Category.doc_id)).desc()
+        ).all()
+
+        # Subcategory breakdown (all)
+        subcategory_breakdown = session.query(
+            Subcategory.subcategory,
+            func.count(func.distinct(Subcategory.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Subcategory.doc_id).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Subcategory.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).group_by(Subcategory.subcategory).order_by(
+            func.count(func.distinct(Subcategory.doc_id)).desc()
+        ).all()
+
+        # Monthly trend
+        monthly_trend = session.query(
+            func.date_trunc('month', Document.date).label('month'),
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Document.date.isnot(None)
+        ).group_by(func.date_trunc('month', Document.date)).order_by(
+            func.date_trunc('month', Document.date).desc()
+        ).limit(12).all()
+
+        # Source breakdown (top 20 news sources)
+        source_breakdown = session.query(
+            Document.source_name,
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Document.source_name.isnot(None)
+        ).group_by(Document.source_name).order_by(
+            func.count(func.distinct(Document.doc_id)).desc()
+        ).limit(20).all()
+
+        # Recent events involving this recipient (from all influencers)
+        # Get doc_ids for this recipient
+        recipient_doc_ids = session.query(
+            Document.doc_id
+        ).join(InitiatingCountry).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).subquery()
+
+        # Get events mentioned in those documents
+        from shared.models.models import DailyEventMention
+
+        # Get list of doc_ids to check against
+        recipient_doc_id_list = [row[0] for row in session.query(recipient_doc_ids).all()]
+
+        recipient_events = session.query(
+            CanonicalEvent.id,
+            CanonicalEvent.canonical_name,
+            CanonicalEvent.last_mention_date,
+            CanonicalEvent.consolidated_description,
+            CanonicalEvent.initiating_country,
+            CanonicalEvent.total_articles
+        ).join(
+            DailyEventMention,
+            DailyEventMention.canonical_event_id == CanonicalEvent.id
+        ).filter(
+            DailyEventMention.doc_ids.op('&&')(recipient_doc_id_list),
+            CanonicalEvent.master_event_id.is_(None)  # Only master events
+        ).distinct().order_by(CanonicalEvent.last_mention_date.desc()).limit(10).all()
+
+        events = []
+        for event in recipient_events:
+            events.append({
+                "id": str(event.id),
+                "event_name": event.canonical_name,
+                "event_date": str(event.last_mention_date) if event.last_mention_date else None,
+                "summary": event.consolidated_description,
+                "influencer": event.initiating_country,
+                "total_mentions": event.total_articles
+            })
+
+        return RecipientMetrics(
+            recipient=country,
+            total_documents=total_docs,
+            influencer_breakdown=[{"influencer": inf, "count": count} for inf, count in influencer_breakdown],
+            category_breakdown=[{"category": cat, "count": count} for cat, count in category_breakdown],
+            subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
+            monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
+            source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown],
+            recent_events=events
+        )
+
 # ===== BILATERAL RELATIONSHIP ENDPOINTS =====
 
 class BilateralOverview(BaseModel):
@@ -771,6 +1371,9 @@ def get_bilateral_overview(influencer: str, recipient: str):
         # This requires joining through DailyEventMention table
         from shared.models.models import DailyEventMention
 
+        # Get list of doc_ids to check against
+        bilateral_doc_id_list = [row[0] for row in session.query(bilateral_doc_ids).all()]
+
         bilateral_events = session.query(
             CanonicalEvent.id,
             CanonicalEvent.canonical_name,
@@ -781,7 +1384,7 @@ def get_bilateral_overview(influencer: str, recipient: str):
             DailyEventMention,
             DailyEventMention.canonical_event_id == CanonicalEvent.id
         ).filter(
-            DailyEventMention.doc_id.in_(session.query(bilateral_doc_ids)),
+            DailyEventMention.doc_ids.op('&&')(bilateral_doc_id_list),
             CanonicalEvent.master_event_id.is_(None)  # Only master events
         ).distinct().order_by(CanonicalEvent.last_mention_date.desc()).limit(5).all()
 
