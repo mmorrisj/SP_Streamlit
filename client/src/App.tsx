@@ -9,6 +9,10 @@ import BilateralRelationships from './pages/BilateralRelationships'
 import Categories from './pages/Categories'
 import InfluencerPage from './pages/InfluencerPage'
 import BilateralPage from './pages/BilateralPage'
+import OverallMetrics from './pages/OverallMetrics'
+import InfluencerMetricsPage from './pages/InfluencerMetricsPage'
+import BilateralMetricsPage from './pages/BilateralMetricsPage'
+import RecipientMetricsPage from './pages/RecipientMetricsPage'
 
 const queryClient = new QueryClient()
 
@@ -24,8 +28,12 @@ function App() {
             <Route path="summaries" element={<Summaries />} />
             <Route path="bilateral" element={<BilateralRelationships />} />
             <Route path="bilateral/:influencer/:recipient" element={<BilateralPage />} />
+            <Route path="bilateral-metrics/:influencer/:recipient" element={<BilateralMetricsPage />} />
             <Route path="categories" element={<Categories />} />
             <Route path="influencer/:country" element={<InfluencerPage />} />
+            <Route path="metrics" element={<OverallMetrics />} />
+            <Route path="metrics/influencer/:country" element={<InfluencerMetricsPage />} />
+            <Route path="metrics/recipient/:country" element={<RecipientMetricsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

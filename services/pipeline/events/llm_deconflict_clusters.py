@@ -841,11 +841,29 @@ def main():
         print("=" * 60)
 
     with get_session() as session:
+        from datetime import timedelta
+
         # Determine processing scope
         if args.country and args.date:
             # Process specific country and date
             target_date = datetime.strptime(args.date, '%Y-%m-%d').date()
             processor.process_country_date(session, args.country, target_date, checkpoint_frequency)
+
+        elif args.country and args.start_date and args.end_date:
+            # Process specific country for date range
+            start_date = datetime.strptime(args.start_date, '%Y-%m-%d').date()
+            end_date = datetime.strptime(args.end_date, '%Y-%m-%d').date()
+
+            print(f"Processing country: {args.country}")
+            print(f"Date range: {start_date} to {end_date}")
+            print("=" * 60)
+            print()
+
+            # Iterate over date range
+            current_date = start_date
+            while current_date <= end_date:
+                processor.process_country_date(session, args.country, current_date, checkpoint_frequency)
+                current_date += timedelta(days=1)
 
         elif args.influencers and args.start_date and args.end_date:
             # Process all influencer countries for date range
@@ -863,13 +881,68 @@ def main():
 
             # Iterate over date range
             current_date = start_date
-            from datetime import timedelta
 
             while current_date <= end_date:
                 for country in influencers:
                     processor.process_country_date(session, country, current_date, checkpoint_frequency)
 
                 current_date += timedelta(days=1)
+
+        elif args.start_date and args.end_date:
+            # Process all countries for date range
+            start_date = datetime.strptime(args.start_date, '%Y-%m-%d').date()
+            end_date = datetime.strptime(args.end_date, '%Y-%m-%d').date()
+
+            print(f"Processing all countries")
+            print(f"Date range: {start_date} to {end_date}")
+            print("=" * 60)
+            print()
+
+            # Get all unprocessed batches in date range
+            batches = processor.get_unprocessed_batches(session)
+
+            # Filter by date range
+            filtered_batches = [
+                b for b in batches
+                if start_date <= b['cluster_date'] <= end_date
+            ]
+
+            print(f"Found {len(filtered_batches)} unprocessed batches in date range")
+            print()
+
+            # Group by country and date
+            processed = set()
+            for batch in filtered_batches:
+                key = (batch['initiating_country'], batch['cluster_date'])
+                if key not in processed:
+                    processor.process_country_date(
+                        session,
+                        batch['initiating_country'],
+                        batch['cluster_date'],
+                        checkpoint_frequency
+                    )
+                    processed.add(key)
+
+        elif args.country:
+            # Process all unprocessed batches for specific country
+            print(f"Processing all unprocessed batches for country: {args.country}")
+            print("=" * 60)
+
+            batches = processor.get_unprocessed_batches(session, country=args.country)
+            print(f"Found {len(batches)} unprocessed batches")
+            print()
+
+            # Group by date
+            processed_dates = set()
+            for batch in batches:
+                if batch['cluster_date'] not in processed_dates:
+                    processor.process_country_date(
+                        session,
+                        batch['initiating_country'],
+                        batch['cluster_date'],
+                        checkpoint_frequency
+                    )
+                    processed_dates.add(batch['cluster_date'])
 
         elif args.all:
             # Process all unprocessed batches
@@ -880,18 +953,26 @@ def main():
             print(f"Found {len(batches)} unprocessed batches")
             print()
 
+            # Group by country and date
+            processed = set()
             for batch in batches:
-                processor.process_country_date(
-                    session,
-                    batch['initiating_country'],
-                    batch['cluster_date'],
-                    checkpoint_frequency
-                )
+                key = (batch['initiating_country'], batch['cluster_date'])
+                if key not in processed:
+                    processor.process_country_date(
+                        session,
+                        batch['initiating_country'],
+                        batch['cluster_date'],
+                        checkpoint_frequency
+                    )
+                    processed.add(key)
 
         else:
             # Invalid arguments
             print("Error: Must specify processing scope:")
             print("  --country COUNTRY --date DATE")
+            print("  --country COUNTRY --start-date DATE --end-date DATE")
+            print("  --country COUNTRY  (all unprocessed for that country)")
+            print("  --start-date DATE --end-date DATE  (all countries in date range)")
             print("  --influencers --start-date DATE --end-date DATE")
             print("  --all")
             parser.print_help()
