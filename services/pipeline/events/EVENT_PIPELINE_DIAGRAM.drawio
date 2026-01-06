@@ -1,0 +1,199 @@
+<mxfile host="65bd71144e">
+    <diagram id="EventPipeline" name="Event Processing Pipeline">
+        <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+
+                <!-- Title -->
+                <mxCell id="title" value="Event Processing Pipeline Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" vertex="1" parent="1">
+                    <mxGeometry x="340" y="20" width="490" height="40" as="geometry"/>
+                </mxCell>
+
+                <!-- INPUT DATA -->
+                <mxCell id="inputSection" value="INPUT DATA" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="80" width="320" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="documents" value="📄 documents" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="inputSection">
+                    <mxGeometry x="20" y="50" width="120" height="100" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="rawEvents" value="📋 raw_events&lt;br&gt;(flattened from documents)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="inputSection">
+                    <mxGeometry x="170" y="50" width="130" height="100" as="geometry"/>
+                </mxCell>
+
+                <!-- STAGE 1: DAILY PROCESSING -->
+                <mxCell id="stage1Section" value="STAGE 1: DAILY PROCESSING" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="300" width="1080" height="400" as="geometry"/>
+                </mxCell>
+
+                <!-- Step 1.1: Batch Cluster Events -->
+                <mxCell id="batchClusterBox" value="&lt;b&gt;1. batch_cluster_events.py&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Groups raw_events per day&lt;br&gt;• DBSCAN clustering&lt;br&gt;• Embedding similarity (cosine)&lt;br&gt;• Creates batches for processing&lt;br&gt;&lt;br&gt;Input: raw_events&lt;br&gt;Output: event_clusters" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacingLeft=10;spacingTop=5;" vertex="1" parent="stage1Section">
+                    <mxGeometry x="20" y="50" width="240" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="eventClusters" value="🗂️ event_clusters&lt;br&gt;&lt;br&gt;• cluster_id&lt;br&gt;• cluster_date&lt;br&gt;• batch_number&lt;br&gt;• event_names[]&lt;br&gt;• doc_ids[]&lt;br&gt;• llm_deconflicted&lt;br&gt;• refined_clusters" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;" vertex="1" parent="stage1Section">
+                    <mxGeometry x="290" y="50" width="200" height="180" as="geometry"/>
+                </mxCell>
+
+                <!-- Step 1.2: LLM Deconflict -->
+                <mxCell id="llmDeconflictBox" value="&lt;b&gt;2. llm_deconflict_clusters.py&lt;/b&gt;&lt;br&gt;&lt;br&gt;• LLM validates clusters&lt;br&gt;• Groups duplicate event names&lt;br&gt;• Creates canonical_events&lt;br&gt;• Creates daily_event_mentions&lt;br&gt;• ⚠️ ATOMIC: both or neither&lt;br&gt;&lt;br&gt;Input: event_clusters&lt;br&gt;Output: canonical_events + daily_event_mentions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacingLeft=10;spacingTop=5;" vertex="1" parent="stage1Section">
+                    <mxGeometry x="520" y="50" width="260" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="canonicalEvents1" value="📌 canonical_events&lt;br&gt;&lt;br&gt;• canonical_name&lt;br&gt;• initiating_country&lt;br&gt;• first_mention_date&lt;br&gt;• last_mention_date&lt;br&gt;• embedding_vector&lt;br&gt;• alternative_names[]&lt;br&gt;• primary_categories{}&lt;br&gt;• primary_recipients{}&lt;br&gt;• master_event_id&lt;br&gt;• llm_validated" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;" vertex="1" parent="stage1Section">
+                    <mxGeometry x="810" y="50" width="140" height="210" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="dailyMentions1" value="📅 daily_event_mentions&lt;br&gt;&lt;br&gt;• canonical_event_id&lt;br&gt;• mention_date&lt;br&gt;• doc_ids[]&lt;br&gt;• article_count" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;" vertex="1" parent="stage1Section">
+                    <mxGeometry x="950" y="50" width="110" height="120" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="stage1Note" value="✅ Result: Each unique event per day gets its own canonical_event&lt;br&gt;⚠️ At this point: Events are NOT linked across days" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=middle;spacingLeft=10;fontStyle=2" vertex="1" parent="stage1Section">
+                    <mxGeometry x="20" y="260" width="1040" height="60" as="geometry"/>
+                </mxCell>
+
+                <!-- STAGE 2: BATCH CONSOLIDATION -->
+                <mxCell id="stage2Section" value="STAGE 2: BATCH CONSOLIDATION (Cross-Date Grouping)" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="740" width="1080" height="620" as="geometry"/>
+                </mxCell>
+
+                <!-- Step 2.1: Consolidate All Events -->
+                <mxCell id="consolidateBox" value="&lt;b&gt;3. consolidate_all_events.py&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Processes ENTIRE dataset&lt;br&gt;• Embedding similarity (cosine ≥0.85)&lt;br&gt;• Groups events across all dates&lt;br&gt;• Sets master_event_id&lt;br&gt;&lt;br&gt;Input: canonical_events (all)&lt;br&gt;Output: master-child hierarchy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;align=left;verticalAlign=top;spacingLeft=10;spacingTop=5;" vertex="1" parent="stage2Section">
+                    <mxGeometry x="20" y="50" width="240" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="hierarchyDiagram" value="&lt;b&gt;Master-Child Hierarchy:&lt;/b&gt;&lt;br&gt;&lt;br&gt;Master Event (master_event_id = NULL)&lt;br&gt;├── Child Event 1 (2024-08-01)&lt;br&gt;├── Child Event 2 (2024-08-05)&lt;br&gt;├── Child Event 3 (2024-08-12)&lt;br&gt;└── Child Event 4 (2024-08-20)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacingLeft=10;fontFamily=Courier New;" vertex="1" parent="stage2Section">
+                    <mxGeometry x="290" y="50" width="260" height="180" as="geometry"/>
+                </mxCell>
+
+                <!-- Step 2.2: LLM Validate Consolidation -->
+                <mxCell id="llmValidateBox" value="&lt;b&gt;4. llm_deconflict_canonical_events.py&lt;/b&gt;&lt;br&gt;&lt;br&gt;• LLM validates groupings&lt;br&gt;• Verifies same real-world event&lt;br&gt;• Picks best canonical name&lt;br&gt;• Splits incorrect groups&lt;br&gt;• Sets llm_validated = TRUE&lt;br&gt;&lt;br&gt;Input: master-child groups&lt;br&gt;Output: validated groups" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;align=left;verticalAlign=top;spacingLeft=10;spacingTop=5;" vertex="1" parent="stage2Section">
+                    <mxGeometry x="580" y="50" width="240" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="validatedNote" value="✅ llm_validated = TRUE&lt;br&gt;📝 Best canonical_name chosen&lt;br&gt;✂️ Incorrect groups split" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=middle;spacingLeft=10;" vertex="1" parent="stage2Section">
+                    <mxGeometry x="850" y="50" width="210" height="80" as="geometry"/>
+                </mxCell>
+
+                <!-- Step 2.3: Merge Events -->
+                <mxCell id="mergeBox" value="&lt;b&gt;5. merge_canonical_events.py&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Consolidates daily_event_mentions&lt;br&gt;• Merges child mentions → master&lt;br&gt;• Updates master date ranges&lt;br&gt;• Deletes empty child events&lt;br&gt;&lt;br&gt;Input: validated master-child groups&lt;br&gt;Output: multi-day master events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;align=left;verticalAlign=top;spacingLeft=10;spacingTop=5;" vertex="1" parent="stage2Section">
+                    <mxGeometry x="20" y="270" width="320" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="finalStructure" value="&lt;b&gt;Final Structure:&lt;/b&gt;&lt;br&gt;&lt;br&gt;Master Event:&lt;br&gt;• canonical_name: &quot;Best Name&quot;&lt;br&gt;• first_mention_date: 2024-08-01&lt;br&gt;• last_mention_date: 2024-08-20&lt;br&gt;• master_event_id: NULL&lt;br&gt;&lt;br&gt;Daily Mentions (linked to master):&lt;br&gt;• 2024-08-01: 25 docs&lt;br&gt;• 2024-08-05: 18 docs&lt;br&gt;• 2024-08-12: 32 docs&lt;br&gt;• 2024-08-20: 15 docs" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="stage2Section">
+                    <mxGeometry x="370" y="270" width="280" height="220" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="stage2Result" value="✅ Result: Master events span multiple days&lt;br&gt;✅ All daily_event_mentions linked to masters&lt;br&gt;✅ Child events deleted (clean data)&lt;br&gt;✅ Query-ready for dashboard" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=middle;spacingLeft=10;fontStyle=2" vertex="1" parent="stage2Section">
+                    <mxGeometry x="20" y="520" width="1040" height="80" as="geometry"/>
+                </mxCell>
+
+                <!-- DIAGNOSTIC TOOLS -->
+                <mxCell id="diagnosticSection" value="DIAGNOSTIC &amp; UTILITY TOOLS" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="1400" width="1080" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="diagnostic1" value="check_pipeline_coverage.py&lt;br&gt;View pipeline state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="diagnosticSection">
+                    <mxGeometry x="20" y="50" width="150" height="60" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="diagnostic2" value="find_unprocessed_dates.py&lt;br&gt;Find missing dates" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="diagnosticSection">
+                    <mxGeometry x="190" y="50" width="150" height="60" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="diagnostic3" value="debug_single_event.py&lt;br&gt;Deep dive single event" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="diagnosticSection">
+                    <mxGeometry x="360" y="50" width="150" height="60" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="diagnostic4" value="query_master_events.py&lt;br&gt;Query master events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="diagnosticSection">
+                    <mxGeometry x="530" y="50" width="150" height="60" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="diagnostic5" value="wipe_event_tables.py&lt;br&gt;⚠️ Reset pipeline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="diagnosticSection">
+                    <mxGeometry x="700" y="50" width="150" height="60" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="diagnostic6" value="export_event_tables.py&lt;br&gt;Backup to parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="diagnosticSection">
+                    <mxGeometry x="870" y="50" width="150" height="60" as="geometry"/>
+                </mxCell>
+
+                <!-- ARROWS -->
+                <mxCell id="arrow1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#d5e8d4;strokeColor=#82b366;" edge="1" parent="1" source="rawEvents" target="batchClusterBox">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;strokeWidth=3;fillColor=#fff2cc;strokeColor=#d6b656;" edge="1" parent="1" source="batchClusterBox" target="eventClusters">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#fff2cc;strokeColor=#d6b656;" edge="1" parent="1" source="eventClusters" target="llmDeconflictBox">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;strokeWidth=3;fillColor=#fff2cc;strokeColor=#d6b656;" edge="1" parent="1" source="llmDeconflictBox" target="canonicalEvents1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#e1d5e7;strokeColor=#9673a6;" edge="1" parent="1" source="canonicalEvents1" target="consolidateBox">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#e1d5e7;strokeColor=#9673a6;" edge="1" parent="1" source="consolidateBox" target="hierarchyDiagram">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#e1d5e7;strokeColor=#9673a6;" edge="1" parent="1" source="hierarchyDiagram" target="llmValidateBox">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#e1d5e7;strokeColor=#9673a6;" edge="1" parent="1" source="llmValidateBox" target="mergeBox">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="arrow9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#e1d5e7;strokeColor=#9673a6;" edge="1" parent="1" source="mergeBox" target="finalStructure">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- KEY/LEGEND -->
+                <mxCell id="legendBox" value="&lt;b&gt;LEGEND&lt;/b&gt;" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="80" width="720" height="180" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend1" value="🟢 Input Data (Preserved)" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry y="30" width="240" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend2" value="🟡 Stage 1: Daily Processing" style="text;strokeColor=#d6b656;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry y="60" width="240" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend3" value="🟣 Stage 2: Batch Consolidation" style="text;strokeColor=#9673a6;fillColor=#e1d5e7;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry y="90" width="240" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend4" value="🔵 Database Tables" style="text;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry y="120" width="240" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend5" value="🔴 Intermediate Tables" style="text;strokeColor=#b85450;fillColor=#f8cecc;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry y="150" width="240" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend6" value="⚠️ CRITICAL: llm_deconflict_clusters.py uses savepoints&lt;br&gt;to ensure canonical_events and daily_event_mentions&lt;br&gt;are created atomically (both or neither)" style="text;strokeColor=#d79b00;fillColor=#ffe6cc;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry x="260" y="30" width="440" height="50" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend7" value="✅ FIXED (2026-01-06): Orphaned event bug resolved&lt;br&gt;Daily mentions now guaranteed to be created with&lt;br&gt;canonical events using nested transactions" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry x="260" y="90" width="440" height="50" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="legend8" value="📊 Query Pattern: JOIN canonical_events m&lt;br&gt;with daily_event_mentions dem ON dem.canonical_event_id = m.id" style="text;strokeColor=#9673a6;fillColor=#e1d5e7;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="legendBox">
+                    <mxGeometry x="260" y="150" width="440" height="30" as="geometry"/>
+                </mxCell>
+
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
