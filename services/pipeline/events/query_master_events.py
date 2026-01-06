@@ -32,11 +32,12 @@ def get_master_event_docs(master_event_name: str, country: str = None) -> List[s
         List of document IDs
     """
     with get_session() as session:
+        # After merge_canonical_events.py runs, child events are deleted
+        # and daily_event_mentions are linked directly to master events
         query = '''
             SELECT DISTINCT unnest(dem.doc_ids) as doc_id
             FROM canonical_events m
-            JOIN canonical_events c ON c.master_event_id = m.id
-            JOIN daily_event_mentions dem ON dem.canonical_event_id = c.id
+            JOIN daily_event_mentions dem ON dem.canonical_event_id = m.id
             WHERE m.master_event_id IS NULL
             AND m.canonical_name = :name
         '''
@@ -63,15 +64,16 @@ def get_master_event_timeline(master_event_name: str, country: str = None) -> Li
         List of dicts with date and article counts
     """
     with get_session() as session:
+        # After merge_canonical_events.py runs, child events are deleted
+        # and daily_event_mentions are linked directly to master events
         query = '''
             SELECT
                 dem.mention_date,
-                c.canonical_name,
+                m.canonical_name,
                 dem.article_count,
                 array_length(dem.doc_ids, 1) as doc_count
             FROM canonical_events m
-            JOIN canonical_events c ON c.master_event_id = m.id
-            JOIN daily_event_mentions dem ON dem.canonical_event_id = c.id
+            JOIN daily_event_mentions dem ON dem.canonical_event_id = m.id
             WHERE m.master_event_id IS NULL
             AND m.canonical_name = :name
         '''
@@ -106,8 +108,12 @@ def list_top_master_events(limit: int = 10, country: str = None) -> List[Dict]:
 
     Returns:
         List of dicts with master event info
+
+    Note: After merge_canonical_events.py runs, child events are deleted,
+    so child_count will be 0. Use daily_event_mentions to see multi-day span.
     """
     with get_session() as session:
+        # Get master events with their daily mention counts
         query = '''
             SELECT
                 m.canonical_name,
@@ -115,9 +121,11 @@ def list_top_master_events(limit: int = 10, country: str = None) -> List[Dict]:
                 m.first_mention_date,
                 m.last_mention_date,
                 m.total_articles,
-                COUNT(DISTINCT c.id) as child_count
+                COUNT(DISTINCT c.id) as child_count,
+                COUNT(DISTINCT dem.mention_date) as mention_days
             FROM canonical_events m
             LEFT JOIN canonical_events c ON c.master_event_id = m.id
+            LEFT JOIN daily_event_mentions dem ON dem.canonical_event_id = m.id
             WHERE m.master_event_id IS NULL
         '''
 
@@ -142,6 +150,7 @@ def list_top_master_events(limit: int = 10, country: str = None) -> List[Dict]:
                 'last_date': row[3],
                 'total_articles': row[4],
                 'child_events': row[5],
+                'mention_days': row[6],
                 'days_span': (row[3] - row[2]).days + 1
             }
             for row in result
@@ -175,7 +184,9 @@ def main():
             print(f"   Country: {event['country']}")
             print(f"   Period: {event['first_date']} to {event['last_date']} ({event['days_span']} days)")
             print(f"   Articles: {event['total_articles']}")
-            print(f"   Child Events: {event['child_events']}")
+            print(f"   Mention Days: {event['mention_days']} (actual days with coverage)")
+            if event['child_events'] > 0:
+                print(f"   Child Events: {event['child_events']} (not yet merged)")
 
     elif args.master_event:
         if args.get_docs:
