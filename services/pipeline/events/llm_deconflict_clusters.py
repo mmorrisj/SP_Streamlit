@@ -440,6 +440,10 @@ For each potential group, verify:
         This consolidates duplicate event name references into unified event objects
         that all relevant doc_ids reference.
 
+        CRITICAL: This function ensures that canonical_events and daily_event_mentions
+        are created together atomically. If daily_event_mention creation fails, the
+        entire operation is rolled back to prevent orphaned canonical_events.
+
         Args:
             session: Database session
             cluster: EventCluster with llm_deconflicted = True
@@ -447,6 +451,9 @@ For each potential group, verify:
 
         Returns:
             List of created CanonicalEvent objects
+
+        Raises:
+            Exception: If daily_event_mention creation fails, rolls back the transaction
         """
         # Load LLM result from cluster if not provided
         if llm_result is None:
@@ -480,6 +487,11 @@ For each potential group, verify:
 
             # Remove duplicates while preserving order
             group_doc_ids = list(dict.fromkeys(group_doc_ids))
+
+            # Validate doc_ids before proceeding
+            if not group_doc_ids:
+                print(f"      WARNING: No doc_ids for group {group_idx+1} in cluster {cluster.cluster_id}, skipping")
+                continue
 
             # Query recipient countries and categories from these documents
             from sqlalchemy import text
@@ -517,84 +529,111 @@ For each potential group, verify:
                 CanonicalEvent.last_mention_date >= cluster.cluster_date
             ).first()
 
-            if existing_event:
-                # Update existing canonical event
-                canonical_event = existing_event
-                canonical_event.last_mention_date = max(canonical_event.last_mention_date, cluster.cluster_date)
-                canonical_event.total_articles += len(group_doc_ids)
+            # BEGIN ATOMIC OPERATION: canonical_event + daily_event_mention
+            # Use a savepoint (nested transaction) so we can rollback just this event
+            # without losing other successfully processed events in the same batch
+            savepoint = session.begin_nested()
 
-                # Add alternative names
-                for name in group_names:
-                    if name != canonical_name and name not in canonical_event.alternative_names:
-                        canonical_event.alternative_names = canonical_event.alternative_names + [name]
+            try:
+                if existing_event:
+                    # Update existing canonical event
+                    canonical_event = existing_event
+                    canonical_event.last_mention_date = max(canonical_event.last_mention_date, cluster.cluster_date)
+                    canonical_event.total_articles += len(group_doc_ids)
 
-                if self.verbose:
-                    safe_name = canonical_name.encode('ascii', 'replace').decode('ascii')
-                    print(f"      Updated existing canonical event: {safe_name}")
+                    # Add alternative names
+                    for name in group_names:
+                        if name != canonical_name and name not in canonical_event.alternative_names:
+                            canonical_event.alternative_names = canonical_event.alternative_names + [name]
 
-            else:
-                # Create new canonical event
-                canonical_event = CanonicalEvent(
-                    canonical_name=canonical_name,
-                    initiating_country=cluster.initiating_country,
-                    first_mention_date=cluster.cluster_date,
-                    last_mention_date=cluster.cluster_date,
-                    total_mention_days=1,
-                    total_articles=len(group_doc_ids),
-                    story_phase="emerging",
-                    days_since_last_mention=0,
-                    unique_sources=[],
-                    source_count=0,
-                    peak_mention_date=cluster.cluster_date,
-                    peak_daily_article_count=len(group_doc_ids),
-                    embedding_vector=embedding,
-                    alternative_names=[name for name in group_names if name != canonical_name],
-                    primary_categories=primary_categories,
-                    primary_recipients=primary_recipients
+                    if self.verbose:
+                        safe_name = canonical_name.encode('ascii', 'replace').decode('ascii')
+                        print(f"      Updated existing canonical event: {safe_name}")
+
+                else:
+                    # Create new canonical event
+                    canonical_event = CanonicalEvent(
+                        canonical_name=canonical_name,
+                        initiating_country=cluster.initiating_country,
+                        first_mention_date=cluster.cluster_date,
+                        last_mention_date=cluster.cluster_date,
+                        total_mention_days=1,
+                        total_articles=len(group_doc_ids),
+                        story_phase="emerging",
+                        days_since_last_mention=0,
+                        unique_sources=[],
+                        source_count=0,
+                        peak_mention_date=cluster.cluster_date,
+                        peak_daily_article_count=len(group_doc_ids),
+                        embedding_vector=embedding,
+                        alternative_names=[name for name in group_names if name != canonical_name],
+                        primary_categories=primary_categories,
+                        primary_recipients=primary_recipients
+                    )
+                    session.add(canonical_event)
+                    session.flush()  # Get the ID immediately
+
+                    if self.verbose:
+                        safe_name = canonical_name.encode('ascii', 'replace').decode('ascii')
+                        print(f"      Created canonical event: {safe_name}")
+
+                # CRITICAL: Create or update DailyEventMention
+                # This MUST succeed or we rollback the canonical_event creation
+                existing_mention = session.query(DailyEventMention).filter(
+                    DailyEventMention.canonical_event_id == canonical_event.id,
+                    DailyEventMention.mention_date == cluster.cluster_date
+                ).first()
+
+                if existing_mention:
+                    # Update existing mention
+                    existing_mention.article_count = len(group_doc_ids)
+                    existing_mention.doc_ids = group_doc_ids
+                    existing_mention.consolidated_headline = canonical_name
+
+                    if self.verbose:
+                        print(f"        Updated daily mention: {len(group_doc_ids)} articles")
+
+                else:
+                    # Create new daily mention
+                    daily_mention = DailyEventMention(
+                        canonical_event_id=canonical_event.id,
+                        initiating_country=cluster.initiating_country,
+                        mention_date=cluster.cluster_date,
+                        article_count=len(group_doc_ids),
+                        consolidated_headline=canonical_name,
+                        daily_summary=None,  # Could be generated by LLM in future
+                        source_names=[],  # Could be populated from documents
+                        source_diversity_score=0.0,
+                        mention_context="execution",  # Default value
+                        news_intensity="developing",  # Default value
+                        doc_ids=group_doc_ids
+                    )
+                    session.add(daily_mention)
+                    session.flush()  # Force immediate write to catch constraint violations
+
+                    if self.verbose:
+                        print(f"        Created daily mention: {len(group_doc_ids)} articles on {cluster.cluster_date}")
+
+                # Commit the savepoint - both canonical_event and daily_event_mention succeeded
+                savepoint.commit()
+                canonical_events.append(canonical_event)
+
+            except Exception as e:
+                # CRITICAL ERROR: daily_event_mention creation failed
+                # Rollback the savepoint to undo ONLY this event (not the whole batch)
+                savepoint.rollback()
+
+                safe_name = canonical_name.encode('ascii', 'replace').decode('ascii')[:60]
+                print(f"\n      🔴 ERROR: Failed to create daily_event_mention for '{safe_name}'")
+                print(f"         Cluster: {cluster.cluster_id}, Date: {cluster.cluster_date}")
+                print(f"         Error: {str(e)}")
+                print(f"         Rolled back savepoint to prevent orphaned canonical_event")
+
+                # Re-raise to signal failure to caller
+                raise Exception(
+                    f"Failed to create daily_event_mention for canonical_event '{canonical_name}' "
+                    f"(cluster {cluster.cluster_id}): {str(e)}"
                 )
-                session.add(canonical_event)
-                session.flush()  # Get the ID
-
-                if self.verbose:
-                    safe_name = canonical_name.encode('ascii', 'replace').decode('ascii')
-                    print(f"      Created canonical event: {safe_name}")
-
-            canonical_events.append(canonical_event)
-
-            # Create or update DailyEventMention
-            existing_mention = session.query(DailyEventMention).filter(
-                DailyEventMention.canonical_event_id == canonical_event.id,
-                DailyEventMention.mention_date == cluster.cluster_date
-            ).first()
-
-            if existing_mention:
-                # Update existing mention
-                existing_mention.article_count = len(group_doc_ids)
-                existing_mention.doc_ids = group_doc_ids
-                existing_mention.consolidated_headline = canonical_name
-
-                if self.verbose:
-                    print(f"        Updated daily mention: {len(group_doc_ids)} articles")
-
-            else:
-                # Create new daily mention
-                daily_mention = DailyEventMention(
-                    canonical_event_id=canonical_event.id,
-                    initiating_country=cluster.initiating_country,
-                    mention_date=cluster.cluster_date,
-                    article_count=len(group_doc_ids),
-                    consolidated_headline=canonical_name,
-                    daily_summary=None,  # Could be generated by LLM in future
-                    source_names=[],  # Could be populated from documents
-                    source_diversity_score=0.0,
-                    mention_context="execution",  # Default value
-                    news_intensity="developing",  # Default value
-                    doc_ids=group_doc_ids
-                )
-                session.add(daily_mention)
-
-                if self.verbose:
-                    print(f"        Created daily mention: {len(group_doc_ids)} articles on {cluster.cluster_date}")
 
         return canonical_events
 
@@ -689,13 +728,19 @@ For each potential group, verify:
 
             # Create canonical events from deconflicted cluster (unless dry run)
             if not self.dry_run and llm_result is not None:
-                canonical_events = self.create_canonical_events_from_cluster(session, cluster, llm_result)
-                for ce in canonical_events:
-                    if ce.total_mention_days == 1:
-                        stats['canonical_events_created'] += 1
-                    else:
-                        stats['canonical_events_updated'] += 1
-                    stats['daily_mentions_created'] += 1
+                try:
+                    canonical_events = self.create_canonical_events_from_cluster(session, cluster, llm_result)
+                    for ce in canonical_events:
+                        if ce.total_mention_days == 1:
+                            stats['canonical_events_created'] += 1
+                        else:
+                            stats['canonical_events_updated'] += 1
+                        stats['daily_mentions_created'] += 1
+                except Exception as e:
+                    # Log the error but continue processing other clusters
+                    print(f"\n    ⚠️  Skipping cluster {cluster.cluster_id} due to error: {str(e)}")
+                    print(f"       This cluster will remain in llm_deconflicted state but without canonical events")
+                    # Continue to next cluster without incrementing stats
 
             clusters_since_commit += 1
 
