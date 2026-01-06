@@ -31,29 +31,28 @@ def find_unprocessed_dates(country: str):
             ORDER BY cluster_date
         """), {'country': country}).fetchall()
 
-        if not unprocessed:
+        if unprocessed:
+            print(f"\n❌ Found {len(unprocessed)} dates with unprocessed clusters:\n")
+
+            for cluster_date, batches, total_clusters, pending in unprocessed[:20]:
+                print(f"  {cluster_date}: {pending}/{total_clusters} clusters pending ({batches} batches)")
+
+            if len(unprocessed) > 20:
+                print(f"\n  ... and {len(unprocessed) - 20} more dates")
+
+            # Get date range
+            first_date = unprocessed[0][0]
+            last_date = unprocessed[-1][0]
+
+            print(f"\n{'='*100}")
+            print("RECOMMENDED ACTION")
+            print('='*100)
+            print(f"Run llm_deconflict_clusters.py for {country} from {first_date} to {last_date}:")
+            print()
+            print(f"docker exec -it api-service python services/pipeline/events/llm_deconflict_clusters.py \\")
+            print(f"  --country '{country}' --start-date {first_date} --end-date {last_date}")
+        else:
             print(f"\n✅ All event_clusters have been deconflicted for {country}")
-            return
-
-        print(f"\n❌ Found {len(unprocessed)} dates with unprocessed clusters:\n")
-
-        for cluster_date, batches, total_clusters, pending in unprocessed[:20]:
-            print(f"  {cluster_date}: {pending}/{total_clusters} clusters pending ({batches} batches)")
-
-        if len(unprocessed) > 20:
-            print(f"\n  ... and {len(unprocessed) - 20} more dates")
-
-        # Get date range
-        first_date = unprocessed[0][0]
-        last_date = unprocessed[-1][0]
-
-        print(f"\n{'='*100}")
-        print("RECOMMENDED ACTION")
-        print('='*100)
-        print(f"Run llm_deconflict_clusters.py for {country} from {first_date} to {last_date}:")
-        print()
-        print(f"docker exec -it api-service python services/pipeline/events/llm_deconflict_clusters.py \\")
-        print(f"  --country '{country}' --start-date {first_date} --end-date {last_date}")
 
         # Also check for canonical_events without mentions
         print(f"\n{'='*100}")
