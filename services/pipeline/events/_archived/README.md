@@ -56,6 +56,22 @@ However, the two-stage batch consolidation approach was chosen instead because:
 - **Reason for archiving**: Replaced by `consolidate_all_events.py` which processes entire dataset at once
 - **Replacement**: `consolidate_all_events.py` - Processes all canonical events without time filtering
 
+### backfill_canonical_event_recipients.py
+- **Status**: One-time migration script (completed)
+- **Description**: Backfills primary_recipients and primary_categories JSONB fields for existing canonical_events
+- **Reason for archiving**: One-time data migration that is no longer needed
+- **Context**: These fields are now populated automatically during canonical_event creation in `llm_deconflict_clusters.py`
+
+### backfill_daily_mentions.py
+- **Status**: One-time repair script
+- **Description**: Creates daily_event_mentions for canonical_events that are missing them by matching event names back to documents
+- **Reason for archiving**: Repair script for a bug that has been fixed
+- **Context**:
+  - Bug in `llm_deconflict_clusters.py` caused orphaned canonical_events without daily_event_mentions
+  - Bug was fixed on 2026-01-06 with atomic transaction handling using savepoints
+  - This script repaired the 10,890 orphaned events created before the fix
+  - No longer needed since the bug is permanently fixed in the pipeline
+
 ## Current Architecture
 
 The **actual implemented pipeline** uses a two-stage approach:
@@ -86,5 +102,7 @@ These files are archived rather than deleted because:
 
 ---
 
-**Last Updated**: December 2024
-**Archived By**: Documentation cleanup to align with actual implementation
+**Last Updated**: January 2026
+**Recent Additions**:
+- backfill_canonical_event_recipients.py (one-time migration)
+- backfill_daily_mentions.py (repair script for fixed bug)
