@@ -483,15 +483,16 @@ def generate_daily_summary_single(
     relationship_desc = f"{influencer} → {recipient}" if recipient else influencer
 
     # LLM prompt for daily summary WITH CITATIONS
-    system_prompt = """You are a foreign policy analyst creating daily summaries of soft power activities.
+    system_prompt = """You are a foreign policy analyst creating daily activity summaries.
 
 CRITICAL: You must cite your sources using numbered references [1], [2], etc. that correspond to the document numbers provided.
 
-Generate a concise summary organized by:
-1. Key Themes (what types of activities were prominent)
-2. Notable Activities (specific actions, grouped by category)
-3. Geographic Focus (which recipient countries were most mentioned)
-4. Overall Assessment (1-2 sentences on strategic significance)
+OUTPUT FORMAT (PLAIN TEXT PARAGRAPHS ONLY):
+Write 3-4 concise paragraphs covering:
+- Paragraph 1: Main themes and prominent types of activities
+- Paragraph 2: Specific notable activities grouped by category
+- Paragraph 3: Geographic focus and recipient countries involved
+- Paragraph 4: Brief strategic significance (1-2 sentences)
 
 CITATION REQUIREMENTS:
 - After EVERY factual claim, add a citation like [1] or [1,2] for multiple sources
@@ -499,7 +500,12 @@ CITATION REQUIREMENTS:
 - Multiple claims from the same document still need citations
 - Be precise about which document supports which claim
 
-Be factual, concise, and analytical. Focus on patterns and significance."""
+IMPORTANT:
+- Do NOT use markdown formatting (no **, ##, bullets, numbered lists, or section headers)
+- Do NOT include labels like "Key Themes:" or "Notable Activities:"
+- Write ONLY plain text paragraphs separated by blank lines
+- Report directly on activities without meta-commentary about "soft power"
+- Focus on what happened, not on categorizing it"""
 
     user_prompt = f"""Relationship: {relationship_desc}
 Date: {target_date.isoformat()}
@@ -624,22 +630,28 @@ def generate_weekly_summary(
     relationship_desc = f"{influencer} → {recipient}" if recipient else influencer
 
     # LLM prompt for weekly rollup WITH CITATIONS
-    system_prompt = """You are a foreign policy analyst creating weekly summaries from daily activity reports.
+    system_prompt = """You are a foreign policy analyst creating weekly activity summaries from daily reports.
 
 CRITICAL: You must cite your sources using numbered day references [Day 1], [Day 2], etc. that correspond to the daily summaries provided.
 
-Synthesize the daily summaries into a cohesive weekly narrative covering:
-1. Major Themes (sustained patterns across the week)
-2. Key Developments (significant activities, organized by category)
-3. Geographic Patterns (recipient country engagement trends)
-4. Strategic Assessment (significance and implications)
+OUTPUT FORMAT (PLAIN TEXT PARAGRAPHS ONLY):
+Write 4-5 concise paragraphs covering:
+- Paragraph 1: Major sustained themes and patterns across the week
+- Paragraph 2-3: Key developments and significant activities by category
+- Paragraph 4: Geographic engagement patterns and trends
+- Paragraph 5: Strategic significance and implications
 
 CITATION REQUIREMENTS:
 - After EVERY factual claim, add a citation like [Day 1] or [Day 1,2] for multiple days
 - Use the day numbers from the provided daily summaries
 - Be precise about which day's activities support which claim
 
-Identify patterns, escalations, and strategic shifts. Be analytical."""
+IMPORTANT:
+- Do NOT use markdown formatting (no **, ##, bullets, numbered lists, or section headers)
+- Do NOT include labels like "Major Themes:" or "Key Developments:"
+- Write ONLY plain text paragraphs separated by blank lines
+- Report directly on activities without meta-commentary about "soft power"
+- Identify patterns, escalations, and strategic shifts. Be analytical."""
 
     user_prompt = f"""Relationship: {relationship_desc}
 Week: {week_start.isoformat()} to {week_end.isoformat()}
@@ -756,19 +768,25 @@ def generate_monthly_summary(
 
 CRITICAL: You must cite your sources using numbered week references [Week 1], [Week 2], etc. that correspond to the weekly summaries provided.
 
-Synthesize the weekly summaries into a comprehensive monthly analysis covering:
-1. Strategic Overview (major themes and patterns across the month)
-2. Key Initiatives (significant activities organized by category and significance)
-3. Geographic Strategy (engagement patterns by recipient country/region)
-4. Outcome Assessment (achievements, failures, strategic positioning)
-5. Notable Trends (shifts in approach, emerging patterns)
+OUTPUT FORMAT (PLAIN TEXT PARAGRAPHS ONLY):
+Write 5-6 comprehensive paragraphs covering:
+- Paragraph 1-2: Strategic overview including major themes and patterns
+- Paragraph 3: Key initiatives and significant activities by category
+- Paragraph 4: Geographic engagement patterns by recipient country/region
+- Paragraph 5: Outcome assessment including achievements and setbacks
+- Paragraph 6: Notable trends and shifts in approach
 
 CITATION REQUIREMENTS:
 - After EVERY factual claim, add a citation like [Week 1] or [Week 1,2] for multiple weeks
 - Use the week numbers from the provided weekly summaries
 - Be precise about which week's activities support which claim
 
-Provide strategic-level analysis with specific examples. Identify causality and strategic intent."""
+IMPORTANT:
+- Do NOT use markdown formatting (no **, ##, bullets, numbered lists, or section headers)
+- Do NOT include labels like "Strategic Overview:" or "Key Initiatives:"
+- Write ONLY plain text paragraphs separated by blank lines
+- Report directly on activities and developments without meta-commentary
+- Provide strategic-level analysis with specific examples. Identify causality and strategic intent."""
 
     user_prompt = f"""Relationship: {relationship_desc}
 Month: {month_start.strftime('%B %Y')}
@@ -863,24 +881,44 @@ def generate_overall_summary(
     relationship_desc = f"{influencer} → {recipient}" if recipient else influencer
 
     # LLM prompt for overall summary WITH CITATIONS
-    system_prompt = """You are a senior foreign policy strategist creating a comprehensive assessment of a country's soft power campaign.
+    system_prompt = """You are a senior foreign policy strategist creating a comprehensive assessment of diplomatic and international activities.
 
 CRITICAL: You must cite your sources using numbered month references [Month 1], [Month 2], etc. that correspond to the monthly summaries provided.
 
-Synthesize the monthly summaries into a final strategic assessment covering:
-1. Executive Summary (2-3 paragraphs on overall strategy and results)
-2. Strategic Themes (major patterns across the entire period)
-3. Category Analysis (breakdown by activity type with strategic implications)
-4. Geographic Strategy (regional engagement patterns and priorities)
-5. Strategic Outcomes (successes, failures, positioning changes)
-6. Forward Indicators (trends suggesting future direction)
+OUTPUT FORMAT (PLAIN TEXT PARAGRAPHS ORGANIZED BY CATEGORY):
+Structure your summary as follows:
+
+FIRST SECTION (1-2 paragraphs): Executive summary of overall strategy and results across all categories.
+
+THEN ORGANIZE BY CATEGORY - Only include categories with actual activity. For each active category, write 1-2 focused paragraphs:
+
+If Economic activities exist: Write about economic initiatives, trade, infrastructure, financial engagement. Avoid content already covered in other categories.
+
+If Diplomacy activities exist: Write about diplomatic initiatives, agreements, multilateral engagement, conflict resolution. Avoid content already covered in other categories.
+
+If Social activities exist: Write about cultural, educational, media, religious, and diaspora engagement. Avoid content already covered in other categories.
+
+If Military activities exist: Write about military sales, training, joint exercises, security cooperation. Avoid content already covered in other categories.
+
+FINAL SECTION (1-2 paragraphs): Strategic outcomes and forward indicators across all categories.
+
+DEDUPLICATION RULES:
+- When activities span multiple categories, assign them to the MOST relevant category only
+- Do not repeat the same activity or initiative in multiple category sections
+- If an activity could fit multiple categories, include it where it has the strongest alignment
+- Each category section should contain ONLY content uniquely relevant to that category
 
 CITATION REQUIREMENTS:
 - After EVERY factual claim, add a citation like [Month 1] or [Month 1,2] for multiple months
 - Use the month numbers from the provided monthly summaries
 - Be precise about which month's activities support which claim
 
-Provide executive-level strategic analysis with specific evidence. Assess effectiveness and strategic coherence."""
+IMPORTANT:
+- Do NOT use markdown formatting (no **, ##, bullets, numbered lists, or section headers)
+- Do NOT include category labels like "Economic:" or "Diplomacy:" - just write the content
+- Separate sections with blank lines
+- Report directly on activities and developments without meta-commentary
+- Provide executive-level strategic analysis with specific evidence"""
 
     user_prompt = f"""Relationship: {relationship_desc}
 Period: {start_date.isoformat()} to {end_date.isoformat()} ({len(monthly_summaries)} months)
@@ -1044,6 +1082,424 @@ def load_monthly_summaries_from_json(output_dir: Path) -> List[Dict]:
     return sorted(summaries, key=lambda x: x['period_start'])
 
 
+def generate_bilateral_monthly_summary(
+    session,
+    influencer: str,
+    recipient: str,
+    month_start: date,
+    month_end: date,
+    category: Optional[str] = None,
+    model: str = "gpt-4o-mini",
+    valid_recipients: Optional[List[str]] = None,
+    doc_threshold: int = 100
+) -> Optional[Dict]:
+    """
+    Generate monthly summary for a specific bilateral relationship, optionally filtered by category.
+
+    Uses ADAPTIVE HIERARCHICAL APPROACH:
+    - If category-filtered data >= doc_threshold: Uses existing daily summaries (scalable)
+    - If category-filtered data < doc_threshold: Uses documents directly (better quality for sparse data)
+
+    Args:
+        session: Database session
+        influencer: Initiating country
+        recipient: Recipient country
+        month_start: Start of month
+        month_end: End of month
+        category: Optional category filter (Economic, Diplomacy, Social, Military)
+        model: LLM model to use
+        valid_recipients: List of valid recipient countries from config.yaml
+        doc_threshold: Document count threshold for hierarchical vs document approach (default: 100)
+
+    Returns:
+        Dict with monthly bilateral summary or None if no documents
+    """
+    # STEP 1: Try loading existing daily summaries from JSON files (hierarchical approach)
+    base_output_dir = Path('publications') / influencer / recipient / 'daily'
+
+    use_hierarchical = False
+    filtered_dailies = []
+    total_docs_in_category = 0
+
+    if base_output_dir.exists() and category:
+        # Load daily summaries for this month
+        existing_dailies = get_existing_daily_summaries(
+            base_output_dir.parent,
+            month_start,
+            month_end
+        )
+
+        # Filter daily summaries by category (check if category appears in metrics)
+        for date_str, daily in existing_dailies.items():
+            category_count = daily.get('metrics', {}).get('categories', {}).get(category, 0)
+            if category_count > 0:
+                filtered_dailies.append(daily)
+                total_docs_in_category += category_count
+
+        # ADAPTIVE DECISION: Use hierarchical if we have enough data
+        if total_docs_in_category >= doc_threshold:
+            use_hierarchical = True
+            print(f"  📊 Using hierarchical approach: {len(filtered_dailies)} daily summaries, {total_docs_in_category} documents in {category}")
+
+    # STEP 2A: HIERARCHICAL APPROACH - Build from filtered daily summaries
+    if use_hierarchical:
+        # Build context from daily summaries filtered by category
+        daily_contexts = []
+        all_citations = []
+        citation_counter = 1
+
+        for daily in filtered_dailies:
+            date_obj = datetime.fromisoformat(daily['date'])
+            date_formatted = date_obj.strftime('%B %d, %Y')
+
+            # Filter citations to only those with the target category
+            category_citations = [
+                c for c in daily.get('citations', [])
+                if category in c.get('categories', [])
+            ]
+
+            # Build mini-summary of this day's category-specific activity
+            daily_contexts.append(
+                f"[Day {citation_counter}] {date_formatted}\n"
+                f"    {category} Documents: {len(category_citations)}\n"
+                f"    Summary Excerpt: {daily['summary'][:400]}...\n"
+            )
+
+            # Track citations for full traceability
+            for cit in category_citations[:20]:  # Limit citations per day
+                all_citations.append({
+                    'citation_number': citation_counter,
+                    'date': daily['date'],
+                    'doc_id': cit.get('doc_id'),
+                    'headline': cit.get('headline'),
+                    'source_name': cit.get('source_name'),
+                    'source_url': cit.get('source_url'),
+                    'published_date': cit.get('published_date'),
+                    'salience': cit.get('salience'),
+                    'categories': cit.get('categories', []),
+                    'recipients': cit.get('recipients', []),
+                    'excerpt': cit.get('excerpt', '')[:500]
+                })
+                citation_counter += 1
+
+        context_text = "\n\n".join(daily_contexts)
+        docs = []  # Not needed for hierarchical approach
+
+    # STEP 2B: DOCUMENT APPROACH - Get documents directly (fallback for sparse data)
+    else:
+        # Get all documents for this bilateral relationship in this month
+        docs = []
+        current_date = month_start
+        while current_date <= month_end:
+            day_docs = get_documents_for_day(
+                session, influencer, current_date, recipient, valid_recipients
+            )
+            docs.extend(day_docs)
+            current_date += timedelta(days=1)
+
+        # Filter by category if specified
+        if category:
+            docs = [doc for doc in docs if category in doc.get('categories', [])]
+
+        if not docs:
+            return None
+
+        # Now we have the actual document count
+        if base_output_dir.exists() and total_docs_in_category > 0:
+            print(f"  📄 Using document approach: {len(docs)} documents (below threshold of {doc_threshold})")
+        else:
+            print(f"  📄 Using document approach: {len(docs)} documents (no daily summaries available)")
+
+        # Build context from documents
+        doc_context = []
+        for i, doc in enumerate(docs[:100], 1):  # Limit to top 100 docs
+            categories_str = ", ".join(doc['categories']) if doc['categories'] else "None"
+            doc_context.append(
+                f"[{i}] {doc['title']}\n"
+                f"    Date: {doc['date']}\n"
+                f"    Categories: {categories_str}\n"
+                f"    Salience: {doc['salience']}/100\n"
+                f"    Excerpt: {doc['distilled_text'][:300] if doc['distilled_text'] else 'N/A'}..."
+            )
+
+        context_text = "\n\n".join(doc_context)
+        all_citations = None  # Will be built from docs later
+
+    # Adjust prompt based on category filter
+    if category:
+        scope_description = f"{category} activities"
+        system_prompt = f"""You are a senior foreign policy analyst creating bilateral relationship assessments focused on {category} activities.
+
+CRITICAL: You must cite your sources using numbered references [1], [2], etc. that correspond to the document numbers provided.
+
+OUTPUT FORMAT (PLAIN TEXT PARAGRAPHS ONLY):
+Write 3-4 focused paragraphs covering:
+- Paragraph 1: Overview of {category} engagement between these countries this month
+- Paragraph 2: Specific {category} initiatives, agreements, or activities
+- Paragraph 3: Strategic significance and trajectory of {category} cooperation
+- Paragraph 4: Notable trends or future outlook (if any)
+
+CITATION REQUIREMENTS:
+- After EVERY factual claim, add a citation like [1] or [1,2] for multiple sources
+- Use the document numbers from the provided list
+- Be precise about which document supports which claim
+
+IMPORTANT:
+- Do NOT use markdown formatting (no **, ##, bullets, numbered lists, or section headers)
+- Do NOT include labels like "Overview:" or "Key Initiatives:"
+- Write ONLY plain text paragraphs separated by blank lines
+- Report directly on activities and developments without meta-commentary
+- Focus exclusively on {category}-related engagement"""
+    else:
+        scope_description = "all activities"
+        system_prompt = """You are a senior foreign policy analyst creating bilateral relationship assessments.
+
+CRITICAL: You must cite your sources using numbered references [1], [2], etc. that correspond to the document numbers provided.
+
+OUTPUT FORMAT (PLAIN TEXT PARAGRAPHS ONLY):
+Write 4-5 comprehensive paragraphs covering:
+- Paragraph 1: Overview of bilateral activities and engagement level this month
+- Paragraph 2-3: Key initiatives and activities by category (Economic, Diplomacy, Social, Military)
+- Paragraph 4: Strategic significance and trajectory of the relationship
+- Paragraph 5: Notable trends or shifts (if any)
+
+CITATION REQUIREMENTS:
+- After EVERY factual claim, add a citation like [1] or [1,2] for multiple sources
+- Use the document numbers from the provided list
+- Be precise about which document supports which claim
+
+IMPORTANT:
+- Do NOT use markdown formatting (no **, ##, bullets, numbered lists, or section headers)
+- Do NOT include labels like "Overview:" or "Key Initiatives:"
+- Write ONLY plain text paragraphs separated by blank lines
+- Report directly on activities and developments without meta-commentary
+- Provide strategic-level analysis with specific examples"""
+
+    # Build user prompt based on approach
+    category_filter_text = f" ({category} only)" if category else ""
+
+    if use_hierarchical:
+        source_description = "DAILY SUMMARIES"
+        total_count = total_docs_in_category
+    else:
+        source_description = "DOCUMENTS"
+        total_count = len(docs)
+
+    user_prompt = f"""Bilateral Relationship: {influencer} → {recipient}{category_filter_text}
+Month: {month_start.strftime('%B %Y')}
+Period: {month_start.isoformat()} to {month_end.isoformat()}
+Total Documents: {total_count}
+
+{source_description} (use these numbers for citations):
+{context_text}
+
+Generate a comprehensive bilateral monthly summary with proper citations."""
+
+    try:
+        summary_text = gai(system_prompt, user_prompt, model=model)
+
+        # Calculate metrics and build citations based on approach
+        categories = defaultdict(int)
+        sources = defaultdict(int)
+        citations = []
+
+        if use_hierarchical:
+            # Use pre-built citations from filtered daily summaries
+            citations = all_citations
+
+            # Calculate metrics from filtered dailies
+            for daily in filtered_dailies:
+                for cat, count in daily.get('metrics', {}).get('categories', {}).items():
+                    if not category or cat == category:
+                        categories[cat] += count
+                for src, count in daily.get('metrics', {}).get('sources', {}).items():
+                    sources[src] += count
+
+            total_docs = total_docs_in_category
+        else:
+            # Build from documents
+            for doc in docs:
+                for cat in doc['categories']:
+                    categories[cat] += 1
+                if doc['source_name']:
+                    sources[doc['source_name']] += 1
+
+            # Build citations from documents
+            for i, doc in enumerate(docs[:100], 1):
+                citations.append({
+                    'citation_number': i,
+                    'doc_id': doc['doc_id'],
+                    'headline': doc['title'],
+                    'source_name': doc['source_name'],
+                    'source_url': doc['source_url'],
+                    'published_date': doc['date'],
+                    'salience': doc['salience'],
+                    'categories': doc['categories'],
+                    'recipients': doc['recipients'],
+                    'excerpt': doc['distilled_text'][:500] if doc['distilled_text'] else ""
+                })
+
+            total_docs = len(docs)
+
+        result = {
+            'period_start': month_start.isoformat(),
+            'period_end': month_end.isoformat(),
+            'month_name': month_start.strftime('%B %Y'),
+            'influencer': influencer,
+            'recipient': recipient,
+            'summary': summary_text,
+            'citations': citations,
+            'metrics': {
+                'total_documents': total_docs,
+                'categories': dict(sorted(categories.items(), key=lambda x: x[1], reverse=True)),
+                'sources': dict(sorted(sources.items(), key=lambda x: x[1], reverse=True))
+            },
+            'generated_at': datetime.utcnow().isoformat()
+        }
+
+        # Add doc_ids if available (from document approach)
+        if docs:
+            result['doc_ids'] = [d['doc_id'] for d in docs]
+
+        # Add approach metadata for transparency
+        result['generation_approach'] = 'hierarchical' if use_hierarchical else 'document'
+
+        if category:
+            result['category'] = category
+
+        return result
+
+    except Exception as e:
+        print(f"  ⚠️  Error generating bilateral summary for {influencer} → {recipient} ({category or 'all'}): {e}")
+        return None
+
+
+def generate_bilateral_overall_summary(
+    bilateral_monthly_summaries: List[Dict],
+    start_date: date,
+    end_date: date,
+    influencer: str,
+    model: str = "gpt-4o"
+) -> Dict:
+    """
+    Generate overall summary across all bilateral relationships.
+
+    Synthesizes monthly summaries from different recipient countries to provide
+    a comprehensive view of the influencer's bilateral engagement strategy.
+    """
+    # Group by recipient
+    by_recipient = defaultdict(list)
+    for summary in bilateral_monthly_summaries:
+        by_recipient[summary['recipient']].append(summary)
+
+    # Build context organized by recipient
+    recipient_contexts = []
+    for recipient, summaries in sorted(by_recipient.items()):
+        total_docs = sum(s['metrics']['total_documents'] for s in summaries)
+        monthly_summaries_text = "\n".join([
+            f"  {s['month_name']}: {s['summary'][:300]}..."
+            for s in summaries
+        ])
+
+        recipient_contexts.append(
+            f"RECIPIENT: {recipient}\n"
+            f"Total Documents: {total_docs}\n"
+            f"Months with Activity: {len(summaries)}\n"
+            f"Monthly Summaries:\n{monthly_summaries_text}"
+        )
+
+    context_text = "\n\n---\n\n".join(recipient_contexts)
+
+    # LLM prompt for cross-bilateral synthesis
+    system_prompt = """You are a senior foreign policy strategist creating a comprehensive assessment of bilateral engagement strategy.
+
+You are analyzing engagement across MULTIPLE recipient countries to identify patterns, priorities, and strategic approaches.
+
+OUTPUT FORMAT (PLAIN TEXT PARAGRAPHS ORGANIZED BY CATEGORY):
+Structure your summary as follows:
+
+FIRST SECTION (1-2 paragraphs): Executive summary of overall bilateral engagement strategy and geographic priorities.
+
+THEN ORGANIZE BY CATEGORY - Only include categories with significant activity. For each active category, write 1-2 focused paragraphs:
+
+If Economic activities exist: Write about bilateral economic engagement patterns, trade initiatives, infrastructure projects across different recipients. Avoid content already covered in other categories.
+
+If Diplomacy activities exist: Write about diplomatic engagement patterns, bilateral agreements, state visits across different recipients. Avoid content already covered in other categories.
+
+If Social activities exist: Write about cultural and educational exchange patterns, media engagement across different recipients. Avoid content already covered in other categories.
+
+If Military activities exist: Write about defense cooperation patterns, military sales, training programs across different recipients. Avoid content already covered in other categories.
+
+FINAL SECTION (1-2 paragraphs): Strategic assessment of bilateral engagement approach, regional patterns, and implications.
+
+DEDUPLICATION RULES:
+- When activities span multiple categories, assign them to the MOST relevant category only
+- Do not repeat the same activity or initiative in multiple category sections
+- Focus on patterns across bilateral relationships, not individual relationships
+- Each category section should contain ONLY content uniquely relevant to that category
+
+IMPORTANT:
+- Do NOT use markdown formatting (no **, ##, bullets, numbered lists, or section headers)
+- Do NOT include category labels like "Economic:" or "Diplomacy:" - just write the content
+- Separate sections with blank lines
+- Report directly on activities and patterns without meta-commentary
+- Identify which recipient countries receive the most attention in each category
+- Highlight regional or strategic groupings of recipients"""
+
+    user_prompt = f"""Influencer: {influencer}
+Period: {start_date.isoformat()} to {end_date.isoformat()}
+Recipient Countries: {len(by_recipient)}
+Total Bilateral Summaries: {len(bilateral_monthly_summaries)}
+
+BILATERAL SUMMARIES BY RECIPIENT:
+{context_text}
+
+Generate a comprehensive cross-bilateral strategic assessment synthesizing these bilateral relationships."""
+
+    try:
+        summary_text = gai(system_prompt, user_prompt, model=model)
+
+        # Aggregate metrics across all bilateral relationships
+        total_docs = sum(s['metrics']['total_documents'] for s in bilateral_monthly_summaries)
+        categories = defaultdict(int)
+        sources = defaultdict(int)
+        recipients_docs = defaultdict(int)
+
+        for summary in bilateral_monthly_summaries:
+            for cat, count in summary['metrics']['categories'].items():
+                categories[cat] += count
+            for src, count in summary['metrics']['sources'].items():
+                sources[src] += count
+            recipients_docs[summary['recipient']] += summary['metrics']['total_documents']
+
+        return {
+            'period_start': start_date.isoformat(),
+            'period_end': end_date.isoformat(),
+            'influencer': influencer,
+            'summary': summary_text,
+            'metrics': {
+                'total_documents': total_docs,
+                'total_recipients': len(by_recipient),
+                'categories': dict(sorted(categories.items(), key=lambda x: x[1], reverse=True)),
+                'recipients': dict(sorted(recipients_docs.items(), key=lambda x: x[1], reverse=True)),
+                'sources': dict(sorted(sources.items(), key=lambda x: x[1], reverse=True)),
+                'months_covered': len(set(s['month_name'] for s in bilateral_monthly_summaries))
+            },
+            'recipient_breakdown': {
+                recipient: {
+                    'total_documents': sum(s['metrics']['total_documents'] for s in summaries),
+                    'months_with_activity': len(summaries)
+                }
+                for recipient, summaries in by_recipient.items()
+            },
+            'generated_at': datetime.utcnow().isoformat()
+        }
+
+    except Exception as e:
+        print(f"  ⚠️  Error generating bilateral overall summary: {e}")
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate hierarchical summaries from documents for bilateral relationships",
@@ -1057,6 +1513,7 @@ def main():
     parser.add_argument('--end-date', required=True, help='End date (YYYY-MM-DD)')
     parser.add_argument('--output-dir', default='./publications', help='Output directory for JSON files')
     parser.add_argument('--daily-only', action='store_true', help='Generate only daily summaries')
+    parser.add_argument('--bilateral-only', action='store_true', help='Generate only bilateral summaries (monthly per recipient + overall)')
     parser.add_argument('--from-weekly', action='store_true', help='Skip daily generation, start from weekly (reads daily JSON)')
     parser.add_argument('--from-monthly', action='store_true', help='Skip daily/weekly, start from monthly (reads weekly JSON)')
     parser.add_argument('--from-overall', action='store_true', help='Skip all, generate only overall (reads monthly JSON)')
@@ -1124,7 +1581,7 @@ def main():
 
     with get_session() as session:
         # STEP 1: Generate Daily Summaries
-        if not args.from_weekly and not args.from_monthly and not args.from_overall:
+        if not args.from_weekly and not args.from_monthly and not args.from_overall and not args.bilateral_only:
             print("STEP 1: Generating Daily Summaries")
             print("-" * 100)
 
@@ -1197,7 +1654,7 @@ def main():
             print("-" * 100)
 
         # STEP 2: Generate Weekly Summaries (from JSON)
-        if not args.from_monthly and not args.from_overall:
+        if not args.from_monthly and not args.from_overall and not args.bilateral_only:
             print("STEP 2: Generating Weekly Summaries")
             print("-" * 100)
 
@@ -1245,7 +1702,7 @@ def main():
             print("-" * 100)
 
         # STEP 3: Generate Monthly Summaries (from JSON)
-        if not args.from_overall:
+        if not args.from_overall and not args.bilateral_only:
             print("STEP 3: Generating Monthly Summaries")
             print("-" * 100)
 
@@ -1300,33 +1757,154 @@ def main():
             print("-" * 100)
 
         # STEP 4: Generate Overall Summary (from JSON)
-        print("STEP 4: Generating Overall Summary")
-        print("-" * 100)
+        if not args.bilateral_only:
+            print("STEP 4: Generating Overall Summary")
+            print("-" * 100)
 
-        # Load monthly summaries from JSON (ground truth)
-        print(f"📁 Loading monthly summaries from {output_dir / 'monthly'}...")
-        all_monthly_summaries = load_monthly_summaries_from_json(output_dir)
+            # Load monthly summaries from JSON (ground truth)
+            print(f"📁 Loading monthly summaries from {output_dir / 'monthly'}...")
+            all_monthly_summaries = load_monthly_summaries_from_json(output_dir)
 
-        if not all_monthly_summaries:
-            print("❌ No monthly summaries found. Run without --from-overall first.")
-            return
+            if not all_monthly_summaries:
+                print("❌ No monthly summaries found. Run without --from-overall first.")
+                return
 
-        print(f"✅ Loaded {len(all_monthly_summaries)} monthly summaries")
-        print()
-
-        print(f"  Period {start_date} to {end_date}: ", end='', flush=True)
-        overall = generate_overall_summary(
-            all_monthly_summaries, start_date, end_date, args.influencer,
-            model=args.model_monthly,
-            recipient=args.recipient
-        )
-        if overall:
-            save_json(overall, output_dir / f"overall_{start_date.isoformat()}_to_{end_date.isoformat()}.json")
-            print(f"{len(all_monthly_summaries)} months")
+            print(f"✅ Loaded {len(all_monthly_summaries)} monthly summaries")
             print()
-            print("✅ Generated overall summary")
 
-        print()
+            print(f"  Period {start_date} to {end_date}: ", end='', flush=True)
+            overall = generate_overall_summary(
+                all_monthly_summaries, start_date, end_date, args.influencer,
+                model=args.model_monthly,
+                recipient=args.recipient
+            )
+            if overall:
+                save_json(overall, output_dir / f"overall_{start_date.isoformat()}_to_{end_date.isoformat()}.json")
+                print(f"{len(all_monthly_summaries)} months")
+                print()
+                print("✅ Generated overall summary")
+
+            print()
+        else:
+            print("STEP 4: Skipping overall summary generation (--bilateral-only)")
+            print("-" * 100)
+            print()
+
+        # STEP 5: Generate Bilateral Summaries (if --bilateral-only or no recipient specified)
+        if args.bilateral_only or (not args.recipient and not args.daily_only):
+            print("=" * 100)
+            print("STEP 5: Generating Bilateral Summaries by Category")
+            print("=" * 100)
+
+            # Only generate bilateral summaries when analyzing all recipients
+            if args.recipient:
+                print("⏭️  Skipping bilateral generation (recipient filter specified)")
+            else:
+                bilateral_output_dir = base_output_dir / args.influencer / "bilateral"
+
+                # Categories to analyze
+                categories = ['Economic', 'Diplomacy', 'Social', 'Military']
+
+                # Get all recipients from config
+                print(f"Recipients to analyze: {', '.join(valid_recipients)}")
+                print()
+
+                all_bilateral_summaries = []
+
+                # Iterate through each month in the date range
+                current_month = date(start_date.year, start_date.month, 1)
+
+                while current_month <= end_date:
+                    # Get last day of month
+                    if current_month.month == 12:
+                        next_month = date(current_month.year + 1, 1, 1)
+                    else:
+                        next_month = date(current_month.year, current_month.month + 1, 1)
+                    month_end = next_month - timedelta(days=1)
+
+                    # Don't go past end_date
+                    if month_end > end_date:
+                        month_end = end_date
+
+                    month_str = current_month.strftime('%Y-%m')
+                    print(f"\n📅 Processing {current_month.strftime('%B %Y')}")
+                    print("-" * 80)
+
+                    # For each recipient country
+                    for recipient in valid_recipients:
+                        print(f"  {args.influencer} → {recipient}:")
+
+                        # Generate category-specific summaries
+                        for category in categories:
+                            filename = f"{recipient}-{category}_{month_str}.json"
+                            filepath = bilateral_output_dir / filename
+
+                            # Skip if exists and not forcing
+                            if filepath.exists() and not args.force:
+                                print(f"    • {category}: ⏭️  Exists")
+                                continue
+
+                            summary = generate_bilateral_monthly_summary(
+                                session, args.influencer, recipient,
+                                current_month, month_end,
+                                category=category,
+                                model=args.model_daily,
+                                valid_recipients=valid_recipients
+                            )
+
+                            if summary:
+                                save_json(summary, filepath, quiet=True)
+                                all_bilateral_summaries.append(summary)
+                                print(f"    • {category}: ✅ {summary['metrics']['total_documents']} docs")
+                            else:
+                                print(f"    • {category}: ⏭️  No docs")
+
+                        # Generate combined summary (all categories)
+                        combined_filename = f"{recipient}_{month_str}.json"
+                        combined_filepath = bilateral_output_dir / combined_filename
+
+                        if combined_filepath.exists() and not args.force:
+                            print(f"    • All Categories: ⏭️  Exists")
+                        else:
+                            combined_summary = generate_bilateral_monthly_summary(
+                                session, args.influencer, recipient,
+                                current_month, month_end,
+                                category=None,  # All categories
+                                model=args.model_daily,
+                                valid_recipients=valid_recipients
+                            )
+
+                            if combined_summary:
+                                save_json(combined_summary, combined_filepath, quiet=True)
+                                print(f"    • All Categories: ✅ {combined_summary['metrics']['total_documents']} docs")
+                            else:
+                                print(f"    • All Categories: ⏭️  No docs")
+
+                    # Move to next month
+                    current_month = next_month
+
+                print()
+                print("=" * 100)
+                print("Generating Bilateral Overall Rollup (across all recipients)")
+                print("=" * 100)
+
+                # Generate overall rollup across all bilateral relationships
+                if all_bilateral_summaries:
+                    overall_bilateral = generate_bilateral_overall_summary(
+                        all_bilateral_summaries,
+                        start_date, end_date, args.influencer,
+                        model=args.model_monthly
+                    )
+
+                    if overall_bilateral:
+                        overall_filename = f"overall_{start_date.isoformat()}_to_{end_date.isoformat()}.json"
+                        save_json(overall_bilateral, bilateral_output_dir / overall_filename)
+                        print(f"✅ Generated bilateral overall rollup ({overall_bilateral['metrics']['total_recipients']} recipients)")
+                else:
+                    print("⚠️  No bilateral summaries to roll up")
+
+                print()
+
         print("=" * 100)
         print("SUMMARY COMPLETE")
         print("=" * 100)
@@ -1336,11 +1914,13 @@ def main():
         weekly_count = len(list((output_dir / 'weekly').glob('*.json'))) if (output_dir / 'weekly').exists() else 0
         monthly_count = len(list((output_dir / 'monthly').glob('*.json'))) if (output_dir / 'monthly').exists() else 0
         overall_count = 1 if (output_dir / f"overall_{start_date.isoformat()}_to_{end_date.isoformat()}.json").exists() else 0
+        bilateral_count = len(list((base_output_dir / args.influencer / 'bilateral').glob('*.json'))) if (base_output_dir / args.influencer / 'bilateral').exists() else 0
 
         print(f"Daily summaries: {daily_count}")
         print(f"Weekly summaries: {weekly_count}")
         print(f"Monthly summaries: {monthly_count}")
         print(f"Overall summary: {overall_count}")
+        print(f"Bilateral summaries: {bilateral_count}")
         print()
         print(f"Output directory: {output_dir.absolute()}")
 

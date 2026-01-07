@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3, Globe, TrendingUp, BookOpen } from 'lucide-react'
+import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3, Globe, TrendingUp, BookOpen, ArrowLeftRight } from 'lucide-react'
 import './Layout.css'
 
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
   { path: '/events', label: 'Events', icon: Calendar },
   { path: '/summaries', label: 'Event Summaries', icon: Folder },
   { path: '/document-summaries', label: 'Doc Summaries', icon: BookOpen },
+  { path: '/bilateral-summaries', label: 'Bilateral Summaries', icon: ArrowLeftRight },
   { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/categories', label: 'Categories', icon: BarChart3 },
 ]

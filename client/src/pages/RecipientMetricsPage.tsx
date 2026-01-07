@@ -164,7 +164,7 @@ export default function RecipientMetricsPage() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="influencer" type="category" width={100} tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(value: number) => value.toLocaleString()} />
+              <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
               <Bar dataKey="count" fill="#1a365d" name="Documents" />
             </BarChart>
           </ResponsiveContainer>
@@ -182,7 +182,7 @@ export default function RecipientMetricsPage() {
                 cx="50%"
                 cy="50%"
                 outerRadius={100}
-                label={(entry) => `${entry.category}`}
+                label={(entry: any) => `${entry.category}`}
               >
                 {metrics.category_breakdown.map((entry) => (
                   <Cell
@@ -191,7 +191,7 @@ export default function RecipientMetricsPage() {
                   />
                 ))}
               </Pie>
-              <Tooltip formatter={(value: number) => value.toLocaleString()} />
+              <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -205,7 +205,7 @@ export default function RecipientMetricsPage() {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" />
             <YAxis dataKey="subcategory" type="category" width={150} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(value: number) => value.toLocaleString()} />
+            <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
             <Bar dataKey="count" fill="#4a6fa5" />
           </BarChart>
         </ResponsiveContainer>
@@ -219,7 +219,7 @@ export default function RecipientMetricsPage() {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" />
             <YAxis dataKey="source" type="category" width={150} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(value: number) => value.toLocaleString()} />
+            <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
             <Bar dataKey="count" fill="#2d4a7c" name="Documents" />
           </BarChart>
         </ResponsiveContainer>
