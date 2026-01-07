@@ -521,6 +521,25 @@
   color: #333;
 }
 
+.summary-section {
+  margin-bottom: 1.5rem;
+}
+
+.summary-section h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2c5aa0;
+  margin-bottom: 0.5rem;
+  margin-top: 0;
+}
+
+.summary-section p {
+  margin: 0;
+  line-height: 1.7;
+  color: #333;
+  white-space: pre-wrap;
+}
+
 .breakdown-section {
   background: white;
   padding: 2rem;

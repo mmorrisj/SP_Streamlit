@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams, Link } from 'react-router-dom'
-import { ArrowLeft, Calendar, FileText, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Calendar, FileText, ExternalLink, Users } from 'lucide-react'
 import './Pages.css'
 
 interface Citation {
@@ -15,63 +15,44 @@ interface Citation {
   recipients?: string[]
   excerpt?: string
   date?: string
-  summary_excerpt?: string
-  total_documents?: number
-  doc_ids?: string[]
-  daily_citations?: any[]
-  weekly_citations?: any[]
-  monthly_citations?: any[]
-  period_start?: string
-  period_end?: string
-  month_name?: string
-  weeks_covered?: number
 }
 
 interface Metrics {
   total_documents: number
   categories?: Record<string, number>
-  recipients?: Record<string, number>
   sources?: Record<string, number>
-  days_with_activity?: number
-  weeks_covered?: number
-  months_covered?: number
-  avg_salience?: number
 }
 
-interface SummaryDetail {
-  date?: string
-  period_start?: string
-  period_end?: string
+interface BilateralSummaryDetail {
+  period_start: string
+  period_end: string
+  month_name: string
   influencer: string
-  recipient?: string
+  recipient: string
+  category?: string
   summary: string
   citations: Citation[]
   metrics: Metrics
-  doc_ids?: string[]
+  generation_approach?: string
   generated_at: string
 }
 
-export default function SummaryDetailPage() {
+export default function BilateralSummaryDetailPage() {
   const [searchParams] = useSearchParams()
   const influencer = searchParams.get('influencer') || ''
   const filename = searchParams.get('filename') || ''
-  const recipient = searchParams.get('recipient') || undefined
 
   const { data, isLoading } = useQuery({
-    queryKey: ['document-summary-detail', influencer, filename, recipient],
+    queryKey: ['bilateral-summary-detail', influencer, filename],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        influencer,
-        filename,
-        ...(recipient && { recipient }),
-      })
-      const response = await fetch(`/api/document-summaries/detail?${params}`)
+      const params = new URLSearchParams({ influencer, filename })
+      const response = await fetch(`/api/bilateral-summaries/detail?${params}`)
       return response.json()
     },
     enabled: !!influencer && !!filename,
   })
 
-  const summary: SummaryDetail | null = data?.summary || null
+  const summary: BilateralSummaryDetail | null = data?.summary || null
 
   if (isLoading) {
     return <div className="loading">Loading summary...</div>
@@ -90,39 +71,25 @@ export default function SummaryDetailPage() {
     })
   }
 
-  // Determine summary level from filename or structure
-  const getLevel = () => {
-    if (filename.startsWith('overall_')) return 'Overall'
-    if (filename.includes('_to_')) {
-      return filename.split('_to_')[0].split('-').length === 3 ? 'Weekly' : 'Monthly'
-    }
-    return 'Daily'
-  }
-
-  const level = getLevel()
-
   return (
     <div className="page">
       <div className="page-header">
-        <Link to="/document-summaries" className="back-button">
+        <Link to="/bilateral-summaries" className="back-button">
           <ArrowLeft size={20} />
-          Back to Summaries
+          Back to Bilateral Summaries
         </Link>
 
         <div className="summary-detail-header">
           <div className="summary-title">
-            <h1>
-              {summary.date && formatDate(summary.date)}
-              {summary.period_start && summary.period_end && (
-                `${formatDate(summary.period_start)} - ${formatDate(summary.period_end)}`
-              )}
-            </h1>
-            <span className="summary-level-badge">{level} Summary</span>
+            <h1>{summary.month_name}</h1>
+            <span className="summary-level-badge">
+              {summary.category || 'All Categories'}
+            </span>
           </div>
 
           <p className="summary-relationship">
-            {summary.influencer}
-            {summary.recipient ? ` → ${summary.recipient}` : ' (all recipients)'}
+            <Users size={20} />
+            {summary.influencer} → {summary.recipient}
           </p>
         </div>
       </div>
@@ -137,32 +104,12 @@ export default function SummaryDetailPage() {
           </div>
         </div>
 
-        {summary.metrics.days_with_activity && (
+        {summary.generation_approach && (
           <div className="metric-card">
             <Calendar size={24} />
             <div>
-              <div className="metric-value">{summary.metrics.days_with_activity}</div>
-              <div className="metric-label">Days with Activity</div>
-            </div>
-          </div>
-        )}
-
-        {summary.metrics.weeks_covered && (
-          <div className="metric-card">
-            <Calendar size={24} />
-            <div>
-              <div className="metric-value">{summary.metrics.weeks_covered}</div>
-              <div className="metric-label">Weeks Covered</div>
-            </div>
-          </div>
-        )}
-
-        {summary.metrics.months_covered && (
-          <div className="metric-card">
-            <Calendar size={24} />
-            <div>
-              <div className="metric-value">{summary.metrics.months_covered}</div>
-              <div className="metric-label">Months Covered</div>
+              <div className="metric-value">{summary.generation_approach}</div>
+              <div className="metric-label">Generation Method</div>
             </div>
           </div>
         )}
@@ -195,17 +142,17 @@ export default function SummaryDetailPage() {
         </div>
       )}
 
-      {/* Recipients Breakdown */}
-      {summary.metrics.recipients && Object.keys(summary.metrics.recipients).length > 0 && (
+      {/* Sources Breakdown */}
+      {summary.metrics.sources && Object.keys(summary.metrics.sources).length > 0 && (
         <div className="breakdown-section">
-          <h2>Recipient Countries</h2>
+          <h2>Top Sources</h2>
           <div className="breakdown-grid">
-            {Object.entries(summary.metrics.recipients)
+            {Object.entries(summary.metrics.sources)
               .sort(([, a], [, b]) => b - a)
               .slice(0, 10)
-              .map(([recip, count]) => (
-                <div key={recip} className="breakdown-item">
-                  <span className="breakdown-label">{recip}</span>
+              .map(([source, count]) => (
+                <div key={source} className="breakdown-item">
+                  <span className="breakdown-label">{source}</span>
                   <span className="breakdown-value">{count}</span>
                 </div>
               ))}
@@ -237,24 +184,10 @@ export default function SummaryDetailPage() {
                 {citation.date && (
                   <span className="citation-date">{formatDate(citation.date)}</span>
                 )}
-
-                {citation.period_start && citation.period_end && (
-                  <span className="citation-period">
-                    {formatDate(citation.period_start)} - {formatDate(citation.period_end)}
-                  </span>
-                )}
-
-                {citation.month_name && (
-                  <span className="citation-month">{citation.month_name}</span>
-                )}
               </div>
 
               <div className="citation-body">
                 {citation.headline && <h4>{citation.headline}</h4>}
-
-                {citation.summary_excerpt && (
-                  <p className="citation-excerpt">{citation.summary_excerpt}</p>
-                )}
 
                 {citation.excerpt && (
                   <p className="citation-excerpt">{citation.excerpt}</p>
@@ -265,18 +198,6 @@ export default function SummaryDetailPage() {
                     {citation.categories.map((cat) => (
                       <span key={cat} className="tag">{cat}</span>
                     ))}
-                  </div>
-                )}
-
-                {citation.recipients && citation.recipients.length > 0 && (
-                  <div className="citation-recipients">
-                    Recipients: {citation.recipients.join(', ')}
-                  </div>
-                )}
-
-                {citation.total_documents && (
-                  <div className="citation-doc-count">
-                    {citation.total_documents} documents
                   </div>
                 )}
 

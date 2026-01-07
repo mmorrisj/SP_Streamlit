@@ -1525,6 +1525,131 @@ def get_available_summary_recipients(influencer: str):
     recipients = [d.name for d in influencer_path.iterdir() if d.is_dir()]
     return {"recipients": sorted(recipients)}
 
+# ===== BILATERAL SUMMARY ENDPOINTS =====
+
+@app.get("/api/bilateral-summaries/list")
+def list_bilateral_summaries(
+    influencer: str = Query(..., description="Influencer country"),
+    month: Optional[str] = Query(None, description="Optional month filter (YYYY-MM)"),
+    recipient: Optional[str] = Query(None, description="Optional recipient filter"),
+    category: Optional[str] = Query(None, description="Optional category filter")
+):
+    """List available bilateral summaries with optional filters."""
+    import json
+    import re
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    if not bilateral_path.exists():
+        return {"summaries": []}
+
+    summaries = []
+
+    # Pattern to match bilateral summary filenames
+    # Examples: Egypt-Economic_2024-08.json, Egypt_2024-08.json, overall_2024-06-01_to_2024-12-31.json
+    for file in sorted(bilateral_path.glob("*.json"), reverse=True):
+        filename = file.name
+
+        # Skip overall files in list view
+        if filename.startswith("overall_"):
+            continue
+
+        # Parse filename
+        # Format: {recipient}-{category}_{YYYY-MM}.json or {recipient}_{YYYY-MM}.json
+        match_with_category = re.match(r'([^-]+)-([^_]+)_(\d{4}-\d{2})\.json', filename)
+        match_without_category = re.match(r'([^_]+)_(\d{4}-\d{2})\.json', filename)
+
+        if match_with_category:
+            recip, cat, mon = match_with_category.groups()
+        elif match_without_category:
+            recip, mon = match_without_category.groups()
+            cat = None
+        else:
+            continue
+
+        # Apply filters
+        if month and mon != month:
+            continue
+        if recipient and recip != recipient:
+            continue
+        if category and cat != category:
+            continue
+
+        # Load summary data
+        with open(file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        summaries.append({
+            "filename": filename,
+            "recipient": data.get('recipient'),
+            "category": data.get('category'),
+            "month": mon,
+            "month_name": data.get('month_name'),
+            "total_documents": data.get('metrics', {}).get('total_documents', 0)
+        })
+
+    return {"summaries": summaries, "influencer": influencer}
+
+@app.get("/api/bilateral-summaries/detail")
+def get_bilateral_summary_detail(
+    influencer: str = Query(..., description="Influencer country"),
+    filename: str = Query(..., description="Summary filename")
+):
+    """Get the full detail of a specific bilateral summary."""
+    import json
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    file_path = bilateral_path / filename
+
+    if not file_path.exists():
+        return {"error": "Summary not found"}
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        summary_data = json.load(f)
+
+    return {"summary": summary_data}
+
+@app.get("/api/bilateral-summaries/overall")
+def get_bilateral_overall_summary(
+    influencer: str = Query(..., description="Influencer country"),
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)")
+):
+    """Get the bilateral overall rollup summary."""
+    import json
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    filename = f"overall_{start_date}_to_{end_date}.json"
+    file_path = bilateral_path / filename
+
+    if not file_path.exists():
+        return {"error": "Overall summary not found"}
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        summary_data = json.load(f)
+
+    return {"summary": summary_data}
+
+@app.get("/api/bilateral-summaries/available-months")
+def get_available_bilateral_months(influencer: str):
+    """Get list of months that have bilateral summaries."""
+    import re
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    if not bilateral_path.exists():
+        return {"months": []}
+
+    months = set()
+    for file in bilateral_path.glob("*.json"):
+        if file.name.startswith("overall_"):
+            continue
+
+        # Extract month from filename
+        match = re.search(r'_(\d{4}-\d{2})\.json', file.name)
+        if match:
+            months.add(match.group(1))
+
+    return {"months": sorted(list(months), reverse=True)}
+
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 

@@ -15,6 +15,8 @@ import BilateralMetricsPage from './pages/BilateralMetricsPage'
 import RecipientMetricsPage from './pages/RecipientMetricsPage'
 import DocumentSummariesPage from './pages/DocumentSummariesPage'
 import SummaryDetailPage from './pages/SummaryDetailPage'
+import BilateralSummariesPage from './pages/BilateralSummariesPage'
+import BilateralSummaryDetailPage from './pages/BilateralSummaryDetailPage'
 
 const queryClient = new QueryClient()
 
@@ -30,6 +32,8 @@ function App() {
             <Route path="summaries" element={<Summaries />} />
             <Route path="document-summaries" element={<DocumentSummariesPage />} />
             <Route path="document-summaries/detail" element={<SummaryDetailPage />} />
+            <Route path="bilateral-summaries" element={<BilateralSummariesPage />} />
+            <Route path="bilateral-summaries/detail" element={<BilateralSummaryDetailPage />} />
             <Route path="bilateral" element={<BilateralRelationships />} />
             <Route path="bilateral/:influencer/:recipient" element={<BilateralPage />} />
             <Route path="bilateral-metrics/:influencer/:recipient" element={<BilateralMetricsPage />} />
