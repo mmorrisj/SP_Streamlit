@@ -1408,9 +1408,126 @@ def get_bilateral_overview(influencer: str, recipient: str):
             recent_events=events
         )
 
+# ===== DOCUMENT-BASED SUMMARY ENDPOINTS =====
+
+PUBLICATIONS_DIR = Path(__file__).parent.parent / "publications"
+
+class SummaryListResponse(BaseModel):
+    summaries: list
+    influencer: str
+    recipient: Optional[str]
+
+class SummaryDetailResponse(BaseModel):
+    summary: dict
+
+@app.get("/api/document-summaries/list")
+def list_document_summaries(
+    influencer: str = Query(..., description="Influencer country"),
+    recipient: Optional[str] = Query(None, description="Optional recipient country"),
+    level: str = Query("daily", description="Summary level: daily, weekly, monthly, or overall")
+):
+    """List available document-based summaries for an influencer (and optionally recipient)."""
+    import json
+
+    # Build path based on bilateral or all-recipients
+    if recipient:
+        summary_path = PUBLICATIONS_DIR / influencer / recipient / level
+    else:
+        summary_path = PUBLICATIONS_DIR / influencer / level
+
+    if not summary_path.exists():
+        return SummaryListResponse(summaries=[], influencer=influencer, recipient=recipient)
+
+    summaries = []
+    if level == "overall":
+        # Overall summaries are individual files, not in a directory
+        parent_dir = summary_path.parent
+        for file in parent_dir.glob("overall_*.json"):
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                summaries.append({
+                    "filename": file.name,
+                    "period_start": data.get('period_start'),
+                    "period_end": data.get('period_end'),
+                    "influencer": data.get('influencer'),
+                    "recipient": data.get('recipient'),
+                    "total_documents": data.get('metrics', {}).get('total_documents', 0)
+                })
+    else:
+        # Daily, weekly, monthly are in subdirectories
+        for file in sorted(summary_path.glob("*.json"), reverse=True):
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                summaries.append({
+                    "filename": file.name,
+                    "date": data.get('date'),  # Daily
+                    "period_start": data.get('period_start'),  # Weekly/Monthly
+                    "period_end": data.get('period_end'),  # Weekly/Monthly
+                    "influencer": data.get('influencer'),
+                    "recipient": data.get('recipient'),
+                    "total_documents": data.get('metrics', {}).get('total_documents', 0)
+                })
+
+    return SummaryListResponse(summaries=summaries, influencer=influencer, recipient=recipient)
+
+@app.get("/api/document-summaries/detail")
+def get_document_summary_detail(
+    influencer: str = Query(..., description="Influencer country"),
+    filename: str = Query(..., description="Summary filename"),
+    recipient: Optional[str] = Query(None, description="Optional recipient country")
+):
+    """Get the full detail of a specific document-based summary."""
+    import json
+
+    # Build path based on bilateral or all-recipients
+    if recipient:
+        base_path = PUBLICATIONS_DIR / influencer / recipient
+    else:
+        base_path = PUBLICATIONS_DIR / influencer
+
+    # Determine which subdirectory based on filename pattern
+    if filename.startswith("overall_"):
+        file_path = base_path / filename
+    elif "_to_" in filename:
+        # Weekly or monthly with period range
+        if len(filename.split("_to_")[0].split("-")) == 3:  # YYYY-MM-DD format = weekly
+            file_path = base_path / "weekly" / filename
+        else:  # YYYY-MM format = monthly
+            file_path = base_path / "monthly" / filename
+    else:
+        # Daily (YYYY-MM-DD.json)
+        file_path = base_path / "daily" / filename
+
+    if not file_path.exists():
+        return {"error": "Summary not found"}
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        summary_data = json.load(f)
+
+    return SummaryDetailResponse(summary=summary_data)
+
+@app.get("/api/document-summaries/available-influencers")
+def get_available_summary_influencers():
+    """Get list of influencers that have document summaries."""
+    if not PUBLICATIONS_DIR.exists():
+        return {"influencers": []}
+
+    influencers = [d.name for d in PUBLICATIONS_DIR.iterdir() if d.is_dir()]
+    return {"influencers": sorted(influencers)}
+
+@app.get("/api/document-summaries/available-recipients")
+def get_available_summary_recipients(influencer: str):
+    """Get list of recipients that have summaries for a specific influencer."""
+    influencer_path = PUBLICATIONS_DIR / influencer
+    if not influencer_path.exists():
+        return {"recipients": []}
+
+    recipients = [d.name for d in influencer_path.iterdir() if d.is_dir()]
+    return {"recipients": sorted(recipients)}
+
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
-    
+
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         file_path = STATIC_DIR / full_path

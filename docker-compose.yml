@@ -94,6 +94,7 @@ services:
       - ./alembic.ini:/app/alembic.ini
       - ./material_exports:/app/material_exports
       - ./event_exports:/app/event_exports
+      - ./publications:/app/publications          # Summary publications output
       - app_output:/app/output
     networks:
       - softpower_net

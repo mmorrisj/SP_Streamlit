@@ -13,6 +13,8 @@ import OverallMetrics from './pages/OverallMetrics'
 import InfluencerMetricsPage from './pages/InfluencerMetricsPage'
 import BilateralMetricsPage from './pages/BilateralMetricsPage'
 import RecipientMetricsPage from './pages/RecipientMetricsPage'
+import DocumentSummariesPage from './pages/DocumentSummariesPage'
+import SummaryDetailPage from './pages/SummaryDetailPage'
 
 const queryClient = new QueryClient()
 
@@ -26,6 +28,8 @@ function App() {
             <Route path="documents" element={<Documents />} />
             <Route path="events" element={<Events />} />
             <Route path="summaries" element={<Summaries />} />
+            <Route path="document-summaries" element={<DocumentSummariesPage />} />
+            <Route path="document-summaries/detail" element={<SummaryDetailPage />} />
             <Route path="bilateral" element={<BilateralRelationships />} />
             <Route path="bilateral/:influencer/:recipient" element={<BilateralPage />} />
             <Route path="bilateral-metrics/:influencer/:recipient" element={<BilateralMetricsPage />} />
