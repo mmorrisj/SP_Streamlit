@@ -139,4 +139,45 @@ export const fetchRecipientMetrics = async (country: string): Promise<RecipientM
   return data
 }
 
+export interface EventTimeline {
+  event_name: string
+  event_summary: string
+  date_range: {
+    first: string
+    last: string
+  }
+  daily_article_counts: Record<string, number>
+  materiality: number
+  category: string
+  recipients: string[]
+  source_doc_ids: string[]
+  atom_search_url: string
+}
+
+export interface EventTimelineResponse {
+  events: EventTimeline[]
+  country: string
+  date_range: {
+    start: string
+    end: string
+  }
+}
+
+export const fetchEventTimeline = async (
+  country: string,
+  startDate: string,
+  endDate: string,
+  level: string = 'monthly'
+): Promise<EventTimelineResponse> => {
+  const { data } = await api.get('/events/timeline', {
+    params: {
+      country,
+      start_date: startDate,
+      end_date: endDate,
+      level
+    }
+  })
+  return data
+}
+
 export default api
