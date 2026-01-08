@@ -1411,6 +1411,7 @@ def get_bilateral_overview(influencer: str, recipient: str):
 # ===== DOCUMENT-BASED SUMMARY ENDPOINTS =====
 
 PUBLICATIONS_DIR = Path(__file__).parent.parent / "publications"
+EVENTS_DIR = Path(__file__).parent.parent / "publications" / "events"
 
 class SummaryListResponse(BaseModel):
     summaries: list
@@ -1526,6 +1527,155 @@ def get_available_summary_recipients(influencer: str):
     return {"recipients": sorted(recipients)}
 
 # ===== BILATERAL SUMMARY ENDPOINTS =====
+
+# ===== EVENT TIMELINE ENDPOINTS =====
+
+class EventTimelineResponse(BaseModel):
+    events: list
+    country: str
+    date_range: dict
+
+@app.get("/api/events/timeline", response_model=EventTimelineResponse)
+def get_event_timeline(
+    country: str = Query(..., description="Country name"),
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    level: str = Query("monthly", description="Consolidation level: daily, weekly, monthly, or overall")
+):
+    """Get event timeline with daily article density for Gantt chart visualization."""
+    import json
+    from datetime import datetime
+    from collections import defaultdict
+
+    events_country_dir = EVENTS_DIR / country
+
+    if not events_country_dir.exists():
+        return EventTimelineResponse(
+            events=[],
+            country=country,
+            date_range={"start": start_date, "end": end_date}
+        )
+
+    # Load events based on level
+    events_data = []
+
+    if level == "overall":
+        # Load overall file
+        overall_files = list(events_country_dir.glob(f"overall_*_events.json"))
+        for overall_file in overall_files:
+            try:
+                with open(overall_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    events_data.extend(data.get('events', []))
+            except Exception as e:
+                print(f"Error reading {overall_file}: {e}")
+
+    elif level == "monthly":
+        # Load monthly files in date range
+        monthly_dir = events_country_dir / "monthly"
+        if monthly_dir.exists():
+            for monthly_file in sorted(monthly_dir.glob("*_events.json")):
+                try:
+                    with open(monthly_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        events_data.extend(data.get('events', []))
+                except Exception as e:
+                    print(f"Error reading {monthly_file}: {e}")
+
+    elif level == "weekly":
+        # Load weekly files in date range
+        weekly_dir = events_country_dir / "weekly"
+        if weekly_dir.exists():
+            for weekly_file in sorted(weekly_dir.glob("*_events.json")):
+                try:
+                    with open(weekly_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        events_data.extend(data.get('events', []))
+                except Exception as e:
+                    print(f"Error reading {weekly_file}: {e}")
+
+    elif level == "daily":
+        # Load daily files in date range
+        daily_dir = events_country_dir / "daily"
+        if daily_dir.exists():
+            for daily_file in sorted(daily_dir.glob("*_events.json")):
+                try:
+                    with open(daily_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        events_data.extend(data.get('events', []))
+                except Exception as e:
+                    print(f"Error reading {daily_file}: {e}")
+
+    # Process events to calculate daily article counts
+    # For consolidated events, we need to trace back to daily sources
+    processed_events = []
+
+    for event in events_data:
+        # Get date range
+        date_range = event.get('date_range', {})
+        first_mention = date_range.get('first_mention', 'Unknown')
+        last_mention = date_range.get('last_mention', 'Unknown')
+
+        # Skip events with unknown dates
+        if first_mention == 'Unknown' and last_mention == 'Unknown':
+            continue
+
+        # Calculate daily article counts from source_doc_ids
+        # For now, we'll distribute articles evenly across daily_sources
+        daily_sources = event.get('daily_sources', [])
+        source_doc_ids = event.get('source_doc_ids', [])
+        total_docs = len(source_doc_ids)
+
+        daily_article_counts = {}
+        if daily_sources:
+            # Distribute documents across dates
+            docs_per_day = total_docs / len(daily_sources)
+            for date_str in daily_sources:
+                daily_article_counts[date_str] = int(docs_per_day)
+
+            # Add remainder to first day
+            remainder = total_docs - (int(docs_per_day) * len(daily_sources))
+            if remainder > 0 and daily_sources:
+                daily_article_counts[daily_sources[0]] += remainder
+        elif first_mention != 'Unknown':
+            # If no daily_sources, put all docs on first_mention date
+            daily_article_counts[first_mention] = total_docs
+
+        # Get materiality score
+        materiality_obj = event.get('materiality', {})
+        if isinstance(materiality_obj, dict):
+            materiality_score = materiality_obj.get('score', 0.0)
+        else:
+            materiality_score = float(materiality_obj) if materiality_obj else 0.0
+
+        processed_event = {
+            "event_name": event.get('event_name', 'Unnamed Event'),
+            "event_summary": event.get('event_summary', ''),
+            "date_range": {
+                "first": first_mention,
+                "last": last_mention
+            },
+            "daily_article_counts": daily_article_counts,
+            "materiality": materiality_score,
+            "category": event.get('category', 'Unknown'),
+            "recipients": event.get('recipients', []),
+            "source_doc_ids": source_doc_ids,
+            "atom_search_url": event.get('atom_search_url', '')
+        }
+
+        processed_events.append(processed_event)
+
+    # Sort events by first_mention date (most recent first)
+    processed_events.sort(
+        key=lambda x: x['date_range']['first'] if x['date_range']['first'] != 'Unknown' else '1900-01-01',
+        reverse=True
+    )
+
+    return EventTimelineResponse(
+        events=processed_events,
+        country=country,
+        date_range={"start": start_date, "end": end_date}
+    )
 
 @app.get("/api/bilateral-summaries/list")
 def list_bilateral_summaries(
