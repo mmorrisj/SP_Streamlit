@@ -17,6 +17,7 @@ import DocumentSummariesPage from './pages/DocumentSummariesPage'
 import SummaryDetailPage from './pages/SummaryDetailPage'
 import BilateralSummariesPage from './pages/BilateralSummariesPage'
 import BilateralSummaryDetailPage from './pages/BilateralSummaryDetailPage'
+import TimelineComparison from './pages/TimelineComparison'
 
 const queryClient = new QueryClient()
 
@@ -42,6 +43,7 @@ function App() {
             <Route path="metrics" element={<OverallMetrics />} />
             <Route path="metrics/influencer/:country" element={<InfluencerMetricsPage />} />
             <Route path="metrics/recipient/:country" element={<RecipientMetricsPage />} />
+            <Route path="timeline" element={<TimelineComparison />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -1,10 +1,11 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3, Globe, TrendingUp, BookOpen, ArrowLeftRight } from 'lucide-react'
+import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3, Globe, TrendingUp, BookOpen, ArrowLeftRight, Activity } from 'lucide-react'
 import './Layout.css'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/metrics', label: 'Metrics', icon: TrendingUp },
+  { path: '/timeline', label: 'Timeline', icon: Activity },
   { path: '/documents', label: 'Documents', icon: FileText },
   { path: '/events', label: 'Events', icon: Calendar },
   { path: '/summaries', label: 'Event Summaries', icon: Folder },
