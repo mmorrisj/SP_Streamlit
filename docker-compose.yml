@@ -84,11 +84,12 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./server:/app/server                      # NEW: React-serving API
-      - ./services/api:/app/services/api          # OLD: Legacy API endpoints
+      - ./server:/app/server                      # React-serving API
+      - ./services/api:/app/services/api          # Legacy API endpoints
       - ./services/pipeline:/app/services/pipeline
       - ./shared:/app/shared
-      - ./client/dist:/app/client/dist            # NEW: Built React static files
+      # Note: client/dist is built inside Docker image (multi-stage build)
+      # For frontend hot-reload during development, run: cd client && npm run dev
       - ./data:/app/data
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
