@@ -229,15 +229,25 @@ def process_date_range(
     end_date: datetime,
     publications_dir: str = "publications",
     output_dir: str = "publications/events",
-    config: Config = None
+    config: Config = None,
+    force: bool = False
 ):
-    """Process all daily files in a date range for a country."""
+    """
+    Process all daily files in a date range for a country.
+
+    Args:
+        force: If True, reprocess dates that already have output files (default: False)
+    """
 
     print(f"\n{'='*80}")
     print(f"Extracting Daily Events: {country}")
     print(f"Date range: {start_date.date()} to {end_date.date()}")
     print(f"Input: {publications_dir}/{country}/daily/")
     print(f"Output: {output_dir}/{country}/daily/")
+    if force:
+        print(f"Mode: FORCE - will reprocess existing files")
+    else:
+        print(f"Mode: Skip existing files (use --force to reprocess)")
     print(f"{'='*80}\n")
 
     if config is None:
@@ -252,8 +262,19 @@ def process_date_range(
     results = []
     total_events = 0
     files_processed = 0
+    files_skipped = 0
 
     while current_date <= end_date:
+        # Check if output file already exists (unless force=True)
+        date_str = current_date.strftime("%Y-%m-%d")
+        output_file = country_output_dir / f"{date_str}_events.json"
+
+        if not force and output_file.exists():
+            print(f"  ⊗ Skipping {current_date.date()} (already exists)")
+            files_skipped += 1
+            current_date += timedelta(days=1)
+            continue
+
         # Read daily JSON
         daily_json = read_daily_json(country, current_date, publications_dir)
 
@@ -307,6 +328,7 @@ def process_date_range(
         },
         "processing": {
             "files_processed": files_processed,
+            "files_skipped": files_skipped,
             "total_events_extracted": total_events,
             "avg_events_per_day": round(total_events / files_processed, 2) if files_processed > 0 else 0
         },
@@ -321,6 +343,7 @@ def process_date_range(
     print(f"\n{'='*80}")
     print(f"✅ Processing Complete!")
     print(f"  Files processed: {files_processed}")
+    print(f"  Files skipped: {files_skipped}")
     print(f"  Total events extracted: {total_events}")
     print(f"  Average events/day: {summary['processing']['avg_events_per_day']}")
     print(f"  Summary: {summary_file}")
@@ -360,6 +383,11 @@ def main():
         default="publications/events",
         help="Output directory for event JSON files (default: publications/events)"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force reprocessing of dates that already have output files (default: skip existing)"
+    )
 
     args = parser.parse_args()
 
@@ -381,7 +409,8 @@ def main():
         end_date,
         args.publications_dir,
         args.output_dir,
-        config
+        config,
+        force=args.force
     )
 
 

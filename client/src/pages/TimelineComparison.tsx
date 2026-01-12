@@ -18,9 +18,10 @@ const CHART_COLORS = [
 
 export default function TimelineComparison() {
   const [selectedInfluencers, setSelectedInfluencers] = useState<string[]>(['China'])
-  const [startDate, setStartDate] = useState<string>('2024-01-01')
-  const [endDate, setEndDate] = useState<string>('2024-12-31')
+  const [startDate, setStartDate] = useState<string>('2024-08-01')
+  const [endDate, setEndDate] = useState<string>('2026-01-01')
   const [showEventGantt, setShowEventGantt] = useState<boolean>(true)
+  const [consolidationLevel, setConsolidationLevel] = useState<'daily' | 'weekly' | 'monthly' | 'overall'>('monthly')
 
   // Fetch available countries for the dropdown
   const { data: filterOptions } = useQuery({
@@ -43,8 +44,8 @@ export default function TimelineComparison() {
 
   // Fetch event timeline for the first selected influencer
   const { data: eventTimeline, isLoading: isLoadingEvents } = useQuery({
-    queryKey: ['eventTimeline', selectedInfluencers[0], startDate, endDate],
-    queryFn: () => fetchEventTimeline(selectedInfluencers[0] || 'China', startDate, endDate, 'monthly'),
+    queryKey: ['eventTimeline', selectedInfluencers[0], startDate, endDate, consolidationLevel],
+    queryFn: () => fetchEventTimeline(selectedInfluencers[0] || 'China', startDate, endDate, consolidationLevel),
     enabled: selectedInfluencers.length > 0 && showEventGantt,
   })
 
@@ -165,6 +166,28 @@ export default function TimelineComparison() {
                 fontSize: '1rem',
               }}
             />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#666' }}>
+              Event Consolidation Level
+            </label>
+            <select
+              value={consolidationLevel}
+              onChange={(e) => setConsolidationLevel(e.target.value as 'daily' | 'weekly' | 'monthly' | 'overall')}
+              style={{
+                padding: '0.5rem 0.75rem',
+                border: '1px solid #ddd',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                backgroundColor: 'white',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="daily">Daily (61 events)</option>
+              <option value="weekly">Weekly (14 events)</option>
+              <option value="monthly">Monthly (2 events)</option>
+              <option value="overall">Overall</option>
+            </select>
           </div>
         </div>
       </div>

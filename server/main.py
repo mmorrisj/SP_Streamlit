@@ -1535,6 +1535,30 @@ class EventTimelineResponse(BaseModel):
     country: str
     date_range: dict
 
+@app.get("/api/test-debug")
+def test_debug():
+    """Test endpoint to verify server is running updated code."""
+    from pathlib import Path
+    events_dir = Path(__file__).parent.parent / "publications" / "events"
+    china_monthly = events_dir / "China" / "monthly"
+    import json
+
+    files = list(china_monthly.glob("*.json")) if china_monthly.exists() else []
+    events_count = 0
+    if files:
+        with open(files[0], 'r') as f:
+            data = json.load(f)
+            events_count = len(data.get('events', []))
+
+    return {
+        "message": "Debug endpoint working!",
+        "events_dir_exists": events_dir.exists(),
+        "china_monthly_exists": china_monthly.exists(),
+        "files_found": len(files),
+        "events_in_first_file": events_count,
+        "code_version": "2026-01-09-debug-v2"
+    }
+
 @app.get("/api/events/timeline", response_model=EventTimelineResponse)
 def get_event_timeline(
     country: str = Query(..., description="Country name"),
@@ -1546,8 +1570,12 @@ def get_event_timeline(
     import json
     from datetime import datetime
     from collections import defaultdict
+    import sys
+
+    print(f"DEBUG: get_event_timeline called with country={country}, level={level}", file=sys.stderr, flush=True)
 
     events_country_dir = EVENTS_DIR / country
+    print(f"DEBUG: EVENTS_DIR={EVENTS_DIR}, events_country_dir={events_country_dir}", file=sys.stderr, flush=True)
 
     if not events_country_dir.exists():
         return EventTimelineResponse(
@@ -1610,21 +1638,60 @@ def get_event_timeline(
     # For consolidated events, we need to trace back to daily sources
     processed_events = []
 
+    print(f"DEBUG: Loaded {len(events_data)} events from files")
+    print(f"DEBUG: First event keys: {list(events_data[0].keys()) if events_data else 'No events'}")
+
     for event in events_data:
         # Get date range
         date_range = event.get('date_range', {})
         first_mention = date_range.get('first_mention', 'Unknown')
         last_mention = date_range.get('last_mention', 'Unknown')
 
-        # Skip events with unknown dates
+        # Get sources to determine dates
+        daily_sources = event.get('daily_sources', [])
+        weekly_sources = event.get('weekly_sources', [])
+        source_doc_ids = event.get('source_doc_ids', [])
+        total_docs = len(source_doc_ids)
+
+        # If dates are Unknown, try to infer from daily_sources or weekly_sources
+        if first_mention == 'Unknown' or last_mention == 'Unknown':
+            if daily_sources:
+                # Use first and last dates from daily_sources
+                sorted_dates = sorted(daily_sources)
+                if first_mention == 'Unknown':
+                    first_mention = sorted_dates[0]
+                if last_mention == 'Unknown':
+                    last_mention = sorted_dates[-1]
+            elif weekly_sources:
+                # Convert week IDs to dates (e.g., "2025-W26" -> "2025-06-23")
+                week_dates = []
+                for week_id in weekly_sources:
+                    try:
+                        year, week = week_id.split('-W')
+                        # ISO week date calculation
+                        from datetime import datetime, timedelta
+                        jan4 = datetime(int(year), 1, 4)
+                        week_start = jan4 + timedelta(days=-jan4.weekday(), weeks=int(week)-1)
+                        week_dates.append(week_start.strftime("%Y-%m-%d"))
+                    except:
+                        pass
+                if week_dates:
+                    sorted_dates = sorted(week_dates)
+                    if first_mention == 'Unknown':
+                        first_mention = sorted_dates[0]
+                    if last_mention == 'Unknown':
+                        # Week end is 6 days after start
+                        from datetime import datetime, timedelta
+                        last_week_start = datetime.strptime(sorted_dates[-1], "%Y-%m-%d")
+                        last_week_end = last_week_start + timedelta(days=6)
+                        last_mention = last_week_end.strftime("%Y-%m-%d")
+
+        # Skip events that still have unknown dates after attempting to infer
         if first_mention == 'Unknown' and last_mention == 'Unknown':
             continue
 
         # Calculate daily article counts from source_doc_ids
         # For now, we'll distribute articles evenly across daily_sources
-        daily_sources = event.get('daily_sources', [])
-        source_doc_ids = event.get('source_doc_ids', [])
-        total_docs = len(source_doc_ids)
 
         daily_article_counts = {}
         if daily_sources:
@@ -1800,14 +1867,34 @@ def get_available_bilateral_months(influencer: str):
 
     return {"months": sorted(list(months), reverse=True)}
 
+# Static file serving for React SPA
+# IMPORTANT: This must come AFTER all @app.get() API route definitions
+# so that API routes take precedence over the catch-all
 if STATIC_DIR.exists():
+    # Mount static assets directory
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
-    @app.get("/{full_path:path}")
+    # Serve index.html for root path
+    @app.get("/", include_in_schema=False)
+    async def serve_root():
+        return FileResponse(STATIC_DIR / "index.html")
+
+    # Catch-all for SPA routing - MUST exclude /api/* paths
+    # FastAPI routes are matched in order, but catch-all patterns can override
+    # So we explicitly check and reject API paths
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        # Skip if this is an API path - let FastAPI's 404 handler take over
+        if full_path.startswith("api"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Try to serve static file if it exists
         file_path = STATIC_DIR / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
+
+        # Otherwise serve index.html for SPA routing
         return FileResponse(STATIC_DIR / "index.html")
 
 if __name__ == "__main__":
