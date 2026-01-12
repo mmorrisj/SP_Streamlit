@@ -324,7 +324,8 @@ class EventBatchClusterer:
         session,
         country: str,
         target_date: date,
-        dry_run: bool = False
+        dry_run: bool = False,
+        skip_existing: bool = True
     ) -> Dict:
         """
         Process all events for a specific country and date.
@@ -332,12 +333,38 @@ class EventBatchClusterer:
         NEW BEHAVIOR: Clusters ALL events for the day together (not in batches).
         The batch_size is only used for organizing clusters for later LLM processing.
 
+        Args:
+            skip_existing: If True, skip dates that already have clusters (default: True)
+
         Returns:
             Stats dict with: total_events, num_batches, num_clusters
         """
         print(f"\n{'='*60}")
         print(f"Processing: {country} on {target_date}")
         print(f"{'='*60}")
+
+        # Check if this date has already been processed (unless skip_existing=False)
+        if skip_existing:
+            check_query = text("""
+                SELECT COUNT(*) as count
+                FROM event_clusters
+                WHERE initiating_country = :country
+                  AND cluster_date = :target_date
+            """)
+            result = session.execute(check_query, {
+                'country': country,
+                'target_date': target_date
+            }).fetchone()
+
+            existing_count = result.count if result else 0
+            if existing_count > 0:
+                print(f"  [SKIP] Already processed - found {existing_count} existing clusters")
+                return {
+                    'total_events': 0,
+                    'num_batches': 0,
+                    'num_clusters': 0,
+                    'skipped': True
+                }
 
         # Get all events for this country/date
         events = self.get_events_for_date_country(session, country, target_date)
@@ -487,6 +514,7 @@ Examples:
     parser.add_argument('--batch-size', type=int, default=150, help='Events per batch for LLM processing (default: 150, does NOT affect clustering)')
     parser.add_argument('--eps', type=float, default=0.15, help='DBSCAN epsilon (default: 0.15, range: 0.10-0.30)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without saving')
+    parser.add_argument('--force', action='store_true', help='Force reprocessing of dates that already have clusters (default: skip existing)')
 
     args = parser.parse_args()
 
@@ -528,6 +556,10 @@ Examples:
     print(f"Recipient filter: {len(recipient_countries)} target countries from config.yaml")
     if args.dry_run:
         print("MODE: DRY RUN (no changes will be saved)")
+    if args.force:
+        print("MODE: FORCE - will reprocess dates that already have clusters")
+    else:
+        print("MODE: Skip existing dates (use --force to reprocess)")
     print("="*60)
 
     # Get countries to process
@@ -549,7 +581,8 @@ Examples:
         'total_events': 0,
         'total_batches': 0,
         'total_clusters': 0,
-        'dates_processed': 0
+        'dates_processed': 0,
+        'dates_skipped': 0
     }
 
     with get_session() as session:
@@ -560,7 +593,8 @@ Examples:
                     session,
                     country,
                     current_date,
-                    dry_run=args.dry_run
+                    dry_run=args.dry_run,
+                    skip_existing=not args.force  # If --force, don't skip existing
                 )
 
                 overall_stats['total_events'] += stats['total_events']
