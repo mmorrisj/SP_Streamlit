@@ -1525,7 +1525,8 @@ def main():
     args = parser.parse_args()
 
     # Load config for validation
-    config_path = Path(__file__).parent.parent / 'shared' / 'config' / 'config.yaml'
+    # Go up to project root: publications/scripts/ -> publications/ -> app/
+    config_path = Path(__file__).parent.parent.parent / 'shared' / 'config' / 'config.yaml'
     config = Config.from_yaml(config_path)
 
     # Validate influencer

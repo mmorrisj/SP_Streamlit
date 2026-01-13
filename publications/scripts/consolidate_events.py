@@ -850,7 +850,9 @@ def process_consolidation(
     print(f"{'='*80}\n")
 
     if config is None:
-        config = Config.from_yaml('shared/config/config.yaml')
+        # Resolve config path relative to script location
+        config_path = Path(__file__).parent.parent.parent / 'shared' / 'config' / 'config.yaml'
+        config = Config.from_yaml(config_path)
 
     # Weekly consolidation
     if not monthly_only and not overall_only:
@@ -1095,8 +1097,9 @@ def main():
         print(f"Error parsing dates: {e}")
         sys.exit(1)
 
-    # Load config
-    config = Config.from_yaml('shared/config/config.yaml')
+    # Load config (resolve path relative to script location)
+    config_path = Path(__file__).parent.parent.parent / 'shared' / 'config' / 'config.yaml'
+    config = Config.from_yaml(config_path)
 
     # Process
     process_consolidation(
