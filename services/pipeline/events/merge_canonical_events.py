@@ -209,6 +209,115 @@ def merge_canonical_events_for_country(
     return stats
 
 
+def update_master_statistics(
+    session,
+    country: str,
+    dry_run: bool = False,
+    verbose: bool = True
+) -> int:
+    """
+    Update statistics on master events based on aggregated daily_event_mentions.
+
+    This ensures that after merging child events, the master event's summary
+    fields (first_mention_date, last_mention_date, total_mention_days, etc.)
+    reflect the actual aggregated data.
+
+    Returns:
+        Number of events updated
+    """
+    if verbose:
+        print(f"\n{'='*80}")
+        print(f"Updating Master Event Statistics: {country}")
+        print('='*80)
+
+    # Find all master events that need updating
+    # Compare stored values with actual aggregated values
+    events_to_update = session.execute(text('''
+        SELECT
+            ce.id,
+            ce.canonical_name,
+            ce.first_mention_date as old_first,
+            ce.last_mention_date as old_last,
+            ce.total_mention_days as old_days,
+            ce.total_articles as old_articles,
+            MIN(dem.mention_date) as actual_first,
+            MAX(dem.mention_date) as actual_last,
+            COUNT(DISTINCT dem.mention_date) as actual_days,
+            SUM(dem.article_count) as actual_articles
+        FROM canonical_events ce
+        JOIN daily_event_mentions dem ON ce.id = dem.canonical_event_id
+        WHERE ce.initiating_country = :country
+          AND ce.master_event_id IS NULL
+        GROUP BY ce.id, ce.canonical_name, ce.first_mention_date,
+                 ce.last_mention_date, ce.total_mention_days, ce.total_articles
+        HAVING ce.first_mention_date != MIN(dem.mention_date)
+            OR ce.last_mention_date != MAX(dem.mention_date)
+            OR ce.total_mention_days != COUNT(DISTINCT dem.mention_date)
+            OR ce.total_articles != SUM(dem.article_count)
+    '''), {'country': country}).fetchall()
+
+    if not events_to_update:
+        if verbose:
+            print("  All master events have up-to-date statistics")
+        return 0
+
+    if verbose:
+        print(f"  Found {len(events_to_update)} events needing statistics update")
+
+    for row in events_to_update:
+        event_id = row[0]
+        event_name = row[1]
+        actual_first = row[6]
+        actual_last = row[7]
+        actual_days = row[8]
+        actual_articles = row[9]
+
+        # Get peak date info
+        peak_info = session.execute(text('''
+            SELECT mention_date, article_count
+            FROM daily_event_mentions
+            WHERE canonical_event_id = :event_id
+            ORDER BY article_count DESC
+            LIMIT 1
+        '''), {'event_id': event_id}).fetchone()
+
+        peak_date = peak_info[0] if peak_info else None
+        peak_articles = peak_info[1] if peak_info else 0
+
+        if verbose:
+            safe_name = event_name.encode('ascii', 'replace').decode('ascii')[:50]
+            print(f"    {safe_name}: {actual_days} days, {actual_articles:,} articles")
+
+        if not dry_run:
+            session.execute(text('''
+                UPDATE canonical_events
+                SET first_mention_date = :first_date,
+                    last_mention_date = :last_date,
+                    total_mention_days = :days_count,
+                    total_articles = :total_articles,
+                    peak_mention_date = :peak_date,
+                    peak_daily_article_count = :peak_articles
+                WHERE id = :event_id
+            '''), {
+                'event_id': event_id,
+                'first_date': actual_first,
+                'last_date': actual_last,
+                'days_count': actual_days,
+                'total_articles': actual_articles,
+                'peak_date': peak_date,
+                'peak_articles': peak_articles
+            })
+
+    if not dry_run:
+        session.commit()
+        if verbose:
+            print(f"  [COMMITTED] Updated statistics for {len(events_to_update)} events")
+    elif verbose:
+        print(f"  [DRY RUN] Would update statistics for {len(events_to_update)} events")
+
+    return len(events_to_update)
+
+
 def verify_multi_day_events(
     session,
     country: str,
@@ -316,8 +425,9 @@ def main():
             overall_stats['total_mentions_reassigned'] += stats['mentions_reassigned']
             overall_stats['total_events_deleted'] += stats['events_deleted']
 
-            # Verify results
+            # Update statistics and verify results
             if not args.dry_run:
+                update_master_statistics(session, country, args.dry_run, args.verbose)
                 verify_multi_day_events(session, country, args.verbose)
 
     print()
