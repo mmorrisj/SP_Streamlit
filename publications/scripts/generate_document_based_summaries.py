@@ -321,6 +321,11 @@ def generate_daily_summary_chunked(
         # Generate summary for this chunk with local citation numbers
         chunk_summary_dict = generate_daily_summary_single(chunk, influencer, target_date, model, recipient)
 
+        # Check if LLM call failed
+        if chunk_summary_dict is None:
+            print(" ❌ LLM call failed, skipping chunk")
+            continue
+
         # Renumber citations to be globally unique across all chunks
         for citation in chunk_summary_dict['citations']:
             citation['citation_number'] = citation_offset + citation['citation_number']
@@ -331,8 +336,13 @@ def generate_daily_summary_chunked(
         all_citations.extend(chunk_summary_dict['citations'])
         print(" ✅")
 
+    # Check if all chunks failed
+    if not chunk_summaries:
+        print(f"    ❌ All chunks failed - unable to generate summary for {target_date}")
+        return None
+
     # REDUCE PHASE: Combine chunk summaries into final daily summary
-    print(f"    🔄 Combining {len(chunks)} chunk summaries...")
+    print(f"    🔄 Combining {len(chunk_summaries)} chunk summaries...")
 
     relationship_desc = f"{influencer} → {recipient}" if recipient else influencer
 
@@ -361,42 +371,47 @@ SUB-SUMMARIES TO COMBINE:
 
 Combine these sub-summaries into a single cohesive daily summary. Preserve all citations."""
 
-    combined_summary = gai(reduce_system_prompt, reduce_user_prompt, model=model)
+    try:
+        combined_summary = gai(reduce_system_prompt, reduce_user_prompt, model=model)
 
-    # Calculate aggregate metrics
-    categories = defaultdict(int)
-    recipients_count = defaultdict(int)
-    sources = defaultdict(int)
+        # Calculate aggregate metrics
+        categories = defaultdict(int)
+        recipients_count = defaultdict(int)
+        sources = defaultdict(int)
 
-    for doc in docs:
-        for cat in doc['categories']:
-            categories[cat] += 1
-        for rec in doc['recipients']:
-            recipients_count[rec] += 1
-        if doc['source_name']:
-            sources[doc['source_name']] += 1
+        for doc in docs:
+            for cat in doc['categories']:
+                categories[cat] += 1
+            for rec in doc['recipients']:
+                recipients_count[rec] += 1
+            if doc['source_name']:
+                sources[doc['source_name']] += 1
 
-    result = {
-        'date': target_date.isoformat(),
-        'influencer': influencer,
-        'summary': combined_summary,
-        'citations': all_citations,  # Full citation list from all chunks
-        'metrics': {
-            'total_documents': len(docs),
-            'categories': dict(categories),
-            'recipients': dict(recipients_count),
-            'sources': dict(sources),
-            'avg_salience': sum(d['salience'] for d in docs if d['salience']) / len(docs),
-            'chunks_processed': len(chunks)  # Added to show chunking was used
-        },
-        'doc_ids': [d['doc_id'] for d in docs],
-        'generated_at': datetime.utcnow().isoformat()
-    }
+        result = {
+            'date': target_date.isoformat(),
+            'influencer': influencer,
+            'summary': combined_summary,
+            'citations': all_citations,  # Full citation list from all chunks
+            'metrics': {
+                'total_documents': len(docs),
+                'categories': dict(categories),
+                'recipients': dict(recipients_count),
+                'sources': dict(sources),
+                'avg_salience': sum(d['salience'] for d in docs if d['salience']) / len(docs),
+                'chunks_processed': len(chunks)  # Added to show chunking was used
+            },
+            'doc_ids': [d['doc_id'] for d in docs],
+            'generated_at': datetime.utcnow().isoformat()
+        }
 
-    if recipient:
-        result['recipient'] = recipient
+        if recipient:
+            result['recipient'] = recipient
 
-    return result
+        return result
+
+    except Exception as e:
+        print(f"    ❌ Error in reduce phase for {target_date}: {e}")
+        return None
 
 
 def generate_daily_summary_single(
