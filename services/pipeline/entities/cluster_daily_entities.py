@@ -40,7 +40,7 @@ from shared.models.models import (
     InitiatingCountry
 )
 from shared.utils.utils import Config
-from sqlalchemy import text, func, and_
+from sqlalchemy import text, func, and_, distinct
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
@@ -96,35 +96,31 @@ def cluster_entities_for_date_and_type(
         Number of clusters created
     """
 
-    # Query all entity mentions for this date/country/type
-    query = text("""
-        SELECT DISTINCT
-            re.entity_name,
-            re.country_affiliation,
-            re.role,
-            ARRAY_AGG(DISTINCT re.doc_id) as doc_ids,
-            COUNT(*) as mention_count
-        FROM raw_entities re
-        JOIN documents d ON re.doc_id = d.doc_id
-        JOIN initiating_countries ic ON d.doc_id = ic.doc_id
-        WHERE ic.initiating_country = :country
-          AND d.date = :date
-          AND re.entity_type = :entity_type
-        GROUP BY re.entity_name, re.country_affiliation, re.role
-        ORDER BY mention_count DESC
-    """)
-
-    result = session.execute(
-        query,
-        {
-            'country': country,
-            'date': date.date(),
-            'entity_type': entity_type.value
-        }
+    # Query all entity mentions for this date/country/type using ORM
+    # This properly handles enum types
+    query = (
+        session.query(
+            RawEntity.entity_name,
+            RawEntity.country_affiliation,
+            RawEntity.role,
+            func.array_agg(distinct(RawEntity.doc_id)).label('doc_ids'),
+            func.count().label('mention_count')
+        )
+        .join(Document, RawEntity.doc_id == Document.doc_id)
+        .join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+        .filter(
+            and_(
+                InitiatingCountry.initiating_country == country,
+                Document.date == date.date(),
+                RawEntity.entity_type == entity_type  # ORM properly handles enum type
+            )
+        )
+        .group_by(RawEntity.entity_name, RawEntity.country_affiliation, RawEntity.role)
+        .order_by(func.count().desc())
     )
 
     entities = []
-    for row in result:
+    for row in query.all():
         entities.append({
             'entity_name': row.entity_name,
             'country_affiliation': row.country_affiliation,

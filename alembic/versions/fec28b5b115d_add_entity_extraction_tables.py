@@ -103,21 +103,12 @@ def upgrade() -> None:
     op.create_index('ix_raw_entity_country', 'raw_entities', ['country_affiliation'], unique=False)
     op.create_index('ix_raw_entity_doc_date', 'raw_entities', ['doc_id'], unique=False)
     op.create_index('ix_raw_entity_type', 'raw_entities', ['entity_type'], unique=False)
-    op.drop_index('ix_doc_entity_doc_id', table_name='document_entities')
-    op.drop_index('ix_doc_entity_entity_id', table_name='document_entities')
-    op.drop_index('ix_doc_entity_role', table_name='document_entities')
-    op.drop_index('ix_doc_entity_side', table_name='document_entities')
-    op.drop_index('ix_doc_entity_topic', table_name='document_entities')
-    op.drop_table('document_entities')
-    op.drop_index('ix_entity_aliases', table_name='entities', postgresql_using='gin')
-    op.drop_index('ix_entity_canonical_name', table_name='entities')
-    op.drop_index('ix_entity_country', table_name='entities')
-    op.drop_index('ix_entity_mention_count', table_name='entities')
-    op.drop_index('ix_entity_type', table_name='entities')
-    op.drop_table('entities')
-    op.drop_table('langchain_pg_embedding')
-    op.drop_table('langchain_pg_collection')
-    op.drop_table('entity_extraction_runs')
+    # Drop old entity tables if they exist (with CASCADE to handle dependencies)
+    op.execute('DROP TABLE IF EXISTS document_entities CASCADE')
+    op.execute('DROP TABLE IF EXISTS entities CASCADE')
+    op.execute('DROP TABLE IF EXISTS langchain_pg_embedding CASCADE')
+    op.execute('DROP TABLE IF EXISTS langchain_pg_collection CASCADE')
+    op.execute('DROP TABLE IF EXISTS entity_extraction_runs CASCADE')
     op.alter_column('bilateral_category_summaries', 'material_score_histogram',
                existing_type=postgresql.JSONB(astext_type=sa.Text()),
                nullable=True,
@@ -180,42 +171,31 @@ def upgrade() -> None:
     op.alter_column('daily_event_mentions', 'doc_ids',
                existing_type=postgresql.ARRAY(sa.TEXT()),
                nullable=False)
-    op.add_column('entity_relationships', sa.Column('entity_from_id', sa.UUID(), nullable=False))
-    op.add_column('entity_relationships', sa.Column('entity_to_id', sa.UUID(), nullable=False))
-    op.add_column('entity_relationships', sa.Column('co_occurrence_count', sa.Integer(), nullable=False))
-    op.add_column('entity_relationships', sa.Column('first_co_occurrence', sa.Date(), nullable=False))
-    op.add_column('entity_relationships', sa.Column('last_co_occurrence', sa.Date(), nullable=False))
-    op.add_column('entity_relationships', sa.Column('primary_categories', postgresql.JSONB(astext_type=sa.Text()), nullable=False))
-    op.add_column('entity_relationships', sa.Column('relationship_description', sa.Text(), nullable=True))
-    op.add_column('entity_relationships', sa.Column('source_doc_ids', postgresql.ARRAY(sa.Text()), nullable=False))
-    op.alter_column('entity_relationships', 'relationship_type',
-               existing_type=sa.VARCHAR(length=50),
-               type_=sa.String(length=100),
-               existing_nullable=False)
-    op.drop_index('ix_relationship_dates', table_name='entity_relationships')
-    op.drop_index('ix_relationship_source', table_name='entity_relationships')
-    op.drop_index('ix_relationship_target', table_name='entity_relationships')
-    op.drop_index('ix_relationship_type', table_name='entity_relationships')
-    op.drop_constraint('uq_entity_relationship', 'entity_relationships', type_='unique')
-    op.create_unique_constraint('uq_entity_relationship', 'entity_relationships', ['entity_from_id', 'entity_to_id', 'relationship_type'])
-    op.create_index('ix_entity_rel_dates', 'entity_relationships', ['first_co_occurrence', 'last_co_occurrence'], unique=False)
+    # Drop and recreate entity_relationships with new schema
+    op.execute('DROP TABLE IF EXISTS entity_relationships CASCADE')
+    op.create_table('entity_relationships',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('entity_from_id', sa.UUID(), nullable=False),
+    sa.Column('entity_to_id', sa.UUID(), nullable=False),
+    sa.Column('relationship_type', sa.String(length=100), nullable=False),
+    sa.Column('co_occurrence_count', sa.Integer(), nullable=False),
+    sa.Column('first_co_occurrence', sa.Date(), nullable=False),
+    sa.Column('last_co_occurrence', sa.Date(), nullable=False),
+    sa.Column('primary_categories', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('relationship_description', sa.Text(), nullable=True),
+    sa.Column('source_doc_ids', postgresql.ARRAY(sa.Text()), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['entity_from_id'], ['canonical_entities.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['entity_to_id'], ['canonical_entities.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('entity_from_id', 'entity_to_id', 'relationship_type', name='uq_entity_relationship'),
+    sa.CheckConstraint('entity_from_id != entity_to_id', name='ck_no_self_relationship')
+    )
     op.create_index('ix_entity_rel_from', 'entity_relationships', ['entity_from_id'], unique=False)
     op.create_index('ix_entity_rel_to', 'entity_relationships', ['entity_to_id'], unique=False)
     op.create_index('ix_entity_rel_type', 'entity_relationships', ['relationship_type'], unique=False)
-    op.drop_constraint('entity_relationships_target_entity_id_fkey', 'entity_relationships', type_='foreignkey')
-    op.drop_constraint('entity_relationships_source_entity_id_fkey', 'entity_relationships', type_='foreignkey')
-    op.create_foreign_key(None, 'entity_relationships', 'canonical_entities', ['entity_to_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key(None, 'entity_relationships', 'canonical_entities', ['entity_from_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('entity_relationships', 'total_value_usd')
-    op.drop_column('entity_relationships', 'target_entity_id')
-    op.drop_column('entity_relationships', 'last_observed')
-    op.drop_column('entity_relationships', 'first_observed')
-    op.drop_column('entity_relationships', 'source_entity_id')
-    op.drop_column('entity_relationships', 'observation_count')
-    op.drop_column('entity_relationships', 'sample_doc_ids')
-    op.drop_column('entity_relationships', 'document_count')
-    op.drop_column('entity_relationships', 'sample_descriptions')
-    op.drop_column('entity_relationships', 'avg_confidence')
+    op.create_index('ix_entity_rel_dates', 'entity_relationships', ['first_co_occurrence', 'last_co_occurrence'], unique=False)
     op.alter_column('event_summaries', 'material_score',
                existing_type=sa.NUMERIC(precision=3, scale=1),
                type_=sa.Numeric(precision=4, scale=2),
