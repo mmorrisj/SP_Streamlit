@@ -1791,9 +1791,16 @@ def list_bilateral_summaries(
         if category and cat != category:
             continue
 
-        # Load summary data
-        with open(file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        # Load summary data with error handling for malformed JSON
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Warning: Skipping malformed JSON file {filename}: {e}")
+            continue
+        except Exception as e:
+            print(f"Warning: Error reading {filename}: {e}")
+            continue
 
         summaries.append({
             "filename": filename,
@@ -1820,8 +1827,13 @@ def get_bilateral_summary_detail(
     if not file_path.exists():
         return {"error": "Summary not found"}
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        summary_data = json.load(f)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            summary_data = json.load(f)
+    except json.JSONDecodeError as e:
+        return {"error": f"Malformed JSON in file {filename}: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Error reading file {filename}: {str(e)}"}
 
     return {"summary": summary_data}
 
@@ -1841,8 +1853,13 @@ def get_bilateral_overall_summary(
     if not file_path.exists():
         return {"error": "Overall summary not found"}
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        summary_data = json.load(f)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            summary_data = json.load(f)
+    except json.JSONDecodeError as e:
+        return {"error": f"Malformed JSON in overall summary: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Error reading overall summary: {str(e)}"}
 
     return {"summary": summary_data}
 
