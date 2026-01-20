@@ -58,14 +58,24 @@ For each unique event, provide:
    - Organizations (name, type)
    - Companies (name, sector)
    - Locations (name, type)
-7. **Source doc_ids**: Document IDs that mention this event
+7. **Source doc_ids**: Document IDs (UUIDs) that mention this event
+   - ⚠️ CRITICAL: Use the "DOC ID:" field (the UUID) from each citation
+   - ⚠️ NEVER use "Citation Ref:" numbers like [1], [2], [10], [37] - these are reference numbers only
+   - ⚠️ Doc IDs are 36-character UUIDs like "bf4075d1-1929-45d7-8723-cf20a15268a9"
+   - ⚠️ Each citation shows "DOC ID:" at the very top - use THAT UUID
 
-CRITICAL:
+⚠️ CRITICAL RULES ⚠️:
 - Extract UNIQUE events only - if multiple documents cover the same event, list it ONCE
 - Use salience information from citations to prioritize
 - Materiality measures CONCRETE ACTION, not importance or media coverage
 - Track all entities mentioned in connection with each event
 - If there are no events (only routine news), return empty array
+
+⚠️ SOURCE DOC_IDS - READ THIS CAREFULLY ⚠️:
+- Each citation starts with "**DOC ID: [uuid]**" - use ONLY these UUIDs
+- IGNORE the "Citation Ref: [number]" line - these are just reference numbers
+- Example: If you see "**DOC ID: abc123...**" and "Citation Ref: [10]", use "abc123..." NOT "10"
+- ALL source_doc_ids must be 36-character UUIDs with dashes, never short numbers
 
 Return ONLY a JSON array of events:
 [
@@ -91,9 +101,12 @@ Return ONLY a JSON array of events:
         {{"name": "Al-Tuwaitha Complex", "type": "Nuclear facility", "country": "Iraq"}}
       ]
     }},
-    "source_doc_ids": ["bf4075d1-1929-45d7-8723-cf20a15268a9"]
+    "source_doc_ids": ["bf4075d1-1929-45d7-8723-cf20a15268a9", "a1b2c3d4-5678-90ab-cdef-1234567890ab"]
   }}
 ]
+
+NOTE: The source_doc_ids MUST be full UUIDs from the "Doc ID:" field in citations, like "bf4075d1-1929-45d7-8723-cf20a15268a9".
+NEVER use short numbers like "1", "2", "10" which are citation reference numbers.
 """
 
 
@@ -188,8 +201,7 @@ def extract_daily_events(
     try:
         sys_prompt = "You are an expert geopolitical analyst specializing in materiality assessment. You distinguish between concrete, tangible developments and symbolic rhetoric. Extract unique events with precise materiality scoring and comprehensive entity tracking."
 
-        # Uses default source="proxy" which routes through FastAPI /material_query
-        # The proxy handles Azure→OpenAI fallback based on ENV variable
+        # Use gai() proxy
         response = gai(
             sys_prompt=sys_prompt,
             user_prompt=prompt,
