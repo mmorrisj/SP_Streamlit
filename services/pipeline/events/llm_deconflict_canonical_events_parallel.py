@@ -201,7 +201,7 @@ Return ONLY valid JSON with this exact structure:
 Do these represent the SAME event? Pick the BEST name.
 Return JSON only."""
 
-    response = gai(user_prompt, system=sys_prompt, model="gpt-4o-mini")
+    response = gai(sys_prompt, user_prompt, model="gpt-4o-mini")
 
     try:
         # Parse JSON response
