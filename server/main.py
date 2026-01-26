@@ -79,9 +79,14 @@ app.add_middleware(
 
 class DocumentStats(BaseModel):
     total_documents: int
+    total_events: int  # New: total canonical events
     documents_by_week: list
+    documents_by_week_by_influencer: dict  # New: per-influencer weekly data
+    documents_by_week_by_recipient: dict  # New: per-recipient weekly data
     top_countries: list
+    top_recipients: list  # New: top recipient countries
     category_distribution: list
+    subcategory_distribution: list  # New: subcategory breakdown
 
 class DocumentResponse(BaseModel):
     documents: list
@@ -104,6 +109,7 @@ class CategoriesResponse(BaseModel):
 
 class FiltersResponse(BaseModel):
     countries: list
+    recipients: list
     categories: list
     subcategories: list
     date_range: dict
@@ -117,7 +123,9 @@ def get_document_stats(
     country: Optional[str] = None,
     category: Optional[str] = None,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    influencer_country: Optional[str] = None,
+    recipient_country: Optional[str] = None
 ):
     with get_session() as session:
         # Base query for total count - filter by influencers and recipients
@@ -140,12 +148,45 @@ def get_document_stats(
             base_query = base_query.filter(
                 InitiatingCountry.initiating_country == country
             )
+        if influencer_country and influencer_country != 'ALL':
+            base_query = base_query.filter(
+                InitiatingCountry.initiating_country == influencer_country
+            )
+        if recipient_country and recipient_country != 'ALL':
+            base_query = base_query.filter(
+                RecipientCountry.recipient_country == recipient_country
+            )
         if category and category != 'ALL':
             base_query = base_query.join(Category).filter(
                 Category.category == category
             )
 
         total = base_query.distinct().count()
+
+        # Count total canonical events (master events only) with same filters
+        # Use the primary_recipients JSONB field for recipient filtering
+        from sqlalchemy import text
+        from sqlalchemy.dialects.postgresql import JSONB
+
+        events_query = session.query(CanonicalEvent.id).filter(
+            CanonicalEvent.master_event_id.is_(None),
+            CanonicalEvent.initiating_country.in_(INFLUENCERS)
+        )
+
+        # Apply influencer filter
+        if country and country != 'ALL':
+            events_query = events_query.filter(CanonicalEvent.initiating_country == country)
+        if influencer_country and influencer_country != 'ALL':
+            events_query = events_query.filter(CanonicalEvent.initiating_country == influencer_country)
+
+        # Apply recipient filter using JSONB key existence check
+        if recipient_country and recipient_country != 'ALL':
+            # Check if recipient_country exists as a key in primary_recipients JSONB
+            events_query = events_query.filter(
+                CanonicalEvent.primary_recipients.has_key(recipient_country)
+            )
+
+        total_events = events_query.count()
 
         # Documents by week - with same filtering
         week_query = session.query(
@@ -174,7 +215,88 @@ def get_document_stats(
         if end_date:
             week_query = week_query.filter(Document.date <= end_date)
 
-        docs_by_week = week_query.group_by('week').order_by('week').limit(20).all()
+        docs_by_week = week_query.group_by('week').order_by('week').all()
+
+        # Documents by week by influencer - for toggle functionality
+        docs_by_week_by_influencer = {}
+        for influencer in INFLUENCERS:
+            influencer_week_query = session.query(
+                func.date_trunc('week', Document.date).label('week'),
+                func.count(func.distinct(Document.doc_id)).label('count')
+            ).join(InitiatingCountry).join(
+                RecipientCountry,
+                RecipientCountry.doc_id == Document.doc_id
+            ).filter(
+                Document.date.isnot(None),
+                InitiatingCountry.initiating_country == influencer,
+                RecipientCountry.recipient_country.in_(RECIPIENTS),
+                InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+            )
+
+            if category and category != 'ALL':
+                influencer_week_query = influencer_week_query.join(Category).filter(
+                    Category.category == category
+                )
+            if start_date:
+                influencer_week_query = influencer_week_query.filter(Document.date >= start_date)
+            if end_date:
+                influencer_week_query = influencer_week_query.filter(Document.date <= end_date)
+
+            influencer_weeks = influencer_week_query.group_by('week').order_by('week').all()
+            docs_by_week_by_influencer[influencer] = [
+                {"week": str(row.week)[:10] if row.week else "", "count": row.count}
+                for row in influencer_weeks
+            ]
+
+        # Documents by week by recipient - OPTIMIZED single query approach
+        # Single query gets all recipient/week/influencer combinations at once
+        recipient_week_query = session.query(
+            func.date_trunc('week', Document.date).label('week'),
+            RecipientCountry.recipient_country.label('recipient'),
+            InitiatingCountry.initiating_country.label('influencer'),
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(RecipientCountry).join(
+            InitiatingCountry,
+            InitiatingCountry.doc_id == Document.doc_id
+        ).filter(
+            Document.date.isnot(None),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        )
+
+        if category and category != 'ALL':
+            recipient_week_query = recipient_week_query.join(Category).filter(
+                Category.category == category
+            )
+        if start_date:
+            recipient_week_query = recipient_week_query.filter(Document.date >= start_date)
+        if end_date:
+            recipient_week_query = recipient_week_query.filter(Document.date <= end_date)
+
+        # Execute single query
+        all_recipient_weeks = recipient_week_query.group_by('week', 'recipient', 'influencer').all()
+
+        # Group results by recipient, then by week
+        docs_by_week_by_recipient = {}
+        for row in all_recipient_weeks:
+            recipient = row.recipient
+            week_str = str(row.week)[:10] if row.week else ""
+
+            if recipient not in docs_by_week_by_recipient:
+                docs_by_week_by_recipient[recipient] = {}
+
+            if week_str not in docs_by_week_by_recipient[recipient]:
+                docs_by_week_by_recipient[recipient][week_str] = {"week": week_str, "by_influencer": {}}
+
+            docs_by_week_by_recipient[recipient][week_str]["by_influencer"][row.influencer] = row.count
+
+        # Convert week maps to sorted lists
+        for recipient in docs_by_week_by_recipient:
+            docs_by_week_by_recipient[recipient] = sorted(
+                docs_by_week_by_recipient[recipient].values(),
+                key=lambda x: x["week"]
+            )
 
         # Top countries - only from influencers list
         countries_query = session.query(
@@ -198,6 +320,29 @@ def get_document_stats(
         top_countries = countries_query.group_by(
             InitiatingCountry.initiating_country
         ).order_by(func.count(func.distinct(InitiatingCountry.doc_id)).desc()).limit(10).all()
+
+        # Top recipients - only from recipients list, filter by influencers
+        recipients_query = session.query(
+            RecipientCountry.recipient_country.label('country'),
+            func.count(func.distinct(RecipientCountry.doc_id)).label('count')
+        ).join(
+            InitiatingCountry,
+            InitiatingCountry.doc_id == RecipientCountry.doc_id
+        ).filter(
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        )
+
+        if category and category != 'ALL':
+            recipients_query = recipients_query.join(
+                Category,
+                Category.doc_id == RecipientCountry.doc_id
+            ).filter(Category.category == category)
+
+        top_recipients = recipients_query.group_by(
+            RecipientCountry.recipient_country
+        ).order_by(func.count(func.distinct(RecipientCountry.doc_id)).desc()).limit(10).all()
 
         # Category distribution - with same filtering
         cat_query = session.query(
@@ -224,19 +369,55 @@ def get_document_stats(
             func.count(func.distinct(Category.doc_id)).desc()
         ).all()
 
+        # Subcategory distribution - with same filtering
+        subcat_query = session.query(
+            Subcategory.subcategory.label('subcategory'),
+            func.count(func.distinct(Subcategory.doc_id)).label('count')
+        ).join(
+            InitiatingCountry,
+            InitiatingCountry.doc_id == Subcategory.doc_id
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Subcategory.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        )
+
+        if country and country != 'ALL':
+            subcat_query = subcat_query.filter(
+                InitiatingCountry.initiating_country == country
+            )
+
+        subcategory_dist = subcat_query.group_by(Subcategory.subcategory).order_by(
+            func.count(func.distinct(Subcategory.doc_id)).desc()
+        ).limit(10).all()
+
         return DocumentStats(
             total_documents=total,
+            total_events=total_events,
             documents_by_week=[
                 {"week": str(row.week)[:10] if row.week else "", "count": row.count}
                 for row in docs_by_week
             ],
+            documents_by_week_by_influencer=docs_by_week_by_influencer,
+            documents_by_week_by_recipient=docs_by_week_by_recipient,
             top_countries=[
                 {"country": row.country, "count": row.count}
                 for row in top_countries
             ],
+            top_recipients=[
+                {"country": row.country, "count": row.count}
+                for row in top_recipients
+            ],
             category_distribution=[
                 {"category": row.category, "count": row.count}
                 for row in category_dist
+            ],
+            subcategory_distribution=[
+                {"subcategory": row.subcategory, "count": row.count}
+                for row in subcategory_dist
             ]
         )
 
@@ -463,6 +644,85 @@ def get_categories():
             ]
         )
 
+@app.get("/api/bilateral-map-data")
+def get_bilateral_map_data(influencer: Optional[str] = Query(None, description="Influencer country or ALL")):
+    """Get bilateral relationship data for map visualization."""
+    with get_session() as session:
+        # If influencer is ALL or None, aggregate across all influencers
+        if not influencer or influencer == 'ALL':
+            # Get data for all recipients across all influencers
+            recipient_data = session.query(
+                RecipientCountry.recipient_country.label('recipient'),
+                func.count(func.distinct(RecipientCountry.doc_id)).label('document_count')
+            ).join(
+                InitiatingCountry,
+                InitiatingCountry.doc_id == RecipientCountry.doc_id
+            ).filter(
+                RecipientCountry.recipient_country.in_(RECIPIENTS),
+                InitiatingCountry.initiating_country.in_(INFLUENCERS),
+                InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+            ).group_by(RecipientCountry.recipient_country).all()
+
+            # Get event counts per recipient (from canonical_events)
+            event_counts = {}
+            for recipient in RECIPIENTS:
+                # Count master canonical events that mention this recipient
+                # This is approximate - we'd need to parse the recipient data from canonical_events
+                event_count = session.query(func.count(CanonicalEvent.id)).filter(
+                    CanonicalEvent.master_event_id.is_(None)
+                ).scalar() or 0
+                event_counts[recipient] = 0  # Placeholder for now
+
+            return {
+                "influencer": "ALL",
+                "recipients": [
+                    {
+                        "country": row.recipient,
+                        "document_count": row.document_count,
+                        "event_count": event_counts.get(row.recipient, 0),
+                        "avg_materiality": 0.0  # Placeholder
+                    }
+                    for row in recipient_data
+                ]
+            }
+        else:
+            # Get data for specific influencer
+            if influencer not in INFLUENCERS:
+                return {"error": f"{influencer} is not a recognized influencer"}
+
+            recipient_data = session.query(
+                RecipientCountry.recipient_country.label('recipient'),
+                func.count(func.distinct(RecipientCountry.doc_id)).label('document_count')
+            ).join(
+                InitiatingCountry,
+                InitiatingCountry.doc_id == RecipientCountry.doc_id
+            ).filter(
+                InitiatingCountry.initiating_country == influencer,
+                RecipientCountry.recipient_country.in_(RECIPIENTS),
+                InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+            ).group_by(RecipientCountry.recipient_country).all()
+
+            # Get event counts for this influencer
+            event_counts_query = session.query(
+                CanonicalEvent.id
+            ).filter(
+                CanonicalEvent.initiating_country == influencer,
+                CanonicalEvent.master_event_id.is_(None)
+            ).all()
+
+            return {
+                "influencer": influencer,
+                "recipients": [
+                    {
+                        "country": row.recipient,
+                        "document_count": row.document_count,
+                        "event_count": 0,  # Placeholder - would need to parse event recipients
+                        "avg_materiality": 0.0  # Placeholder
+                    }
+                    for row in recipient_data
+                ]
+            }
+
 @app.get("/api/filters", response_model=FiltersResponse)
 def get_filter_options():
     with get_session() as session:
@@ -515,6 +775,7 @@ def get_filter_options():
 
         return FiltersResponse(
             countries=sorted(countries),  # From config, not database
+            recipients=sorted(RECIPIENTS),  # From config, not database
             categories=sorted([c[0] for c in categories if c[0]]),
             subcategories=sorted([c[0] for c in subcategories if c[0]]),
             date_range={
