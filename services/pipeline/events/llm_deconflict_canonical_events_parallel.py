@@ -204,7 +204,11 @@ Return JSON only."""
     response = gai(sys_prompt, user_prompt, model="gpt-4o-mini")
 
     try:
-        # Parse JSON response
+        # gai() can return either a dict (already parsed) or a string
+        if isinstance(response, dict):
+            return response
+
+        # If it's a string, parse it
         json_str = response.strip()
         if json_str.startswith("```json"):
             json_str = json_str[7:]

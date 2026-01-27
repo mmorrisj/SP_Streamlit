@@ -9,7 +9,7 @@ const navItems = [
   { path: '/documents', label: 'Documents', icon: FileText },
   { path: '/events', label: 'Events', icon: Calendar },
   { path: '/summaries', label: 'Event Summaries', icon: Folder },
-  { path: '/document-summaries', label: 'Doc Summaries', icon: BookOpen },
+  { path: '/document-summaries', label: 'Coverage Summaries', icon: BookOpen },
   { path: '/bilateral-summaries', label: 'Bilateral Summaries', icon: ArrowLeftRight },
   { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/categories', label: 'Categories', icon: BarChart3 },
