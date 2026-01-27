@@ -71,7 +71,7 @@ export default function DocumentSummariesPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Document-Based Summaries</h1>
+        <h1>Coverage Summaries</h1>
         <p>Hierarchical summaries with full source attribution</p>
       </header>
 

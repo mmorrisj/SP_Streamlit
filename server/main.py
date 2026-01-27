@@ -1691,20 +1691,21 @@ def list_document_summaries(
     """List available document-based summaries for an influencer (and optionally recipient)."""
     import json
 
-    # Build path based on bilateral or all-recipients
-    if recipient:
-        summary_path = PUBLICATIONS_DIR / influencer / recipient / level
-    else:
-        summary_path = PUBLICATIONS_DIR / influencer / level
+    summaries = []
 
-    if not summary_path.exists():
+    # Build base path
+    if recipient:
+        base_path = PUBLICATIONS_DIR / influencer / recipient
+    else:
+        base_path = PUBLICATIONS_DIR / influencer
+
+    if not base_path.exists():
         return SummaryListResponse(summaries=[], influencer=influencer, recipient=recipient)
 
-    summaries = []
+    # Handle different levels
     if level == "overall":
-        # Overall summaries are individual files, not in a directory
-        parent_dir = summary_path.parent
-        for file in parent_dir.glob("overall_*.json"):
+        # Overall summaries are individual files at the base level
+        for file in base_path.glob("overall_*.json"):
             with open(file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 summaries.append({
@@ -1717,18 +1718,20 @@ def list_document_summaries(
                 })
     else:
         # Daily, weekly, monthly are in subdirectories
-        for file in sorted(summary_path.glob("*.json"), reverse=True):
-            with open(file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                summaries.append({
-                    "filename": file.name,
-                    "date": data.get('date'),  # Daily
-                    "period_start": data.get('period_start'),  # Weekly/Monthly
-                    "period_end": data.get('period_end'),  # Weekly/Monthly
-                    "influencer": data.get('influencer'),
-                    "recipient": data.get('recipient'),
-                    "total_documents": data.get('metrics', {}).get('total_documents', 0)
-                })
+        summary_path = base_path / level
+        if summary_path.exists():
+            for file in sorted(summary_path.glob("*.json"), reverse=True):
+                with open(file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    summaries.append({
+                        "filename": file.name,
+                        "date": data.get('date'),  # Daily
+                        "period_start": data.get('period_start'),  # Weekly/Monthly
+                        "period_end": data.get('period_end'),  # Weekly/Monthly
+                        "influencer": data.get('influencer'),
+                        "recipient": data.get('recipient'),
+                        "total_documents": data.get('metrics', {}).get('total_documents', 0)
+                    })
 
     return SummaryListResponse(summaries=summaries, influencer=influencer, recipient=recipient)
 
@@ -1757,8 +1760,14 @@ def get_document_summary_detail(
         else:  # YYYY-MM format = monthly
             file_path = base_path / "monthly" / filename
     else:
-        # Daily (YYYY-MM-DD.json)
-        file_path = base_path / "daily" / filename
+        # Determine if it's monthly (YYYY-MM.json) or daily (YYYY-MM-DD.json)
+        name_without_ext = filename.replace('.json', '')
+        parts = name_without_ext.split('-')
+
+        if len(parts) == 2:  # YYYY-MM format = monthly
+            file_path = base_path / "monthly" / filename
+        else:  # YYYY-MM-DD format = daily
+            file_path = base_path / "daily" / filename
 
     if not file_path.exists():
         return {"error": "Summary not found"}
