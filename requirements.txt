@@ -77,6 +77,9 @@ openai>=2.14.0
 # -----------------------------------------------
 pytest==7.4.3
 pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-timeout==2.2.0
+pytest-xdist==3.5.0
 httpx==0.25.2
 alembic
 altair
