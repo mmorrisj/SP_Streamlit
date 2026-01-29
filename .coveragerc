@@ -1,0 +1,90 @@
+[run]
+# ===========================================
+# Coverage Configuration
+# ===========================================
+
+source =
+    shared
+    services
+    server
+
+omit =
+    # Test files
+    */tests/*
+    */test_*.py
+    */*_test.py
+
+    # Migration files
+    */alembic/*
+
+    # Configuration files
+    */config.py
+    */settings.py
+
+    # CLI scripts (tested manually)
+    */commands.py
+
+    # Virtual environment
+    */venv/*
+    */.venv/*
+
+    # Node modules
+    */node_modules/*
+
+    # Docker files
+    */docker/*
+
+    # Streamlit pages (tested via UI)
+    services/dashboard/pages/*
+    services/dashboard/app.py
+
+    # Development scripts
+    */diagnostics/*
+
+[report]
+# Reporting options
+precision = 2
+show_missing = true
+skip_covered = false
+skip_empty = true
+
+# Fail if coverage is below threshold (optional)
+# fail_under = 80
+
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+
+    # Debug code
+    def __repr__
+    if self\.debug
+
+    # Defensive programming
+    raise AssertionError
+    raise NotImplementedError
+
+    # Type checking
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+    @overload
+
+    # Abstract methods
+    @abstractmethod
+
+    # Non-runnable code
+    if __name__ == .__main__.:
+    if 0:
+    if False:
+
+    # Pass statements
+    pass
+
+    # Ellipsis
+    \.\.\.
+
+[html]
+directory = htmlcov
+title = SoftPower Test Coverage Report
+
+[xml]
+output = coverage.xml

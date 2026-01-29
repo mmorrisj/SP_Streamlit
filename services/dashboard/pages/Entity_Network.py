@@ -17,7 +17,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
 from shared.database.database import get_session
-from shared.models.models_entity import Entity, EntityRelationship
+from shared.models.models import CanonicalEntity, EntityRelationship
 from sqlalchemy import func, and_
 
 st.set_page_config(page_title="Entity Network", page_icon="🕸️", layout="wide")
@@ -31,26 +31,32 @@ with st.sidebar:
 
     # Load filter options from database
     with get_session() as session:
-        entity_count = session.query(Entity).count()
+        # Use CanonicalEntity (two-stage pipeline) and only count master entities
+        entity_count = session.query(CanonicalEntity).filter(
+            CanonicalEntity.master_entity_id.is_(None)  # Only master entities
+        ).count()
         relationship_count = session.query(EntityRelationship).count()
 
-        st.metric("Total Entities", entity_count)
+        st.metric("Total Entities (Master)", entity_count)
         st.metric("Total Relationships", relationship_count)
 
         if entity_count == 0:
-            st.warning("No entities found. Run entity extraction first.")
-            st.info("**Sample data available for demo**")
+            st.warning("No entities found. Run entity extraction pipeline first.")
+            st.info("Run: `extract_daily_entities.py` → `cluster_daily_entities.py` → `llm_deconflict_entity_clusters.py`")
             use_sample_data = st.checkbox("Use sample data for demo", value=True)
         else:
             use_sample_data = False
 
-            # Get filter options
-            countries = session.query(Entity.country).distinct().filter(
-                Entity.country.isnot(None)
+            # Get filter options (use initiating_country from CanonicalEntity)
+            countries = session.query(CanonicalEntity.initiating_country).distinct().filter(
+                CanonicalEntity.initiating_country.isnot(None),
+                CanonicalEntity.master_entity_id.is_(None)  # Only master entities
             ).all()
             countries = [c[0] for c in countries]
 
-            entity_types = session.query(Entity.entity_type).distinct().all()
+            entity_types = session.query(CanonicalEntity.entity_type).distinct().filter(
+                CanonicalEntity.master_entity_id.is_(None)
+            ).all()
             entity_types = [t[0] for t in entity_types]
 
             rel_types = session.query(EntityRelationship.relationship_type).distinct().all()
@@ -243,19 +249,20 @@ if use_sample_data:
 else:
     # Load data from database
     with get_session() as session:
-        # Query entities
-        query = session.query(Entity).filter(
-            Entity.mention_count >= min_mentions
+        # Query entities (only master entities from two-stage pipeline)
+        query = session.query(CanonicalEntity).filter(
+            CanonicalEntity.total_documents >= min_mentions,
+            CanonicalEntity.master_entity_id.is_(None)
         )
 
         if selected_countries:
-            query = query.filter(Entity.country.in_(selected_countries))
+            query = query.filter(CanonicalEntity.initiating_country.in_(selected_countries))
 
         if selected_entity_types:
-            query = query.filter(Entity.entity_type.in_(selected_entity_types))
+            query = query.filter(CanonicalEntity.entity_type.in_(selected_entity_types))
 
-        # Order by mentions and limit
-        query = query.order_by(Entity.mention_count.desc()).limit(max_entities)
+        # Order by document count and limit
+        query = query.order_by(CanonicalEntity.total_documents.desc()).limit(max_entities)
 
         db_entities = query.all()
 
@@ -269,8 +276,8 @@ else:
         # Query relationships between these entities
         db_relationships = session.query(EntityRelationship).filter(
             and_(
-                EntityRelationship.source_entity_id.in_(entity_ids),
-                EntityRelationship.target_entity_id.in_(entity_ids)
+                EntityRelationship.entity_from_id.in_(entity_ids),
+                EntityRelationship.entity_to_id.in_(entity_ids)
             )
         )
 
@@ -286,20 +293,20 @@ else:
             {
                 "id": str(e.id),
                 "name": e.canonical_name,
-                "type": e.entity_type,
-                "country": e.country,
-                "mentions": e.mention_count
+                "type": e.entity_type.value,  # Get enum value
+                "country": e.initiating_country,
+                "mentions": e.total_documents
             }
             for e in db_entities
         ]
 
         relationships = [
             {
-                "source": str(r.source_entity_id),
-                "target": str(r.target_entity_id),
+                "source": str(r.entity_from_id),
+                "target": str(r.entity_to_id),
                 "type": r.relationship_type,
-                "count": r.observation_count,
-                "value": r.total_value_usd
+                "count": r.co_occurrence_count,
+                "value": None  # total_value_usd not in new model
             }
             for r in db_relationships
         ]
