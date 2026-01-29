@@ -42,7 +42,7 @@ from shared.models.models import (
     EventStatus
 )
 from shared.utils.utils import Config, gai, fetch_gai_content
-from shared.utils.prompts import event_summary_prompt
+# from shared.utils.prompts import event_summary_prompt  # Not used
 
 
 class EventSummaryGenerator:
