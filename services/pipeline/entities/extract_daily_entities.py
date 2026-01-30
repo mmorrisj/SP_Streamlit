@@ -288,6 +288,10 @@ def process_date_range(
         print(f"Mode: FORCE - will reprocess documents with existing entities")
     else:
         print(f"Mode: Skip documents with existing entities (use --force to reprocess)")
+
+    # Get valid recipients from config (exclude self-referential)
+    valid_recipients = [r for r in config.get('recipients', []) if r != country]
+    print(f"Valid recipients: {len(valid_recipients)} countries (excluding {country})")
     print(f"{'='*80}\n")
 
     with get_session() as session:
@@ -299,15 +303,21 @@ def process_date_range(
             date_str = current_date.strftime("%Y-%m-%d")
 
             # Query documents for this date and country
+            # IMPORTANT: Only process docs with valid recipients (not self-referential)
             query = session.query(Document).join(
                 InitiatingCountry,
                 Document.doc_id == InitiatingCountry.doc_id
+            ).join(
+                RecipientCountry,
+                Document.doc_id == RecipientCountry.doc_id
             ).filter(
                 and_(
                     InitiatingCountry.initiating_country == country,
-                    Document.date == current_date.date()
+                    Document.date == current_date.date(),
+                    RecipientCountry.recipient_country.in_(valid_recipients),
+                    RecipientCountry.recipient_country != country  # Exclude self-referential
                 )
-            )
+            ).distinct()  # Distinct to avoid duplicate documents with multiple recipients
 
             # If not force mode, exclude documents that already have entities
             if not force:
@@ -401,12 +411,23 @@ def show_status(country: str):
     print(f"Entity Extraction Status: {country}")
     print(f"{'='*80}\n")
 
+    # Load config to get valid recipients
+    config_path = Path(__file__).parent.parent.parent.parent / 'shared' / 'config' / 'config.yaml'
+    config = Config.from_yaml(config_path)
+    valid_recipients = [r for r in config.get('recipients', []) if r != country]
+
     with get_session() as session:
-        # Count total documents
-        total_docs = session.query(func.count(Document.doc_id)).join(
+        # Count total documents (with valid recipients only, no self-referential)
+        total_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
             InitiatingCountry
+        ).join(
+            RecipientCountry
         ).filter(
-            InitiatingCountry.initiating_country == country
+            and_(
+                InitiatingCountry.initiating_country == country,
+                RecipientCountry.recipient_country.in_(valid_recipients),
+                RecipientCountry.recipient_country != country
+            )
         ).scalar()
 
         # Count documents with entities
@@ -414,8 +435,14 @@ def show_status(country: str):
             Document
         ).join(
             InitiatingCountry
+        ).join(
+            RecipientCountry
         ).filter(
-            InitiatingCountry.initiating_country == country
+            and_(
+                InitiatingCountry.initiating_country == country,
+                RecipientCountry.recipient_country.in_(valid_recipients),
+                RecipientCountry.recipient_country != country
+            )
         ).scalar()
 
         # Count total entities by type
@@ -426,8 +453,14 @@ def show_status(country: str):
             Document
         ).join(
             InitiatingCountry
+        ).join(
+            RecipientCountry
         ).filter(
-            InitiatingCountry.initiating_country == country
+            and_(
+                InitiatingCountry.initiating_country == country,
+                RecipientCountry.recipient_country.in_(valid_recipients),
+                RecipientCountry.recipient_country != country
+            )
         ).group_by(
             RawEntity.entity_type
         ).all()
@@ -438,8 +471,14 @@ def show_status(country: str):
             func.max(Document.date)
         ).join(
             InitiatingCountry
+        ).join(
+            RecipientCountry
         ).filter(
-            InitiatingCountry.initiating_country == country
+            and_(
+                InitiatingCountry.initiating_country == country,
+                RecipientCountry.recipient_country.in_(valid_recipients),
+                RecipientCountry.recipient_country != country
+            )
         ).first()
 
         print(f"Total documents: {total_docs}")
