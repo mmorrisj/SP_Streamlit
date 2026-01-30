@@ -311,22 +311,38 @@ def process_date_range(
 
             # If not force mode, exclude documents that already have entities
             if not force:
-                # Get all doc_ids that already have raw entities
-                # Query object can be used directly in .in_() for subquery
-                already_processed = session.query(RawEntity.doc_id).distinct()
+                # Get set of doc_ids that already have entities (most reliable approach)
+                processed_doc_ids = {
+                    row[0] for row in
+                    session.query(RawEntity.doc_id).distinct().all()
+                }
 
-                query = query.filter(
-                    Document.doc_id.notin_(already_processed)
-                )
+                # Count how many docs for this date already have entities
+                docs_for_date = session.query(Document.doc_id).join(
+                    InitiatingCountry
+                ).filter(
+                    and_(
+                        InitiatingCountry.initiating_country == country,
+                        Document.date == current_date.date()
+                    )
+                ).all()
+
+                total_for_date = len(docs_for_date)
+                already_done_for_date = sum(1 for (doc_id,) in docs_for_date if doc_id in processed_doc_ids)
+
+                if processed_doc_ids:
+                    query = query.filter(~Document.doc_id.in_(processed_doc_ids))
+
+                print(f"  {date_str}: {already_done_for_date}/{total_for_date} docs already have entities")
 
             documents = query.all()
 
             if not documents:
-                print(f"  {date_str}: No documents to process")
+                print(f"  {date_str}: No documents to process (all done)")
                 current_date += timedelta(days=1)
                 continue
 
-            print(f"\n  {date_str}: Processing {len(documents)} documents...")
+            print(f"  {date_str}: Processing {len(documents)} remaining documents...")
 
             docs_processed_today = 0
             entities_extracted_today = 0
