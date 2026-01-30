@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from shared.database.database import get_session
 from shared.models.models import Document, RawEntity, EntityTypeEnum, InitiatingCountry, RecipientCountry, Category
 from shared.utils.utils import Config, gai
-from sqlalchemy import text, func, and_
+from sqlalchemy import text, func, and_, select
 from sqlalchemy.dialects.postgresql import insert
 
 
@@ -311,21 +311,12 @@ def process_date_range(
 
             # If not force mode, exclude documents that already have entities
             if not force:
-                already_processed_ids = session.query(RawEntity.doc_id).filter(
-                    RawEntity.doc_id.in_(
-                        session.query(Document.doc_id).join(
-                            InitiatingCountry
-                        ).filter(
-                            and_(
-                                InitiatingCountry.initiating_country == country,
-                                Document.date == current_date.date()
-                            )
-                        )
-                    )
-                ).distinct()
+                # Get all doc_ids that already have raw entities
+                # Query object can be used directly in .in_() for subquery
+                already_processed = session.query(RawEntity.doc_id).distinct()
 
                 query = query.filter(
-                    ~Document.doc_id.in_(already_processed_ids)
+                    Document.doc_id.notin_(already_processed)
                 )
 
             documents = query.all()
