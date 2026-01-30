@@ -290,7 +290,7 @@ def process_date_range(
         print(f"Mode: Skip documents with existing entities (use --force to reprocess)")
 
     # Get valid recipients from config (exclude self-referential)
-    valid_recipients = [r for r in config.get('recipients', []) if r != country]
+    valid_recipients = [r for r in config.recipients if r != country]
     print(f"Valid recipients: {len(valid_recipients)} countries (excluding {country})")
     print(f"{'='*80}\n")
 
@@ -414,7 +414,7 @@ def show_status(country: str):
     # Load config to get valid recipients
     config_path = Path(__file__).parent.parent.parent.parent / 'shared' / 'config' / 'config.yaml'
     config = Config.from_yaml(config_path)
-    valid_recipients = [r for r in config.get('recipients', []) if r != country]
+    valid_recipients = [r for r in config.recipients if r != country]
 
     with get_session() as session:
         # Count total documents (with valid recipients only, no self-referential)

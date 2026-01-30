@@ -18,7 +18,7 @@ def check_iran_status():
     # Load config to get valid recipients
     config_path = Path(__file__).parent.parent.parent.parent / 'shared' / 'config' / 'config.yaml'
     config = Config.from_yaml(config_path)
-    valid_recipients = [r for r in config.get('recipients', []) if r != 'Iran']
+    valid_recipients = [r for r in config.recipients if r != 'Iran']
 
     with get_session() as session:
         # Total Iran documents (with valid recipients only, excluding Iran-Iran)
