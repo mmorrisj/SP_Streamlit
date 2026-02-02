@@ -32,6 +32,15 @@ class EventStatus(PyEnum):
     INACTIVE = "inactive"
     ARCHIVED = "archived"
 
+class BatchJobStatus(PyEnum):
+    PREPARING = "preparing"
+    SUBMITTED = "submitted"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PROCESSING_RESULTS = "processing_results"
+
 class Document(Base):
     """
     Core document model - converted from Flask-SQLAlchemy to pure SQLAlchemy.
@@ -1406,4 +1415,94 @@ class EntityRelationship(Base):
             'primary_categories': self.primary_categories,
             'relationship_description': self.relationship_description,
             'source_doc_ids': self.source_doc_ids
+        }
+
+
+class BatchJob(Base):
+    """
+    Tracks OpenAI Batch API jobs for pipeline processing.
+
+    Provides centralized tracking of batch job lifecycle, status, file locations,
+    and processing progress. Supports checkpoint/resume capability for large-scale
+    LLM deconfliction tasks.
+    """
+    __tablename__ = "batch_jobs"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Job identification
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'cluster_deconflict', 'canonical_deconflict'
+    openai_batch_id: Mapped[Optional[str]] = mapped_column(String(255))  # OpenAI's batch ID
+
+    # Processing scope
+    initiating_country: Mapped[Optional[str]] = mapped_column(String(100))
+    date_range_start: Mapped[Optional[DateType]] = mapped_column(Date)
+    date_range_end: Mapped[Optional[DateType]] = mapped_column(Date)
+    batch_size: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Status tracking
+    status: Mapped[str] = mapped_column(
+        Enum(BatchJobStatus),
+        default=BatchJobStatus.PREPARING,
+        nullable=False
+    )
+    progress_metadata: Mapped[Optional[Dict]] = mapped_column(JSONB)  # {requests_total, requests_completed, requests_failed}
+
+    # File tracking
+    input_file_path: Mapped[Optional[str]] = mapped_column(Text)  # Local or S3 path
+    input_file_id: Mapped[Optional[str]] = mapped_column(String(255))  # OpenAI file ID
+    output_file_path: Mapped[Optional[str]] = mapped_column(Text)
+    output_file_id: Mapped[Optional[str]] = mapped_column(String(255))
+    error_file_path: Mapped[Optional[str]] = mapped_column(Text)
+    error_file_id: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Cost tracking
+    estimated_cost: Mapped[Optional[float]] = mapped_column(Numeric(10, 4))
+    actual_cost: Mapped[Optional[float]] = mapped_column(Numeric(10, 4))
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    # Error tracking
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Audit trail
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+
+    __table_args__ = (
+        Index("idx_batch_jobs_type_status", "job_type", "status"),
+        Index("idx_batch_jobs_openai_id", "openai_batch_id"),
+        Index("idx_batch_jobs_country_dates", "initiating_country", "date_range_start", "date_range_end"),
+        Index("idx_batch_jobs_created", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<BatchJob(id='{self.id}', type='{self.job_type}', status='{self.status}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'job_type': self.job_type,
+            'openai_batch_id': self.openai_batch_id,
+            'initiating_country': self.initiating_country,
+            'date_range_start': self.date_range_start.isoformat() if self.date_range_start else None,
+            'date_range_end': self.date_range_end.isoformat() if self.date_range_end else None,
+            'batch_size': self.batch_size,
+            'status': self.status.value if isinstance(self.status, BatchJobStatus) else self.status,
+            'progress_metadata': self.progress_metadata,
+            'input_file_path': self.input_file_path,
+            'output_file_path': self.output_file_path,
+            'error_file_path': self.error_file_path,
+            'estimated_cost': float(self.estimated_cost) if self.estimated_cost else None,
+            'actual_cost': float(self.actual_cost) if self.actual_cost else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'submitted_at': self.submitted_at.isoformat() if self.submitted_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'processed_at': self.processed_at.isoformat() if self.processed_at else None,
+            'error_message': self.error_message,
+            'retry_count': self.retry_count
         }
