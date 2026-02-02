@@ -221,12 +221,14 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
         sys_prompt: System prompt for the LLM
         user_prompt: User prompt for the LLM
         model: Model to use (default: gpt-4o-mini)
-        source: Backend source - "proxy" (System 1, default), "azure" (System 2), or "openai" (direct)
+        source: Backend source - "proxy" (default), "litellm", "azure", or "openai"
         use_proxy: [DEPRECATED] Use source="proxy" instead. Maintained for backward compatibility.
         azure_use_env: If True with source="azure", use env vars instead of AWS Secrets Manager
 
     Environment Variables:
         FASTAPI_URL: Required for source="proxy"
+        LITELLM_URL, LITELLM_API_KEY: Required for source="litellm"
+        LITELLM_MODEL: Optional model override for LITELLM (if not set, uses 'model' parameter)
         AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY: Required for source="azure" with azure_use_env=True
         OPENAI_PROJ_API: Required for source="openai"
 
@@ -303,6 +305,52 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
             error_msg = f"Azure OpenAI call failed: {e}"
             print(f"ERROR: {error_msg}")
             raise RuntimeError(error_msg) from e
+
+    # LITELLM Proxy
+    elif source == "litellm":
+        print("  [LITELLM] Calling LiteLLM API")
+
+        try:
+            from openai import OpenAI
+
+            litellm_url = os.getenv('LITELLM_URL')
+            litellm_key = os.getenv('LITELLM_API_KEY')
+            litellm_model = os.getenv('LITELLM_MODEL', model)  # Use LITELLM_MODEL if set, otherwise use passed model
+
+            if not litellm_url or not litellm_key:
+                raise ValueError("LITELLM_URL and LITELLM_API_KEY must be set in environment")
+
+            print(f"  [LITELLM] Using model: {litellm_model}")
+
+            client = OpenAI(
+                api_key=litellm_key,
+                base_url=litellm_url,
+            )
+
+            completion = client.chat.completions.create(
+                model=litellm_model,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.7,
+            )
+            content = completion.choices[0].message.content
+
+            if isinstance(content, (dict, list)):
+                return content
+
+            if isinstance(content, str):
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    return content
+
+            return content
+
+        except Exception as e:
+            print(f"ERROR: LiteLLM call failed: {e}")
+            raise
 
     # OPENAI Direct API
     elif source == "openai":
@@ -394,7 +442,7 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
             raise RuntimeError(error_msg) from e
 
     else:
-        raise ValueError(f"Invalid source: {source}. Must be 'azure', 'openai', or 'proxy'")
+        raise ValueError(f"Invalid source: {source}. Must be 'azure', 'litellm', 'openai', or 'proxy'")
 
 
 def clean_json_string(text):

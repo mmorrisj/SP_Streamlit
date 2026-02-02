@@ -34,6 +34,9 @@ Usage:
     # Resume from last checkpoint (skip already-validated groups)
     python llm_deconflict_canonical_events.py --influencers --resume
 
+    # Force reprocessing of all groups (even if already validated)
+    python llm_deconflict_canonical_events.py --country China --force
+
     # Custom batch size for more frequent checkpointing
     python llm_deconflict_canonical_events.py --country China --batch-size 5
 
@@ -82,7 +85,8 @@ def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
 def load_event_groups(
     session,
     country: Optional[str] = None,
-    resume: bool = False
+    resume: bool = False,
+    force: bool = False
 ) -> Dict[str, List[Dict]]:
     """
     Load all consolidated event groups.
@@ -91,6 +95,7 @@ def load_event_groups(
         session: Database session
         country: Filter by specific country (optional)
         resume: If True, skip groups that have already been validated by LLM
+        force: If True, process all groups regardless of validation status (overrides resume)
 
     Returns:
         Dict mapping master_event_id to list of events in that group
@@ -114,13 +119,13 @@ def load_event_groups(
         query += " AND ce.initiating_country = :country"
         params['country'] = country
 
-    # If resume mode, exclude groups where master event is already validated
-    if resume:
+    # If resume mode (and not force), exclude groups where master event is already validated
+    if resume and not force:
         query += """
             AND ce.master_event_id IN (
                 SELECT id FROM canonical_events
                 WHERE master_event_id IS NULL
-                AND llm_validated = FALSE
+                AND (llm_validated = FALSE OR llm_validated IS NULL)
             )
         """
 
@@ -166,9 +171,9 @@ def load_event_groups(
     if country:
         master_query += " AND ce.initiating_country = :country"
 
-    # If resume mode, only load unvalidated master events
-    if resume:
-        master_query += " AND ce.llm_validated = FALSE"
+    # If resume mode (and not force), only load unvalidated master events
+    if resume and not force:
+        master_query += " AND (ce.llm_validated = FALSE OR ce.llm_validated IS NULL)"
 
     master_query += """
         GROUP BY ce.id, ce.canonical_name, ce.initiating_country, ce.alternative_names
@@ -332,6 +337,7 @@ def process_country(
     dry_run: bool = False,
     verbose: bool = True,
     resume: bool = False,
+    force: bool = False,
     batch_size: int = 10
 ) -> Dict[str, int]:
     """
@@ -343,6 +349,7 @@ def process_country(
         dry_run: If True, don't save changes
         verbose: If True, print progress
         resume: If True, skip already-validated groups
+        force: If True, reprocess all groups regardless of validation status
         batch_size: Commit every N groups (for checkpointing)
 
     Returns:
@@ -351,12 +358,14 @@ def process_country(
     if verbose:
         print(f"\n{'='*80}")
         print(f"LLM Deconfliction: {country}")
-        if resume:
+        if force:
+            print(f"  [FORCE MODE] Reprocessing all groups (ignoring validation status)")
+        elif resume:
             print(f"  [RESUME MODE] Skipping already-validated groups")
         print(f"{'='*80}")
 
     # Load event groups
-    groups = load_event_groups(session, country, resume=resume)
+    groups = load_event_groups(session, country, resume=resume, force=force)
 
     if len(groups) == 0:
         if verbose:
@@ -572,6 +581,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Preview without saving to database')
     parser.add_argument('--verbose', action='store_true', default=True, help='Print detailed progress')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint (skip already-validated groups)')
+    parser.add_argument('--force', action='store_true', help='Force reprocessing of all groups, even if already validated')
     parser.add_argument('--batch-size', type=int, default=10, help='Commit every N groups (default: 10, for checkpointing)')
 
     args = parser.parse_args()
@@ -625,6 +635,7 @@ def main():
                 dry_run=args.dry_run,
                 verbose=args.verbose,
                 resume=args.resume,
+                force=args.force,
                 batch_size=args.batch_size
             )
             overall_stats['total_groups'] += stats['groups']
@@ -642,7 +653,9 @@ def main():
     print(f"Groups split: {overall_stats['total_split']}")
     print(f"Groups renamed: {overall_stats['total_renamed']}")
     print(f"Groups skipped (single-event): {overall_stats['total_skipped']}")
-    if args.resume:
+    if args.force:
+        print(f"\n[FORCE MODE] All groups were reprocessed")
+    elif args.resume:
         print(f"\n[RESUME MODE] Already-validated groups were skipped")
     print("="*80)
 

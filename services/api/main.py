@@ -57,22 +57,43 @@ def material_gai_query(input: QueryInput):
     """
     LLM query endpoint with environment-based routing.
 
-    - PRODUCTION (ENV=production): Uses Azure OpenAI via utils.gai()
-    - DEVELOPMENT (default): Uses direct OpenAI API
+    Priority:
+    1. LITELLM (if LITELLM_URL and LITELLM_API_KEY are configured)
+    2. PRODUCTION (ENV=production): Uses Azure OpenAI
+    3. DEVELOPMENT (default): Uses direct OpenAI API
 
     Environment Variables:
+        LITELLM_URL: LiteLLM proxy URL (if set, takes priority)
+        LITELLM_API_KEY: LiteLLM API key
+        LITELLM_MODEL: Optional model override for LITELLM (if not set, uses request model)
         ENV: Set to 'production' for Azure OpenAI (default: development)
         OPENAI_PROJ_API: OpenAI API key (for development)
     """
     import json
     print(f"DEBUG: Endpoint called with model={input.model}")
 
-    # Check environment
+    # Check for LITELLM configuration first (highest priority)
+    litellm_url = os.getenv('LITELLM_URL', '').strip()
+    litellm_key = os.getenv('LITELLM_API_KEY', '').strip()
+    litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
+
+    if litellm_url and litellm_key:
+        # LITELLM: Use LiteLLM proxy
+        print(f"[LITELLM] Using LiteLLM proxy at {litellm_url} with model: {litellm_model}")
+        try:
+            content = gai(input.sys_prompt, input.prompt, litellm_model, source="litellm")
+            return {"response": content}
+        except Exception as e:
+            print(f"ERROR: LiteLLM call failed: {e}")
+            print("Falling back to OpenAI/Azure...")
+            # Fall through to existing logic
+
+    # Check environment for Azure vs OpenAI
     env = os.getenv('ENV', 'development').lower()
     print(f"DEBUG: Environment mode: {env}")
 
     if env == 'production':
-        # PRODUCTION: Use Azure OpenAI directly (not proxy - avoid infinite loop!)
+        # PRODUCTION: Use Azure OpenAI
         # Default to gpt-4.1-mini for production Azure deployment
         model = input.model if input.model != "gpt-4.1" else "gpt-4.1-mini"
         print(f"[AZURE] Using Azure OpenAI (production mode) with model: {model}")

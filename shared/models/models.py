@@ -289,6 +289,26 @@ class EventSummary(Base):
     material_score: Mapped[Optional[float]] = mapped_column(Numeric(precision=4, scale=2), nullable=True)
     material_justification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Canonical event integration
+    canonical_event_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_events.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # Denormalized data for performance
+    doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    alternative_names: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+
+    # Event metadata from canonical event
+    materiality_stats: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+    key_facts: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+    entities_mentioned: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+
+    # Comprehensive summaries (LLM-generated)
+    overall_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    outcomes_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     period_summary = relationship("PeriodSummary", back_populates="events")
     source_links = relationship(
@@ -309,9 +329,13 @@ class EventSummary(Base):
         Index("ix_event_summary_name", "event_name"),
         Index("ix_event_summary_dates", "first_observed_date", "last_observed_date"),
         Index("ix_event_summary_status", "status", "is_deleted"),
+        Index("ix_event_summary_canonical_event", "canonical_event_id"),
         # JSONB indexes for efficient queries
         Index("ix_event_summary_category_jsonb", "count_by_category", postgresql_using="gin"),
         Index("ix_event_summary_source_jsonb", "count_by_source", postgresql_using="gin"),
+        Index("ix_event_summary_materiality_stats", "materiality_stats", postgresql_using="gin"),
+        Index("ix_event_summary_key_facts", "key_facts", postgresql_using="gin"),
+        Index("ix_event_summary_entities", "entities_mentioned", postgresql_using="gin"),
         # Ensure logical date consistency
         CheckConstraint("period_start <= period_end", name="ck_valid_period"),
         CheckConstraint("first_observed_date <= last_observed_date", name="ck_valid_observation"),
@@ -589,7 +613,13 @@ class CanonicalEvent(Base):
     # Materiality scoring (measures concrete vs symbolic nature)
     material_score: Mapped[Optional[float]] = mapped_column(Numeric(precision=3, scale=1), nullable=True)
     material_justification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
+
+    # Named entities extracted from event (persons, organizations, companies, locations)
+    entities_mentioned: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+
+    # Timestamps
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     # Relationships
     daily_mentions = relationship("DailyEventMention", back_populates="canonical_event")
 

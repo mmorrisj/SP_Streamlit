@@ -12,6 +12,7 @@ Usage:
     python score_canonical_event_materiality.py --influencers
     python score_canonical_event_materiality.py --country Russia --rescore --dry-run
     python score_canonical_event_materiality.py --influencers --min-days 5
+    python score_canonical_event_materiality.py --country China --min-articles 10
 """
 
 import argparse
@@ -88,7 +89,8 @@ def load_canonical_events_to_score(
     session,
     country: str,
     rescore: bool = False,
-    min_days: int = 1
+    min_days: int = 1,
+    min_articles: int = 1
 ) -> List[Dict]:
     """
     Load master canonical events that need materiality scoring.
@@ -98,6 +100,7 @@ def load_canonical_events_to_score(
         country: Initiating country
         rescore: If True, rescore all events. If False, only score unscored events.
         min_days: Minimum number of days mentioned (default: 1)
+        min_articles: Minimum number of articles (default: 1)
 
     Returns:
         List of canonical event dictionaries
@@ -122,13 +125,15 @@ def load_canonical_events_to_score(
         WHERE ce.initiating_country = :country
           AND ce.master_event_id IS NULL
           AND ce.total_mention_days >= :min_days
+          AND ce.total_articles >= :min_articles
           {score_filter}
         ORDER BY ce.total_articles DESC NULLS LAST
     """)
 
     result = session.execute(query, {
         'country': country,
-        'min_days': min_days
+        'min_days': min_days,
+        'min_articles': min_articles
     }).fetchall()
 
     events = []
@@ -279,7 +284,8 @@ def score_country_canonical_events(
     rescore: bool = False,
     dry_run: bool = False,
     verbose: bool = True,
-    min_days: int = 1
+    min_days: int = 1,
+    min_articles: int = 1
 ) -> Dict[str, int]:
     """
     Score materiality for all canonical events in a country.
@@ -293,6 +299,7 @@ def score_country_canonical_events(
         print(f"{'='*80}")
         print(f"Rescore existing: {'Yes' if rescore else 'No'}")
         print(f"Minimum days mentioned: {min_days}")
+        print(f"Minimum articles: {min_articles}")
         print(f"Dry run: {'Yes' if dry_run else 'No'}")
 
     with get_session() as session:
@@ -301,7 +308,8 @@ def score_country_canonical_events(
             session,
             country,
             rescore,
-            min_days
+            min_days,
+            min_articles
         )
 
         if not events:
@@ -390,6 +398,8 @@ def main():
                        help='Suppress verbose output')
     parser.add_argument('--min-days', type=int, default=1,
                        help='Minimum number of days mentioned (default: 1)')
+    parser.add_argument('--min-articles', type=int, default=5,
+                       help='Minimum number of articles (default: 5)')
 
     args = parser.parse_args()
 
@@ -411,7 +421,8 @@ def main():
             rescore=args.rescore,
             dry_run=args.dry_run,
             verbose=verbose,
-            min_days=args.min_days
+            min_days=args.min_days,
+            min_articles=args.min_articles
         )
 
         total_stats['total'] += stats['total']
