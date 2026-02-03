@@ -109,6 +109,29 @@ python services/pipeline/batch/batch_prepare.py \
     --all-unprocessed
 ```
 
+### Entity Extraction
+
+Extract persons, organizations, companies, and locations from canonical events:
+
+```bash
+python services/pipeline/batch/batch_prepare.py \
+    --job-type entity_extract \
+    --country China \
+    --min-articles 3
+```
+
+### Materiality Scoring
+
+Score materiality (1.0-10.0) for canonical events:
+
+```bash
+python services/pipeline/batch/batch_prepare.py \
+    --job-type score_materiality \
+    --country China \
+    --min-articles 3 \
+    --min-days 1
+```
+
 ### End-to-End Orchestration
 
 Use the orchestrator to run all stages automatically:
@@ -131,11 +154,15 @@ Generate JSONL input files from unprocessed database records.
 
 ```bash
 python batch_prepare.py \
-    --job-type {cluster_deconflict|canonical_deconflict} \
+    --job-type {cluster_deconflict|canonical_deconflict|entity_extract|score_materiality} \
     [--country COUNTRY] \
     [--start-date YYYY-MM-DD] \
     [--end-date YYYY-MM-DD] \
     [--all-unprocessed] \
+    [--min-articles N] \
+    [--force] \
+    [--min-days N] \
+    [--rescore] \
     [--output PATH] \
     [--model MODEL] \
     [--dry-run] \
@@ -143,10 +170,14 @@ python batch_prepare.py \
 ```
 
 **Key Options:**
-- `--job-type`: Type of batch job (required)
+- `--job-type`: Type of batch job (required): cluster_deconflict, canonical_deconflict, entity_extract, score_materiality
 - `--country`: Filter by initiating country
 - `--start-date` / `--end-date`: Date range filter
 - `--all-unprocessed`: Process all unprocessed records
+- `--min-articles`: Minimum articles for entity_extract/score_materiality (default: 3)
+- `--force`: Force entity extraction even if already processed
+- `--min-days`: Minimum days for score_materiality (default: 1)
+- `--rescore`: Rescore events even if already scored
 - `--dry-run`: Preview without creating files
 
 **Output:**
@@ -548,6 +579,12 @@ For issues or questions:
 4. Open issue at https://github.com/your-repo/issues
 
 ## Changelog
+
+### v1.1.0 (2025-02-02)
+- Added support for entity_extract job type (extract persons, organizations, companies, locations)
+- Added support for score_materiality job type (score event materiality 1.0-10.0)
+- Enhanced batch_prepare.py with --min-articles, --force, --min-days, --rescore parameters
+- Updated batch_process_results.py to handle entity extraction and materiality scoring results
 
 ### v1.0.0 (2025-02-02)
 - Initial implementation

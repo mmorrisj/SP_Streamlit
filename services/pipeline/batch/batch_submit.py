@@ -29,6 +29,7 @@ from services.pipeline.batch.batch_config import (
     RETRY_BACKOFF_BASE
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
+from services.pipeline.batch.utils.batch_api_client import get_batch_api_client
 from shared.models.models import BatchJobStatus
 from shared.database.database import get_session
 
@@ -52,44 +53,37 @@ def submit_batch_to_openai(
     Raises:
         Exception: If submission fails after all retries
     """
-    # Initialize OpenAI client
-    api_key = os.getenv(OPENAI_API_KEY_ENV)
-    if not api_key:
-        raise ValueError(f"OpenAI API key not found. Set {OPENAI_API_KEY_ENV} environment variable.")
-
-    client = OpenAI(api_key=api_key)
+    # Initialize Batch API client (uses proxy to route through host)
+    client = get_batch_api_client()
 
     # Retry loop with exponential backoff
     for attempt in range(max_retries):
         try:
-            print(f"Attempt {attempt + 1}/{max_retries}: Uploading file to OpenAI...")
+            print(f"Attempt {attempt + 1}/{max_retries}: Uploading file to OpenAI via proxy...")
 
-            # Upload file
-            with open(input_file_path, 'rb') as f:
-                batch_file = client.files.create(
-                    file=f,
-                    purpose="batch"
-                )
+            # Upload file via proxy
+            upload_result = client.upload_file(input_file_path)
+            file_id = upload_result['file_id']
 
-            print(f"✓ File uploaded: {batch_file.id}")
+            print(f"✓ File uploaded: {file_id}")
 
-            # Create batch job
+            # Create batch job via proxy
             print(f"Creating batch job...")
-            batch_job = client.batches.create(
-                input_file_id=batch_file.id,
+            batch_result = client.create_batch(
+                input_file_id=file_id,
                 endpoint=OPENAI_BATCH_ENDPOINT,
                 completion_window=OPENAI_COMPLETION_WINDOW
             )
 
-            print(f"✓ Batch job created: {batch_job.id}")
+            print(f"✓ Batch job created: {batch_result['id']}")
 
             return {
-                'batch_id': batch_job.id,
-                'input_file_id': batch_file.id,
-                'status': batch_job.status,
-                'created_at': batch_job.created_at,
-                'endpoint': batch_job.endpoint,
-                'completion_window': batch_job.completion_window
+                'batch_id': batch_result['id'],
+                'input_file_id': file_id,
+                'status': batch_result['status'],
+                'created_at': batch_result['created_at'],
+                'endpoint': batch_result['endpoint'],
+                'completion_window': batch_result['completion_window']
             }
 
         except Exception as e:
@@ -142,13 +136,13 @@ def main():
             print(f"✓ Loaded batch job")
             print(f"  Job type: {batch_job.job_type}")
             print(f"  Batch size: {batch_job.batch_size}")
-            print(f"  Status: {batch_job.status.value}")
+            print(f"  Status: {batch_job.status}")
             print(f"  Input file: {batch_job.input_file_path}")
             print()
 
             # Validate status
-            if batch_job.status != BatchJobStatus.PREPARING:
-                print(f"Warning: Batch job status is '{batch_job.status.value}', expected 'preparing'")
+            if batch_job.status != BatchJobStatus.PREPARING.value:
+                print(f"Warning: Batch job status is '{batch_job.status}', expected 'preparing'")
                 print(f"Continuing anyway...")
                 print()
 

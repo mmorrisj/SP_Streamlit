@@ -32,22 +32,21 @@ from services.pipeline.batch.batch_config import (
     get_batch_file_path
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
+from services.pipeline.batch.utils.batch_api_client import get_batch_api_client
 from shared.models.models import BatchJobStatus
 from shared.database.database import get_session
 
 
 def monitor_batch_job(
-    client: OpenAI,
     openai_batch_id: str,
     poll_interval: int = DEFAULT_POLL_INTERVAL,
     max_duration: int = MAX_POLL_DURATION,
     verbose: bool = True
 ) -> dict:
     """
-    Monitor OpenAI batch job until completion.
+    Monitor OpenAI batch job until completion (via proxy).
 
     Args:
-        client: OpenAI client
         openai_batch_id: OpenAI batch ID
         poll_interval: Polling interval in seconds
         max_duration: Maximum polling duration in seconds
@@ -60,6 +59,8 @@ def monitor_batch_job(
         TimeoutError: If max_duration exceeded
         Exception: If batch fails
     """
+    # Initialize proxy client
+    client = get_batch_api_client()
     start_time = datetime.now()
 
     while True:
@@ -68,16 +69,16 @@ def monitor_batch_job(
         if elapsed > max_duration:
             raise TimeoutError(f"Batch monitoring exceeded max duration of {max_duration}s ({max_duration/3600:.1f}h)")
 
-        # Retrieve batch status
-        batch = client.batches.retrieve(openai_batch_id)
+        # Retrieve batch status via proxy
+        batch = client.get_batch_status(openai_batch_id)
 
-        status = batch.status
-        request_counts = batch.request_counts
+        status = batch['status']
+        request_counts = batch.get('request_counts', {})
 
-        if verbose:
+        if verbose and request_counts:
             print(f"\\r[{datetime.now().strftime('%H:%M:%S')}] Status: {status} | "
-                  f"Completed: {request_counts.completed}/{request_counts.total} | "
-                  f"Failed: {request_counts.failed} | "
+                  f"Completed: {request_counts.get('completed', 0)}/{request_counts.get('total', 0)} | "
+                  f"Failed: {request_counts.get('failed', 0)} | "
                   f"Elapsed: {elapsed/60:.1f}m", end='', flush=True)
 
         # Check terminal states
@@ -85,20 +86,16 @@ def monitor_batch_job(
             print()  # New line after progress
             return {
                 'status': status,
-                'request_counts': {
-                    'total': request_counts.total,
-                    'completed': request_counts.completed,
-                    'failed': request_counts.failed
-                },
-                'output_file_id': batch.output_file_id,
-                'error_file_id': batch.error_file_id if hasattr(batch, 'error_file_id') else None,
-                'completed_at': batch.completed_at,
+                'request_counts': request_counts or {'total': 0, 'completed': 0, 'failed': 0},
+                'output_file_id': batch.get('output_file_id'),
+                'error_file_id': batch.get('error_file_id'),
+                'completed_at': batch.get('completed_at'),
                 'elapsed_seconds': elapsed
             }
 
         elif status == 'failed':
             print()  # New line after progress
-            error_msg = getattr(batch, 'error_message', 'Unknown error')
+            error_msg = batch.get('errors', 'Unknown error')
             raise Exception(f"Batch failed: {error_msg}")
 
         elif status == 'cancelled':
@@ -114,52 +111,35 @@ def monitor_batch_job(
 
 
 def download_batch_results(
-    client: OpenAI,
-    output_file_id: str,
-    output_path: str,
-    error_file_id: str = None,
-    error_path: str = None
+    openai_batch_id: str,
+    output_path: str
 ) -> dict:
     """
-    Download batch result files from OpenAI.
+    Download batch result files from OpenAI (via proxy).
 
     Args:
-        client: OpenAI client
-        output_file_id: OpenAI file ID for output
+        openai_batch_id: OpenAI batch ID
         output_path: Local path to save output
-        error_file_id: OpenAI file ID for errors (optional)
-        error_path: Local path to save errors (optional)
 
     Returns:
         Dictionary with download info
     """
+    # Initialize proxy client
+    client = get_batch_api_client()
     results = {}
 
-    # Download output file
-    print(f"Downloading output file...")
-    output_content = client.files.content(output_file_id).content
+    # Download output file via proxy
+    print(f"Downloading output file via proxy...")
+    download_result = client.download_results(openai_batch_id)
+    content = download_result['content']
 
-    with open(output_path, 'wb') as f:
-        f.write(output_content)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(content)
 
     results['output_file'] = output_path
-    results['output_size_bytes'] = len(output_content)
-    print(f"✓ Downloaded output: {output_path} ({len(output_content)} bytes)")
-
-    # Download error file if present
-    if error_file_id and error_path:
-        print(f"Downloading error file...")
-        try:
-            error_content = client.files.content(error_file_id).content
-
-            with open(error_path, 'wb') as f:
-                f.write(error_content)
-
-            results['error_file'] = error_path
-            results['error_size_bytes'] = len(error_content)
-            print(f"✓ Downloaded errors: {error_path} ({len(error_content)} bytes)")
-        except Exception as e:
-            print(f"Warning: Could not download error file: {e}")
+    results['output_size_bytes'] = len(content.encode('utf-8'))
+    results['output_file_id'] = download_result.get('output_file_id')
+    print(f"✓ Downloaded output: {output_path} ({results['output_size_bytes']} bytes)")
 
     return results
 
@@ -194,14 +174,6 @@ def main():
     print("=" * 80)
     print()
 
-    # Initialize OpenAI client
-    api_key = os.getenv(OPENAI_API_KEY_ENV)
-    if not api_key:
-        print(f"Error: OpenAI API key not found. Set {OPENAI_API_KEY_ENV} environment variable.")
-        return
-
-    client = OpenAI(api_key=api_key)
-
     with get_session() as session:
         with BatchJobTracker(session) as tracker:
             # Load batch job
@@ -218,7 +190,7 @@ def main():
 
             print(f"✓ Loaded batch job")
             print(f"  OpenAI Batch ID: {batch_job.openai_batch_id}")
-            print(f"  Status: {batch_job.status.value}")
+            print(f"  Status: {batch_job.status}")
             print(f"  Batch size: {batch_job.batch_size}")
             print()
 
@@ -228,7 +200,6 @@ def main():
                 print()
 
                 result = monitor_batch_job(
-                    client,
                     batch_job.openai_batch_id,
                     poll_interval=args.poll_interval,
                     max_duration=args.max_duration,
@@ -280,11 +251,8 @@ def main():
                         )
 
                     download_result = download_batch_results(
-                        client,
-                        result['output_file_id'],
-                        output_path,
-                        result.get('error_file_id'),
-                        error_path
+                        batch_job.openai_batch_id,
+                        output_path
                     )
 
                     # Update batch_job with file paths

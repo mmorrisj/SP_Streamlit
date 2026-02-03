@@ -13,12 +13,16 @@ from typing import Dict, Any
 JOB_TYPE_CLUSTER_DECONFLICT = "cluster_deconflict"
 JOB_TYPE_CANONICAL_DECONFLICT = "canonical_deconflict"
 JOB_TYPE_ENTITY_EXTRACT = "entity_extract"
+JOB_TYPE_SCORE_MATERIALITY = "score_materiality"
+JOB_TYPE_DAILY_ENTITY_EXTRACT = "daily_entity_extract"
 
 # Supported job types
 SUPPORTED_JOB_TYPES = [
     JOB_TYPE_CLUSTER_DECONFLICT,
     JOB_TYPE_CANONICAL_DECONFLICT,
     JOB_TYPE_ENTITY_EXTRACT,
+    JOB_TYPE_SCORE_MATERIALITY,
+    JOB_TYPE_DAILY_ENTITY_EXTRACT,
 ]
 
 # OpenAI API configuration
@@ -31,14 +35,16 @@ DEFAULT_MODELS = {
     JOB_TYPE_CLUSTER_DECONFLICT: "gpt-4o-mini",
     JOB_TYPE_CANONICAL_DECONFLICT: "gpt-4o-mini",
     JOB_TYPE_ENTITY_EXTRACT: "gpt-4o-mini",
+    JOB_TYPE_SCORE_MATERIALITY: "gpt-4o-mini",
+    JOB_TYPE_DAILY_ENTITY_EXTRACT: "gpt-4o-mini",
 }
 
 # Model temperature settings
 DEFAULT_TEMPERATURE = 0.1
 
 # Batch processing limits
-MAX_BATCH_SIZE = 50000  # OpenAI limit
-RECOMMENDED_BATCH_SIZE = 10000  # Recommended for manageability
+MAX_BATCH_SIZE = 50000  # OpenAI API limit per batch
+RECOMMENDED_BATCH_SIZE = 4000  # Conservative batch size for reliable uploads
 DEFAULT_CHECKPOINT_FREQUENCY = 100  # Commit every N processed results
 
 # File paths

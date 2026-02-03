@@ -1442,8 +1442,8 @@ class BatchJob(Base):
 
     # Status tracking
     status: Mapped[str] = mapped_column(
-        Enum(BatchJobStatus),
-        default=BatchJobStatus.PREPARING,
+        String(50),
+        default=BatchJobStatus.PREPARING.value,
         nullable=False
     )
     progress_metadata: Mapped[Optional[Dict]] = mapped_column(JSONB)  # {requests_total, requests_completed, requests_failed}

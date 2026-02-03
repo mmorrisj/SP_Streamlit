@@ -88,7 +88,7 @@ embedding_backups/
 *.csv
 *.docx
 *.zip
-
+*.jsonl
 # Temporary helper scripts (optional - keep if useful)
 # start-*.bat
 # check-status.bat
