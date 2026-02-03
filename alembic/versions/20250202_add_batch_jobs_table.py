@@ -1,7 +1,7 @@
 """Add batch_jobs table for OpenAI batch processing tracking
 
 Revision ID: 20250202_batch_jobs
-Revises: 20250130_add_canonical_integration_to_event_summaries
+Revises: fec28b5b115d
 Create Date: 2025-02-02
 
 This migration creates the batch_jobs table to track OpenAI Batch API jobs
@@ -14,19 +14,15 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '20250202_batch_jobs'
-down_revision = '20250130_add_canonical_integration_to_event_summaries'
+down_revision = 'fec28b5b115d'
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    # Create enum for batch job status
-    batch_job_status = postgresql.ENUM(
-        'preparing', 'submitted', 'in_progress', 'completed',
-        'failed', 'cancelled', 'processing_results',
-        name='batchjobstatus'
-    )
-    batch_job_status.create(op.get_bind(), checkfirst=True)
+    # Note: batchjobstatus enum should already exist in the database
+    # If it doesn't, create it manually first:
+    # CREATE TYPE batchjobstatus AS ENUM ('preparing', 'submitted', 'in_progress', 'completed', 'failed', 'cancelled', 'processing_results');
 
     # Create batch_jobs table
     op.create_table(
@@ -44,7 +40,7 @@ def upgrade() -> None:
         sa.Column('batch_size', sa.Integer(), nullable=False, comment='Number of requests in batch'),
 
         # Status tracking
-        sa.Column('status', batch_job_status, nullable=False, server_default='preparing'),
+        sa.Column('status', sa.String(length=50), nullable=False, server_default='preparing'),
         sa.Column('progress_metadata', postgresql.JSONB(), nullable=True, comment='Progress: requests_total, requests_completed, requests_failed'),
 
         # File tracking
@@ -72,6 +68,12 @@ def upgrade() -> None:
         # Audit trail
         sa.Column('created_by', sa.String(length=255), nullable=True, comment='Username or system that created the job'),
 
+        # Constraints
+        sa.CheckConstraint(
+            "status IN ('preparing', 'submitted', 'in_progress', 'completed', 'failed', 'cancelled', 'processing_results')",
+            name='ck_batch_job_status'
+        ),
+
         comment='Tracks OpenAI Batch API jobs for pipeline processing'
     )
 
@@ -92,10 +94,5 @@ def downgrade() -> None:
     # Drop table
     op.drop_table('batch_jobs')
 
-    # Drop enum type
-    batch_job_status = postgresql.ENUM(
-        'preparing', 'submitted', 'in_progress', 'completed',
-        'failed', 'cancelled', 'processing_results',
-        name='batchjobstatus'
-    )
-    batch_job_status.drop(op.get_bind(), checkfirst=True)
+    # Drop enum type using raw SQL
+    op.execute("DROP TYPE IF EXISTS batchjobstatus CASCADE;")

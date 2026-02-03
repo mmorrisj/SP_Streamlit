@@ -18,6 +18,19 @@ Usage:
         --country China \\
         --all-unprocessed
 
+    # Entity extraction
+    python batch_prepare.py \\
+        --job-type entity_extract \\
+        --country China \\
+        --min-articles 3
+
+    # Materiality scoring
+    python batch_prepare.py \\
+        --job-type score_materiality \\
+        --country China \\
+        --min-articles 3 \\
+        --min-days 1
+
     # Dry run (preview without creating files)
     python batch_prepare.py \\
         --job-type cluster_deconflict \\
@@ -36,11 +49,15 @@ import yaml
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from sqlalchemy import text
 from shared.database.database import get_session
-from shared.models.models import EventCluster, CanonicalEvent
+from shared.models.models import EventCluster, CanonicalEvent, Document, InitiatingCountry, RecipientCountry, Category, RawEntity
 from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLUSTER_DECONFLICT,
     JOB_TYPE_CANONICAL_DECONFLICT,
+    JOB_TYPE_ENTITY_EXTRACT,
+    JOB_TYPE_SCORE_MATERIALITY,
+    JOB_TYPE_DAILY_ENTITY_EXTRACT,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
@@ -295,6 +312,381 @@ Now analyze the event group above and return your assessment as JSON."""
     }
 
 
+def build_entity_extract_prompt(event: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for entity extraction from canonical events.
+
+    Extracts exact prompt template from extract_canonical_event_entities.py
+
+    Args:
+        event: Canonical event dictionary
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    # Format recipients
+    recipients = event.get('primary_recipients', {})
+    if isinstance(recipients, dict):
+        recipients_list = [f"{k} ({v} docs)" for k, v in sorted(recipients.items(), key=lambda x: -x[1])[:5]]
+        recipients_str = ', '.join(recipients_list) if recipients_list else 'None'
+    else:
+        recipients_str = 'None'
+
+    # Format categories
+    categories = event.get('primary_categories', {})
+    if isinstance(categories, dict):
+        categories_list = [f"{k} ({v} docs)" for k, v in sorted(categories.items(), key=lambda x: -x[1])[:5]]
+        categories_str = ', '.join(categories_list) if categories_list else 'None'
+    else:
+        categories_str = 'None'
+
+    # Format key facts
+    key_facts = event.get('key_facts', {})
+    if isinstance(key_facts, dict) and key_facts:
+        facts_list = []
+        for key, value in list(key_facts.items())[:10]:
+            if isinstance(value, list):
+                facts_list.append(f"- {key}: {', '.join(str(v) for v in value[:3])}")
+            else:
+                facts_list.append(f"- {key}: {value}")
+        key_facts_str = '\\n'.join(facts_list) if facts_list else 'None available'
+    else:
+        key_facts_str = 'None available'
+
+    sys_prompt = """You are analyzing a consolidated soft power event to extract ALL named entities.
+
+Your task is to extract ALL named entities mentioned in this event.
+
+Extract the following entity types:
+
+1. **PERSONS** - Names of individuals mentioned
+   - Include their role/title (e.g., "Foreign Minister", "CEO", "President")
+   - Include country affiliation
+   - Context: What is their role in this event?
+
+2. **ORGANIZATIONS** - Government agencies, NGOs, international bodies, institutions
+   - Include type (e.g., "Government Agency", "NGO", "International Organization")
+   - Include country of origin
+   - Role: What is their function in this event?
+
+3. **COMPANIES** - Businesses, corporations, state-owned enterprises
+   - Include sector (e.g., "Technology", "Energy", "Construction", "Finance")
+   - Include country of origin
+   - Role: What are they doing in this event?
+
+4. **LOCATIONS** - Cities, venues, facilities, infrastructure projects
+   - Include type (e.g., "City", "Venue", "Facility", "Infrastructure Project")
+   - Include country
+   - Significance: Why is this location important to the event?
+
+CRITICAL GUIDELINES:
+- Extract ONLY entities explicitly mentioned in the description and key facts
+- Use the most complete name form (e.g., "Wang Yi" not just "Minister Wang")
+- Use official names for organizations and companies
+- Include context that shows HOW the entity is involved in the event
+- If the event doesn't mention any entities of a type, return an empty array
+
+Return ONLY a valid JSON object with this structure:
+{{
+  "persons": [
+    {{
+      "entity_name": "Wang Yi",
+      "role": "Chinese Foreign Minister",
+      "country_affiliation": "China",
+      "context_snippet": "Led negotiations for the bilateral agreement"
+    }}
+  ],
+  "organizations": [
+    {{
+      "entity_name": "Iraqi Ministry of Foreign Affairs",
+      "type": "Government Agency",
+      "country_affiliation": "Iraq",
+      "context_snippet": "Signed the cooperation framework"
+    }}
+  ],
+  "companies": [
+    {{
+      "entity_name": "China State Construction Engineering Corporation",
+      "sector": "Construction",
+      "country_affiliation": "China",
+      "context_snippet": "Awarded contract for infrastructure project"
+    }}
+  ],
+  "locations": [
+    {{
+      "entity_name": "Baghdad",
+      "type": "City",
+      "country_affiliation": "Iraq",
+      "context_snippet": "Venue for summit meetings"
+    }}
+  ]
+}}
+
+Respond with ONLY the JSON object."""
+
+    user_prompt = f"""Event: {event['canonical_name']}
+Initiating Country: {event['initiating_country']}
+Recipient Countries: {recipients_str}
+Categories: {categories_str}
+Date Range: {event['first_mention_date']} to {event['last_mention_date']}
+Total Articles: {event.get('total_articles', 0)}
+
+Event Description:
+{event.get('consolidated_description', 'No description available')}
+
+Key Facts:
+{key_facts_str}
+
+Extract ALL named entities from this event."""
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
+def build_score_materiality_prompt(event: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for materiality scoring of canonical events.
+
+    Extracts exact prompt template from score_canonical_event_materiality.py
+
+    Args:
+        event: Canonical event dictionary
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    # Format categories
+    categories = event.get('primary_categories', {})
+    if isinstance(categories, dict):
+        categories_list = [f"{k} ({v} docs)" for k, v in sorted(categories.items(), key=lambda x: -x[1])[:5]]
+        categories_str = ', '.join(categories_list) if categories_list else 'None'
+    else:
+        categories_str = 'None'
+
+    # Format recipients
+    recipients = event.get('primary_recipients', {})
+    if isinstance(recipients, dict):
+        recipients_list = [f"{k} ({v} docs)" for k, v in sorted(recipients.items(), key=lambda x: -x[1])[:5]]
+        recipients_str = ', '.join(recipients_list) if recipients_list else 'None'
+    else:
+        recipients_str = 'None'
+
+    # Format key facts
+    key_facts = event.get('key_facts', {})
+    if isinstance(key_facts, dict) and key_facts:
+        facts_list = []
+        for key, value in list(key_facts.items())[:10]:
+            if isinstance(value, list):
+                facts_list.append(f"- {key}: {', '.join(str(v) for v in value[:3])}")
+            else:
+                facts_list.append(f"- {key}: {value}")
+        key_facts_str = '\\n'.join(facts_list) if facts_list else 'None available'
+    else:
+        key_facts_str = 'None available'
+
+    sys_prompt = """You are an expert analyst assessing the material impact of soft power events.
+
+**YOUR TASK:**
+Assign a materiality score from 1.0 to 10.0 measuring the concrete/substantive nature of this event.
+
+**Scoring Scale:**
+- 1-3: Symbolic/rhetorical (statements, cultural events with no material commitments)
+- 4-6: Mixed symbolic and material (agreements with unclear implementation, capacity building)
+- 7-10: Highly material (concrete infrastructure, specific financial commitments, tangible deliverables)
+
+**Consider:**
+- Concrete commitments vs. symbolic gestures
+- Specific financial amounts vs. vague promises
+- Tangible deliverables vs. aspirational statements
+- Implementation status vs. announcements only
+
+**Output JSON format:**
+{{
+    "material_score": 7.5,
+    "justification": "Brief explanation of the score"
+}}
+
+**Example 1 - Score 2.5:**
+Event: Cultural Festival Participation
+Description: Country representatives attended international cultural festival, delivered speeches on cultural cooperation.
+Justification: "Purely symbolic participation with no concrete commitments or tangible outcomes beyond statements."
+
+**Example 2 - Score 6.0:**
+Event: Renewable Energy Cooperation Agreement
+Description: Two countries signed MOU on renewable energy cooperation, established working group for future projects.
+Justification: "Agreement shows intent but lacks specific projects, timelines, or financial commitments. Mixed symbolic/material."
+
+**Example 3 - Score 9.0:**
+Event: Nuclear Power Plant Construction
+Description: Construction began on nuclear power plant with $25B confirmed financing, four reactors with 4,800 MW capacity, completion scheduled by 2030.
+Justification: "Major infrastructure project with specific financial commitment ($25B), confirmed construction phase, and tangible deliverables (4,800 MW capacity)."
+
+Respond with ONLY the JSON object."""
+
+    user_prompt = f"""**Event:** {event['canonical_name']}
+**Country:** {event['initiating_country']}
+**Time Period:** {event['first_mention_date']} to {event['last_mention_date']} ({event.get('total_mention_days', 0)} days mentioned)
+**Total Articles:** {event.get('total_articles', 0)}
+**Primary Categories:** {categories_str}
+**Primary Recipients:** {recipients_str}
+
+**Event Description:**
+{event.get('consolidated_description', 'No description available')}
+
+**Key Facts:**
+{key_facts_str}
+
+Assign a materiality score (1.0-10.0) to this event."""
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
+def load_canonical_events_for_entity_extraction(
+    session,
+    country: Optional[str],
+    min_articles: int = 1,
+    force: bool = False
+) -> List[Dict]:
+    """
+    Load canonical events that need entity extraction.
+
+    Args:
+        session: Database session
+        country: Filter by country (optional)
+        min_articles: Minimum articles threshold
+        force: If True, reprocess all events
+
+    Returns:
+        List of canonical event dictionaries
+    """
+    entity_filter = "" if force else "AND (ce.entities_mentioned IS NULL OR ce.entities_mentioned = '{}'::jsonb)"
+
+    query_text = f"""
+        SELECT
+            ce.id,
+            ce.canonical_name,
+            ce.initiating_country,
+            ce.first_mention_date,
+            ce.last_mention_date,
+            ce.total_mention_days,
+            ce.total_articles,
+            ce.consolidated_description,
+            ce.key_facts,
+            ce.primary_categories,
+            ce.primary_recipients
+        FROM canonical_events ce
+        WHERE ce.master_event_id IS NULL
+          AND ce.total_articles >= :min_articles
+          {entity_filter}
+    """
+
+    params = {'min_articles': min_articles}
+    if country:
+        query_text += " AND ce.initiating_country = :country"
+        params['country'] = country
+
+    query_text += " ORDER BY ce.total_articles DESC NULLS LAST"
+
+    result = session.execute(text(query_text), params).fetchall()
+
+    events = []
+    for row in result:
+        events.append({
+            'id': str(row[0]),
+            'canonical_name': row[1],
+            'initiating_country': row[2],
+            'first_mention_date': str(row[3]) if row[3] else 'N/A',
+            'last_mention_date': str(row[4]) if row[4] else 'N/A',
+            'total_mention_days': row[5] or 0,
+            'total_articles': row[6] or 0,
+            'consolidated_description': row[7] or '',
+            'key_facts': row[8] or {},
+            'primary_categories': row[9] or {},
+            'primary_recipients': row[10] or {}
+        })
+
+    return events
+
+
+def load_canonical_events_for_materiality_scoring(
+    session,
+    country: Optional[str],
+    min_articles: int = 1,
+    min_days: int = 1,
+    rescore: bool = False
+) -> List[Dict]:
+    """
+    Load canonical events that need materiality scoring.
+
+    Args:
+        session: Database session
+        country: Filter by country (optional)
+        min_articles: Minimum articles threshold
+        min_days: Minimum days mentioned threshold
+        rescore: If True, rescore all events
+
+    Returns:
+        List of canonical event dictionaries
+    """
+    score_filter = "" if rescore else "AND ce.material_score IS NULL"
+
+    query_text = f"""
+        SELECT
+            ce.id,
+            ce.canonical_name,
+            ce.initiating_country,
+            ce.first_mention_date,
+            ce.last_mention_date,
+            ce.total_mention_days,
+            ce.total_articles,
+            ce.consolidated_description,
+            ce.key_facts,
+            ce.primary_categories,
+            ce.primary_recipients
+        FROM canonical_events ce
+        WHERE ce.master_event_id IS NULL
+          AND ce.total_mention_days >= :min_days
+          AND ce.total_articles >= :min_articles
+          {score_filter}
+    """
+
+    params = {'min_days': min_days, 'min_articles': min_articles}
+    if country:
+        query_text += " AND ce.initiating_country = :country"
+        params['country'] = country
+
+    query_text += " ORDER BY ce.total_articles DESC NULLS LAST"
+
+    result = session.execute(text(query_text), params).fetchall()
+
+    events = []
+    for row in result:
+        events.append({
+            'id': str(row[0]),
+            'canonical_name': row[1],
+            'initiating_country': row[2],
+            'first_mention_date': str(row[3]) if row[3] else 'N/A',
+            'last_mention_date': str(row[4]) if row[4] else 'N/A',
+            'total_mention_days': row[5] or 0,
+            'total_articles': row[6] or 0,
+            'consolidated_description': row[7] or '',
+            'key_facts': row[8] or {},
+            'primary_categories': row[9] or {},
+            'primary_recipients': row[10] or {}
+        })
+
+    return events
+
+
 def load_unprocessed_clusters(
     session,
     country: Optional[str],
@@ -397,6 +789,206 @@ def load_unprocessed_canonical_events(
     return filtered_groups
 
 
+def build_daily_entity_extract_prompt(doc: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt for extracting entities from a document.
+
+    Extracts entities from extract_daily_entities.py prompt.
+
+    Args:
+        doc: Document dictionary with metadata
+
+    Returns:
+        OpenAI API messages format
+    """
+    sys_prompt = "You are an expert at named entity recognition, specializing in diplomatic and geopolitical documents. Extract entities with precise categorization and contextual information."
+
+    user_prompt = f"""You are analyzing a diplomatic document to extract named entities.
+
+Document Metadata:
+- Date: {doc['date']}
+- Initiating Country: {doc['initiating_country']}
+- Recipient Countries: {doc['recipient_countries']}
+- Categories: {doc['categories']}
+- Source: {doc['source_name']}
+
+Document Text:
+{doc['distilled_text'][:4000]}
+
+Your task is to extract ALL named entities mentioned in this document.
+
+Extract the following entity types:
+
+1. **PERSONS** - Names of individuals mentioned
+   - Include their role/title (e.g., "Foreign Minister", "CEO", "President")
+   - Include country affiliation (which country they represent/work for)
+   - Context: What are they doing in this document? (1-2 sentences)
+
+2. **ORGANIZATIONS** - Government agencies, NGOs, international bodies, institutions
+   - Include type (e.g., "Government Agency", "NGO", "International Organization")
+   - Include country of origin
+   - Role: What is their function in this context?
+
+3. **COMPANIES** - Businesses, corporations, state-owned enterprises
+   - Include sector (e.g., "Technology", "Energy", "Construction", "Finance")
+   - Include country of origin
+   - Role: What are they doing in this document?
+
+4. **LOCATIONS** - Cities, venues, facilities, infrastructure projects
+   - Include type (e.g., "City", "Venue", "Facility", "Infrastructure Project")
+   - Include country
+   - Significance: Why is this location mentioned?
+
+CRITICAL GUIDELINES:
+- Extract ONLY entities explicitly mentioned in the text
+- For persons: Use the most complete name form (e.g., "Wang Yi" not just "Minister Wang")
+- For organizations: Use official names (e.g., "Chinese Ministry of Foreign Affairs" not "MFA")
+- For companies: Include full legal names when available
+- Include context snippets that show HOW the entity is involved
+- If the document doesn't mention any entities of a type, return an empty array for that type
+
+Return ONLY a valid JSON object with this structure:
+{{
+  "persons": [
+    {{
+      "entity_name": "Wang Yi",
+      "role": "Chinese Foreign Minister",
+      "country_affiliation": "China",
+      "context_snippet": "Wang Yi met with his Iraqi counterpart to discuss bilateral cooperation"
+    }}
+  ],
+  "organizations": [
+    {{
+      "entity_name": "Iraqi Atomic Energy Commission",
+      "role": "Government agency overseeing nuclear programs",
+      "country_affiliation": "Iraq",
+      "context_snippet": "The Iraqi Atomic Energy Commission signed the framework agreement"
+    }}
+  ],
+  "companies": [
+    {{
+      "entity_name": "China Atomic Energy Company",
+      "role": "State-owned nuclear energy contractor",
+      "country_affiliation": "China",
+      "context_snippet": "China Atomic Energy Company signed a contract to build Iraq's first nuclear training reactor"
+    }}
+  ],
+  "locations": [
+    {{
+      "entity_name": "Al-Tuwaitha Complex",
+      "role": "Nuclear research facility",
+      "country_affiliation": "Iraq",
+      "context_snippet": "The reactor will be built at the Al-Tuwaitha Complex near Baghdad"
+    }}
+  ]
+}}"""
+
+    return {
+        'messages': [
+            {'role': 'system', 'content': sys_prompt},
+            {'role': 'user', 'content': user_prompt}
+        ]
+    }
+
+
+def load_documents_for_entity_extraction(
+    session,
+    country: str,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    force: bool = False
+) -> List[Dict]:
+    """
+    Load documents needing entity extraction.
+
+    Applies the same filtering logic as extract_daily_entities.py:
+    - Filters by initiating country
+    - Filters by valid recipient countries from config.yaml (excluding self-referential)
+    - Filters by date range
+    - Excludes documents already processed (unless force=True)
+
+    Args:
+        session: Database session
+        country: Initiating country
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+        force: Force reprocessing
+
+    Returns:
+        List of document dictionaries
+    """
+    from datetime import datetime
+    from sqlalchemy import and_, func
+    from shared.utils.utils import Config
+    from pathlib import Path
+
+    # Load config to get valid recipients (same as extract_daily_entities.py)
+    config_path = Path(__file__).parent.parent.parent.parent / 'shared' / 'config' / 'config.yaml'
+    config = Config.from_yaml(config_path)
+    valid_recipients = [r for r in config.recipients if r != country]
+
+    print(f"Filtering documents for {country} with {len(valid_recipients)} valid recipient countries")
+
+    # Build date filters
+    date_filters = []
+    if start_date:
+        date_filters.append(Document.date >= datetime.strptime(start_date, '%Y-%m-%d').date())
+    if end_date:
+        date_filters.append(Document.date <= datetime.strptime(end_date, '%Y-%m-%d').date())
+
+    # Get documents already processed (if not force mode)
+    processed_doc_ids = set()
+    if not force:
+        processed_docs = session.query(RawEntity.doc_id).distinct().all()
+        processed_doc_ids = {doc_id for (doc_id,) in processed_docs}
+
+    # Query documents with RecipientCountry join and filtering (same as extract_daily_entities.py)
+    query = session.query(Document).join(
+        InitiatingCountry,
+        Document.doc_id == InitiatingCountry.doc_id
+    ).join(
+        RecipientCountry,
+        Document.doc_id == RecipientCountry.doc_id
+    ).filter(
+        and_(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(valid_recipients),
+            RecipientCountry.recipient_country != country,  # Exclude self-referential
+            Document.distilled_text != None,
+            Document.distilled_text != '',
+            *date_filters
+        )
+    ).distinct()  # Distinct to avoid duplicates from multiple recipients
+
+    # Exclude already processed
+    if processed_doc_ids:
+        query = query.filter(~Document.doc_id.in_(processed_doc_ids))
+
+    documents = query.all()  # No limit - will be chunked later
+
+    print(f"Found {len(documents)} documents needing entity extraction (filtered by valid recipients)")
+
+    # Convert to dictionaries
+    result = []
+    for doc in documents:
+        # Get metadata
+        initiating_countries = [ic.initiating_country for ic in doc.initiating_countries]
+        recipient_countries = [rc.recipient_country for rc in doc.recipient_countries]
+        categories = [c.category for c in doc.categories]
+
+        result.append({
+            'doc_id': doc.doc_id,
+            'date': doc.date.strftime("%Y-%m-%d") if doc.date else "Unknown",
+            'initiating_country': ", ".join(initiating_countries) if initiating_countries else "Unknown",
+            'recipient_countries': ", ".join(recipient_countries) if recipient_countries else "Unknown",
+            'categories': ", ".join(categories) if categories else "Unknown",
+            'source_name': doc.source_name or "Unknown",
+            'distilled_text': doc.distilled_text[:4000]  # Limit for token management
+        })
+
+    return result
+
+
 def generate_batch_requests(
     job_type: str,
     records: List[Any],
@@ -450,7 +1042,81 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_ENTITY_EXTRACT:
+        # records is a list of canonical events needing entity extraction
+        for event in records:
+            custom_id = generate_custom_id(job_type, event['id'])
+            prompt_data = build_entity_extract_prompt(event)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
+    elif job_type == JOB_TYPE_SCORE_MATERIALITY:
+        # records is a list of canonical events needing materiality scoring
+        for event in records:
+            custom_id = generate_custom_id(job_type, event['id'])
+            prompt_data = build_score_materiality_prompt(event)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
+    elif job_type == JOB_TYPE_DAILY_ENTITY_EXTRACT:
+        # records is a list of documents needing entity extraction
+        for doc in records:
+            custom_id = generate_custom_id(job_type, doc['doc_id'])
+            prompt_data = build_daily_entity_extract_prompt(doc)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
+
+
+def chunk_records(records: List[Any], chunk_size: int = 10000) -> List[List[Any]]:
+    """
+    Split records into chunks for reliable batch uploads.
+
+    Default chunk size of 10K keeps file sizes ~38MB for documents with large text.
+    OpenAI's max is 50K but large files (>70MB) timeout during upload.
+
+    Args:
+        records: List of records to chunk
+        chunk_size: Maximum records per chunk (default: 10000)
+
+    Returns:
+        List of record chunks
+    """
+    chunks = []
+    for i in range(0, len(records), chunk_size):
+        chunks.append(records[i:i + chunk_size])
+    return chunks
 
 
 def main():
@@ -462,7 +1128,9 @@ def main():
 
     # Job configuration
     parser.add_argument('--job-type', required=True,
-                       choices=[JOB_TYPE_CLUSTER_DECONFLICT, JOB_TYPE_CANONICAL_DECONFLICT],
+                       choices=[JOB_TYPE_CLUSTER_DECONFLICT, JOB_TYPE_CANONICAL_DECONFLICT,
+                               JOB_TYPE_ENTITY_EXTRACT, JOB_TYPE_SCORE_MATERIALITY,
+                               JOB_TYPE_DAILY_ENTITY_EXTRACT],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -473,6 +1141,18 @@ def main():
     parser.add_argument('--end-date', type=str, help='End date (YYYY-MM-DD)')
     parser.add_argument('--all-unprocessed', action='store_true',
                        help='Process all unprocessed records (ignores date filters)')
+
+    # Entity extraction specific
+    parser.add_argument('--min-articles', type=int, default=3,
+                       help='Minimum articles for entity extraction/materiality scoring (default: 3)')
+    parser.add_argument('--force', action='store_true',
+                       help='Force entity extraction even if already processed')
+
+    # Materiality scoring specific
+    parser.add_argument('--min-days', type=int, default=1,
+                       help='Minimum days for materiality scoring (default: 1)')
+    parser.add_argument('--rescore', action='store_true',
+                       help='Rescore events even if already scored')
 
     # Output configuration
     parser.add_argument('--output', type=str, help='Output JSONL file path (optional, auto-generated if not provided)')
@@ -512,6 +1192,35 @@ def main():
             records = load_unprocessed_canonical_events(session, args.country)
             print(f"Found {len(records)} unprocessed canonical event groups")
 
+        elif args.job_type == JOB_TYPE_ENTITY_EXTRACT:
+            records = load_canonical_events_for_entity_extraction(
+                session,
+                args.country,
+                args.min_articles,
+                args.force
+            )
+            print(f"Found {len(records)} canonical events needing entity extraction")
+
+        elif args.job_type == JOB_TYPE_SCORE_MATERIALITY:
+            records = load_canonical_events_for_materiality_scoring(
+                session,
+                args.country,
+                args.min_articles,
+                args.min_days,
+                args.rescore
+            )
+            print(f"Found {len(records)} canonical events needing materiality scoring")
+
+        elif args.job_type == JOB_TYPE_DAILY_ENTITY_EXTRACT:
+            records = load_documents_for_entity_extraction(
+                session,
+                args.country,
+                args.start_date,
+                args.end_date,
+                args.force
+            )
+            print(f"Found {len(records)} documents needing entity extraction")
+
         else:
             print(f"Error: Unsupported job type: {args.job_type}")
             return
@@ -520,80 +1229,121 @@ def main():
             print("No unprocessed records found. Exiting.")
             return
 
-        # Generate batch requests
-        print(f"\\nGenerating batch API requests...")
-        batch_requests = generate_batch_requests(args.job_type, records, model)
-        print(f"Generated {len(batch_requests)} batch requests")
+        # Chunk records for reliable uploads
+        from services.pipeline.batch.batch_config import RECOMMENDED_BATCH_SIZE
+        record_chunks = chunk_records(records, chunk_size=RECOMMENDED_BATCH_SIZE)
+        num_chunks = len(record_chunks)
 
-        # Estimate cost
-        print(f"\\nEstimating costs...")
-        total_input_tokens = sum(
-            calculate_message_tokens(req['body']['messages'], model)
-            for req in batch_requests
-        )
-        avg_input_tokens = total_input_tokens // len(batch_requests) if batch_requests else 0
-
-        from services.pipeline.batch.utils.cost_estimator import estimate_batch_cost
-        cost_estimate = estimate_batch_cost(len(batch_requests), avg_input_tokens, model=model)
-
-        print(f"  Total requests: {len(batch_requests)}")
-        print(f"  Avg input tokens: {avg_input_tokens}")
-        print(f"  Estimated input cost: ${cost_estimate['input_cost']:.4f}")
-        print(f"  Estimated output cost: ${cost_estimate['output_cost']:.4f}")
-        print(f"  Estimated total cost: ${cost_estimate['total_cost']:.4f}")
-        print(f"  Cost per request: ${cost_estimate['per_request_cost']:.6f}")
+        print(f"\\nSplitting {len(records)} records into {num_chunks} batch(es) ({RECOMMENDED_BATCH_SIZE} per batch for reliable uploads)")
 
         if args.dry_run:
             print("\\n[DRY RUN] Would have created:")
-            print(f"  - JSONL file with {len(batch_requests)} requests")
-            print(f"  - batch_jobs database record")
+            for i in range(num_chunks):
+                print(f"  - Batch {i+1}: {len(record_chunks[i])} requests")
+            print(f"  - {num_chunks} batch_jobs database record(s)")
             print("\\nExiting without creating files.")
             return
 
-        # Generate output file path
-        if args.output:
-            output_file = args.output
-        else:
-            output_file = get_batch_file_path(
-                args.job_type,
-                'input',
-                args.country,
-                str(start_date) if start_date else None,
-                str(end_date) if end_date else None
+        # Process each chunk
+        created_batch_jobs = []
+        total_cost = 0.0
+        from services.pipeline.batch.utils.cost_estimator import estimate_batch_cost
+
+        for chunk_idx, chunk in enumerate(record_chunks, start=1):
+            print(f"\\n{'='*80}")
+            print(f"Processing Batch {chunk_idx}/{num_chunks}")
+            print(f"{'='*80}")
+
+            # Generate batch requests for this chunk
+            print(f"Generating batch API requests...")
+            batch_requests = generate_batch_requests(args.job_type, chunk, model)
+            print(f"Generated {len(batch_requests)} batch requests")
+
+            # Estimate cost
+            print(f"Estimating costs...")
+            total_input_tokens = sum(
+                calculate_message_tokens(req['body']['messages'], model)
+                for req in batch_requests
             )
+            avg_input_tokens = total_input_tokens // len(batch_requests) if batch_requests else 0
 
-        # Write JSONL file
-        print(f"\\nWriting JSONL file to: {output_file}")
-        write_jsonl(output_file, batch_requests)
-        print(f"✓ Wrote {len(batch_requests)} requests to {output_file}")
+            cost_estimate = estimate_batch_cost(len(batch_requests), avg_input_tokens, model=model)
 
-        # Create batch_job record
-        print(f"\\nCreating batch_job database record...")
-        with BatchJobTracker(session) as tracker:
-            batch_job = tracker.create_batch_job(
-                job_type=args.job_type,
-                batch_size=len(batch_requests),
-                initiating_country=args.country,
-                date_range_start=start_date,
-                date_range_end=end_date,
-                input_file_path=output_file,
-                estimated_cost=cost_estimate['total_cost'],
-                created_by='batch_prepare.py'
-            )
+            print(f"  Total requests: {len(batch_requests)}")
+            print(f"  Avg input tokens: {avg_input_tokens}")
+            print(f"  Estimated input cost: ${cost_estimate['input_cost']:.4f}")
+            print(f"  Estimated output cost: ${cost_estimate['output_cost']:.4f}")
+            print(f"  Estimated total cost: ${cost_estimate['total_cost']:.4f}")
 
-            print(f"✓ Created batch_job record: {batch_job.id}")
-            print(f"  Status: {batch_job.status.value}")
-            print(f"  Batch size: {batch_job.batch_size}")
-            print(f"  Estimated cost: ${batch_job.estimated_cost:.4f}")
+            total_cost += cost_estimate['total_cost']
 
+            # Generate output file path with batch suffix
+            if args.output and num_chunks == 1:
+                output_file = args.output
+            else:
+                base_output_file = get_batch_file_path(
+                    args.job_type,
+                    'input',
+                    args.country,
+                    str(start_date) if start_date else None,
+                    str(end_date) if end_date else None
+                )
+                # Add batch number suffix if multiple batches
+                if num_chunks > 1:
+                    output_file = base_output_file.replace('.jsonl', f'_batch{chunk_idx}.jsonl')
+                else:
+                    output_file = base_output_file
+
+            # Write JSONL file
+            print(f"Writing JSONL file to: {output_file}")
+            write_jsonl(output_file, batch_requests)
+            print(f"✓ Wrote {len(batch_requests)} requests to {output_file}")
+
+            # Create batch_job record
+            print(f"Creating batch_job database record...")
+            with BatchJobTracker(session) as tracker:
+                batch_job = tracker.create_batch_job(
+                    job_type=args.job_type,
+                    batch_size=len(batch_requests),
+                    initiating_country=args.country,
+                    date_range_start=start_date,
+                    date_range_end=end_date,
+                    input_file_path=output_file,
+                    estimated_cost=cost_estimate['total_cost'],
+                    created_by='batch_prepare.py'
+                )
+
+                print(f"✓ Created batch_job record: {batch_job.id}")
+                print(f"  Status: {batch_job.status}")
+                print(f"  Batch size: {batch_job.batch_size}")
+                print(f"  Estimated cost: ${batch_job.estimated_cost:.4f}")
+
+                created_batch_jobs.append({
+                    'id': batch_job.id,
+                    'file': output_file,
+                    'size': len(batch_requests),
+                    'cost': cost_estimate['total_cost']
+                })
+
+        # Print summary
         print()
         print("=" * 80)
         print("BATCH PREPARE COMPLETE")
         print("=" * 80)
-        print(f"Batch Job ID: {batch_job.id}")
-        print(f"Input file: {output_file}")
-        print(f"\\nNext step: Submit batch to OpenAI")
-        print(f"  python batch_submit.py --batch-job-id {batch_job.id}")
+        print(f"Total batches created: {len(created_batch_jobs)}")
+        print(f"Total records: {len(records)}")
+        print(f"Total estimated cost: ${total_cost:.4f}")
+        print()
+        for i, job in enumerate(created_batch_jobs, start=1):
+            print(f"Batch {i}:")
+            print(f"  Batch Job ID: {job['id']}")
+            print(f"  Input file: {job['file']}")
+            print(f"  Records: {job['size']}")
+            print(f"  Estimated cost: ${job['cost']:.4f}")
+        print()
+        print("Next step: Submit batch(es) to OpenAI")
+        for job in created_batch_jobs:
+            print(f"  python batch_submit.py --batch-job-id {job['id']}")
         print("=" * 80)
 
 

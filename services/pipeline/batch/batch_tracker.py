@@ -79,7 +79,7 @@ class BatchJobTracker:
             input_file_path=input_file_path,
             estimated_cost=estimated_cost,
             created_by=created_by,
-            status=BatchJobStatus.PREPARING
+            status=BatchJobStatus.PREPARING.value
         )
 
         self.session.add(batch_job)
@@ -124,7 +124,7 @@ class BatchJobTracker:
         if not batch_job:
             raise ValueError(f"Batch job not found: {batch_job_id}")
 
-        batch_job.status = status
+        batch_job.status = status.value if isinstance(status, BatchJobStatus) else status
 
         if error_message:
             batch_job.error_message = error_message
@@ -167,7 +167,7 @@ class BatchJobTracker:
         if input_file_id:
             batch_job.input_file_id = input_file_id
 
-        batch_job.status = BatchJobStatus.SUBMITTED
+        batch_job.status = BatchJobStatus.SUBMITTED.value
         batch_job.submitted_at = datetime.utcnow()
 
         self.session.commit()
