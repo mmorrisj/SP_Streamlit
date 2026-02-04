@@ -213,6 +213,18 @@ async def list_batches(request: BatchListRequest):
 
         batches = []
         for batch in batch_list.data:
+            # Convert request_counts from Pydantic model to dict
+            request_counts = getattr(batch, 'request_counts', None)
+            if request_counts is not None:
+                if hasattr(request_counts, 'model_dump'):
+                    request_counts = request_counts.model_dump()
+                elif hasattr(request_counts, '__dict__'):
+                    request_counts = {k: v for k, v in request_counts.__dict__.items() if not k.startswith('_')}
+
+            batch_metadata = getattr(batch, 'metadata', None)
+            if batch_metadata is not None and hasattr(batch_metadata, 'model_dump'):
+                batch_metadata = batch_metadata.model_dump()
+
             batches.append({
                 "id": batch.id,
                 "object": batch.object,
@@ -227,8 +239,8 @@ async def list_batches(request: BatchListRequest):
                 "expired_at": getattr(batch, 'expired_at', None),
                 "output_file_id": batch.output_file_id,
                 "error_file_id": batch.error_file_id,
-                "request_counts": getattr(batch, 'request_counts', None),
-                "metadata": getattr(batch, 'metadata', None),
+                "request_counts": request_counts,
+                "metadata": batch_metadata,
             })
 
         return {
@@ -237,6 +249,8 @@ async def list_batches(request: BatchListRequest):
             "last_id": batches[-1]["id"] if batches else None,
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Batch list failed: {str(e)}")
 
 @app.post("/batch/upload_file")
@@ -360,6 +374,19 @@ async def get_batch_status(request: BatchStatusRequest):
         client = OpenAI(api_key=api_key)
         batch = client.batches.retrieve(request.batch_id)
 
+        # Convert request_counts from Pydantic model to dict
+        request_counts = getattr(batch, 'request_counts', None)
+        if request_counts is not None:
+            if hasattr(request_counts, 'model_dump'):
+                request_counts = request_counts.model_dump()
+            elif hasattr(request_counts, '__dict__'):
+                request_counts = {k: v for k, v in request_counts.__dict__.items() if not k.startswith('_')}
+
+        # Convert errors from Pydantic model to dict
+        errors = getattr(batch, 'errors', None)
+        if errors is not None and hasattr(errors, 'model_dump'):
+            errors = errors.model_dump()
+
         return {
             "id": batch.id,
             "object": batch.object,
@@ -376,8 +403,8 @@ async def get_batch_status(request: BatchStatusRequest):
             "cancelled_at": getattr(batch, 'cancelled_at', None),
             "output_file_id": batch.output_file_id,
             "error_file_id": batch.error_file_id,
-            "errors": batch.errors,
-            "request_counts": getattr(batch, 'request_counts', None)
+            "errors": errors,
+            "request_counts": request_counts
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch status check failed: {str(e)}")
