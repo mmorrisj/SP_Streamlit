@@ -9,9 +9,14 @@ const api = axios.create({
 
 export interface DocumentStats {
   total_documents: number
+  total_events: number
   documents_by_week: { week: string; count: number }[]
+  documents_by_week_by_influencer: Record<string, { week: string; count: number }[]>
+  documents_by_week_by_recipient: Record<string, { week: string; by_influencer: Record<string, number> }[]>
   top_countries: { country: string; count: number }[]
+  top_recipients: { country: string; count: number }[]
   category_distribution: { category: string; count: number }[]
+  subcategory_distribution: { subcategory: string; count: number }[]
 }
 
 export interface Event {
@@ -35,6 +40,7 @@ export interface Summary {
 
 export interface FilterOptions {
   countries: string[]
+  recipients: string[]
   categories: string[]
   subcategories: string[]
   date_range: { min: string; max: string }
@@ -99,7 +105,14 @@ export interface RecipientMetrics {
   }[]
 }
 
-export const fetchDocumentStats = async (filters?: Record<string, unknown>): Promise<DocumentStats> => {
+export const fetchDocumentStats = async (filters?: {
+  country?: string
+  category?: string
+  start_date?: string
+  end_date?: string
+  influencer_country?: string
+  recipient_country?: string
+}): Promise<DocumentStats> => {
   const { data } = await api.get('/documents/stats', { params: filters })
   return data
 }
@@ -136,6 +149,64 @@ export const fetchBilateralMetrics = async (influencer: string, recipient: strin
 
 export const fetchRecipientMetrics = async (country: string): Promise<RecipientMetrics> => {
   const { data } = await api.get(`/metrics/recipient/${country}`)
+  return data
+}
+
+export interface BilateralMapData {
+  influencer: string
+  recipients: {
+    country: string
+    document_count: number
+    event_count: number
+    avg_materiality: number
+  }[]
+}
+
+export const fetchBilateralMapData = async (influencer?: string): Promise<BilateralMapData> => {
+  const { data } = await api.get('/bilateral-map-data', {
+    params: { influencer: influencer || 'ALL' }
+  })
+  return data
+}
+
+export interface EventTimeline {
+  event_name: string
+  event_summary: string
+  date_range: {
+    first: string
+    last: string
+  }
+  daily_article_counts: Record<string, number>
+  materiality: number
+  category: string
+  recipients: string[]
+  source_doc_ids: string[]
+  atom_search_url: string
+}
+
+export interface EventTimelineResponse {
+  events: EventTimeline[]
+  country: string
+  date_range: {
+    start: string
+    end: string
+  }
+}
+
+export const fetchEventTimeline = async (
+  country: string,
+  startDate: string,
+  endDate: string,
+  level: string = 'monthly'
+): Promise<EventTimelineResponse> => {
+  const { data } = await api.get('/events/timeline', {
+    params: {
+      country,
+      start_date: startDate,
+      end_date: endDate,
+      level
+    }
+  })
   return data
 }
 

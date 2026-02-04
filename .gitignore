@@ -88,7 +88,7 @@ embedding_backups/
 *.csv
 *.docx
 *.zip
-
+*.jsonl
 # Temporary helper scripts (optional - keep if useful)
 # start-*.bat
 # check-status.bat
@@ -103,3 +103,27 @@ rag_validation_output.txt
 _data/
 !_data/.gitkeep
 !_data/*/.gitkeep
+tmpclaude-1be9-cwd
+tmpclaude-7ecf-cwd
+tmpclaude-7fe0-cwd
+tmpclaude-8e39-cwd
+tmpclaude-15ea-cwd
+tmpclaude-20f9-cwd
+tmpclaude-42d2-cwd
+tmpclaude-74c1-cwd
+tmpclaude-287d-cwd
+tmpclaude-553c-cwd
+tmpclaude-763b-cwd
+tmpclaude-2840-cwd
+tmpclaude-8526-cwd
+tmpclaude-a6a4-cwd
+tmpclaude-a85d-cwd
+tmpclaude-bbee-cwd
+tmpclaude-be5a-cwd
+tmpclaude-befb-cwd
+tmpclaude-cc50-cwd
+tmpclaude-db0d-cwd
+tmpclaude-e83e-cwd
+tmpclaude-e381-cwd
+tmpclaude-ec39-cwd
+tmpclaude-f3be-cwd

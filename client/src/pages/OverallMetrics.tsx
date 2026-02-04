@@ -13,11 +13,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
 } from 'recharts'
 import { Activity, TrendingUp, Globe, Users } from 'lucide-react'
 import { fetchOverallMetrics } from '../api/client'
@@ -178,7 +173,7 @@ export default function OverallMetrics() {
                 cx="50%"
                 cy="50%"
                 outerRadius={120}
-                label={(entry) => `${entry.category}: ${entry.percent}%`}
+                label={(entry: any) => `${entry.category}: ${entry.percent}%`}
                 labelLine={{ stroke: '#666', strokeWidth: 1 }}
               >
                 {categoryWithPercent.map((entry) => (
@@ -188,7 +183,7 @@ export default function OverallMetrics() {
                   />
                 ))}
               </Pie>
-              <Tooltip formatter={(value: number) => value.toLocaleString()} />
+              <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
             </PieChart>
           </ResponsiveContainer>
           <div style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#64748b' }}>
@@ -204,9 +199,9 @@ export default function OverallMetrics() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="influencer" type="category" width={100} tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(value: number) => value.toLocaleString()} />
+              <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
               <Bar dataKey="count" fill="#1a365d" name="Documents">
-                {metrics.influencer_comparison.map((entry, index) => (
+                {metrics.influencer_comparison.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Bar>
@@ -228,7 +223,7 @@ export default function OverallMetrics() {
               width={180}
               tick={{ fontSize: 11 }}
             />
-            <Tooltip formatter={(value: number) => value.toLocaleString()} />
+            <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
             <Bar dataKey="count" fill="#4a6fa5" name="Documents" />
           </BarChart>
         </ResponsiveContainer>
@@ -242,7 +237,7 @@ export default function OverallMetrics() {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="influencer" tick={{ fontSize: 12 }} />
             <YAxis />
-            <Tooltip formatter={(value: number) => value?.toLocaleString() || '0'} />
+            <Tooltip formatter={(value: number | undefined) => value?.toLocaleString() || '0'} />
             <Legend />
             {Object.keys(CATEGORY_COLORS).map((category) => (
               <Bar

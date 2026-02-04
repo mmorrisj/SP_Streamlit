@@ -1,0 +1,202 @@
+"""
+Configuration constants for OpenAI Batch API processing.
+
+Provides centralized configuration for batch job types, models,
+file paths, and processing parameters.
+"""
+import os
+from pathlib import Path
+from typing import Dict, Any
+
+
+# Job types
+JOB_TYPE_CLUSTER_DECONFLICT = "cluster_deconflict"
+JOB_TYPE_CANONICAL_DECONFLICT = "canonical_deconflict"
+JOB_TYPE_ENTITY_EXTRACT = "entity_extract"
+JOB_TYPE_SCORE_MATERIALITY = "score_materiality"
+JOB_TYPE_DAILY_ENTITY_EXTRACT = "daily_entity_extract"
+
+# Supported job types
+SUPPORTED_JOB_TYPES = [
+    JOB_TYPE_CLUSTER_DECONFLICT,
+    JOB_TYPE_CANONICAL_DECONFLICT,
+    JOB_TYPE_ENTITY_EXTRACT,
+    JOB_TYPE_SCORE_MATERIALITY,
+    JOB_TYPE_DAILY_ENTITY_EXTRACT,
+]
+
+# OpenAI API configuration
+OPENAI_API_KEY_ENV = "OPENAI_PROJ_API"
+OPENAI_BATCH_ENDPOINT = "/v1/chat/completions"
+OPENAI_COMPLETION_WINDOW = "24h"
+
+# Default models for each job type
+DEFAULT_MODELS = {
+    JOB_TYPE_CLUSTER_DECONFLICT: "gpt-4o-mini",
+    JOB_TYPE_CANONICAL_DECONFLICT: "gpt-4o-mini",
+    JOB_TYPE_ENTITY_EXTRACT: "gpt-4o-mini",
+    JOB_TYPE_SCORE_MATERIALITY: "gpt-4o-mini",
+    JOB_TYPE_DAILY_ENTITY_EXTRACT: "gpt-4o-mini",
+}
+
+# Model temperature settings
+DEFAULT_TEMPERATURE = 0.1
+
+# Batch processing limits
+MAX_BATCH_SIZE = 50000  # OpenAI API limit per batch
+RECOMMENDED_BATCH_SIZE = 4000  # Conservative batch size for reliable uploads
+DEFAULT_CHECKPOINT_FREQUENCY = 100  # Commit every N processed results
+
+# File paths
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+SCRATCHPAD_DIR = os.getenv(
+    'BATCH_SCRATCHPAD_DIR',
+    Path(os.getenv('TEMP', os.getenv('TMP', '/tmp'))) / 'claude' / 'scratchpad' / 'batch'
+)
+
+# Ensure scratchpad directory exists
+Path(SCRATCHPAD_DIR).mkdir(parents=True, exist_ok=True)
+
+# File naming patterns
+INPUT_FILE_PATTERN = "{job_type}_{country}_{date_start}_{date_end}_input.jsonl"
+OUTPUT_FILE_PATTERN = "{job_type}_{country}_{date_start}_{date_end}_output.jsonl"
+ERROR_FILE_PATTERN = "{job_type}_{country}_{date_start}_{date_end}_errors.jsonl"
+
+# S3 configuration (if using S3 for file storage)
+S3_BUCKET_ENV = "S3_BUCKET"
+S3_PREFIX_BATCH = "batch_processing/"
+
+# Monitoring configuration
+DEFAULT_POLL_INTERVAL = 60  # seconds
+MAX_POLL_DURATION = 86400  # 24 hours (OpenAI SLA)
+
+# Retry configuration
+MAX_SUBMISSION_RETRIES = 3
+RETRY_BACKOFF_BASE = 2  # seconds (exponential backoff: 2s, 4s, 8s)
+
+# Database batch sizes
+DB_QUERY_BATCH_SIZE = 1000  # Fetch records in batches of 1000
+
+# Cost estimation defaults
+DEFAULT_OUTPUT_TOKENS = 300  # Conservative estimate
+
+# Logging configuration
+LOG_LEVEL = os.getenv('BATCH_LOG_LEVEL', 'INFO')
+
+
+def get_batch_file_path(
+    job_type: str,
+    file_type: str = 'input',
+    country: str = None,
+    date_start: str = None,
+    date_end: str = None,
+    batch_job_id: str = None
+) -> str:
+    """
+    Generate file path for batch processing files.
+
+    Args:
+        job_type: Job type (cluster_deconflict, canonical_deconflict, etc.)
+        file_type: File type ('input', 'output', 'error')
+        country: Country code (optional)
+        date_start: Start date (optional)
+        date_end: End date (optional)
+        batch_job_id: Batch job ID (optional, used for tracking)
+
+    Returns:
+        Absolute file path
+
+    Example:
+        >>> path = get_batch_file_path('cluster_deconflict', 'input', 'China', '2024-08-01', '2024-08-31')
+        >>> print(path)
+        '/tmp/claude/scratchpad/batch/cluster_deconflict_China_2024-08-01_2024-08-31_input.jsonl'
+    """
+    if batch_job_id:
+        # Use batch job ID for unique filenames
+        filename = f"{job_type}_{batch_job_id}_{file_type}.jsonl"
+    else:
+        # Use country and date range
+        country_str = country or "all"
+        date_start_str = date_start or "all"
+        date_end_str = date_end or "all"
+        filename = f"{job_type}_{country_str}_{date_start_str}_{date_end_str}_{file_type}.jsonl"
+
+    return str(Path(SCRATCHPAD_DIR) / filename)
+
+
+def get_s3_key(
+    job_type: str,
+    file_type: str,
+    batch_job_id: str
+) -> str:
+    """
+    Generate S3 key for batch processing files.
+
+    Args:
+        job_type: Job type
+        file_type: File type ('input', 'output', 'error')
+        batch_job_id: Batch job ID
+
+    Returns:
+        S3 key path
+
+    Example:
+        >>> key = get_s3_key('cluster_deconflict', 'output', 'abc-123')
+        >>> print(key)
+        'batch_processing/cluster_deconflict/outputs/abc-123.jsonl'
+    """
+    return f"{S3_PREFIX_BATCH}{job_type}/{file_type}s/{batch_job_id}.jsonl"
+
+
+def validate_job_type(job_type: str) -> bool:
+    """
+    Validate that job_type is supported.
+
+    Args:
+        job_type: Job type to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    return job_type in SUPPORTED_JOB_TYPES
+
+
+def get_model_for_job_type(job_type: str) -> str:
+    """
+    Get default model for a job type.
+
+    Args:
+        job_type: Job type
+
+    Returns:
+        Model name
+
+    Raises:
+        ValueError: If job_type is not supported
+    """
+    if not validate_job_type(job_type):
+        raise ValueError(f"Unsupported job_type: {job_type}. Supported types: {SUPPORTED_JOB_TYPES}")
+
+    return DEFAULT_MODELS.get(job_type, "gpt-4o-mini")
+
+
+# Configuration summary for logging
+def get_config_summary() -> Dict[str, Any]:
+    """
+    Get configuration summary for logging/debugging.
+
+    Returns:
+        Dictionary with current configuration values
+    """
+    return {
+        'supported_job_types': SUPPORTED_JOB_TYPES,
+        'default_models': DEFAULT_MODELS,
+        'scratchpad_dir': str(SCRATCHPAD_DIR),
+        'max_batch_size': MAX_BATCH_SIZE,
+        'recommended_batch_size': RECOMMENDED_BATCH_SIZE,
+        'default_poll_interval': DEFAULT_POLL_INTERVAL,
+        'max_poll_duration': MAX_POLL_DURATION,
+        'max_submission_retries': MAX_SUBMISSION_RETRIES,
+        'checkpoint_frequency': DEFAULT_CHECKPOINT_FREQUENCY,
+        'log_level': LOG_LEVEL
+    }

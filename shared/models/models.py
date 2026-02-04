@@ -32,6 +32,15 @@ class EventStatus(PyEnum):
     INACTIVE = "inactive"
     ARCHIVED = "archived"
 
+class BatchJobStatus(PyEnum):
+    PREPARING = "preparing"
+    SUBMITTED = "submitted"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PROCESSING_RESULTS = "processing_results"
+
 class Document(Base):
     """
     Core document model - converted from Flask-SQLAlchemy to pure SQLAlchemy.
@@ -289,6 +298,26 @@ class EventSummary(Base):
     material_score: Mapped[Optional[float]] = mapped_column(Numeric(precision=4, scale=2), nullable=True)
     material_justification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Canonical event integration
+    canonical_event_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_events.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # Denormalized data for performance
+    doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    alternative_names: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+
+    # Event metadata from canonical event
+    materiality_stats: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+    key_facts: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+    entities_mentioned: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+
+    # Comprehensive summaries (LLM-generated)
+    overall_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    outcomes_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     period_summary = relationship("PeriodSummary", back_populates="events")
     source_links = relationship(
@@ -309,9 +338,13 @@ class EventSummary(Base):
         Index("ix_event_summary_name", "event_name"),
         Index("ix_event_summary_dates", "first_observed_date", "last_observed_date"),
         Index("ix_event_summary_status", "status", "is_deleted"),
+        Index("ix_event_summary_canonical_event", "canonical_event_id"),
         # JSONB indexes for efficient queries
         Index("ix_event_summary_category_jsonb", "count_by_category", postgresql_using="gin"),
         Index("ix_event_summary_source_jsonb", "count_by_source", postgresql_using="gin"),
+        Index("ix_event_summary_materiality_stats", "materiality_stats", postgresql_using="gin"),
+        Index("ix_event_summary_key_facts", "key_facts", postgresql_using="gin"),
+        Index("ix_event_summary_entities", "entities_mentioned", postgresql_using="gin"),
         # Ensure logical date consistency
         CheckConstraint("period_start <= period_end", name="ck_valid_period"),
         CheckConstraint("first_observed_date <= last_observed_date", name="ck_valid_observation"),
@@ -589,7 +622,13 @@ class CanonicalEvent(Base):
     # Materiality scoring (measures concrete vs symbolic nature)
     material_score: Mapped[Optional[float]] = mapped_column(Numeric(precision=3, scale=1), nullable=True)
     material_justification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
+
+    # Named entities extracted from event (persons, organizations, companies, locations)
+    entities_mentioned: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True, default=dict)
+
+    # Timestamps
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     # Relationships
     daily_mentions = relationship("DailyEventMention", back_populates="canonical_event")
 
@@ -1013,3 +1052,457 @@ class BilateralCategorySummary(Base):
 
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+
+
+# ============================================================================
+# ENTITY EXTRACTION MODELS
+# ============================================================================
+
+class EntityTypeEnum(PyEnum):
+    """Entity types for classification"""
+    PERSON = "person"
+    ORGANIZATION = "organization"
+    COMPANY = "company"
+    LOCATION = "location"
+    OTHER = "other"
+
+class EntityRoleEnum(PyEnum):
+    """Entity roles in soft power activities"""
+    GOVERNMENT_OFFICIAL = "government_official"
+    DIPLOMAT = "diplomat"
+    BUSINESS_LEADER = "business_leader"
+    CULTURAL_FIGURE = "cultural_figure"
+    MILITARY_OFFICIAL = "military_official"
+    ACADEMIC = "academic"
+    MEDIA_FIGURE = "media_figure"
+    CIVIL_SOCIETY = "civil_society"
+    IMPLEMENTING_ORGANIZATION = "implementing_organization"
+    FUNDING_ORGANIZATION = "funding_organization"
+    RECIPIENT_INSTITUTION = "recipient_institution"
+    INFRASTRUCTURE_PROJECT = "infrastructure_project"
+    VENUE = "venue"
+    OTHER = "other"
+
+
+class RawEntity(Base):
+    """
+    Raw entity mentions extracted from documents.
+    Similar to RawEvent - many-to-many relationship with documents.
+    Stores all entity mentions before clustering and consolidation.
+    """
+    __tablename__ = 'raw_entities'
+
+    doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
+    entity_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    entity_type: Mapped[EntityTypeEnum] = mapped_column(Enum(EntityTypeEnum), primary_key=True)
+
+    # Contextual information from extraction
+    role: Mapped[Optional[str]] = mapped_column(Text)  # Role/title from document
+    country_affiliation: Mapped[Optional[str]] = mapped_column(Text)  # Country association
+    context_snippet: Mapped[Optional[str]] = mapped_column(Text)  # Surrounding text for context
+
+    # Relationship
+    document = relationship("Document", backref="raw_entities")
+
+    __table_args__ = (
+        Index("ix_raw_entity_type", "entity_type"),
+        Index("ix_raw_entity_country", "country_affiliation"),
+        Index("ix_raw_entity_doc_date", "doc_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<RawEntity(doc_id='{self.doc_id}', entity_name='{self.entity_name}', type='{self.entity_type.value}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'doc_id': self.doc_id,
+            'entity_name': self.entity_name,
+            'entity_type': self.entity_type.value,
+            'role': self.role,
+            'country_affiliation': self.country_affiliation,
+            'context_snippet': self.context_snippet
+        }
+
+
+class EntityCluster(Base):
+    """
+    Daily entity clustering results (Stage 1).
+    Similar to EventCluster - groups similar entity mentions per day.
+    Uses DBSCAN clustering on entity name embeddings.
+    """
+    __tablename__ = "entity_clusters"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Grouping dimensions
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+    cluster_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    entity_type: Mapped[EntityTypeEnum] = mapped_column(Enum(EntityTypeEnum), nullable=False)
+    batch_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Cluster information
+    cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)  # DBSCAN label within batch
+    entity_names: Mapped[List[str]] = mapped_column(ARRAY(Text), nullable=False)
+    doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text), nullable=False)
+
+    # Cluster metadata
+    cluster_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_noise: Mapped[bool] = mapped_column(Boolean, default=False)  # DBSCAN label = -1
+
+    # Embedding information (for later analysis/refinement)
+    centroid_embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float))
+    representative_name: Mapped[Optional[str]] = mapped_column(Text)  # Most central entity name
+
+    # Processing status
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    llm_deconflicted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # LLM processing results (populated later)
+    refined_clusters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)  # Sub-clusters after LLM review
+
+    __table_args__ = (
+        Index("ix_entity_cluster_country_date_type", "initiating_country", "cluster_date", "entity_type"),
+        Index("ix_entity_cluster_processed", "processed", "llm_deconflicted"),
+        UniqueConstraint("initiating_country", "cluster_date", "entity_type", "batch_number", "cluster_id",
+                        name="uq_entity_cluster"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<EntityCluster(country='{self.initiating_country}', date='{self.cluster_date}', type='{self.entity_type.value}', size={self.cluster_size})>"
+
+
+class CanonicalEntity(Base):
+    """
+    Canonical entity tracked across time and documents.
+    Similar to CanonicalEvent - represents a unique real-world entity.
+    Supports master-child hierarchy for entity resolution.
+    """
+    __tablename__ = "canonical_entities"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Master entity tracking (for entity resolution - Stage 2)
+    master_entity_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # LLM validation tracking (for Stage 2B checkpoint/resume)
+    llm_validated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    llm_validated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Core identity
+    canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[EntityTypeEnum] = mapped_column(Enum(EntityTypeEnum), nullable=False)
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)  # Primary country association
+
+    # Entity profile
+    primary_role: Mapped[Optional[EntityRoleEnum]] = mapped_column(Enum(EntityRoleEnum))
+    country_affiliations: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)  # All associated countries
+    alternative_names: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)  # Aliases, name variations
+
+    # Activity tracking
+    first_mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    last_mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    total_mention_days: Mapped[int] = mapped_column(Integer, default=1)
+    total_documents: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Soft power context
+    primary_categories: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)  # {category: mention_count}
+    primary_recipients: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)  # {country: mention_count}
+    associated_events: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)  # Event IDs where mentioned
+
+    # Entity profile (LLM-generated)
+    entity_description: Mapped[Optional[str]] = mapped_column(Text)  # Bio/description
+    key_activities: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)  # Structured activity log
+
+    # For matching and similarity
+    embedding_vector: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float))
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    daily_mentions = relationship("DailyEntityMention", back_populates="canonical_entity", cascade="all, delete-orphan")
+    outgoing_relationships = relationship(
+        "EntityRelationship",
+        foreign_keys="EntityRelationship.entity_from_id",
+        back_populates="entity_from",
+        cascade="all, delete-orphan"
+    )
+    incoming_relationships = relationship(
+        "EntityRelationship",
+        foreign_keys="EntityRelationship.entity_to_id",
+        back_populates="entity_to",
+        cascade="all, delete-orphan"
+    )
+
+    # Self-referential relationship for master entity hierarchy
+    child_entities = relationship(
+        "CanonicalEntity",
+        foreign_keys=[master_entity_id],
+        remote_side=[id],
+        backref="master_entity"
+    )
+
+    __table_args__ = (
+        Index("ix_canonical_entity_country_dates", "initiating_country", "first_mention_date", "last_mention_date"),
+        Index("ix_canonical_entity_type", "entity_type"),
+        Index("ix_canonical_entity_role", "primary_role"),
+        Index("ix_canonical_entity_master", "master_entity_id"),
+        Index("ix_canonical_entity_llm_validated", "llm_validated"),
+        Index("ix_canonical_entity_name", "canonical_name"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<CanonicalEntity(name='{self.canonical_name}', type='{self.entity_type.value}', country='{self.initiating_country}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'canonical_name': self.canonical_name,
+            'entity_type': self.entity_type.value,
+            'initiating_country': self.initiating_country,
+            'primary_role': self.primary_role.value if self.primary_role else None,
+            'country_affiliations': self.country_affiliations,
+            'alternative_names': self.alternative_names,
+            'first_mention_date': self.first_mention_date.isoformat() if self.first_mention_date else None,
+            'last_mention_date': self.last_mention_date.isoformat() if self.last_mention_date else None,
+            'total_mention_days': self.total_mention_days,
+            'total_documents': self.total_documents,
+            'primary_categories': self.primary_categories,
+            'primary_recipients': self.primary_recipients,
+            'entity_description': self.entity_description
+        }
+
+
+class DailyEntityMention(Base):
+    """
+    Daily consolidation of entity mentions.
+    Similar to DailyEventMention - tracks entity activity per day.
+    Links canonical entities to source documents with daily context.
+    """
+    __tablename__ = "daily_entity_mentions"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    canonical_entity_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
+    mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
+    document_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Daily context
+    primary_role_this_day: Mapped[Optional[str]] = mapped_column(Text)  # Role on this day
+    activities_this_day: Mapped[Optional[str]] = mapped_column(Text)  # What they did
+
+    # Source tracking
+    doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text))
+
+    # Associated events on this day
+    associated_event_ids: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+
+    # Relationships
+    canonical_entity = relationship("CanonicalEntity", back_populates="daily_mentions")
+
+    __table_args__ = (
+        UniqueConstraint("canonical_entity_id", "mention_date", name="uq_daily_entity_mention"),
+        Index("ix_daily_entity_mention_date", "mention_date"),
+        Index("ix_daily_entity_mention_country_date", "initiating_country", "mention_date"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DailyEntityMention(entity_id='{self.canonical_entity_id}', date='{self.mention_date}', docs={self.document_count})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'canonical_entity_id': str(self.canonical_entity_id),
+            'initiating_country': self.initiating_country,
+            'mention_date': self.mention_date.isoformat() if self.mention_date else None,
+            'document_count': self.document_count,
+            'primary_role_this_day': self.primary_role_this_day,
+            'activities_this_day': self.activities_this_day,
+            'doc_ids': self.doc_ids,
+            'associated_event_ids': self.associated_event_ids
+        }
+
+
+class EntityRelationship(Base):
+    """
+    Directed relationships between entities.
+    Enables graph visualization and network analysis of soft power actors.
+    Tracks co-occurrences and relationship types for entity graph construction.
+    """
+    __tablename__ = "entity_relationships"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Source and target entities
+    entity_from_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    entity_to_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    # Relationship metadata
+    relationship_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    """
+    Relationship type examples:
+    - "works_with" (person-person)
+    - "employed_by" (person-organization)
+    - "leads" (person-organization)
+    - "partnered_with" (organization-organization)
+    - "located_in" (organization-location)
+    - "visited" (person-location)
+    - "represents" (person-organization)
+    - "signed_agreement_with" (person/org-person/org)
+    """
+
+    # Strength and frequency
+    co_occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
+    first_co_occurrence: Mapped[DateType] = mapped_column(Date, nullable=False)
+    last_co_occurrence: Mapped[DateType] = mapped_column(Date, nullable=False)
+
+    # Context
+    primary_categories: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)  # Categories where they co-occur
+    relationship_description: Mapped[Optional[str]] = mapped_column(Text)  # LLM-generated description
+
+    # Evidence
+    source_doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    entity_from = relationship("CanonicalEntity", foreign_keys=[entity_from_id], back_populates="outgoing_relationships")
+    entity_to = relationship("CanonicalEntity", foreign_keys=[entity_to_id], back_populates="incoming_relationships")
+
+    __table_args__ = (
+        Index("ix_entity_rel_from", "entity_from_id"),
+        Index("ix_entity_rel_to", "entity_to_id"),
+        Index("ix_entity_rel_type", "relationship_type"),
+        Index("ix_entity_rel_dates", "first_co_occurrence", "last_co_occurrence"),
+        UniqueConstraint("entity_from_id", "entity_to_id", "relationship_type", name="uq_entity_relationship"),
+        CheckConstraint("entity_from_id != entity_to_id", name="ck_no_self_relationship"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<EntityRelationship(from='{self.entity_from_id}', to='{self.entity_to_id}', type='{self.relationship_type}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'entity_from_id': str(self.entity_from_id),
+            'entity_to_id': str(self.entity_to_id),
+            'relationship_type': self.relationship_type,
+            'co_occurrence_count': self.co_occurrence_count,
+            'first_co_occurrence': self.first_co_occurrence.isoformat() if self.first_co_occurrence else None,
+            'last_co_occurrence': self.last_co_occurrence.isoformat() if self.last_co_occurrence else None,
+            'primary_categories': self.primary_categories,
+            'relationship_description': self.relationship_description,
+            'source_doc_ids': self.source_doc_ids
+        }
+
+
+class BatchJob(Base):
+    """
+    Tracks OpenAI Batch API jobs for pipeline processing.
+
+    Provides centralized tracking of batch job lifecycle, status, file locations,
+    and processing progress. Supports checkpoint/resume capability for large-scale
+    LLM deconfliction tasks.
+    """
+    __tablename__ = "batch_jobs"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Job identification
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'cluster_deconflict', 'canonical_deconflict'
+    openai_batch_id: Mapped[Optional[str]] = mapped_column(String(255))  # OpenAI's batch ID
+
+    # Processing scope
+    initiating_country: Mapped[Optional[str]] = mapped_column(String(100))
+    date_range_start: Mapped[Optional[DateType]] = mapped_column(Date)
+    date_range_end: Mapped[Optional[DateType]] = mapped_column(Date)
+    batch_size: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Status tracking
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default=BatchJobStatus.PREPARING.value,
+        nullable=False
+    )
+    progress_metadata: Mapped[Optional[Dict]] = mapped_column(JSONB)  # {requests_total, requests_completed, requests_failed}
+
+    # File tracking
+    input_file_path: Mapped[Optional[str]] = mapped_column(Text)  # Local or S3 path
+    input_file_id: Mapped[Optional[str]] = mapped_column(String(255))  # OpenAI file ID
+    output_file_path: Mapped[Optional[str]] = mapped_column(Text)
+    output_file_id: Mapped[Optional[str]] = mapped_column(String(255))
+    error_file_path: Mapped[Optional[str]] = mapped_column(Text)
+    error_file_id: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Cost tracking
+    estimated_cost: Mapped[Optional[float]] = mapped_column(Numeric(10, 4))
+    actual_cost: Mapped[Optional[float]] = mapped_column(Numeric(10, 4))
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    # Error tracking
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Audit trail
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+
+    __table_args__ = (
+        Index("idx_batch_jobs_type_status", "job_type", "status"),
+        Index("idx_batch_jobs_openai_id", "openai_batch_id"),
+        Index("idx_batch_jobs_country_dates", "initiating_country", "date_range_start", "date_range_end"),
+        Index("idx_batch_jobs_created", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<BatchJob(id='{self.id}', type='{self.job_type}', status='{self.status}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'job_type': self.job_type,
+            'openai_batch_id': self.openai_batch_id,
+            'initiating_country': self.initiating_country,
+            'date_range_start': self.date_range_start.isoformat() if self.date_range_start else None,
+            'date_range_end': self.date_range_end.isoformat() if self.date_range_end else None,
+            'batch_size': self.batch_size,
+            'status': self.status.value if isinstance(self.status, BatchJobStatus) else self.status,
+            'progress_metadata': self.progress_metadata,
+            'input_file_path': self.input_file_path,
+            'output_file_path': self.output_file_path,
+            'error_file_path': self.error_file_path,
+            'estimated_cost': float(self.estimated_cost) if self.estimated_cost else None,
+            'actual_cost': float(self.actual_cost) if self.actual_cost else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'submitted_at': self.submitted_at.isoformat() if self.submitted_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'processed_at': self.processed_at.isoformat() if self.processed_at else None,
+            'error_message': self.error_message,
+            'retry_count': self.retry_count
+        }

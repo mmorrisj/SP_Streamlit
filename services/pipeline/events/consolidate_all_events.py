@@ -37,6 +37,13 @@ to prevent accumulation. Use --force to reset and re-run with different paramete
 See EVENT_PROCESSING_ARCHITECTURE.md for complete pipeline documentation.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 import argparse
 import yaml
 import numpy as np

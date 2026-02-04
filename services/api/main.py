@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from pydantic import BaseModel
 import os
 import tempfile
@@ -23,6 +23,20 @@ else:
     print(f"Warning: .env file not found at {env_path}")
 
 app = FastAPI(title="SoftPower Backend API")
+
+# Verify OpenAI setup at startup
+@app.on_event("startup")
+async def verify_openai_setup():
+    """Verify OpenAI API key and library are available."""
+    try:
+        from openai import OpenAI
+        api_key = os.getenv('OPENAI_PROJ_API')
+        if api_key:
+            print(f"✓ OpenAI API key loaded (starts with: {api_key[:10]}...)")
+        else:
+            print("✗ WARNING: OPENAI_PROJ_API environment variable not set")
+    except ImportError as e:
+        print(f"✗ WARNING: Failed to import OpenAI library: {e}")
 
 # S3 client (will use host's IAM role/credentials)
 s3_client = boto3.client('s3')
@@ -57,22 +71,43 @@ def material_gai_query(input: QueryInput):
     """
     LLM query endpoint with environment-based routing.
 
-    - PRODUCTION (ENV=production): Uses Azure OpenAI via utils.gai()
-    - DEVELOPMENT (default): Uses direct OpenAI API
+    Priority:
+    1. LITELLM (if LITELLM_URL and LITELLM_API_KEY are configured)
+    2. PRODUCTION (ENV=production): Uses Azure OpenAI
+    3. DEVELOPMENT (default): Uses direct OpenAI API
 
     Environment Variables:
+        LITELLM_URL: LiteLLM proxy URL (if set, takes priority)
+        LITELLM_API_KEY: LiteLLM API key
+        LITELLM_MODEL: Optional model override for LITELLM (if not set, uses request model)
         ENV: Set to 'production' for Azure OpenAI (default: development)
         OPENAI_PROJ_API: OpenAI API key (for development)
     """
     import json
     print(f"DEBUG: Endpoint called with model={input.model}")
 
-    # Check environment
+    # Check for LITELLM configuration first (highest priority)
+    litellm_url = os.getenv('LITELLM_URL', '').strip()
+    litellm_key = os.getenv('LITELLM_API_KEY', '').strip()
+    litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
+
+    if litellm_url and litellm_key:
+        # LITELLM: Use LiteLLM proxy
+        print(f"[LITELLM] Using LiteLLM proxy at {litellm_url} with model: {litellm_model}")
+        try:
+            content = gai(input.sys_prompt, input.prompt, litellm_model, source="litellm")
+            return {"response": content}
+        except Exception as e:
+            print(f"ERROR: LiteLLM call failed: {e}")
+            print("Falling back to OpenAI/Azure...")
+            # Fall through to existing logic
+
+    # Check environment for Azure vs OpenAI
     env = os.getenv('ENV', 'development').lower()
     print(f"DEBUG: Environment mode: {env}")
 
     if env == 'production':
-        # PRODUCTION: Use Azure OpenAI directly (not proxy - avoid infinite loop!)
+        # PRODUCTION: Use Azure OpenAI
         # Default to gpt-4.1-mini for production Azure deployment
         model = input.model if input.model != "gpt-4.1" else "gpt-4.1-mini"
         print(f"[AZURE] Using Azure OpenAI (production mode) with model: {model}")
@@ -141,6 +176,191 @@ async def health_check():
         "service": "ml-backend",
         "db_host": os.getenv('DB_HOST', 'not configured')
     }
+
+# OpenAI Batch API Proxy Endpoints
+class BatchCreateRequest(BaseModel):
+    input_file_id: str
+    endpoint: str = "/v1/chat/completions"
+    completion_window: str = "24h"
+
+class BatchStatusRequest(BaseModel):
+    batch_id: str
+
+@app.post("/batch/upload_file")
+async def upload_batch_file(file: UploadFile = File(...)):
+    """
+    Proxy endpoint to upload JSONL file to OpenAI for batch processing.
+    Docker containers call this, and the host relays to OpenAI.
+    """
+    from openai import OpenAI
+    import httpx
+
+    api_key = os.getenv('OPENAI_PROJ_API')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_PROJ_API not configured")
+
+    try:
+        # Read uploaded file content
+        content = await file.read()
+        file_size_mb = len(content) / (1024 * 1024)
+
+        print(f"[BATCH UPLOAD] Uploading file: {file.filename}")
+        print(f"[BATCH UPLOAD] File size: {file_size_mb:.2f} MB")
+
+        # Check OpenAI's 100MB file size limit
+        if file_size_mb > 100:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large: {file_size_mb:.2f} MB (max 100 MB). Split into smaller batches."
+            )
+
+        # Create a temporary file to pass to OpenAI
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.jsonl', delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        try:
+            # Upload to OpenAI with increased timeout (10 minutes for large files)
+            print(f"[BATCH UPLOAD] Connecting to OpenAI API...")
+            client = OpenAI(
+                api_key=api_key,
+                timeout=httpx.Timeout(600.0, connect=60.0),  # 10min total, 60s connect
+                max_retries=2
+            )
+
+            print(f"[BATCH UPLOAD] Uploading to OpenAI (this may take a while)...")
+            with open(tmp_path, 'rb') as f:
+                batch_file = client.files.create(
+                    file=f,
+                    purpose="batch"
+                )
+
+            print(f"[BATCH UPLOAD] ✓ Upload successful! File ID: {batch_file.id}")
+
+            return {
+                "file_id": batch_file.id,
+                "filename": batch_file.filename,
+                "bytes": batch_file.bytes,
+                "created_at": batch_file.created_at,
+                "purpose": batch_file.purpose,
+                "status": batch_file.status
+            }
+        finally:
+            # Clean up temp file
+            os.unlink(tmp_path)
+
+    except Exception as e:
+        import traceback
+        error_detail = f"File upload failed: {str(e)}"
+        print(f"[ERROR] {error_detail}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=error_detail)
+
+@app.post("/batch/create")
+async def create_batch(request: BatchCreateRequest):
+    """
+    Proxy endpoint to create batch job with OpenAI.
+    Docker containers call this, and the host relays to OpenAI.
+    """
+    from openai import OpenAI
+
+    api_key = os.getenv('OPENAI_PROJ_API')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_PROJ_API not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+        batch = client.batches.create(
+            input_file_id=request.input_file_id,
+            endpoint=request.endpoint,
+            completion_window=request.completion_window
+        )
+
+        return {
+            "id": batch.id,
+            "object": batch.object,
+            "endpoint": batch.endpoint,
+            "input_file_id": batch.input_file_id,
+            "completion_window": batch.completion_window,
+            "status": batch.status,
+            "created_at": batch.created_at,
+            "output_file_id": batch.output_file_id,
+            "error_file_id": batch.error_file_id,
+            "errors": batch.errors
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch creation failed: {str(e)}")
+
+@app.post("/batch/status")
+async def get_batch_status(request: BatchStatusRequest):
+    """
+    Proxy endpoint to check batch status with OpenAI.
+    Docker containers call this, and the host relays to OpenAI.
+    """
+    from openai import OpenAI
+
+    api_key = os.getenv('OPENAI_PROJ_API')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_PROJ_API not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+        batch = client.batches.retrieve(request.batch_id)
+
+        return {
+            "id": batch.id,
+            "object": batch.object,
+            "endpoint": batch.endpoint,
+            "input_file_id": batch.input_file_id,
+            "completion_window": batch.completion_window,
+            "status": batch.status,
+            "created_at": batch.created_at,
+            "in_progress_at": getattr(batch, 'in_progress_at', None),
+            "completed_at": getattr(batch, 'completed_at', None),
+            "failed_at": getattr(batch, 'failed_at', None),
+            "expired_at": getattr(batch, 'expired_at', None),
+            "finalizing_at": getattr(batch, 'finalizing_at', None),
+            "cancelled_at": getattr(batch, 'cancelled_at', None),
+            "output_file_id": batch.output_file_id,
+            "error_file_id": batch.error_file_id,
+            "errors": batch.errors,
+            "request_counts": getattr(batch, 'request_counts', None)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch status check failed: {str(e)}")
+
+@app.post("/batch/download_results")
+async def download_batch_results(request: BatchStatusRequest):
+    """
+    Proxy endpoint to download batch results from OpenAI.
+    Docker containers call this, and the host relays to OpenAI.
+    """
+    from openai import OpenAI
+
+    api_key = os.getenv('OPENAI_PROJ_API')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_PROJ_API not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+
+        # Get batch to find output file ID
+        batch = client.batches.retrieve(request.batch_id)
+
+        if not batch.output_file_id:
+            raise HTTPException(status_code=400, detail="Batch has no output file yet")
+
+        # Download output file content
+        file_content = client.files.content(batch.output_file_id)
+
+        return {
+            "batch_id": batch.id,
+            "output_file_id": batch.output_file_id,
+            "content": file_content.text,
+            "status": batch.status
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Results download failed: {str(e)}")
 
 @app.post("/s3/download")
 async def download_s3_file(request: S3DownloadRequest):

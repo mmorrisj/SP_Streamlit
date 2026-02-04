@@ -79,9 +79,14 @@ app.add_middleware(
 
 class DocumentStats(BaseModel):
     total_documents: int
+    total_events: int  # New: total canonical events
     documents_by_week: list
+    documents_by_week_by_influencer: dict  # New: per-influencer weekly data
+    documents_by_week_by_recipient: dict  # New: per-recipient weekly data
     top_countries: list
+    top_recipients: list  # New: top recipient countries
     category_distribution: list
+    subcategory_distribution: list  # New: subcategory breakdown
 
 class DocumentResponse(BaseModel):
     documents: list
@@ -104,6 +109,7 @@ class CategoriesResponse(BaseModel):
 
 class FiltersResponse(BaseModel):
     countries: list
+    recipients: list
     categories: list
     subcategories: list
     date_range: dict
@@ -117,7 +123,9 @@ def get_document_stats(
     country: Optional[str] = None,
     category: Optional[str] = None,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    influencer_country: Optional[str] = None,
+    recipient_country: Optional[str] = None
 ):
     with get_session() as session:
         # Base query for total count - filter by influencers and recipients
@@ -140,12 +148,45 @@ def get_document_stats(
             base_query = base_query.filter(
                 InitiatingCountry.initiating_country == country
             )
+        if influencer_country and influencer_country != 'ALL':
+            base_query = base_query.filter(
+                InitiatingCountry.initiating_country == influencer_country
+            )
+        if recipient_country and recipient_country != 'ALL':
+            base_query = base_query.filter(
+                RecipientCountry.recipient_country == recipient_country
+            )
         if category and category != 'ALL':
             base_query = base_query.join(Category).filter(
                 Category.category == category
             )
 
         total = base_query.distinct().count()
+
+        # Count total canonical events (master events only) with same filters
+        # Use the primary_recipients JSONB field for recipient filtering
+        from sqlalchemy import text
+        from sqlalchemy.dialects.postgresql import JSONB
+
+        events_query = session.query(CanonicalEvent.id).filter(
+            CanonicalEvent.master_event_id.is_(None),
+            CanonicalEvent.initiating_country.in_(INFLUENCERS)
+        )
+
+        # Apply influencer filter
+        if country and country != 'ALL':
+            events_query = events_query.filter(CanonicalEvent.initiating_country == country)
+        if influencer_country and influencer_country != 'ALL':
+            events_query = events_query.filter(CanonicalEvent.initiating_country == influencer_country)
+
+        # Apply recipient filter using JSONB key existence check
+        if recipient_country and recipient_country != 'ALL':
+            # Check if recipient_country exists as a key in primary_recipients JSONB
+            events_query = events_query.filter(
+                CanonicalEvent.primary_recipients.has_key(recipient_country)
+            )
+
+        total_events = events_query.count()
 
         # Documents by week - with same filtering
         week_query = session.query(
@@ -174,7 +215,88 @@ def get_document_stats(
         if end_date:
             week_query = week_query.filter(Document.date <= end_date)
 
-        docs_by_week = week_query.group_by('week').order_by('week').limit(20).all()
+        docs_by_week = week_query.group_by('week').order_by('week').all()
+
+        # Documents by week by influencer - for toggle functionality
+        docs_by_week_by_influencer = {}
+        for influencer in INFLUENCERS:
+            influencer_week_query = session.query(
+                func.date_trunc('week', Document.date).label('week'),
+                func.count(func.distinct(Document.doc_id)).label('count')
+            ).join(InitiatingCountry).join(
+                RecipientCountry,
+                RecipientCountry.doc_id == Document.doc_id
+            ).filter(
+                Document.date.isnot(None),
+                InitiatingCountry.initiating_country == influencer,
+                RecipientCountry.recipient_country.in_(RECIPIENTS),
+                InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+            )
+
+            if category and category != 'ALL':
+                influencer_week_query = influencer_week_query.join(Category).filter(
+                    Category.category == category
+                )
+            if start_date:
+                influencer_week_query = influencer_week_query.filter(Document.date >= start_date)
+            if end_date:
+                influencer_week_query = influencer_week_query.filter(Document.date <= end_date)
+
+            influencer_weeks = influencer_week_query.group_by('week').order_by('week').all()
+            docs_by_week_by_influencer[influencer] = [
+                {"week": str(row.week)[:10] if row.week else "", "count": row.count}
+                for row in influencer_weeks
+            ]
+
+        # Documents by week by recipient - OPTIMIZED single query approach
+        # Single query gets all recipient/week/influencer combinations at once
+        recipient_week_query = session.query(
+            func.date_trunc('week', Document.date).label('week'),
+            RecipientCountry.recipient_country.label('recipient'),
+            InitiatingCountry.initiating_country.label('influencer'),
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(RecipientCountry).join(
+            InitiatingCountry,
+            InitiatingCountry.doc_id == Document.doc_id
+        ).filter(
+            Document.date.isnot(None),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        )
+
+        if category and category != 'ALL':
+            recipient_week_query = recipient_week_query.join(Category).filter(
+                Category.category == category
+            )
+        if start_date:
+            recipient_week_query = recipient_week_query.filter(Document.date >= start_date)
+        if end_date:
+            recipient_week_query = recipient_week_query.filter(Document.date <= end_date)
+
+        # Execute single query
+        all_recipient_weeks = recipient_week_query.group_by('week', 'recipient', 'influencer').all()
+
+        # Group results by recipient, then by week
+        docs_by_week_by_recipient = {}
+        for row in all_recipient_weeks:
+            recipient = row.recipient
+            week_str = str(row.week)[:10] if row.week else ""
+
+            if recipient not in docs_by_week_by_recipient:
+                docs_by_week_by_recipient[recipient] = {}
+
+            if week_str not in docs_by_week_by_recipient[recipient]:
+                docs_by_week_by_recipient[recipient][week_str] = {"week": week_str, "by_influencer": {}}
+
+            docs_by_week_by_recipient[recipient][week_str]["by_influencer"][row.influencer] = row.count
+
+        # Convert week maps to sorted lists
+        for recipient in docs_by_week_by_recipient:
+            docs_by_week_by_recipient[recipient] = sorted(
+                docs_by_week_by_recipient[recipient].values(),
+                key=lambda x: x["week"]
+            )
 
         # Top countries - only from influencers list
         countries_query = session.query(
@@ -198,6 +320,29 @@ def get_document_stats(
         top_countries = countries_query.group_by(
             InitiatingCountry.initiating_country
         ).order_by(func.count(func.distinct(InitiatingCountry.doc_id)).desc()).limit(10).all()
+
+        # Top recipients - only from recipients list, filter by influencers
+        recipients_query = session.query(
+            RecipientCountry.recipient_country.label('country'),
+            func.count(func.distinct(RecipientCountry.doc_id)).label('count')
+        ).join(
+            InitiatingCountry,
+            InitiatingCountry.doc_id == RecipientCountry.doc_id
+        ).filter(
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        )
+
+        if category and category != 'ALL':
+            recipients_query = recipients_query.join(
+                Category,
+                Category.doc_id == RecipientCountry.doc_id
+            ).filter(Category.category == category)
+
+        top_recipients = recipients_query.group_by(
+            RecipientCountry.recipient_country
+        ).order_by(func.count(func.distinct(RecipientCountry.doc_id)).desc()).limit(10).all()
 
         # Category distribution - with same filtering
         cat_query = session.query(
@@ -224,19 +369,55 @@ def get_document_stats(
             func.count(func.distinct(Category.doc_id)).desc()
         ).all()
 
+        # Subcategory distribution - with same filtering
+        subcat_query = session.query(
+            Subcategory.subcategory.label('subcategory'),
+            func.count(func.distinct(Subcategory.doc_id)).label('count')
+        ).join(
+            InitiatingCountry,
+            InitiatingCountry.doc_id == Subcategory.doc_id
+        ).join(
+            RecipientCountry,
+            RecipientCountry.doc_id == Subcategory.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        )
+
+        if country and country != 'ALL':
+            subcat_query = subcat_query.filter(
+                InitiatingCountry.initiating_country == country
+            )
+
+        subcategory_dist = subcat_query.group_by(Subcategory.subcategory).order_by(
+            func.count(func.distinct(Subcategory.doc_id)).desc()
+        ).limit(10).all()
+
         return DocumentStats(
             total_documents=total,
+            total_events=total_events,
             documents_by_week=[
                 {"week": str(row.week)[:10] if row.week else "", "count": row.count}
                 for row in docs_by_week
             ],
+            documents_by_week_by_influencer=docs_by_week_by_influencer,
+            documents_by_week_by_recipient=docs_by_week_by_recipient,
             top_countries=[
                 {"country": row.country, "count": row.count}
                 for row in top_countries
             ],
+            top_recipients=[
+                {"country": row.country, "count": row.count}
+                for row in top_recipients
+            ],
             category_distribution=[
                 {"category": row.category, "count": row.count}
                 for row in category_dist
+            ],
+            subcategory_distribution=[
+                {"subcategory": row.subcategory, "count": row.count}
+                for row in subcategory_dist
             ]
         )
 
@@ -463,6 +644,85 @@ def get_categories():
             ]
         )
 
+@app.get("/api/bilateral-map-data")
+def get_bilateral_map_data(influencer: Optional[str] = Query(None, description="Influencer country or ALL")):
+    """Get bilateral relationship data for map visualization."""
+    with get_session() as session:
+        # If influencer is ALL or None, aggregate across all influencers
+        if not influencer or influencer == 'ALL':
+            # Get data for all recipients across all influencers
+            recipient_data = session.query(
+                RecipientCountry.recipient_country.label('recipient'),
+                func.count(func.distinct(RecipientCountry.doc_id)).label('document_count')
+            ).join(
+                InitiatingCountry,
+                InitiatingCountry.doc_id == RecipientCountry.doc_id
+            ).filter(
+                RecipientCountry.recipient_country.in_(RECIPIENTS),
+                InitiatingCountry.initiating_country.in_(INFLUENCERS),
+                InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+            ).group_by(RecipientCountry.recipient_country).all()
+
+            # Get event counts per recipient (from canonical_events)
+            event_counts = {}
+            for recipient in RECIPIENTS:
+                # Count master canonical events that mention this recipient
+                # This is approximate - we'd need to parse the recipient data from canonical_events
+                event_count = session.query(func.count(CanonicalEvent.id)).filter(
+                    CanonicalEvent.master_event_id.is_(None)
+                ).scalar() or 0
+                event_counts[recipient] = 0  # Placeholder for now
+
+            return {
+                "influencer": "ALL",
+                "recipients": [
+                    {
+                        "country": row.recipient,
+                        "document_count": row.document_count,
+                        "event_count": event_counts.get(row.recipient, 0),
+                        "avg_materiality": 0.0  # Placeholder
+                    }
+                    for row in recipient_data
+                ]
+            }
+        else:
+            # Get data for specific influencer
+            if influencer not in INFLUENCERS:
+                return {"error": f"{influencer} is not a recognized influencer"}
+
+            recipient_data = session.query(
+                RecipientCountry.recipient_country.label('recipient'),
+                func.count(func.distinct(RecipientCountry.doc_id)).label('document_count')
+            ).join(
+                InitiatingCountry,
+                InitiatingCountry.doc_id == RecipientCountry.doc_id
+            ).filter(
+                InitiatingCountry.initiating_country == influencer,
+                RecipientCountry.recipient_country.in_(RECIPIENTS),
+                InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+            ).group_by(RecipientCountry.recipient_country).all()
+
+            # Get event counts for this influencer
+            event_counts_query = session.query(
+                CanonicalEvent.id
+            ).filter(
+                CanonicalEvent.initiating_country == influencer,
+                CanonicalEvent.master_event_id.is_(None)
+            ).all()
+
+            return {
+                "influencer": influencer,
+                "recipients": [
+                    {
+                        "country": row.recipient,
+                        "document_count": row.document_count,
+                        "event_count": 0,  # Placeholder - would need to parse event recipients
+                        "avg_materiality": 0.0  # Placeholder
+                    }
+                    for row in recipient_data
+                ]
+            }
+
 @app.get("/api/filters", response_model=FiltersResponse)
 def get_filter_options():
     with get_session() as session:
@@ -515,6 +775,7 @@ def get_filter_options():
 
         return FiltersResponse(
             countries=sorted(countries),  # From config, not database
+            recipients=sorted(RECIPIENTS),  # From config, not database
             categories=sorted([c[0] for c in categories if c[0]]),
             subcategories=sorted([c[0] for c in subcategories if c[0]]),
             date_range={
@@ -1408,14 +1669,519 @@ def get_bilateral_overview(influencer: str, recipient: str):
             recent_events=events
         )
 
+# ===== DOCUMENT-BASED SUMMARY ENDPOINTS =====
+
+PUBLICATIONS_DIR = Path(__file__).parent.parent / "publications"
+EVENTS_DIR = Path(__file__).parent.parent / "publications" / "events"
+
+class SummaryListResponse(BaseModel):
+    summaries: list
+    influencer: str
+    recipient: Optional[str]
+
+class SummaryDetailResponse(BaseModel):
+    summary: dict
+
+@app.get("/api/document-summaries/list")
+def list_document_summaries(
+    influencer: str = Query(..., description="Influencer country"),
+    recipient: Optional[str] = Query(None, description="Optional recipient country"),
+    level: str = Query("daily", description="Summary level: daily, weekly, monthly, or overall")
+):
+    """List available document-based summaries for an influencer (and optionally recipient)."""
+    import json
+
+    summaries = []
+
+    # Build base path
+    if recipient:
+        base_path = PUBLICATIONS_DIR / influencer / recipient
+    else:
+        base_path = PUBLICATIONS_DIR / influencer
+
+    if not base_path.exists():
+        return SummaryListResponse(summaries=[], influencer=influencer, recipient=recipient)
+
+    # Handle different levels
+    if level == "overall":
+        # Overall summaries are individual files at the base level
+        for file in base_path.glob("overall_*.json"):
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                summaries.append({
+                    "filename": file.name,
+                    "period_start": data.get('period_start'),
+                    "period_end": data.get('period_end'),
+                    "influencer": data.get('influencer'),
+                    "recipient": data.get('recipient'),
+                    "total_documents": data.get('metrics', {}).get('total_documents', 0)
+                })
+    else:
+        # Daily, weekly, monthly are in subdirectories
+        summary_path = base_path / level
+        if summary_path.exists():
+            for file in sorted(summary_path.glob("*.json"), reverse=True):
+                with open(file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    summaries.append({
+                        "filename": file.name,
+                        "date": data.get('date'),  # Daily
+                        "period_start": data.get('period_start'),  # Weekly/Monthly
+                        "period_end": data.get('period_end'),  # Weekly/Monthly
+                        "influencer": data.get('influencer'),
+                        "recipient": data.get('recipient'),
+                        "total_documents": data.get('metrics', {}).get('total_documents', 0)
+                    })
+
+    return SummaryListResponse(summaries=summaries, influencer=influencer, recipient=recipient)
+
+@app.get("/api/document-summaries/detail")
+def get_document_summary_detail(
+    influencer: str = Query(..., description="Influencer country"),
+    filename: str = Query(..., description="Summary filename"),
+    recipient: Optional[str] = Query(None, description="Optional recipient country")
+):
+    """Get the full detail of a specific document-based summary."""
+    import json
+
+    # Build path based on bilateral or all-recipients
+    if recipient:
+        base_path = PUBLICATIONS_DIR / influencer / recipient
+    else:
+        base_path = PUBLICATIONS_DIR / influencer
+
+    # Determine which subdirectory based on filename pattern
+    if filename.startswith("overall_"):
+        file_path = base_path / filename
+    elif "_to_" in filename:
+        # Weekly or monthly with period range
+        if len(filename.split("_to_")[0].split("-")) == 3:  # YYYY-MM-DD format = weekly
+            file_path = base_path / "weekly" / filename
+        else:  # YYYY-MM format = monthly
+            file_path = base_path / "monthly" / filename
+    else:
+        # Determine if it's monthly (YYYY-MM.json) or daily (YYYY-MM-DD.json)
+        name_without_ext = filename.replace('.json', '')
+        parts = name_without_ext.split('-')
+
+        if len(parts) == 2:  # YYYY-MM format = monthly
+            file_path = base_path / "monthly" / filename
+        else:  # YYYY-MM-DD format = daily
+            file_path = base_path / "daily" / filename
+
+    if not file_path.exists():
+        return {"error": "Summary not found"}
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        summary_data = json.load(f)
+
+    return SummaryDetailResponse(summary=summary_data)
+
+@app.get("/api/document-summaries/available-influencers")
+def get_available_summary_influencers():
+    """Get list of influencers that have document summaries."""
+    if not PUBLICATIONS_DIR.exists():
+        return {"influencers": []}
+
+    influencers = [d.name for d in PUBLICATIONS_DIR.iterdir() if d.is_dir()]
+    return {"influencers": sorted(influencers)}
+
+@app.get("/api/document-summaries/available-recipients")
+def get_available_summary_recipients(influencer: str):
+    """Get list of recipients that have summaries for a specific influencer."""
+    influencer_path = PUBLICATIONS_DIR / influencer
+    if not influencer_path.exists():
+        return {"recipients": []}
+
+    recipients = [d.name for d in influencer_path.iterdir() if d.is_dir()]
+    return {"recipients": sorted(recipients)}
+
+# ===== BILATERAL SUMMARY ENDPOINTS =====
+
+# ===== EVENT TIMELINE ENDPOINTS =====
+
+class EventTimelineResponse(BaseModel):
+    events: list
+    country: str
+    date_range: dict
+
+@app.get("/api/test-debug")
+def test_debug():
+    """Test endpoint to verify server is running updated code."""
+    from pathlib import Path
+    events_dir = Path(__file__).parent.parent / "publications" / "events"
+    china_monthly = events_dir / "China" / "monthly"
+    import json
+
+    files = list(china_monthly.glob("*.json")) if china_monthly.exists() else []
+    events_count = 0
+    if files:
+        with open(files[0], 'r') as f:
+            data = json.load(f)
+            events_count = len(data.get('events', []))
+
+    return {
+        "message": "Debug endpoint working!",
+        "events_dir_exists": events_dir.exists(),
+        "china_monthly_exists": china_monthly.exists(),
+        "files_found": len(files),
+        "events_in_first_file": events_count,
+        "code_version": "2026-01-09-debug-v2"
+    }
+
+@app.get("/api/events/timeline", response_model=EventTimelineResponse)
+def get_event_timeline(
+    country: str = Query(..., description="Country name"),
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    level: str = Query("monthly", description="Consolidation level: daily, weekly, monthly, or overall")
+):
+    """Get event timeline with daily article density for Gantt chart visualization."""
+    import json
+    from datetime import datetime
+    from collections import defaultdict
+    import sys
+
+    print(f"DEBUG: get_event_timeline called with country={country}, level={level}", file=sys.stderr, flush=True)
+
+    events_country_dir = EVENTS_DIR / country
+    print(f"DEBUG: EVENTS_DIR={EVENTS_DIR}, events_country_dir={events_country_dir}", file=sys.stderr, flush=True)
+
+    if not events_country_dir.exists():
+        return EventTimelineResponse(
+            events=[],
+            country=country,
+            date_range={"start": start_date, "end": end_date}
+        )
+
+    # Load events based on level
+    events_data = []
+
+    if level == "overall":
+        # Load overall file
+        overall_files = list(events_country_dir.glob(f"overall_*_events.json"))
+        for overall_file in overall_files:
+            try:
+                with open(overall_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    events_data.extend(data.get('events', []))
+            except Exception as e:
+                print(f"Error reading {overall_file}: {e}")
+
+    elif level == "monthly":
+        # Load monthly files in date range
+        monthly_dir = events_country_dir / "monthly"
+        if monthly_dir.exists():
+            for monthly_file in sorted(monthly_dir.glob("*_events.json")):
+                try:
+                    with open(monthly_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        events_data.extend(data.get('events', []))
+                except Exception as e:
+                    print(f"Error reading {monthly_file}: {e}")
+
+    elif level == "weekly":
+        # Load weekly files in date range
+        weekly_dir = events_country_dir / "weekly"
+        if weekly_dir.exists():
+            for weekly_file in sorted(weekly_dir.glob("*_events.json")):
+                try:
+                    with open(weekly_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        events_data.extend(data.get('events', []))
+                except Exception as e:
+                    print(f"Error reading {weekly_file}: {e}")
+
+    elif level == "daily":
+        # Load daily files in date range
+        daily_dir = events_country_dir / "daily"
+        if daily_dir.exists():
+            for daily_file in sorted(daily_dir.glob("*_events.json")):
+                try:
+                    with open(daily_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        events_data.extend(data.get('events', []))
+                except Exception as e:
+                    print(f"Error reading {daily_file}: {e}")
+
+    # Process events to calculate daily article counts
+    # For consolidated events, we need to trace back to daily sources
+    processed_events = []
+
+    print(f"DEBUG: Loaded {len(events_data)} events from files")
+    print(f"DEBUG: First event keys: {list(events_data[0].keys()) if events_data else 'No events'}")
+
+    for event in events_data:
+        # Get date range
+        date_range = event.get('date_range', {})
+        first_mention = date_range.get('first_mention', 'Unknown')
+        last_mention = date_range.get('last_mention', 'Unknown')
+
+        # Get sources to determine dates
+        daily_sources = event.get('daily_sources', [])
+        weekly_sources = event.get('weekly_sources', [])
+        source_doc_ids = event.get('source_doc_ids', [])
+        total_docs = len(source_doc_ids)
+
+        # If dates are Unknown, try to infer from daily_sources or weekly_sources
+        if first_mention == 'Unknown' or last_mention == 'Unknown':
+            if daily_sources:
+                # Use first and last dates from daily_sources
+                sorted_dates = sorted(daily_sources)
+                if first_mention == 'Unknown':
+                    first_mention = sorted_dates[0]
+                if last_mention == 'Unknown':
+                    last_mention = sorted_dates[-1]
+            elif weekly_sources:
+                # Convert week IDs to dates (e.g., "2025-W26" -> "2025-06-23")
+                week_dates = []
+                for week_id in weekly_sources:
+                    try:
+                        year, week = week_id.split('-W')
+                        # ISO week date calculation
+                        from datetime import datetime, timedelta
+                        jan4 = datetime(int(year), 1, 4)
+                        week_start = jan4 + timedelta(days=-jan4.weekday(), weeks=int(week)-1)
+                        week_dates.append(week_start.strftime("%Y-%m-%d"))
+                    except:
+                        pass
+                if week_dates:
+                    sorted_dates = sorted(week_dates)
+                    if first_mention == 'Unknown':
+                        first_mention = sorted_dates[0]
+                    if last_mention == 'Unknown':
+                        # Week end is 6 days after start
+                        from datetime import datetime, timedelta
+                        last_week_start = datetime.strptime(sorted_dates[-1], "%Y-%m-%d")
+                        last_week_end = last_week_start + timedelta(days=6)
+                        last_mention = last_week_end.strftime("%Y-%m-%d")
+
+        # Skip events that still have unknown dates after attempting to infer
+        if first_mention == 'Unknown' and last_mention == 'Unknown':
+            continue
+
+        # Calculate daily article counts from source_doc_ids
+        # For now, we'll distribute articles evenly across daily_sources
+
+        daily_article_counts = {}
+        if daily_sources:
+            # Distribute documents across dates
+            docs_per_day = total_docs / len(daily_sources)
+            for date_str in daily_sources:
+                daily_article_counts[date_str] = int(docs_per_day)
+
+            # Add remainder to first day
+            remainder = total_docs - (int(docs_per_day) * len(daily_sources))
+            if remainder > 0 and daily_sources:
+                daily_article_counts[daily_sources[0]] += remainder
+        elif first_mention != 'Unknown':
+            # If no daily_sources, put all docs on first_mention date
+            daily_article_counts[first_mention] = total_docs
+
+        # Get materiality score
+        materiality_obj = event.get('materiality', {})
+        if isinstance(materiality_obj, dict):
+            materiality_score = materiality_obj.get('score', 0.0)
+        else:
+            materiality_score = float(materiality_obj) if materiality_obj else 0.0
+
+        processed_event = {
+            "event_name": event.get('event_name', 'Unnamed Event'),
+            "event_summary": event.get('event_summary', ''),
+            "date_range": {
+                "first": first_mention,
+                "last": last_mention
+            },
+            "daily_article_counts": daily_article_counts,
+            "materiality": materiality_score,
+            "category": event.get('category', 'Unknown'),
+            "recipients": event.get('recipients', []),
+            "source_doc_ids": source_doc_ids,
+            "atom_search_url": event.get('atom_search_url', '')
+        }
+
+        processed_events.append(processed_event)
+
+    # Sort events by first_mention date (most recent first)
+    processed_events.sort(
+        key=lambda x: x['date_range']['first'] if x['date_range']['first'] != 'Unknown' else '1900-01-01',
+        reverse=True
+    )
+
+    return EventTimelineResponse(
+        events=processed_events,
+        country=country,
+        date_range={"start": start_date, "end": end_date}
+    )
+
+@app.get("/api/bilateral-summaries/list")
+def list_bilateral_summaries(
+    influencer: str = Query(..., description="Influencer country"),
+    month: Optional[str] = Query(None, description="Optional month filter (YYYY-MM)"),
+    recipient: Optional[str] = Query(None, description="Optional recipient filter"),
+    category: Optional[str] = Query(None, description="Optional category filter")
+):
+    """List available bilateral summaries with optional filters."""
+    import json
+    import re
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    if not bilateral_path.exists():
+        return {"summaries": []}
+
+    summaries = []
+
+    # Pattern to match bilateral summary filenames
+    # Examples: Egypt-Economic_2024-08.json, Egypt_2024-08.json, overall_2024-06-01_to_2024-12-31.json
+    for file in sorted(bilateral_path.glob("*.json"), reverse=True):
+        filename = file.name
+
+        # Skip overall files in list view
+        if filename.startswith("overall_"):
+            continue
+
+        # Parse filename
+        # Format: {recipient}-{category}_{YYYY-MM}.json or {recipient}_{YYYY-MM}.json
+        match_with_category = re.match(r'([^-]+)-([^_]+)_(\d{4}-\d{2})\.json', filename)
+        match_without_category = re.match(r'([^_]+)_(\d{4}-\d{2})\.json', filename)
+
+        if match_with_category:
+            recip, cat, mon = match_with_category.groups()
+        elif match_without_category:
+            recip, mon = match_without_category.groups()
+            cat = None
+        else:
+            continue
+
+        # Apply filters
+        if month and mon != month:
+            continue
+        if recipient and recip != recipient:
+            continue
+        if category and cat != category:
+            continue
+
+        # Load summary data with error handling for malformed JSON
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Warning: Skipping malformed JSON file {filename}: {e}")
+            continue
+        except Exception as e:
+            print(f"Warning: Error reading {filename}: {e}")
+            continue
+
+        summaries.append({
+            "filename": filename,
+            "recipient": data.get('recipient'),
+            "category": data.get('category'),
+            "month": mon,
+            "month_name": data.get('month_name'),
+            "total_documents": data.get('metrics', {}).get('total_documents', 0)
+        })
+
+    return {"summaries": summaries, "influencer": influencer}
+
+@app.get("/api/bilateral-summaries/detail")
+def get_bilateral_summary_detail(
+    influencer: str = Query(..., description="Influencer country"),
+    filename: str = Query(..., description="Summary filename")
+):
+    """Get the full detail of a specific bilateral summary."""
+    import json
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    file_path = bilateral_path / filename
+
+    if not file_path.exists():
+        return {"error": "Summary not found"}
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            summary_data = json.load(f)
+    except json.JSONDecodeError as e:
+        return {"error": f"Malformed JSON in file {filename}: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Error reading file {filename}: {str(e)}"}
+
+    return {"summary": summary_data}
+
+@app.get("/api/bilateral-summaries/overall")
+def get_bilateral_overall_summary(
+    influencer: str = Query(..., description="Influencer country"),
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)")
+):
+    """Get the bilateral overall rollup summary."""
+    import json
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    filename = f"overall_{start_date}_to_{end_date}.json"
+    file_path = bilateral_path / filename
+
+    if not file_path.exists():
+        return {"error": "Overall summary not found"}
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            summary_data = json.load(f)
+    except json.JSONDecodeError as e:
+        return {"error": f"Malformed JSON in overall summary: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Error reading overall summary: {str(e)}"}
+
+    return {"summary": summary_data}
+
+@app.get("/api/bilateral-summaries/available-months")
+def get_available_bilateral_months(influencer: str):
+    """Get list of months that have bilateral summaries."""
+    import re
+
+    bilateral_path = PUBLICATIONS_DIR / influencer / "bilateral"
+    if not bilateral_path.exists():
+        return {"months": []}
+
+    months = set()
+    for file in bilateral_path.glob("*.json"):
+        if file.name.startswith("overall_"):
+            continue
+
+        # Extract month from filename
+        match = re.search(r'_(\d{4}-\d{2})\.json', file.name)
+        if match:
+            months.add(match.group(1))
+
+    return {"months": sorted(list(months), reverse=True)}
+
+# Static file serving for React SPA
+# IMPORTANT: This must come AFTER all @app.get() API route definitions
+# so that API routes take precedence over the catch-all
 if STATIC_DIR.exists():
+    # Mount static assets directory
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
-    
-    @app.get("/{full_path:path}")
+
+    # Serve index.html for root path
+    @app.get("/", include_in_schema=False)
+    async def serve_root():
+        return FileResponse(STATIC_DIR / "index.html")
+
+    # Catch-all for SPA routing - MUST exclude /api/* paths
+    # FastAPI routes are matched in order, but catch-all patterns can override
+    # So we explicitly check and reject API paths
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        # Skip if this is an API path - let FastAPI's 404 handler take over
+        if full_path.startswith("api"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Try to serve static file if it exists
         file_path = STATIC_DIR / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
+
+        # Otherwise serve index.html for SPA routing
         return FileResponse(STATIC_DIR / "index.html")
 
 if __name__ == "__main__":

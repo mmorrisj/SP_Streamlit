@@ -81,19 +81,22 @@ services:
       FASTAPI_URL: http://host.docker.internal:5001/material_query
       API_URL: http://host.docker.internal:5001
       USE_S3_API_CLIENT: "true"
+      BATCH_SCRATCHPAD_DIR: ./services/pipeline/batch/batches
     ports:
       - "8000:8000"
     volumes:
-      - ./server:/app/server                      # NEW: React-serving API
-      - ./services/api:/app/services/api          # OLD: Legacy API endpoints
+      - ./server:/app/server                      # React-serving API
+      - ./services/api:/app/services/api          # Legacy API endpoints
       - ./services/pipeline:/app/services/pipeline
       - ./shared:/app/shared
-      - ./client/dist:/app/client/dist            # NEW: Built React static files
+      # Note: client/dist is built inside Docker image (multi-stage build)
+      # For frontend hot-reload during development, run: cd client && npm run dev
       - ./data:/app/data
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./material_exports:/app/material_exports
       - ./event_exports:/app/event_exports
+      - ./publications:/app/publications          # Summary publications output
       - app_output:/app/output
     networks:
       - softpower_net
