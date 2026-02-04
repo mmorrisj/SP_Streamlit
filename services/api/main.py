@@ -186,6 +186,59 @@ class BatchCreateRequest(BaseModel):
 class BatchStatusRequest(BaseModel):
     batch_id: str
 
+class BatchListRequest(BaseModel):
+    limit: int = 100
+    after: str = None
+
+@app.post("/batch/list")
+async def list_batches(request: BatchListRequest):
+    """
+    Proxy endpoint to list batch jobs from OpenAI.
+    Returns recent batches for discovery/sync on new systems.
+    """
+    from openai import OpenAI
+
+    api_key = os.getenv('OPENAI_PROJ_API')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_PROJ_API not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+
+        kwargs = {"limit": request.limit}
+        if request.after:
+            kwargs["after"] = request.after
+
+        batch_list = client.batches.list(**kwargs)
+
+        batches = []
+        for batch in batch_list.data:
+            batches.append({
+                "id": batch.id,
+                "object": batch.object,
+                "endpoint": batch.endpoint,
+                "input_file_id": batch.input_file_id,
+                "completion_window": batch.completion_window,
+                "status": batch.status,
+                "created_at": batch.created_at,
+                "in_progress_at": getattr(batch, 'in_progress_at', None),
+                "completed_at": getattr(batch, 'completed_at', None),
+                "failed_at": getattr(batch, 'failed_at', None),
+                "expired_at": getattr(batch, 'expired_at', None),
+                "output_file_id": batch.output_file_id,
+                "error_file_id": batch.error_file_id,
+                "request_counts": getattr(batch, 'request_counts', None),
+                "metadata": getattr(batch, 'metadata', None),
+            })
+
+        return {
+            "batches": batches,
+            "has_more": getattr(batch_list, 'has_more', False),
+            "last_id": batches[-1]["id"] if batches else None,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch list failed: {str(e)}")
+
 @app.post("/batch/upload_file")
 async def upload_batch_file(file: UploadFile = File(...)):
     """

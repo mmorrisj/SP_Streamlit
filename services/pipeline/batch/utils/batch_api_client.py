@@ -134,6 +134,30 @@ class BatchAPIClient:
         response.raise_for_status()
         return response.json()
 
+    def list_batches(self, limit: int = 100, after: str = None) -> Dict[str, Any]:
+        """
+        List batch jobs from OpenAI.
+
+        Args:
+            limit: Maximum number of batches to return (default: 100)
+            after: Cursor for pagination (batch ID to start after)
+
+        Returns:
+            Dictionary with batches list and pagination info
+
+        Raises:
+            requests.RequestException: If list request fails
+        """
+        url = f"{self.base_url}/batch/list"
+
+        payload = {"limit": limit}
+        if after:
+            payload["after"] = after
+
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def download_results(self, batch_id: str) -> Dict[str, Any]:
         """
         Download batch processing results.
