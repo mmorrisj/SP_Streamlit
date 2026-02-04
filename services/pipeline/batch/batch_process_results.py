@@ -467,60 +467,40 @@ def process_daily_entity_extract_result(
                 print(f"  Document {doc_id}: Already has {existing_count} entities, skipping")
             return stats
 
-        # Extract entities from response
+        # Extract entities from response, deduplicating by (entity_name, entity_type)
+        # The LLM can return the same entity multiple times with different context snippets
         entity_count = 0
+        seen_keys = set()
 
-        # Process persons
-        for person in llm_response.get('persons', []):
-            entity = RawEntity(
-                doc_id=doc_id,
-                entity_name=person.get('entity_name'),
-                entity_type=EntityTypeEnum.PERSON,
-                role=person.get('role'),
-                country_affiliation=person.get('country_affiliation'),
-                context_snippet=person.get('context_snippet')
-            )
-            session.add(entity)
-            entity_count += 1
+        type_map = {
+            'persons': EntityTypeEnum.PERSON,
+            'organizations': EntityTypeEnum.ORGANIZATION,
+            'companies': EntityTypeEnum.COMPANY,
+            'locations': EntityTypeEnum.LOCATION,
+        }
 
-        # Process organizations
-        for org in llm_response.get('organizations', []):
-            entity = RawEntity(
-                doc_id=doc_id,
-                entity_name=org.get('entity_name'),
-                entity_type=EntityTypeEnum.ORGANIZATION,
-                role=org.get('role'),
-                country_affiliation=org.get('country_affiliation'),
-                context_snippet=org.get('context_snippet')
-            )
-            session.add(entity)
-            entity_count += 1
+        for category, entity_type in type_map.items():
+            for item in llm_response.get(category, []):
+                name = item.get('entity_name')
+                if not name:
+                    continue
 
-        # Process companies
-        for company in llm_response.get('companies', []):
-            entity = RawEntity(
-                doc_id=doc_id,
-                entity_name=company.get('entity_name'),
-                entity_type=EntityTypeEnum.COMPANY,
-                role=company.get('role'),
-                country_affiliation=company.get('country_affiliation'),
-                context_snippet=company.get('context_snippet')
-            )
-            session.add(entity)
-            entity_count += 1
+                # Deduplicate by (entity_name, entity_type)
+                dedup_key = (name, entity_type.value)
+                if dedup_key in seen_keys:
+                    continue
+                seen_keys.add(dedup_key)
 
-        # Process locations
-        for location in llm_response.get('locations', []):
-            entity = RawEntity(
-                doc_id=doc_id,
-                entity_name=location.get('entity_name'),
-                entity_type=EntityTypeEnum.LOCATION,
-                role=location.get('role'),
-                country_affiliation=location.get('country_affiliation'),
-                context_snippet=location.get('context_snippet')
-            )
-            session.add(entity)
-            entity_count += 1
+                entity = RawEntity(
+                    doc_id=doc_id,
+                    entity_name=name,
+                    entity_type=entity_type,
+                    role=item.get('role'),
+                    country_affiliation=item.get('country_affiliation'),
+                    context_snippet=item.get('context_snippet')
+                )
+                session.add(entity)
+                entity_count += 1
 
         if verbose:
             print(f"  Document {doc_id}: Extracted {entity_count} entities")
@@ -761,6 +741,11 @@ def main():
                 except Exception as e:
                     print(f"  Error processing result {custom_id}: {e}")
                     overall_stats['total_errors'] += 1
+                    # Recover session after flush/integrity errors
+                    try:
+                        session.rollback()
+                    except Exception:
+                        pass
                     continue
 
             # Final commit
