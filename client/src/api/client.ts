@@ -221,6 +221,12 @@ export interface ReportConfig {
   date_range: { min: string; max: string }
 }
 
+export interface EventEntity {
+  name: string
+  entity_type: string
+  role: string | null
+}
+
 export interface ReportEvent {
   event_name: string
   first_mention_date: string
@@ -229,6 +235,8 @@ export interface ReportEvent {
   materiality_score: number
   overview: string | null
   outcomes: string | null
+  material_justification: string | null
+  key_entities: EventEntity[]
   doc_ids: string[]
 }
 
@@ -263,10 +271,12 @@ export interface ReportCitationGroup {
 
 export interface ReportEntity {
   name: string
+  entity_type: string
   role: string
-  document_count: number
-  first_seen: string
-  last_seen: string
+  total_documents: number
+  total_mention_days: number
+  first_mention_date: string
+  last_mention_date: string
   summary: string | null
   citation_numbers: number[]
   doc_ids: string[]
@@ -287,6 +297,28 @@ export interface ReportMetrics {
   materiality_histogram: { bin: string; count: number }[]
 }
 
+export interface MaterialityTrendPoint {
+  month: string
+  avg_score: number
+  event_count: number
+}
+
+export interface SignificantChange {
+  recipient: string
+  month: string
+  previous_score: number
+  current_score: number
+  delta: number
+  direction: 'increase' | 'decrease'
+}
+
+export interface MaterialityTrends {
+  trend_start: string
+  recipient_series: Record<string, MaterialityTrendPoint[]>
+  overall_series: MaterialityTrendPoint[]
+  significant_changes: SignificantChange[]
+}
+
 export interface ReportData {
   country: string
   title: string
@@ -298,6 +330,7 @@ export interface ReportData {
   categories: ReportCategory[]
   entities: ReportEntityGroup[]
   metrics: ReportMetrics
+  materiality_trends: MaterialityTrends
   citations_by_event: ReportCitationGroup[]
 }
 
@@ -423,6 +456,33 @@ export async function generateReportStream(
   } finally {
     reader.releaseLock()
   }
+}
+
+// ============================================================
+// Word Document Export
+// ============================================================
+
+export async function exportReportToDocx(report: ReportData): Promise<void> {
+  const response = await fetch('/api/report/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Export failed: ${response.status} — ${text}`)
+  }
+
+  const blob = await response.blob()
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${report.country}_Report_${report.period_start}.docx`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(url)
 }
 
 export default api

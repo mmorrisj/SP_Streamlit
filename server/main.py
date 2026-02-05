@@ -2267,6 +2267,24 @@ def generate_report_stream_endpoint(request: ReportRequest):
     )
 
 
+@app.post("/api/report/export")
+def export_report_endpoint(report_data: dict):
+    """Export a completed report as a formatted Word document (.docx)."""
+    from server.report_exporter import export_report_to_docx
+
+    docx_bytes = export_report_to_docx(report_data)
+
+    country = report_data.get('country', 'Report')
+    period_start = report_data.get('period_start', '')
+    filename = f"{country}_Report_{period_start}.docx"
+
+    return StreamingResponse(
+        docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
 # Static file serving for React SPA
 # IMPORTANT: This must come AFTER all @app.get() API route definitions
 # so that API routes take precedence over the catch-all

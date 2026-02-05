@@ -51,13 +51,14 @@ sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
 from shared.database.database import get_session
-from shared.models.models import EventCluster, CanonicalEvent, Document, InitiatingCountry, RecipientCountry, Category, RawEntity
+from shared.models.models import EventCluster, CanonicalEvent, Document, InitiatingCountry, RecipientCountry, Category, RawEntity, EntityCluster, EntityTypeEnum
 from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLUSTER_DECONFLICT,
     JOB_TYPE_CANONICAL_DECONFLICT,
     JOB_TYPE_ENTITY_EXTRACT,
     JOB_TYPE_SCORE_MATERIALITY,
     JOB_TYPE_DAILY_ENTITY_EXTRACT,
+    JOB_TYPE_ENTITY_DECONFLICT,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
@@ -789,6 +790,156 @@ def load_unprocessed_canonical_events(
     return filtered_groups
 
 
+def load_unprocessed_entity_clusters(
+    session,
+    country: Optional[str],
+    start_date: Optional[DateType] = None,
+    end_date: Optional[DateType] = None
+) -> List[EntityCluster]:
+    """
+    Load unprocessed entity clusters that need LLM deconfliction.
+
+    Only returns clusters with multiple unique entity names (single-name
+    clusters are auto-resolved without LLM).
+
+    Args:
+        session: Database session
+        country: Filter by country (optional)
+        start_date: Filter by start date (optional)
+        end_date: Filter by end date (optional)
+
+    Returns:
+        List of EntityCluster objects where llm_deconflicted=False
+    """
+    query = session.query(EntityCluster).filter(
+        EntityCluster.llm_deconflicted == False,
+        EntityCluster.is_noise == False
+    )
+
+    if country:
+        query = query.filter(EntityCluster.initiating_country == country)
+    if start_date:
+        query = query.filter(EntityCluster.cluster_date >= start_date)
+    if end_date:
+        query = query.filter(EntityCluster.cluster_date <= end_date)
+
+    clusters = query.order_by(
+        EntityCluster.initiating_country,
+        EntityCluster.cluster_date,
+        EntityCluster.entity_type,
+        EntityCluster.batch_number
+    ).all()
+
+    # Only include clusters with multiple unique entity names
+    filtered = [c for c in clusters if len(set(c.entity_names)) > 1]
+
+    return filtered
+
+
+def build_entity_deconflict_prompt(cluster: EntityCluster) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for entity cluster deconfliction.
+
+    Adapted from llm_deconflict_entity_clusters.py:llm_review_cluster()
+
+    Args:
+        cluster: EntityCluster object
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    unique_names = list(set(cluster.entity_names))
+    names_list = "\\n".join([f"{i+1}. {name}" for i, name in enumerate(unique_names)])
+    entity_type_label = cluster.entity_type.value.upper()
+
+    # Build entity-type-specific guidelines
+    guidelines = ""
+    if cluster.entity_type == EntityTypeEnum.PERSON:
+        guidelines = """**PERSONS:**
+- Same person: 'Wang Yi', 'Chinese FM Wang Yi', 'Foreign Minister Wang Yi', 'FM Wang'
+- Same person: 'Xi Jinping', 'President Xi', 'Chinese President Xi Jinping'
+- Different persons: 'Wang Yi' vs 'Wang Li' (different people with same surname)
+- Different persons: 'President Xi' vs 'Premier Li' (different officials)"""
+    elif cluster.entity_type == EntityTypeEnum.ORGANIZATION:
+        guidelines = """**ORGANIZATIONS:**
+- Same org: 'Ministry of Foreign Affairs', 'MFA', 'Chinese Foreign Ministry'
+- Same org: 'Shanghai Cooperation Organization', 'SCO'
+- Different orgs: 'Ministry of Foreign Affairs' vs 'Ministry of Defense' (different ministries)"""
+    elif cluster.entity_type == EntityTypeEnum.COMPANY:
+        guidelines = """**COMPANIES:**
+- Same company: 'CNOOC', 'China National Offshore Oil Corporation'
+- Same company: 'Huawei', 'Huawei Technologies Co.'
+- Different companies: 'CNOOC' vs 'Sinopec' (different oil companies)"""
+    elif cluster.entity_type == EntityTypeEnum.LOCATION:
+        guidelines = """**LOCATIONS:**
+- Same location: 'Beijing', 'China's capital', 'Beijing, China'
+- Same location: 'Middle East', 'Middle Eastern region'
+- Different locations: 'Beijing' vs 'Shanghai' (different cities)"""
+
+    sys_prompt = f"""You are an expert at entity resolution and disambiguation for {entity_type_label} entities.
+
+**CRITICAL UNDERSTANDING:**
+Your task is to determine if the following entity names refer to the SAME real-world entity, or if they are DIFFERENT entities that were incorrectly clustered together.
+
+**Context:**
+- Entity type: {entity_type_label}
+- These entities were mentioned on the same date
+- They are all associated with the same country
+- The clustering algorithm grouped them based on semantic similarity
+- Names may vary due to: titles, abbreviations, alternative spellings, or contexts
+
+{guidelines}
+
+**Your Goal:**
+- Group names that refer to the SAME real-world entity
+- Keep DISTINCT entities in separate groups
+- Choose the best canonical name (most complete, professional, commonly used)
+- Identify the primary role/function of the entity
+- Identify the primary country affiliation"""
+
+    user_prompt = f"""Entity names from cluster (type={entity_type_label}, size={cluster.cluster_size}):
+{names_list}
+
+**ANALYZE USING CHAIN-OF-THOUGHT:**
+
+**STEP 1 - IDENTIFY CORE ENTITY:**
+For each name, extract:
+- Who/what is this? (full name, title, abbreviation)
+- What roles/titles are mentioned?
+- What country affiliations are mentioned?
+
+**STEP 2 - CHECK IF SAME ENTITY:**
+Do these names refer to the SAME real-world {entity_type_label}?
+- Look for: name variations, abbreviations, title differences
+- Check for: same person/org with different titles/contexts
+- Distinguish: truly different entities with similar names
+
+**STEP 3 - PROVIDE DECISION:**
+Return a JSON object with:
+{{
+  "same_entity": true/false,
+  "explanation": "Brief reasoning for your decision",
+  "canonical_name": "Best canonical name for this entity",
+  "primary_role": "One of: government_official, diplomat, business_leader, cultural_figure, military_official, academic, media_figure, civil_society, implementing_organization, funding_organization, recipient_institution, infrastructure_project, venue, other",
+  "country_affiliation": "Primary country affiliation",
+  "groups": [[list of indices that belong to same entity], [another group if split]]
+}}
+
+**IMPORTANT:**
+- If same_entity=true: all names go in one group, provide canonical_name
+- If same_entity=false: split into multiple groups
+- Groups use 1-based indices (1, 2, 3, etc.)
+
+Return ONLY the JSON object, no additional text."""
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
 def build_daily_entity_extract_prompt(doc: Dict) -> Dict[str, List[Dict[str, str]]]:
     """
     Build prompt for extracting entities from a document.
@@ -1096,6 +1247,24 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_ENTITY_DECONFLICT:
+        # records is a list of EntityCluster objects needing LLM deconfliction
+        for cluster in records:
+            custom_id = generate_custom_id(job_type, cluster.id)
+            prompt_data = build_entity_deconflict_prompt(cluster)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
 
 
@@ -1140,7 +1309,7 @@ def main():
     parser.add_argument('--job-type', required=True,
                        choices=[JOB_TYPE_CLUSTER_DECONFLICT, JOB_TYPE_CANONICAL_DECONFLICT,
                                JOB_TYPE_ENTITY_EXTRACT, JOB_TYPE_SCORE_MATERIALITY,
-                               JOB_TYPE_DAILY_ENTITY_EXTRACT],
+                               JOB_TYPE_DAILY_ENTITY_EXTRACT, JOB_TYPE_ENTITY_DECONFLICT],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -1230,6 +1399,15 @@ def main():
                 args.force
             )
             print(f"Found {len(records)} documents needing entity extraction")
+
+        elif args.job_type == JOB_TYPE_ENTITY_DECONFLICT:
+            records = load_unprocessed_entity_clusters(
+                session,
+                args.country,
+                start_date,
+                end_date
+            )
+            print(f"Found {len(records)} entity clusters needing LLM deconfliction")
 
         else:
             print(f"Error: Unsupported job type: {args.job_type}")

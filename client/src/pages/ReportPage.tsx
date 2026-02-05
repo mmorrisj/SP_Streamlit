@@ -2,12 +2,13 @@ import { useState, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell
+  ResponsiveContainer, Cell, LineChart, Line, Legend
 } from 'recharts'
-import { FileBarChart, Calendar, FileText, Hash, ExternalLink, Users, Building2, MapPin, Briefcase, X } from 'lucide-react'
+import { FileBarChart, ExternalLink, Users, Building2, MapPin, Briefcase, X, Download } from 'lucide-react'
 import {
   fetchReportConfig,
   generateReportStream,
+  exportReportToDocx,
 } from '../api/client'
 import type {
   ReportData,
@@ -54,10 +55,19 @@ function ShimmerBlock({ lines = 2 }: { lines?: number }) {
   )
 }
 
+function getDefaultDates() {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 30)
+  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  return { start: fmt(start), end: fmt(end) }
+}
+
 export default function ReportPage() {
+  const defaults = getDefaultDates()
   const [country, setCountry] = useState<string>('China')
-  const [startDate, setStartDate] = useState<string>('2025-07-01')
-  const [endDate, setEndDate] = useState<string>('2025-07-30')
+  const [startDate, setStartDate] = useState<string>(defaults.start)
+  const [endDate, setEndDate] = useState<string>(defaults.end)
   const [recipient, setRecipient] = useState<string>('All')
   const [topEvents, setTopEvents] = useState<number>(10)
   const [report, setReport] = useState<ReportData | null>(null)
@@ -66,6 +76,7 @@ export default function ReportPage() {
   const [narrativesDone, setNarrativesDone] = useState(0)
   const [narrativesTotal, setNarrativesTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const { data: config } = useQuery({
@@ -189,6 +200,18 @@ export default function ReportPage() {
     abortRef.current = null
   }
 
+  const handleExport = async () => {
+    if (!report) return
+    setIsExporting(true)
+    try {
+      await exportReportToDocx(report)
+    } catch (e: any) {
+      setError(`Export failed: ${e.message}`)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   // Count total citations
   const totalCitations = report?.citations_by_event?.reduce(
     (sum, group) => sum + group.events.reduce(
@@ -303,6 +326,30 @@ export default function ReportPage() {
               'Generate Report'
             )}
           </button>
+
+          {report && !isGenerating && (
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              style={{
+                padding: '0.5rem 1.5rem',
+                borderRadius: '6px',
+                border: '1px solid #d1d5db',
+                background: isExporting ? '#e5e7eb' : 'white',
+                color: isExporting ? '#9ca3af' : '#1a365d',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                cursor: isExporting ? 'not-allowed' : 'pointer',
+                height: '38px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+              }}
+            >
+              <Download size={16} />
+              {isExporting ? 'Exporting...' : 'Export to Word'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -347,33 +394,23 @@ export default function ReportPage() {
       {/* Report Display — shows as soon as skeleton arrives */}
       {report && (
         <>
-          {/* Report Header */}
-          <div className="chart-card" style={{ marginBottom: '1.5rem', borderLeft: '4px solid #1a365d' }}>
-            <h2 style={{ color: '#1a365d', marginBottom: '0.5rem' }}>{report.title}</h2>
-            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', fontSize: '0.9rem', color: '#666' }}>
-              <span><strong>Country:</strong> {report.country}</span>
-              <span><strong>Period:</strong> {formatDate(report.period_start)} to {formatDate(report.period_end)}</span>
-              <span><strong>Recipient:</strong> {report.recipient_filter}</span>
-              <span><strong>Generated:</strong> {new Date(report.generated_at).toLocaleString()}</span>
+          {/* Report Header — compact */}
+          <div className="chart-card" style={{ marginBottom: '1rem', borderLeft: '4px solid #1a365d', padding: '0.75rem 1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h2 style={{ color: '#1a365d', margin: 0, fontSize: '1.15rem' }}>{report.title}</h2>
+              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                Generated {new Date(report.generated_at).toLocaleDateString()}
+              </span>
             </div>
-          </div>
-
-          {/* Stats Bar */}
-          <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
-            <div className="stat-card">
-              <FileText size={24} style={{ color: '#1a365d' }} />
-              <div className="stat-value">{report.metrics.total_documents.toLocaleString()}</div>
-              <div className="stat-label">Documents</div>
-            </div>
-            <div className="stat-card">
-              <Calendar size={24} style={{ color: '#7c3aed' }} />
-              <div className="stat-value">{report.metrics.total_events}</div>
-              <div className="stat-label">Key Events</div>
-            </div>
-            <div className="stat-card">
-              <Hash size={24} style={{ color: '#059669' }} />
-              <div className="stat-value">{totalCitations}</div>
-              <div className="stat-label">Citations</div>
+            <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', fontSize: '0.8rem', color: '#666', marginTop: '0.35rem' }}>
+              <span>{report.country}</span>
+              <span>{formatDate(report.period_start)} – {formatDate(report.period_end)}</span>
+              {report.recipient_filter !== 'All' && <span>Recipient: {report.recipient_filter}</span>}
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: '1rem' }}>
+                <span><strong>{report.metrics.total_documents.toLocaleString()}</strong> docs</span>
+                <span><strong>{report.metrics.total_events}</strong> events</span>
+                <span><strong>{totalCitations}</strong> citations</span>
+              </span>
             </div>
           </div>
 
@@ -459,6 +496,44 @@ export default function ReportPage() {
                         <ShimmerBlock lines={1} />
                       </div>
                     ) : null}
+
+                    {event.material_justification && (
+                      <div style={{ marginTop: '0.5rem' }}>
+                        <strong style={{ fontSize: '0.85rem', color: '#666' }}>Materiality Assessment:</strong>
+                        <span style={{ fontSize: '0.85rem', marginLeft: '0.4rem', fontStyle: 'italic', color: '#555' }}>
+                          {event.material_justification}
+                        </span>
+                      </div>
+                    )}
+
+                    {event.key_entities && event.key_entities.length > 0 && (
+                      <div style={{ marginTop: '0.6rem', display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#888', marginRight: '0.25rem' }}>Entities:</span>
+                        {event.key_entities.map((ent, eidx) => {
+                          const typeColors: Record<string, string> = {
+                            'PERSON': '#7c3aed',
+                            'ORGANIZATION': '#2563eb',
+                            'COMPANY': '#059669',
+                            'LOCATION': '#ea580c'
+                          }
+                          const c = typeColors[ent.entity_type] || '#666'
+                          return (
+                            <span key={eidx} style={{
+                              display: 'inline-block',
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: '10px',
+                              fontSize: '0.7rem',
+                              fontWeight: 500,
+                              color: c,
+                              background: `${c}15`,
+                              border: `1px solid ${c}40`
+                            }}>
+                              {ent.name}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -502,7 +577,7 @@ export default function ReportPage() {
                             <div>
                               <h5 style={{ margin: 0, fontSize: '0.95rem' }}>{entity.name}</h5>
                               <p style={{ fontSize: '0.75rem', color: '#888', margin: '0.2rem 0 0' }}>
-                                {entity.role} | {entity.document_count} documents | {formatDate(entity.first_seen)} to {formatDate(entity.last_seen)}
+                                {entity.role && entity.role !== 'OTHER' && entity.role !== 'Unknown' ? `${entity.role} | ` : ''}{entity.total_documents} documents | {formatDate(entity.first_mention_date)} to {formatDate(entity.last_mention_date)}
                               </p>
                             </div>
                             {entity.citation_numbers.length > 0 && (
@@ -593,6 +668,190 @@ export default function ReportPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Materiality Trends + Top Entities — side by side */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+            {/* Materiality Trends Chart */}
+            {report.materiality_trends && report.materiality_trends.overall_series.length > 1 ? (() => {
+              const trends = report.materiality_trends
+              const allMonths = new Set<string>()
+              trends.overall_series.forEach(p => allMonths.add(p.month))
+              Object.values(trends.recipient_series).forEach(series =>
+                series.forEach(p => allMonths.add(p.month))
+              )
+              const sortedMonths = Array.from(allMonths).sort()
+              const recipients = Object.keys(trends.recipient_series)
+
+              const chartData = sortedMonths.map(month => {
+                const row: Record<string, string | number> = {
+                  month: new Date(month + 'T00:00:00').toLocaleDateString('en-US', { year: '2-digit', month: 'short' })
+                }
+                const overall = trends.overall_series.find(p => p.month === month)
+                if (overall) row['Overall'] = overall.avg_score
+                for (const r of recipients) {
+                  const pt = trends.recipient_series[r].find(p => p.month === month)
+                  if (pt) row[r] = pt.avg_score
+                }
+                return row
+              })
+
+              const TREND_COLORS = ['#2563eb', '#7c3aed', '#059669', '#ea580c', '#dc2626']
+
+              return (
+                <div className="chart-card" style={{ margin: 0 }}>
+                  <h3 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Materiality Trends</h3>
+                  <p style={{ fontSize: '0.75rem', color: '#666', margin: '0 0 0.5rem' }}>
+                    Avg materiality by month (3-month lookback)
+                  </p>
+
+                  {trends.significant_changes.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem' }}>
+                      {trends.significant_changes.map((sc, idx) => (
+                        <span key={idx} style={{
+                          display: 'inline-block',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '12px',
+                          fontSize: '0.65rem',
+                          fontWeight: 600,
+                          color: sc.direction === 'increase' ? '#dc2626' : '#059669',
+                          background: sc.direction === 'increase' ? '#fef2f2' : '#f0fdf4',
+                          border: `1px solid ${sc.direction === 'increase' ? '#fca5a5' : '#86efac'}`,
+                        }}>
+                          {sc.recipient}: {sc.direction === 'increase' ? '▲' : '▼'} {Math.abs(sc.delta).toFixed(1)} ({new Date(sc.month + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' })})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" tick={{ fontSize: 9 }} />
+                      <YAxis domain={[0, 10]} tick={{ fontSize: 9 }} label={{ value: 'Avg Score', angle: -90, position: 'insideLeft', style: { fontSize: 9 } }} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: '0.7rem' }} />
+                      <Line
+                        type="monotone"
+                        dataKey="Overall"
+                        stroke="#1a365d"
+                        strokeWidth={2.5}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                      />
+                      {recipients.map((r, i) => (
+                        <Line
+                          key={r}
+                          type="monotone"
+                          dataKey={r}
+                          stroke={TREND_COLORS[i % TREND_COLORS.length]}
+                          strokeWidth={1.5}
+                          strokeDasharray="5 3"
+                          dot={{ r: 2 }}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )
+            })() : <div />}
+
+            {/* Top Entities by References Chart */}
+            {(() => {
+              const ENTITY_COLORS: Record<string, string> = {
+                person: '#7c3aed',
+                organization: '#2563eb',
+                company: '#059669',
+                location: '#ea580c',
+              }
+              const ENTITY_COLORS_UPPER: Record<string, string> = {
+                PERSON: '#7c3aed',
+                ORGANIZATION: '#2563eb',
+                COMPANY: '#059669',
+                LOCATION: '#ea580c',
+              }
+
+              let allEntities: { name: string; fullName: string; count: number; type: string; color: string }[] = []
+              let subtitle = 'Entities ranked by document mentions'
+
+              // Primary source: canonical entities from report.entities
+              if (report.entities && report.entities.length > 0) {
+                allEntities = report.entities.flatMap(group =>
+                  group.entities.map(e => ({
+                    name: e.name.length > 22 ? e.name.slice(0, 20) + '...' : e.name,
+                    fullName: e.name,
+                    count: e.total_documents,
+                    type: group.entity_type,
+                    color: ENTITY_COLORS[group.entity_type] || '#6b7280',
+                  }))
+                ).sort((a, b) => b.count - a.count).slice(0, 15)
+              }
+
+              // Fallback: aggregate key_entities from events
+              if (allEntities.length === 0 && report.categories) {
+                const entityCounts = new Map<string, { count: number; type: string }>()
+                for (const cat of report.categories) {
+                  for (const evt of cat.events) {
+                    if (evt.key_entities) {
+                      for (const ent of evt.key_entities) {
+                        const key = ent.name
+                        const existing = entityCounts.get(key)
+                        if (existing) {
+                          existing.count += 1
+                        } else {
+                          entityCounts.set(key, { count: 1, type: ent.entity_type })
+                        }
+                      }
+                    }
+                  }
+                }
+                allEntities = Array.from(entityCounts.entries()).map(([name, { count, type }]) => ({
+                  name: name.length > 22 ? name.slice(0, 20) + '...' : name,
+                  fullName: name,
+                  count,
+                  type: type.toLowerCase(),
+                  color: ENTITY_COLORS_UPPER[type] || ENTITY_COLORS[type.toLowerCase()] || '#6b7280',
+                })).sort((a, b) => b.count - a.count).slice(0, 15)
+                subtitle = 'Entities ranked by event appearances'
+              }
+
+              if (allEntities.length === 0) return <div />
+
+              return (
+                <div className="chart-card" style={{ margin: 0 }}>
+                  <h3 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Top Entities by References</h3>
+                  <p style={{ fontSize: '0.75rem', color: '#666', margin: '0 0 0.5rem' }}>
+                    {subtitle}
+                  </p>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                    {Object.entries(ENTITY_COLORS).map(([type, color]) => (
+                      <span key={type} style={{ fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block' }} />
+                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                      </span>
+                    ))}
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={allEntities} layout="vertical" margin={{ left: 0, right: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" tick={{ fontSize: 9 }} allowDecimals={false} />
+                      <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 8 }} />
+                      <Tooltip
+                        formatter={(value, _name, props) => [
+                          `${value} ${subtitle.includes('event') ? 'events' : 'documents'}`,
+                          (props.payload as Record<string, string>)?.fullName || ''
+                        ]}
+                      />
+                      <Bar dataKey="count" radius={[0, 3, 3, 0]}>
+                        {allEntities.map((entry, idx) => (
+                          <Cell key={idx} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Citations (End Notes) - Grouped by Category and Event */}

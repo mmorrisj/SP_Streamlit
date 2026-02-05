@@ -204,6 +204,8 @@ def main():
                        help='Maximum concurrent batches (default: 5)')
     parser.add_argument('--poll-interval', type=int, default=300,
                        help='Polling interval in seconds (default: 300 = 5 minutes)')
+    parser.add_argument('--retry-failed', action='store_true',
+                       help='Reset failed batches to preparing so they get re-submitted')
     parser.add_argument('--dry-run', action='store_true',
                        help='Show what would be submitted without actually submitting')
 
@@ -216,9 +218,38 @@ def main():
     print(f"Poll interval: {args.poll_interval}s ({args.poll_interval / 60:.1f} minutes)")
     print(f"Job type: {args.job_type or 'all'}")
     print(f"Country: {args.country or 'all'}")
+    print(f"Retry failed: {args.retry_failed}")
     print(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
     print("=" * 80)
     print()
+
+    # Reset failed batches if --retry-failed
+    if args.retry_failed:
+        with get_session() as session:
+            failed_query = session.query(BatchJob).filter(
+                BatchJob.status == BatchJobStatus.FAILED.value
+            )
+            if args.job_type:
+                failed_query = failed_query.filter(BatchJob.job_type == args.job_type)
+            if args.country:
+                failed_query = failed_query.filter(BatchJob.initiating_country == args.country)
+
+            failed_jobs = failed_query.all()
+
+            if failed_jobs:
+                print(f"Resetting {len(failed_jobs)} failed batches to preparing:")
+                for job in failed_jobs:
+                    country = job.initiating_country or 'Unknown'
+                    print(f"  {job.job_type} | {country} | {job.batch_size} requests | "
+                          f"retry #{(job.retry_count or 0) + 1}")
+                    job.status = BatchJobStatus.PREPARING.value
+                    job.error_message = None
+                    job.retry_count = (job.retry_count or 0) + 1
+                session.commit()
+                print()
+            else:
+                print("No failed batches found to retry.")
+                print()
 
     # Initialize API client
     client = get_batch_api_client()
