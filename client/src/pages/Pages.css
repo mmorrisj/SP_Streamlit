@@ -712,3 +712,45 @@
   color: #333;
   margin-bottom: 0.5rem;
 }
+
+/* Report / Publication page */
+.report-progress-bar {
+  width: 60%;
+  height: 100%;
+  background: #1a365d;
+  border-radius: 2px;
+  animation: report-pulse 2s ease-in-out infinite;
+}
+
+@keyframes report-pulse {
+  0% { transform: translateX(-150%); }
+  50% { transform: translateX(150%); }
+  100% { transform: translateX(-150%); }
+}
+
+.report-event-card {
+  transition: box-shadow 0.2s;
+}
+
+.report-event-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.materiality-badge {
+  display: inline-block;
+  text-align: center;
+}
+
+/* Shimmer placeholder for streaming report */
+.shimmer-line {
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

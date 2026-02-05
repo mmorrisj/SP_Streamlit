@@ -1099,24 +1099,34 @@ def generate_batch_requests(
     return batch_requests
 
 
-def chunk_records(records: List[Any], chunk_size: int = 10000) -> List[List[Any]]:
+def chunk_records(records, chunk_size: int = 10000):
     """
     Split records into chunks for reliable batch uploads.
 
     Default chunk size of 10K keeps file sizes ~38MB for documents with large text.
     OpenAI's max is 50K but large files (>70MB) timeout during upload.
 
+    Handles both list records and dict records (e.g., canonical_deconflict
+    returns a dict mapping master_event_id to event lists).
+
     Args:
-        records: List of records to chunk
+        records: List or Dict of records to chunk
         chunk_size: Maximum records per chunk (default: 10000)
 
     Returns:
-        List of record chunks
+        List of record chunks (same type as input)
     """
-    chunks = []
-    for i in range(0, len(records), chunk_size):
-        chunks.append(records[i:i + chunk_size])
-    return chunks
+    if isinstance(records, dict):
+        items = list(records.items())
+        chunks = []
+        for i in range(0, len(items), chunk_size):
+            chunks.append(dict(items[i:i + chunk_size]))
+        return chunks
+    else:
+        chunks = []
+        for i in range(0, len(records), chunk_size):
+            chunks.append(records[i:i + chunk_size])
+        return chunks
 
 
 def main():

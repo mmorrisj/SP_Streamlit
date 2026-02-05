@@ -210,4 +210,219 @@ export const fetchEventTimeline = async (
   return data
 }
 
+// ============================================================
+// Report / Publication types and API functions
+// ============================================================
+
+export interface ReportConfig {
+  influencers: string[]
+  recipients: string[]
+  categories: string[]
+  date_range: { min: string; max: string }
+}
+
+export interface ReportEvent {
+  event_name: string
+  first_mention_date: string
+  last_mention_date: string
+  article_count: number
+  materiality_score: number
+  overview: string | null
+  outcomes: string | null
+  doc_ids: string[]
+}
+
+export interface ReportCategory {
+  category: string
+  narrative: string | null
+  events: ReportEvent[]
+}
+
+export interface ReportCitation {
+  citation_number: number
+  doc_id: string
+  headline: string
+  source_name: string
+  published_date: string
+  categories: string[]
+  recipients: string[]
+  repo_hyperlink: string
+}
+
+export interface ReportCitationEvent {
+  event_name: string
+  materiality_score: number
+  date_range: string
+  citations: ReportCitation[]
+}
+
+export interface ReportCitationGroup {
+  category: string
+  events: ReportCitationEvent[]
+}
+
+export interface ReportEntity {
+  name: string
+  role: string
+  document_count: number
+  first_seen: string
+  last_seen: string
+  summary: string | null
+  citation_numbers: number[]
+  doc_ids: string[]
+}
+
+export interface ReportEntityGroup {
+  entity_type: string
+  type_label: string
+  entities: ReportEntity[]
+}
+
+export interface ReportMetrics {
+  total_documents: number
+  total_events: number
+  category_distribution: { category: string; count: number }[]
+  subcategory_distribution: { subcategory: string; count: number }[]
+  recipient_distribution: { recipient: string; count: number }[]
+  materiality_histogram: { bin: string; count: number }[]
+}
+
+export interface ReportData {
+  country: string
+  title: string
+  period_start: string
+  period_end: string
+  recipient_filter: string
+  generated_at: string
+  overall_summary: string | null
+  categories: ReportCategory[]
+  entities: ReportEntityGroup[]
+  metrics: ReportMetrics
+  citations_by_event: ReportCitationGroup[]
+}
+
+export interface ReportRequest {
+  country: string
+  start_date: string
+  end_date: string
+  recipient?: string
+  top_events?: number
+}
+
+export const fetchReportConfig = async (): Promise<ReportConfig> => {
+  const { data } = await api.get('/report/config')
+  return data
+}
+
+export const generateReport = async (request: ReportRequest): Promise<ReportData> => {
+  const { data } = await api.post('/report/generate', request, {
+    timeout: 600000
+  })
+  return data
+}
+
+// ============================================================
+// SSE Streaming for Report Generation
+// ============================================================
+
+export interface SSECallbacks {
+  onSkeleton: (report: ReportData) => void
+  onEventNarrative: (data: { category: string; event_index: number; overview: string; outcomes: string }) => void
+  onCategoryNarrative: (data: { category: string; narrative: string }) => void
+  onOverallSynthesis: (data: { overall_summary: string }) => void
+  onEntitySummary: (data: { entity_type_index: number; entity_index: number; summary: string }) => void
+  onTitle: (data: { title: string }) => void
+  onComplete: () => void
+  onError: (error: string) => void
+}
+
+export async function generateReportStream(
+  request: ReportRequest,
+  callbacks: SSECallbacks,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch('/api/report/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Server error ${response.status}: ${text}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No readable stream')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // Process complete SSE messages (separated by double newlines)
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || '' // Keep the incomplete part
+
+      for (const part of parts) {
+        if (!part.trim()) continue
+
+        let eventType = ''
+        let eventData = ''
+
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            eventData = line.slice(6)
+          }
+        }
+
+        if (!eventType || !eventData) continue
+
+        try {
+          const payload = JSON.parse(eventData)
+
+          switch (eventType) {
+            case 'skeleton':
+              callbacks.onSkeleton(payload)
+              break
+            case 'event_narrative':
+              callbacks.onEventNarrative(payload)
+              break
+            case 'category_narrative':
+              callbacks.onCategoryNarrative(payload)
+              break
+            case 'overall_synthesis':
+              callbacks.onOverallSynthesis(payload)
+              break
+            case 'entity_summary':
+              callbacks.onEntitySummary(payload)
+              break
+            case 'title':
+              callbacks.onTitle(payload)
+              break
+            case 'complete':
+              callbacks.onComplete()
+              break
+            case 'error':
+              callbacks.onError(payload.error || 'Unknown streaming error')
+              break
+          }
+        } catch {
+          // Skip malformed JSON
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 export default api
