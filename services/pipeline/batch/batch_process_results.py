@@ -386,7 +386,8 @@ def process_materiality_score_result(
             return stats
 
         # Extract score from LLM response
-        score = llm_response.get('materiality_score')
+        # Prompt uses "material_score" but also accept "materiality_score" for robustness
+        score = llm_response.get('material_score') or llm_response.get('materiality_score')
         justification = llm_response.get('justification', '')
 
         if score is None:

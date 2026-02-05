@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3, Globe, TrendingUp, BookOpen, ArrowLeftRight, Activity } from 'lucide-react'
+import { LayoutDashboard, FileText, Calendar, Users, Folder, BarChart3, Globe, TrendingUp, BookOpen, ArrowLeftRight, Activity, FileBarChart } from 'lucide-react'
 import './Layout.css'
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { path: '/bilateral-summaries', label: 'Bilateral Summaries', icon: ArrowLeftRight },
   { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/categories', label: 'Categories', icon: BarChart3 },
+  { path: '/report', label: 'Publication', icon: FileBarChart },
 ]
 
 const influencers = [

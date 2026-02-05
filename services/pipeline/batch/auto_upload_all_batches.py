@@ -190,9 +190,12 @@ def main():
             print(f"   Job type: {job.job_type}")
             print(f"   Country: {job.initiating_country}")
             print(f"   Batch size: {job.batch_size}")
-            print(f"   File: {job.input_file_path}")
+            file_path = job.input_file_path.replace('\\', '/')
+            if not os.path.isabs(file_path):
+                file_path = str(project_root / file_path)
+            print(f"   File: {file_path}")
 
-            if not os.path.exists(job.input_file_path):
+            if not os.path.exists(file_path):
                 print(f"   ⚠️  Warning: File not found!")
 
             print()
@@ -244,12 +247,17 @@ def main():
             print(f"  Batch size: {job.batch_size}")
 
             try:
+                # Resolve file path (handle relative paths and Windows backslashes in Docker)
+                file_path = job.input_file_path.replace('\\', '/')
+                if not os.path.isabs(file_path):
+                    file_path = str(project_root / file_path)
+
                 # Check file exists
-                if not os.path.exists(job.input_file_path):
-                    raise FileNotFoundError(f"File not found: {job.input_file_path}")
+                if not os.path.exists(file_path):
+                    raise FileNotFoundError(f"File not found: {file_path}")
 
                 # Upload file via proxy
-                file_response = upload_via_proxy(job.input_file_path, client)
+                file_response = upload_via_proxy(file_path, client)
                 file_id = file_response['file_id']
 
                 # Create batch job via proxy

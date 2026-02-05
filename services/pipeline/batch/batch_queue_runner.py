@@ -70,12 +70,17 @@ def submit_batch(job: BatchJob, client, tracker: BatchJobTracker, session) -> bo
         print(f"  Submitting: {job.initiating_country} ({job.batch_size} requests)")
         print(f"  File: {os.path.basename(job.input_file_path)}")
 
+        # Resolve file path (handle relative paths and Windows backslashes in Docker)
+        file_path = job.input_file_path.replace('\\', '/')
+        if not os.path.isabs(file_path):
+            file_path = str(project_root / file_path)
+
         # Check file exists
-        if not os.path.exists(job.input_file_path):
-            raise FileNotFoundError(f"File not found: {job.input_file_path}")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
 
         # Upload file
-        upload_result = client.upload_file(job.input_file_path)
+        upload_result = client.upload_file(file_path)
         file_id = upload_result['file_id']
         print(f"  ✓ File uploaded: {file_id}")
 

@@ -203,12 +203,42 @@ def merge_canonical_events_for_country(
 
             stats['events_deleted'] += len(child_ids)
 
+            # Update master event metadata from reassigned mentions
+            session.execute(text('''
+                UPDATE canonical_events ce
+                SET
+                    total_mention_days = sub.mention_days,
+                    first_mention_date = sub.earliest_date,
+                    last_mention_date = sub.latest_date,
+                    total_articles = sub.total_articles,
+                    days_since_last_mention = CURRENT_DATE - sub.latest_date,
+                    peak_mention_date = sub.peak_date,
+                    peak_daily_article_count = sub.peak_articles
+                FROM (
+                    SELECT
+                        dem.canonical_event_id,
+                        COUNT(DISTINCT dem.mention_date) as mention_days,
+                        MIN(dem.mention_date) as earliest_date,
+                        MAX(dem.mention_date) as latest_date,
+                        SUM(dem.article_count) as total_articles,
+                        (SELECT dem2.mention_date FROM daily_event_mentions dem2
+                         WHERE dem2.canonical_event_id = dem.canonical_event_id
+                         ORDER BY dem2.article_count DESC LIMIT 1) as peak_date,
+                        MAX(dem.article_count) as peak_articles
+                    FROM daily_event_mentions dem
+                    WHERE dem.canonical_event_id = :master_id
+                    GROUP BY dem.canonical_event_id
+                ) sub
+                WHERE ce.id = sub.canonical_event_id
+            '''), {'master_id': master_id})
+
     # Commit changes
     if not dry_run and stats['events_deleted'] > 0:
         session.commit()
         if verbose:
             print(f"\n  [COMMITTED] Reassigned {stats['mentions_reassigned']} mentions")
             print(f"  [COMMITTED] Deleted {stats['events_deleted']} child events")
+            print(f"  [COMMITTED] Updated master event metadata (dates, mention days, articles)")
     elif dry_run and verbose:
         print(f"\n  [DRY RUN] Would reassign {stats['mentions_reassigned']} mentions")
         print(f"  [DRY RUN] Would delete {stats['events_deleted']} child events")

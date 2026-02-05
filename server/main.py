@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from typing import Optional, List
 from datetime import datetime, date
 from pydantic import BaseModel
@@ -2153,6 +2153,119 @@ def get_available_bilateral_months(influencer: str):
             months.add(match.group(1))
 
     return {"months": sorted(list(months), reverse=True)}
+
+
+# ============================================================
+# Report / Publication endpoints
+# ============================================================
+
+class ReportConfigResponse(BaseModel):
+    influencers: list
+    recipients: list
+    categories: list
+    date_range: dict
+
+class ReportRequest(BaseModel):
+    country: str
+    start_date: str  # YYYY-MM-DD
+    end_date: str    # YYYY-MM-DD
+    recipient: str = "All"
+    top_events: int = 10
+
+@app.get("/api/report/config", response_model=ReportConfigResponse)
+def get_report_config():
+    """Return configuration options for the report generation form."""
+    with get_session() as session:
+        date_range_result = session.query(
+            func.min(Document.date).label('min_date'),
+            func.max(Document.date).label('max_date')
+        ).join(InitiatingCountry).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS)
+        ).first()
+
+        return ReportConfigResponse(
+            influencers=sorted(INFLUENCERS),
+            recipients=["All"] + sorted(RECIPIENTS),
+            categories=CONFIG.get('categories', []),
+            date_range={
+                "min": str(date_range_result.min_date) if date_range_result and date_range_result.min_date else "2024-08-01",
+                "max": str(date_range_result.max_date) if date_range_result and date_range_result.max_date else "2026-01-01"
+            }
+        )
+
+@app.post("/api/report/generate")
+def generate_report_endpoint(request: ReportRequest):
+    """
+    Generate a full publication report with LLM narratives, metrics, and citations.
+    This is a long-running endpoint (30-60s due to LLM calls).
+    """
+    from server.report_generator import generate_report
+
+    if request.country not in INFLUENCERS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"{request.country} is not a recognized influencer")
+
+    recipient = None if request.recipient == "All" else request.recipient
+    if recipient and recipient not in RECIPIENTS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"{request.recipient} is not a recognized recipient")
+
+    result = generate_report(
+        country=request.country,
+        start_date_str=request.start_date,
+        end_date_str=request.end_date,
+        recipient=recipient,
+        top_n=request.top_events
+    )
+    return result
+
+
+@app.post("/api/report/stream")
+def generate_report_stream_endpoint(request: ReportRequest):
+    """
+    SSE streaming version of report generation.
+    Yields Server-Sent Events as report sections complete progressively.
+    """
+    import json
+    from server.report_generator import generate_report_stream
+
+    if request.country not in INFLUENCERS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"{request.country} is not a recognized influencer")
+
+    recipient = None if request.recipient == "All" else request.recipient
+    if recipient and recipient not in RECIPIENTS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"{request.recipient} is not a recognized recipient")
+
+    def event_generator():
+        try:
+            for event in generate_report_stream(
+                country=request.country,
+                start_date_str=request.start_date,
+                end_date_str=request.end_date,
+                recipient=recipient,
+                top_n=request.top_events
+            ):
+                event_type = event.get("type", "unknown")
+                payload = json.dumps(event.get("payload", {}))
+                yield f"event: {event_type}\ndata: {payload}\n\n"
+        except GeneratorExit:
+            print("[Report SSE] Client disconnected")
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {error_payload}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
 
 # Static file serving for React SPA
 # IMPORTANT: This must come AFTER all @app.get() API route definitions
