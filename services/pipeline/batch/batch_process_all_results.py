@@ -169,12 +169,22 @@ def process_single_batch(
                     print(f"    [DRY RUN] Would process {job_type} record {record_id}")
                 overall_stats['total_processed'] += 1
             else:
-                stats = _route_result(
-                    session, job_type, record_id, llm_response,
-                    deconfliction_processor, verbose
-                )
-                overall_stats['total_processed'] += 1
-                _merge_stats(overall_stats, stats, job_type)
+                # Use savepoint for per-record isolation so one failure
+                # doesn't abort the entire transaction
+                savepoint = session.begin_nested()
+                try:
+                    stats = _route_result(
+                        session, job_type, record_id, llm_response,
+                        deconfliction_processor, verbose
+                    )
+                    savepoint.commit()
+                    overall_stats['total_processed'] += 1
+                    _merge_stats(overall_stats, stats, job_type)
+                except Exception as e:
+                    savepoint.rollback()
+                    if verbose:
+                        print(f"    Error processing {custom_id}: {e}")
+                    overall_stats['total_errors'] += 1
 
             # Checkpoint commit
             if not dry_run and processed_count % checkpoint_frequency == 0:

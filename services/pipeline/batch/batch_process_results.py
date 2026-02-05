@@ -121,10 +121,6 @@ def process_cluster_result(
             if verbose:
                 print(f"  Warning: Failed to create canonical events for cluster {cluster_id}: {e}")
             stats['errors'] += 1
-            try:
-                session.rollback()
-            except Exception:
-                pass
 
         return stats
 
@@ -132,11 +128,7 @@ def process_cluster_result(
         if verbose:
             print(f"  Error processing cluster {cluster_id}: {e}")
         stats['errors'] += 1
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        return stats
+        raise
 
 
 def process_canonical_result(
@@ -288,11 +280,7 @@ def process_canonical_result(
         if verbose:
             print(f"  Error processing master event {master_event_id}: {e}")
         stats['errors'] += 1
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        return stats
+        raise
 
 
 def process_entity_extract_result(
@@ -358,11 +346,7 @@ def process_entity_extract_result(
         if verbose:
             print(f"  Error processing event {event_id}: {e}")
         stats['errors'] += 1
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        return stats
+        raise
 
 
 def process_materiality_score_result(
@@ -444,11 +428,7 @@ def process_materiality_score_result(
         if verbose:
             print(f"  Error processing event {event_id}: {e}")
         stats['errors'] += 1
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        return stats
+        raise
 
 
 def process_daily_entity_extract_result(
@@ -537,11 +517,7 @@ def process_daily_entity_extract_result(
         if verbose:
             print(f"  Error processing document {doc_id}: {e}")
         stats['errors'] += 1
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        return stats
+        raise
 
 
 def process_entity_deconflict_result(
@@ -770,11 +746,7 @@ def process_entity_deconflict_result(
         if verbose:
             print(f"  Error processing cluster {cluster_id}: {e}")
         stats['errors'] += 1
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        return stats
+        raise
 
 
 def main():
@@ -906,93 +878,57 @@ def main():
                         if 'reasoning' in llm_response and 'explanation' not in llm_response:
                             llm_response['explanation'] = llm_response['reasoning']
 
-                    # Route to appropriate handler
-                    if job_type == JOB_TYPE_CLUSTER_DECONFLICT:
-                        if args.dry_run:
-                            print(f"  [DRY RUN] Would process cluster {record_id}")
-                            overall_stats['total_processed'] += 1
-                        else:
-                            stats = process_cluster_result(
-                                session,
-                                record_id,
-                                llm_response,
-                                deconfliction_processor,
-                                verbose=args.verbose
-                            )
-                            overall_stats['total_processed'] += 1
-                            overall_stats['total_errors'] += stats['errors']
-                            overall_stats['canonical_events_created'] += stats['canonical_events_created']
-                            overall_stats['canonical_events_updated'] += stats['canonical_events_updated']
-                            overall_stats['daily_mentions_created'] += stats['daily_mentions_created']
-
-                    elif job_type == JOB_TYPE_CANONICAL_DECONFLICT:
-                        if args.dry_run:
-                            print(f"  [DRY RUN] Would process canonical event {record_id}")
-                            overall_stats['total_processed'] += 1
-                        else:
-                            stats = process_canonical_result(
-                                session,
-                                record_id,
-                                llm_response,
-                                verbose=args.verbose
-                            )
-                            overall_stats['total_processed'] += 1
-                            overall_stats['total_errors'] += stats['errors']
-                            overall_stats['validated'] += stats['validated']
-                            overall_stats['renamed'] += stats['renamed']
-                            overall_stats['split'] += stats['split']
-
-                    elif job_type == JOB_TYPE_ENTITY_EXTRACT:
-                        if args.dry_run:
-                            print(f"  [DRY RUN] Would extract entities for event {record_id}")
-                            overall_stats['total_processed'] += 1
-                        else:
-                            stats = process_entity_extract_result(
-                                session,
-                                record_id,
-                                llm_response,
-                                verbose=args.verbose
-                            )
-                            overall_stats['total_processed'] += 1
-                            overall_stats['total_errors'] += stats['errors']
-                            overall_stats['entities_extracted'] += stats['entities_extracted']
-
-                    elif job_type == JOB_TYPE_SCORE_MATERIALITY:
-                        if args.dry_run:
-                            print(f"  [DRY RUN] Would score materiality for event {record_id}")
-                            overall_stats['total_processed'] += 1
-                        else:
-                            stats = process_materiality_score_result(
-                                session,
-                                record_id,
-                                llm_response,
-                                verbose=args.verbose
-                            )
-                            overall_stats['total_processed'] += 1
-                            overall_stats['total_errors'] += stats['errors']
-                            overall_stats['events_scored'] += stats['events_scored']
-
-                    elif job_type == JOB_TYPE_DAILY_ENTITY_EXTRACT:
-                        if args.dry_run:
-                            print(f"  [DRY RUN] Would extract entities from document {record_id}")
-                            overall_stats['total_processed'] += 1
-                        else:
-                            stats = process_daily_entity_extract_result(
-                                session,
-                                record_id,
-                                llm_response,
-                                verbose=args.verbose
-                            )
-                            overall_stats['total_processed'] += 1
-                            overall_stats['total_errors'] += stats['errors']
-                            if 'entities_extracted' not in overall_stats:
-                                overall_stats['entities_extracted'] = 0
-                            overall_stats['entities_extracted'] += stats['entities_extracted']
-
+                    # Route to appropriate handler using savepoint for isolation
+                    if args.dry_run:
+                        print(f"  [DRY RUN] Would process {job_type} record {record_id}")
+                        overall_stats['total_processed'] += 1
                     else:
-                        print(f"  Warning: Unknown job type '{job_type}' for {custom_id}")
-                        overall_stats['total_errors'] += 1
-                        continue
+                        savepoint = session.begin_nested()
+                        try:
+                            if job_type == JOB_TYPE_CLUSTER_DECONFLICT:
+                                stats = process_cluster_result(
+                                    session, record_id, llm_response,
+                                    deconfliction_processor, verbose=args.verbose
+                                )
+                            elif job_type == JOB_TYPE_CANONICAL_DECONFLICT:
+                                stats = process_canonical_result(
+                                    session, record_id, llm_response, verbose=args.verbose
+                                )
+                            elif job_type == JOB_TYPE_ENTITY_EXTRACT:
+                                stats = process_entity_extract_result(
+                                    session, record_id, llm_response, verbose=args.verbose
+                                )
+                            elif job_type == JOB_TYPE_SCORE_MATERIALITY:
+                                stats = process_materiality_score_result(
+                                    session, record_id, llm_response, verbose=args.verbose
+                                )
+                            elif job_type == JOB_TYPE_DAILY_ENTITY_EXTRACT:
+                                stats = process_daily_entity_extract_result(
+                                    session, record_id, llm_response, verbose=args.verbose
+                                )
+                            elif job_type == JOB_TYPE_ENTITY_DECONFLICT:
+                                stats = process_entity_deconflict_result(
+                                    session, record_id, llm_response, verbose=args.verbose
+                                )
+                            else:
+                                savepoint.rollback()
+                                print(f"  Warning: Unknown job type '{job_type}' for {custom_id}")
+                                overall_stats['total_errors'] += 1
+                                continue
+
+                            savepoint.commit()
+                            overall_stats['total_processed'] += 1
+                            overall_stats['total_errors'] += stats.get('errors', 0)
+
+                            # Merge type-specific stats
+                            for key in stats:
+                                if key != 'errors' and key in overall_stats:
+                                    overall_stats[key] += stats[key]
+
+                        except Exception as e:
+                            savepoint.rollback()
+                            print(f"  Error processing {job_type} {record_id}: {e}")
+                            overall_stats['total_errors'] += 1
 
                     # Checkpoint commit
                     if not args.dry_run and processed_count % args.checkpoint_frequency == 0:
@@ -1003,7 +939,6 @@ def main():
                 except Exception as e:
                     print(f"  Error processing result {custom_id}: {e}")
                     overall_stats['total_errors'] += 1
-                    # Recover session after flush/integrity errors
                     try:
                         session.rollback()
                     except Exception:
