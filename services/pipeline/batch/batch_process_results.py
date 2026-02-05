@@ -25,13 +25,17 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from shared.database.database import get_session
-from shared.models.models import EventCluster, CanonicalEvent, DailyEventMention, Document, RawEntity, EntityTypeEnum
+from shared.models.models import (
+    EventCluster, CanonicalEvent, DailyEventMention, Document, RawEntity,
+    EntityTypeEnum, EntityCluster, CanonicalEntity, DailyEntityMention, EntityRoleEnum
+)
 from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLUSTER_DECONFLICT,
     JOB_TYPE_CANONICAL_DECONFLICT,
     JOB_TYPE_ENTITY_EXTRACT,
     JOB_TYPE_SCORE_MATERIALITY,
     JOB_TYPE_DAILY_ENTITY_EXTRACT,
+    JOB_TYPE_ENTITY_DECONFLICT,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -117,6 +121,10 @@ def process_cluster_result(
             if verbose:
                 print(f"  Warning: Failed to create canonical events for cluster {cluster_id}: {e}")
             stats['errors'] += 1
+            try:
+                session.rollback()
+            except Exception:
+                pass
 
         return stats
 
@@ -124,6 +132,10 @@ def process_cluster_result(
         if verbose:
             print(f"  Error processing cluster {cluster_id}: {e}")
         stats['errors'] += 1
+        try:
+            session.rollback()
+        except Exception:
+            pass
         return stats
 
 
@@ -276,6 +288,10 @@ def process_canonical_result(
         if verbose:
             print(f"  Error processing master event {master_event_id}: {e}")
         stats['errors'] += 1
+        try:
+            session.rollback()
+        except Exception:
+            pass
         return stats
 
 
@@ -342,6 +358,10 @@ def process_entity_extract_result(
         if verbose:
             print(f"  Error processing event {event_id}: {e}")
         stats['errors'] += 1
+        try:
+            session.rollback()
+        except Exception:
+            pass
         return stats
 
 
@@ -424,6 +444,10 @@ def process_materiality_score_result(
         if verbose:
             print(f"  Error processing event {event_id}: {e}")
         stats['errors'] += 1
+        try:
+            session.rollback()
+        except Exception:
+            pass
         return stats
 
 
@@ -513,6 +537,243 @@ def process_daily_entity_extract_result(
         if verbose:
             print(f"  Error processing document {doc_id}: {e}")
         stats['errors'] += 1
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        return stats
+
+
+def process_entity_deconflict_result(
+    session,
+    cluster_id: str,
+    llm_response: Dict[str, Any],
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process entity cluster deconfliction result from batch API.
+
+    Updates EntityCluster.refined_clusters and creates CanonicalEntity
+    and DailyEntityMention records.
+
+    Adapted from llm_deconflict_entity_clusters.py:save_deconfliction_result()
+    and create_canonical_entities_from_cluster().
+
+    Args:
+        session: Database session
+        cluster_id: EntityCluster UUID
+        llm_response: Parsed LLM response from batch result
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    from sqlalchemy import text
+    from collections import defaultdict
+
+    stats = {
+        'canonical_entities_created': 0,
+        'canonical_entities_updated': 0,
+        'daily_mentions_created': 0,
+        'confirmed': 0,
+        'split': 0,
+        'errors': 0
+    }
+
+    try:
+        # Load cluster
+        cluster = session.get(EntityCluster, cluster_id)
+        if not cluster:
+            if verbose:
+                print(f"  Warning: EntityCluster {cluster_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        if cluster.llm_deconflicted:
+            if verbose:
+                print(f"  Cluster {cluster_id}: Already deconflicted, skipping")
+            return stats
+
+        # Extract LLM result fields
+        same_entity = llm_response.get('same_entity', True)
+        explanation = llm_response.get('explanation', '')
+        canonical_name = llm_response.get('canonical_name', '')
+        primary_role_str = llm_response.get('primary_role', 'other')
+        country_affiliation = llm_response.get('country_affiliation')
+        unique_names = list(set(cluster.entity_names))
+        groups = llm_response.get('groups', [[i+1 for i in range(len(unique_names))]])
+
+        # Save refined_clusters to the cluster record
+        refined_data = {
+            'same_entity': same_entity,
+            'explanation': explanation,
+            'canonical_name': canonical_name or unique_names[0],
+            'primary_role': primary_role_str,
+            'country_affiliation': country_affiliation,
+            'original_cluster_size': cluster.cluster_size,
+            'unique_entity_names': len(unique_names),
+            'groups': groups,
+            'reviewed_at': datetime.utcnow().isoformat(),
+            'unique_names_list': unique_names
+        }
+        cluster.refined_clusters = refined_data
+        cluster.llm_deconflicted = True
+
+        if same_entity:
+            stats['confirmed'] += 1
+        else:
+            stats['split'] += 1
+
+        # Create canonical entities and daily mentions for each group
+        name_to_docs = defaultdict(list)
+        for entity_name, doc_id in zip(cluster.entity_names, cluster.doc_ids):
+            name_to_docs[entity_name].append(doc_id)
+
+        for group_indices in groups:
+            group_names = [unique_names[idx - 1] for idx in group_indices if 1 <= idx <= len(unique_names)]
+            if not group_names:
+                continue
+
+            # Collect doc_ids for this group
+            group_doc_ids = []
+            for name in group_names:
+                group_doc_ids.extend(name_to_docs[name])
+            group_doc_ids = list(dict.fromkeys(group_doc_ids))
+
+            if not group_doc_ids:
+                continue
+
+            # Choose canonical name
+            if same_entity and canonical_name:
+                group_canonical_name = canonical_name
+            else:
+                group_canonical_name = max(group_names, key=group_names.count)
+
+            # Map role to enum
+            try:
+                primary_role = EntityRoleEnum(primary_role_str)
+            except ValueError:
+                primary_role = EntityRoleEnum.OTHER
+
+            # Query recipient countries from linked documents
+            recipients_query = session.execute(text("""
+                SELECT rc.recipient_country, COUNT(*) as count
+                FROM recipient_countries rc
+                WHERE rc.doc_id = ANY(:doc_ids)
+                GROUP BY rc.recipient_country
+            """), {"doc_ids": group_doc_ids}).fetchall()
+            primary_recipients = {row[0]: row[1] for row in recipients_query}
+
+            # Query categories from linked documents
+            categories_query = session.execute(text("""
+                SELECT c.category, COUNT(*) as count
+                FROM categories c
+                WHERE c.doc_id = ANY(:doc_ids)
+                GROUP BY c.category
+            """), {"doc_ids": group_doc_ids}).fetchall()
+            primary_categories = {row[0]: row[1] for row in categories_query}
+
+            # Get country affiliations from raw entities
+            affiliations_query = session.execute(text("""
+                SELECT DISTINCT country_affiliation
+                FROM raw_entities
+                WHERE doc_id = ANY(:doc_ids)
+                  AND entity_name = ANY(:entity_names)
+                  AND country_affiliation IS NOT NULL
+            """), {"doc_ids": group_doc_ids, "entity_names": group_names}).fetchall()
+            country_affiliations = [row[0] for row in affiliations_query if row[0]]
+
+            # Check if canonical entity already exists
+            existing_entity = session.query(CanonicalEntity).filter(
+                CanonicalEntity.canonical_name == group_canonical_name,
+                CanonicalEntity.entity_type == cluster.entity_type,
+                CanonicalEntity.initiating_country == cluster.initiating_country
+            ).first()
+
+            savepoint = session.begin_nested()
+            try:
+                if existing_entity:
+                    canonical_entity = existing_entity
+                    canonical_entity.last_mention_date = max(
+                        canonical_entity.last_mention_date, cluster.cluster_date
+                    )
+                    canonical_entity.total_documents += len(group_doc_ids)
+
+                    for name in group_names:
+                        if name != group_canonical_name and name not in canonical_entity.alternative_names:
+                            canonical_entity.alternative_names = canonical_entity.alternative_names + [name]
+
+                    for aff in country_affiliations:
+                        if aff not in canonical_entity.country_affiliations:
+                            canonical_entity.country_affiliations = canonical_entity.country_affiliations + [aff]
+
+                    stats['canonical_entities_updated'] += 1
+                else:
+                    canonical_entity = CanonicalEntity(
+                        canonical_name=group_canonical_name,
+                        entity_type=cluster.entity_type,
+                        initiating_country=cluster.initiating_country,
+                        primary_role=primary_role,
+                        country_affiliations=country_affiliations,
+                        alternative_names=[n for n in group_names if n != group_canonical_name],
+                        first_mention_date=cluster.cluster_date,
+                        last_mention_date=cluster.cluster_date,
+                        total_mention_days=1,
+                        total_documents=len(group_doc_ids),
+                        primary_categories=primary_categories,
+                        primary_recipients=primary_recipients,
+                        associated_events=[]
+                    )
+                    session.add(canonical_entity)
+                    session.flush()
+                    stats['canonical_entities_created'] += 1
+
+                # Create or update DailyEntityMention
+                existing_mention = session.query(DailyEntityMention).filter(
+                    DailyEntityMention.canonical_entity_id == canonical_entity.id,
+                    DailyEntityMention.mention_date == cluster.cluster_date
+                ).first()
+
+                if existing_mention:
+                    existing_mention.document_count = len(group_doc_ids)
+                    existing_mention.doc_ids = group_doc_ids
+                else:
+                    daily_mention = DailyEntityMention(
+                        canonical_entity_id=canonical_entity.id,
+                        initiating_country=cluster.initiating_country,
+                        mention_date=cluster.cluster_date,
+                        document_count=len(group_doc_ids),
+                        primary_role_this_day=primary_role_str,
+                        doc_ids=group_doc_ids,
+                        associated_event_ids=[]
+                    )
+                    session.add(daily_mention)
+                    session.flush()
+                    stats['daily_mentions_created'] += 1
+
+                savepoint.commit()
+
+            except Exception as e:
+                savepoint.rollback()
+                if verbose:
+                    safe_name = group_canonical_name.encode('ascii', 'replace').decode('ascii')[:60]
+                    print(f"  Error creating canonical entity '{safe_name}': {e}")
+                stats['errors'] += 1
+
+        if verbose:
+            action = "Confirmed" if same_entity else f"Split into {len(groups)} groups"
+            print(f"  Cluster {cluster_id}: {action}")
+
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing cluster {cluster_id}: {e}")
+        stats['errors'] += 1
+        try:
+            session.rollback()
+        except Exception:
+            pass
         return stats
 
 

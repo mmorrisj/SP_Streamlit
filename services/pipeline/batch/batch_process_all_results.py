@@ -41,6 +41,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_ENTITY_EXTRACT,
     JOB_TYPE_SCORE_MATERIALITY,
     JOB_TYPE_DAILY_ENTITY_EXTRACT,
+    JOB_TYPE_ENTITY_DECONFLICT,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -51,7 +52,8 @@ from services.pipeline.batch.batch_process_results import (
     process_canonical_result,
     process_entity_extract_result,
     process_materiality_score_result,
-    process_daily_entity_extract_result
+    process_daily_entity_extract_result,
+    process_entity_deconflict_result
 )
 from services.pipeline.events.llm_deconflict_clusters import LLMClusterDeconfliction
 
@@ -83,8 +85,11 @@ def process_single_batch(
         'total_errors': 0,
         'canonical_events_created': 0,
         'canonical_events_updated': 0,
+        'canonical_entities_created': 0,
+        'canonical_entities_updated': 0,
         'daily_mentions_created': 0,
         'validated': 0,
+        'confirmed': 0,
         'renamed': 0,
         'split': 0,
         'entities_extracted': 0,
@@ -222,6 +227,10 @@ def _route_result(
         return process_daily_entity_extract_result(
             session, record_id, llm_response, verbose=verbose
         )
+    elif job_type == JOB_TYPE_ENTITY_DECONFLICT:
+        return process_entity_deconflict_result(
+            session, record_id, llm_response, verbose=verbose
+        )
     else:
         return {'errors': 1}
 
@@ -242,6 +251,12 @@ def _merge_stats(overall: Dict, stats: Dict, job_type: str):
         overall['entities_extracted'] += stats.get('entities_extracted', 0)
     elif job_type == JOB_TYPE_SCORE_MATERIALITY:
         overall['events_scored'] += stats.get('events_scored', 0)
+    elif job_type == JOB_TYPE_ENTITY_DECONFLICT:
+        overall['canonical_entities_created'] += stats.get('canonical_entities_created', 0)
+        overall['canonical_entities_updated'] += stats.get('canonical_entities_updated', 0)
+        overall['daily_mentions_created'] += stats.get('daily_mentions_created', 0)
+        overall['confirmed'] += stats.get('confirmed', 0)
+        overall['split'] += stats.get('split', 0)
 
 
 def main():
@@ -341,8 +356,11 @@ def main():
                 'total_errors': 0,
                 'canonical_events_created': 0,
                 'canonical_events_updated': 0,
+                'canonical_entities_created': 0,
+                'canonical_entities_updated': 0,
                 'daily_mentions_created': 0,
                 'validated': 0,
+                'confirmed': 0,
                 'renamed': 0,
                 'split': 0,
                 'entities_extracted': 0,
@@ -368,8 +386,11 @@ def main():
                     grand_total['total_errors'] += stats['total_errors']
                     grand_total['canonical_events_created'] += stats['canonical_events_created']
                     grand_total['canonical_events_updated'] += stats['canonical_events_updated']
+                    grand_total['canonical_entities_created'] += stats.get('canonical_entities_created', 0)
+                    grand_total['canonical_entities_updated'] += stats.get('canonical_entities_updated', 0)
                     grand_total['daily_mentions_created'] += stats['daily_mentions_created']
                     grand_total['validated'] += stats['validated']
+                    grand_total['confirmed'] += stats['confirmed']
                     grand_total['renamed'] += stats['renamed']
                     grand_total['split'] += stats['split']
                     grand_total['entities_extracted'] += stats['entities_extracted']
@@ -398,14 +419,20 @@ def main():
                 print(f"Canonical events created: {grand_total['canonical_events_created']:,}")
             if grand_total['canonical_events_updated'] > 0:
                 print(f"Canonical events updated: {grand_total['canonical_events_updated']:,}")
+            if grand_total['canonical_entities_created'] > 0:
+                print(f"Canonical entities created: {grand_total['canonical_entities_created']:,}")
+            if grand_total['canonical_entities_updated'] > 0:
+                print(f"Canonical entities updated: {grand_total['canonical_entities_updated']:,}")
             if grand_total['daily_mentions_created'] > 0:
                 print(f"Daily mentions created: {grand_total['daily_mentions_created']:,}")
             if grand_total['validated'] > 0:
                 print(f"Events validated: {grand_total['validated']:,}")
+            if grand_total['confirmed'] > 0:
+                print(f"Entity clusters confirmed: {grand_total['confirmed']:,}")
             if grand_total['renamed'] > 0:
                 print(f"Events renamed: {grand_total['renamed']:,}")
             if grand_total['split'] > 0:
-                print(f"Event groups split: {grand_total['split']:,}")
+                print(f"Groups split: {grand_total['split']:,}")
             if grand_total['entities_extracted'] > 0:
                 print(f"Entities extracted: {grand_total['entities_extracted']:,}")
             if grand_total['events_scored'] > 0:

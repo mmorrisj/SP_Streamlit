@@ -15,7 +15,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from sqlalchemy import text, func
@@ -29,6 +29,33 @@ from shared.models.models import (
     InitiatingCountry, RecipientCountry,
     CanonicalEvent, CanonicalEntity, DailyEntityMention
 )
+
+
+def _parse_entities_mentioned(entities_mentioned) -> List[Dict]:
+    """
+    Parse the canonical_events.entities_mentioned JSONB into a flat list
+    of {name, entity_type, role} dicts for the frontend.
+    """
+    if not entities_mentioned:
+        return []
+
+    result = []
+    type_map = {
+        'persons': 'PERSON',
+        'organizations': 'ORGANIZATION',
+        'companies': 'COMPANY',
+        'locations': 'LOCATION',
+    }
+    for json_key, entity_type in type_map.items():
+        for ent in (entities_mentioned.get(json_key) or []):
+            name = ent.get('entity_name') or ent.get('name')
+            if name:
+                result.append({
+                    'name': name,
+                    'entity_type': entity_type,
+                    'role': ent.get('role') or ent.get('sector') or ent.get('type') or None,
+                })
+    return result
 
 
 def _check_llm_availability() -> bool:
@@ -98,32 +125,69 @@ def get_top_events_by_category(
                 ce.total_mention_days,
                 ce.llm_validated,
                 COALESCE(ce.material_score, 0) as materiality_score,
+                ce.material_justification,
+                ce.entities_mentioned,
                 (
                     SELECT ARRAY_AGG(DISTINCT d)
                     FROM daily_event_mentions dem2, unnest(dem2.doc_ids) as d
+                    JOIN documents d2 ON d2.doc_id = d
                     WHERE dem2.canonical_event_id = ce.id
+                    AND d2.date >= :start_date AND d2.date <= :end_date
                 ) as doc_ids,
                 (
                     SELECT COUNT(DISTINCT did)
                     FROM daily_event_mentions dem4, unnest(dem4.doc_ids) as did
                     JOIN categories c3 ON c3.doc_id = did
+                    JOIN documents d3 ON d3.doc_id = did
                     WHERE dem4.canonical_event_id = ce.id
                     AND c3.category = :category
-                ) as category_doc_count
+                    AND d3.date >= :start_date AND d3.date <= :end_date
+                ) as category_doc_count,
+                (
+                    SELECT MIN(d5.date)
+                    FROM daily_event_mentions dem5, unnest(dem5.doc_ids) as d5id
+                    JOIN documents d5 ON d5.doc_id = d5id
+                    WHERE dem5.canonical_event_id = ce.id
+                    AND d5.date >= :start_date AND d5.date <= :end_date
+                ) as period_first_date,
+                (
+                    SELECT MAX(d6.date)
+                    FROM daily_event_mentions dem6, unnest(dem6.doc_ids) as d6id
+                    JOIN documents d6 ON d6.doc_id = d6id
+                    WHERE dem6.canonical_event_id = ce.id
+                    AND d6.date >= :start_date AND d6.date <= :end_date
+                ) as period_last_date,
+                (
+                    SELECT COUNT(DISTINCT d7)
+                    FROM daily_event_mentions dem7, unnest(dem7.doc_ids) as d7
+                    JOIN documents d7doc ON d7doc.doc_id = d7
+                    WHERE dem7.canonical_event_id = ce.id
+                    AND d7doc.date >= :start_date AND d7doc.date <= :end_date
+                ) as period_article_count
             FROM canonical_events ce
             WHERE ce.initiating_country = :country
                 AND ce.master_event_id IS NULL
+                AND ce.first_mention_date >= :start_date
                 AND ce.first_mention_date <= :end_date
-                AND ce.last_mention_date >= :start_date
+                AND NOT (ce.primary_recipients ? :country)
+                AND (
+                    SELECT COUNT(DISTINCT d8)
+                    FROM daily_event_mentions dem8, unnest(dem8.doc_ids) as d8
+                    JOIN documents d8doc ON d8doc.doc_id = d8
+                    WHERE dem8.canonical_event_id = ce.id
+                    AND d8doc.date >= :start_date AND d8doc.date <= :end_date
+                ) >= 2
                 AND EXISTS (
                     SELECT 1
                     FROM daily_event_mentions dem3, unnest(dem3.doc_ids) as did
                     JOIN categories c2 ON c2.doc_id = did
+                    JOIN documents d4 ON d4.doc_id = did
                     WHERE dem3.canonical_event_id = ce.id
                     AND c2.category = :category
+                    AND d4.date >= :start_date AND d4.date <= :end_date
                 )
                 {recipient_clause}
-            ORDER BY ce.total_articles DESC, materiality_score DESC
+            ORDER BY materiality_score DESC, period_article_count DESC
             LIMIT :top_n
         """)
 
@@ -139,15 +203,26 @@ def get_top_events_by_category(
                     else:
                         doc_ids.append(doc_id_item)
 
+            # Use period-scoped dates and article count from date-filtered docs
+            period_doc_count = len(set(doc_ids))
+            period_first = row.period_first_date.isoformat() if row.period_first_date else (
+                row.first_mention_date.isoformat() if row.first_mention_date else None
+            )
+            period_last = row.period_last_date.isoformat() if row.period_last_date else (
+                row.last_mention_date.isoformat() if row.last_mention_date else None
+            )
+
             events_by_category[category].append({
                 'id': str(row.id),
                 'event_name': row.canonical_name,
                 'description': row.consolidated_description,
-                'first_mention_date': row.first_mention_date.isoformat() if row.first_mention_date else None,
-                'last_mention_date': row.last_mention_date.isoformat() if row.last_mention_date else None,
-                'article_count': row.total_articles or 0,
+                'first_mention_date': period_first,
+                'last_mention_date': period_last,
+                'article_count': period_doc_count,
                 'mention_days': row.total_mention_days or 0,
                 'materiality_score': float(row.materiality_score) if row.materiality_score else 0.0,
+                'material_justification': row.material_justification,
+                'key_entities': _parse_entities_mentioned(row.entities_mentioned),
                 'llm_validated': row.llm_validated,
                 'doc_ids': list(set(doc_ids)),
                 'category_doc_count': row.category_doc_count or 0,
@@ -245,34 +320,71 @@ def _deduplicate_and_backfill(
                 ce.total_mention_days,
                 ce.llm_validated,
                 COALESCE(ce.material_score, 0) as materiality_score,
+                ce.material_justification,
+                ce.entities_mentioned,
                 (
                     SELECT ARRAY_AGG(DISTINCT d)
                     FROM daily_event_mentions dem2, unnest(dem2.doc_ids) as d
+                    JOIN documents d2 ON d2.doc_id = d
                     WHERE dem2.canonical_event_id = ce.id
+                    AND d2.date >= :start_date AND d2.date <= :end_date
                 ) as doc_ids,
                 (
                     SELECT COUNT(DISTINCT did)
                     FROM daily_event_mentions dem4, unnest(dem4.doc_ids) as did
                     JOIN categories c3 ON c3.doc_id = did
+                    JOIN documents d3 ON d3.doc_id = did
                     WHERE dem4.canonical_event_id = ce.id
                     AND c3.category = :category
-                ) as category_doc_count
+                    AND d3.date >= :start_date AND d3.date <= :end_date
+                ) as category_doc_count,
+                (
+                    SELECT MIN(d5.date)
+                    FROM daily_event_mentions dem5, unnest(dem5.doc_ids) as d5id
+                    JOIN documents d5 ON d5.doc_id = d5id
+                    WHERE dem5.canonical_event_id = ce.id
+                    AND d5.date >= :start_date AND d5.date <= :end_date
+                ) as period_first_date,
+                (
+                    SELECT MAX(d6.date)
+                    FROM daily_event_mentions dem6, unnest(dem6.doc_ids) as d6id
+                    JOIN documents d6 ON d6.doc_id = d6id
+                    WHERE dem6.canonical_event_id = ce.id
+                    AND d6.date >= :start_date AND d6.date <= :end_date
+                ) as period_last_date,
+                (
+                    SELECT COUNT(DISTINCT d7)
+                    FROM daily_event_mentions dem7, unnest(dem7.doc_ids) as d7
+                    JOIN documents d7doc ON d7doc.doc_id = d7
+                    WHERE dem7.canonical_event_id = ce.id
+                    AND d7doc.date >= :start_date AND d7doc.date <= :end_date
+                ) as period_article_count
             FROM canonical_events ce
             WHERE ce.initiating_country = :country
                 AND ce.master_event_id IS NULL
+                AND ce.first_mention_date >= :start_date
                 AND ce.first_mention_date <= :end_date
-                AND ce.last_mention_date >= :start_date
                 AND ce.total_articles >= :min_articles
+                AND NOT (ce.primary_recipients ? :country)
+                AND (
+                    SELECT COUNT(DISTINCT d8)
+                    FROM daily_event_mentions dem8, unnest(dem8.doc_ids) as d8
+                    JOIN documents d8doc ON d8doc.doc_id = d8
+                    WHERE dem8.canonical_event_id = ce.id
+                    AND d8doc.date >= :start_date AND d8doc.date <= :end_date
+                ) >= 2
                 AND EXISTS (
                     SELECT 1
                     FROM daily_event_mentions dem3, unnest(dem3.doc_ids) as did
                     JOIN categories c2 ON c2.doc_id = did
+                    JOIN documents d4 ON d4.doc_id = did
                     WHERE dem3.canonical_event_id = ce.id
                     AND c2.category = :category
+                    AND d4.date >= :start_date AND d4.date <= :end_date
                 )
                 {exclude_clause}
                 {recipient_clause}
-            ORDER BY ce.total_articles DESC, materiality_score DESC
+            ORDER BY materiality_score DESC, period_article_count DESC
             LIMIT :backfill_limit
         """)
 
@@ -288,15 +400,25 @@ def _deduplicate_and_backfill(
                     else:
                         doc_ids.append(doc_id_item)
 
+            period_doc_count = len(set(doc_ids))
+            period_first = row.period_first_date.isoformat() if row.period_first_date else (
+                row.first_mention_date.isoformat() if row.first_mention_date else None
+            )
+            period_last = row.period_last_date.isoformat() if row.period_last_date else (
+                row.last_mention_date.isoformat() if row.last_mention_date else None
+            )
+
             new_event = {
                 'id': str(row.id),
                 'event_name': row.canonical_name,
                 'description': row.consolidated_description,
-                'first_mention_date': row.first_mention_date.isoformat() if row.first_mention_date else None,
-                'last_mention_date': row.last_mention_date.isoformat() if row.last_mention_date else None,
-                'article_count': row.total_articles or 0,
+                'first_mention_date': period_first,
+                'last_mention_date': period_last,
+                'article_count': period_doc_count,
                 'mention_days': row.total_mention_days or 0,
                 'materiality_score': float(row.materiality_score) if row.materiality_score else 0.0,
+                'material_justification': row.material_justification,
+                'key_entities': _parse_entities_mentioned(row.entities_mentioned),
                 'llm_validated': row.llm_validated,
                 'doc_ids': list(set(doc_ids)),
                 'category_doc_count': row.category_doc_count or 0,
@@ -351,13 +473,58 @@ def get_document_details(session: Session, doc_ids: List[str]) -> List[Dict]:
     return documents
 
 
+def get_entities_for_events(
+    session: Session,
+    event_ids: List[str],
+    country: str
+) -> Dict[str, List[Dict]]:
+    """
+    For each event ID, find entities whose associated_events array contains that event.
+    Returns a dict mapping event_id -> list of {name, entity_type, role}.
+    """
+    if not event_ids:
+        return {}
+
+    query = text("""
+        SELECT
+            ce.canonical_name,
+            ce.entity_type::text as entity_type,
+            ce.primary_role::text as primary_role,
+            ce.associated_events
+        FROM canonical_entities ce
+        WHERE ce.initiating_country = :country
+            AND ce.master_entity_id IS NULL
+            AND ce.associated_events && :event_ids
+    """)
+
+    result = session.execute(query, {
+        'country': country,
+        'event_ids': event_ids
+    }).fetchall()
+
+    entities_by_event: Dict[str, List[Dict]] = defaultdict(list)
+    for row in result:
+        entity_info = {
+            'name': row.canonical_name,
+            'entity_type': row.entity_type or 'UNKNOWN',
+            'role': row.primary_role,
+        }
+        if row.associated_events:
+            for eid in event_ids:
+                if eid in row.associated_events:
+                    entities_by_event[eid].append(entity_info)
+
+    return dict(entities_by_event)
+
+
 def compute_metrics(
     session: Session,
     country: str,
     start_date: date,
     end_date: date,
     recipient: Optional[str],
-    events_by_category: Dict[str, List[Dict]]
+    events_by_category: Dict[str, List[Dict]],
+    valid_recipients: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Compute metrics for the report: category, subcategory, recipient distributions and materiality histogram."""
 
@@ -446,6 +613,11 @@ def compute_metrics(
         recip_query = recip_query.filter(
             RecipientCountry.recipient_country == recipient
         )
+    elif valid_recipients:
+        recip_query = recip_query.filter(
+            RecipientCountry.recipient_country.in_(valid_recipients),
+            RecipientCountry.recipient_country != country
+        )
 
     recipient_dist = recip_query.group_by(
         RecipientCountry.recipient_country
@@ -482,22 +654,202 @@ def compute_metrics(
     }
 
 
-def generate_event_narrative(event: Dict, config: Config) -> Dict[str, str]:
-    """Generate Overview and Outcomes for an event using LLM."""
+def compute_materiality_trends(
+    session: Session,
+    country: str,
+    start_date: date,
+    end_date: date,
+    recipient: Optional[str] = None,
+    valid_recipients: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Compute average materiality score over time by top recipients.
+    Extends 3 months before start_date for comparison context.
+    Returns {recipient_series, overall_series, significant_changes, trend_start}.
+    """
+    trend_start = start_date - timedelta(days=90)
 
-    sys_prompt = """You are an expert analyst creating executive briefing summaries.
+    # Build recipient filter clause (always exclude self-references)
+    if recipient:
+        recip_filter = "AND r.key = :recipient"
+    elif valid_recipients:
+        recip_filter = "AND r.key = ANY(:valid_recipients) AND r.key != :country"
+    else:
+        recip_filter = "AND r.key != :country"
+
+    query = text("""
+        WITH recipient_events AS (
+            SELECT
+                ce.id,
+                DATE_TRUNC('month', ce.first_mention_date)::date AS month,
+                ce.material_score,
+                r.key AS recipient
+            FROM canonical_events ce,
+                 jsonb_each_text(ce.primary_recipients) AS r(key, value)
+            WHERE ce.initiating_country = :country
+              AND ce.master_event_id IS NULL
+              AND ce.material_score IS NOT NULL
+              AND ce.first_mention_date >= :trend_start
+              AND ce.first_mention_date <= :end_date
+              {recipient_filter}
+        ),
+        top_recipients AS (
+            SELECT recipient, COUNT(*) AS cnt
+            FROM recipient_events
+            GROUP BY recipient
+            ORDER BY cnt DESC
+            LIMIT 5
+        )
+        SELECT
+            re.month,
+            re.recipient,
+            AVG(re.material_score)::numeric(4,2) AS avg_score,
+            COUNT(*) AS event_count
+        FROM recipient_events re
+        JOIN top_recipients tr ON re.recipient = tr.recipient
+        GROUP BY re.month, re.recipient
+        ORDER BY re.month, re.recipient
+    """.format(recipient_filter=recip_filter))
+
+    params: Dict[str, Any] = {
+        'country': country,
+        'trend_start': trend_start,
+        'end_date': end_date,
+    }
+    if recipient:
+        params['recipient'] = recipient
+    elif valid_recipients:
+        params['valid_recipients'] = valid_recipients
+
+    rows = session.execute(query, params).fetchall()
+
+    # Also get overall monthly averages
+    overall_query = text("""
+        SELECT
+            DATE_TRUNC('month', ce.first_mention_date)::date AS month,
+            AVG(ce.material_score)::numeric(4,2) AS avg_score,
+            COUNT(*) AS event_count
+        FROM canonical_events ce
+        WHERE ce.initiating_country = :country
+          AND ce.master_event_id IS NULL
+          AND ce.material_score IS NOT NULL
+          AND ce.first_mention_date >= :trend_start
+          AND ce.first_mention_date <= :end_date
+        GROUP BY DATE_TRUNC('month', ce.first_mention_date)::date
+        ORDER BY month
+    """)
+    overall_rows = session.execute(overall_query, {
+        'country': country,
+        'trend_start': trend_start,
+        'end_date': end_date,
+    }).fetchall()
+
+    # Build recipient series: {recipient: [{month, avg_score, event_count}, ...]}
+    recipient_series: Dict[str, list] = defaultdict(list)
+    for row in rows:
+        recipient_series[row.recipient].append({
+            'month': row.month.isoformat(),
+            'avg_score': float(row.avg_score),
+            'event_count': int(row.event_count),
+        })
+
+    # Build overall series
+    overall_series = [
+        {
+            'month': row.month.isoformat(),
+            'avg_score': float(row.avg_score),
+            'event_count': int(row.event_count),
+        }
+        for row in overall_rows
+    ]
+
+    # Detect significant changes (>1.5 point month-over-month shift)
+    significant_changes = []
+    for recip, series in recipient_series.items():
+        for i in range(1, len(series)):
+            prev = series[i - 1]['avg_score']
+            curr = series[i]['avg_score']
+            delta = curr - prev
+            if abs(delta) >= 1.5:
+                significant_changes.append({
+                    'recipient': recip,
+                    'month': series[i]['month'],
+                    'previous_score': prev,
+                    'current_score': curr,
+                    'delta': round(delta, 2),
+                    'direction': 'increase' if delta > 0 else 'decrease',
+                })
+
+    # Also check overall
+    for i in range(1, len(overall_series)):
+        prev = overall_series[i - 1]['avg_score']
+        curr = overall_series[i]['avg_score']
+        delta = curr - prev
+        if abs(delta) >= 1.5:
+            significant_changes.append({
+                'recipient': 'Overall',
+                'month': overall_series[i]['month'],
+                'previous_score': prev,
+                'current_score': curr,
+                'delta': round(delta, 2),
+                'direction': 'increase' if delta > 0 else 'decrease',
+            })
+
+    return {
+        'trend_start': trend_start.isoformat(),
+        'recipient_series': dict(recipient_series),
+        'overall_series': overall_series,
+        'significant_changes': significant_changes,
+    }
+
+
+def generate_event_narrative(
+    event: Dict,
+    config: Config,
+    source_docs: Optional[List[Dict]] = None,
+    source_map: Optional[Dict[str, int]] = None
+) -> Dict[str, str]:
+    """Generate Overview and Outcomes for an event using LLM, with inline citations."""
+
+    # Build source context with citation numbers
+    source_context = ""
+    if source_docs and source_map:
+        source_lines = []
+        for doc in source_docs[:5]:
+            cnum = source_map.get(doc['doc_id'])
+            if cnum:
+                source_lines.append(
+                    f"  [{cnum}] \"{doc['headline']}\" — {doc['source_name']}, "
+                    f"{doc.get('published_date', 'n.d.')}"
+                )
+        if source_lines:
+            source_context = "\n\nSource Documents:\n" + "\n".join(source_lines)
+
+    citation_instruction = ""
+    if source_context:
+        citation_instruction = (
+            "\n\nIMPORTANT: Include inline citations [1], [2], etc. after factual claims, "
+            "using the citation numbers from the Source Documents list. "
+            "Every substantive claim must be attributed to at least one source."
+        )
+
+    sys_prompt = f"""You are an analyst writing a factual briefing. Your output must be strictly evidence-based.
 
 Generate two sections:
-1. OVERVIEW: What happened (actors, actions, context) - 2-3 sentences
-2. OUTCOMES: Results, impacts, significance - 2-3 sentences
+1. OVERVIEW: State precisely what happened — name the specific actors, actions taken, dates, locations, and agreements or outcomes. 2-3 sentences.
+2. OUTCOMES: State the documented results: agreements signed, funds committed, projects launched, statements issued, or positions taken. 2-3 sentences.
 
-Be concise, factual, and strategic. Focus on geopolitical implications."""
+RULES:
+- Report only facts that are stated or directly supported by the source material.
+- Name specific people, organizations, amounts, dates, and places wherever available.
+- Do NOT use speculative language: no "could", "might", "potentially", "is expected to", "remains to be seen", "signals", "underscores".
+- Do NOT editorialize or assess significance — let the facts speak.
+- Do NOT use filler phrases like "This event represents", "This development highlights", "This is a significant".{citation_instruction}"""
 
     user_prompt = f"""Event: {event['event_name']}
 Description: {event['description']}
 Date Range: {event['first_mention_date']} to {event['last_mention_date']}
-Coverage: {event['article_count']} articles over {event['mention_days']} days
-Materiality Score: {event['materiality_score']}/10
+Coverage: {event['article_count']} articles over {event['mention_days']} days{source_context}
 
 Generate Overview and Outcomes.
 Return JSON: {{"overview": "...", "outcomes": "..."}}"""
@@ -519,7 +871,7 @@ Return JSON: {{"overview": "...", "outcomes": "..."}}"""
         print(f"  Warning: Error generating narrative for {event['event_name'][:50]}: {e}")
         return {
             'overview': event.get('description') or f"Event: {event['event_name']}",
-            'outcomes': "This event represents a significant development in regional engagement."
+            'outcomes': "Detailed outcomes not available."
         }
 
 
@@ -555,20 +907,19 @@ def generate_category_narrative(
 
     events_text = "\n".join(event_list)
 
-    sys_prompt = """You are an expert strategic analyst writing executive briefings.
+    sys_prompt = """You are an analyst writing a factual category summary for a policy briefing.
 
-Generate a flowing narrative paragraph (4-6 sentences) that synthesizes key themes and strategic implications.
+Generate a narrative paragraph (4-6 sentences) that summarizes the key events and documented actions in this category.
 
-IMPORTANT: Include inline citations [1], [2], [3] etc. after key claims to reference the source documents provided.
-Use the citation numbers shown in the event list. Place citations at the end of relevant sentences.
+IMPORTANT: Include inline citations [1], [2], [3] etc. after factual claims, using the citation numbers from the event list.
 
-Example: "China strengthened diplomatic ties through high-level bilateral meetings [1], [2]. This enhanced regional cooperation [3]."
-
-Focus on:
-- Strategic patterns and trends
-- Geopolitical significance
-- Policy implications
-- Regional impact"""
+RULES:
+- State what happened: name the actors, actions, agreements, dates, and places.
+- Every substantive claim must have at least one citation.
+- Do NOT speculate about motives, future outcomes, or strategic significance.
+- Do NOT use "could", "might", "potentially", "is expected to", "signals", "underscores", "highlights".
+- Do NOT use filler like "significant development", "key milestone", "growing importance".
+- Connect events by shared actors, regions, or subject matter — not by editorial assessment."""
 
     user_prompt = f"""Category: {category}
 Period: {start_date} to {end_date}
@@ -577,7 +928,7 @@ Country: {country}
 Top Events (with citation numbers):
 {events_text}
 
-Generate a strategic narrative paragraph with inline citations [1], [2], etc."""
+Write a factual summary paragraph with inline citations [1], [2], etc."""
 
     try:
         response = gai(sys_prompt, user_prompt, model="gpt-4o")
@@ -604,16 +955,22 @@ def generate_overall_synthesis(
         for cat, summary in category_summaries.items()
     ])
 
-    sys_prompt = """You are a senior strategic analyst writing an executive summary.
+    sys_prompt = """You are an analyst writing an executive summary for a policy briefing.
 
-Synthesize the category summaries into a cohesive strategic overview (3-4 paragraphs).
+Synthesize the category summaries into a cohesive factual overview (3-4 paragraphs).
 
 IMPORTANT: Preserve all inline citations [1], [2], etc. from the category summaries.
 
 Structure:
-1. Opening: Strategic context and key themes
-2. Body: Major developments by category
-3. Closing: Implications and outlook"""
+1. Opening paragraph: Summarize the principal activities and actors during this period.
+2. Body paragraphs: Group related developments across categories by theme or region.
+3. Closing paragraph: State documented trends (e.g., increasing/decreasing activity in specific areas) based on the evidence presented.
+
+RULES:
+- Report only what the category summaries state. Do not add speculation or editorial assessment.
+- Do NOT use "could", "might", "potentially", "is expected to", "signals", "underscores", "highlights".
+- Do NOT predict future outcomes or assess strategic significance beyond what the sources document.
+- Preserve every [#] citation from the input."""
 
     user_prompt = f"""Country: {country}
 Period: {start_date} to {end_date}
@@ -621,7 +978,7 @@ Period: {start_date} to {end_date}
 Category Summaries (with citations):
 {category_text}
 
-Generate an overall strategic synthesis. Preserve all [#] citations."""
+Write a factual synthesis. Preserve all [#] citations."""
 
     try:
         overall_summary = gai(sys_prompt, user_prompt, model="gpt-4o")
@@ -766,8 +1123,15 @@ def get_top_entities(
     return entities_by_type
 
 
-def generate_entity_summary(entity: Dict, country: str, start_date: date, end_date: date) -> str:
-    """Generate a brief summary of an entity's contribution during the time period."""
+def generate_entity_summary(
+    entity: Dict,
+    country: str,
+    start_date: date,
+    end_date: date,
+    source_docs: Optional[List[Dict]] = None,
+    source_map: Optional[Dict[str, int]] = None
+) -> str:
+    """Generate a brief summary of an entity's role during the time period, with citations."""
 
     # Build context from available fields
     categories_str = ", ".join(
@@ -784,9 +1148,33 @@ def generate_entity_summary(entity: Dict, country: str, start_date: date, end_da
         )[:4]
     ) or "Unknown"
 
-    sys_prompt = """You are a diplomatic analyst. Write a concise 2-3 sentence summary of this entity's
-role and contribution during the specified time period. Focus on their significance in soft power
-activities, key engagements, and strategic importance. Be factual and specific."""
+    # Build source context with citation numbers
+    source_context = ""
+    citation_instruction = ""
+    if source_docs and source_map:
+        source_lines = []
+        for doc in source_docs[:5]:
+            cnum = source_map.get(doc['doc_id'])
+            if cnum:
+                source_lines.append(
+                    f"  [{cnum}] \"{doc['headline']}\" — {doc['source_name']}, "
+                    f"{doc.get('published_date', 'n.d.')}"
+                )
+        if source_lines:
+            source_context = "\nSource Documents:\n" + "\n".join(source_lines)
+            citation_instruction = (
+                "\nInclude inline citations [1], [2], etc. from the Source Documents "
+                "after factual claims."
+            )
+
+    sys_prompt = f"""You are an analyst. Write a concise 2-3 sentence factual summary of this entity's
+documented activities during the specified period.
+
+RULES:
+- State what the entity did: meetings attended, agreements signed, statements made, projects involved in.
+- Name specific counterparts, dates, locations, and outcomes where available.
+- Do NOT speculate about motives, influence, or future impact.
+- Do NOT use "significant", "key player", "instrumental", "pivotal", or similar editorializing.{citation_instruction}"""
 
     user_prompt = f"""Entity: {entity['name']}
 Type: {entity['entity_type']}
@@ -796,9 +1184,9 @@ Period: {start_date} to {end_date}
 Documents: {entity['total_documents']} across {entity['total_mention_days']} days
 Categories: {categories_str}
 Recipients: {recipients_str}
-Existing Description: {entity.get('description') or 'None'}
+Existing Description: {entity.get('description') or 'None'}{source_context}
 
-Write a brief summary of this entity's contribution during this period."""
+Write a factual summary of this entity's documented activities during this period."""
 
     try:
         response = gai(sys_prompt, user_prompt, model="gpt-4o-mini")
@@ -861,6 +1249,12 @@ def generate_report(
                     'category_distribution': [], 'subcategory_distribution': [],
                     'recipient_distribution': [], 'materiality_histogram': []
                 },
+                'materiality_trends': {
+                    'trend_start': (start_date - timedelta(days=90)).isoformat(),
+                    'recipient_series': {},
+                    'overall_series': [],
+                    'significant_changes': []
+                },
                 'citations_by_event': [],
                 'entities': []
             }
@@ -878,7 +1272,8 @@ def generate_report(
         # Step 3: Compute metrics
         print("[Report] Computing metrics...")
         metrics = compute_metrics(
-            session, country, start_date, end_date, recipient, events_by_category
+            session, country, start_date, end_date, recipient, events_by_category,
+            valid_recipients=config.recipients
         )
 
         # Step 3b: Get top entities
@@ -888,6 +1283,25 @@ def generate_report(
         )
         total_entities = sum(len(ents) for ents in entities_by_type.values())
         print(f"[Report] Found {total_entities} entities across {len(entities_by_type)} types")
+
+        # Step 3c: Compute materiality trends
+        print("[Report] Computing materiality trends...")
+        materiality_trends = compute_materiality_trends(
+            session, country, start_date, end_date, recipient,
+            valid_recipients=config.recipients
+        )
+        print(f"[Report] Materiality trends: {len(materiality_trends['overall_series'])} months, "
+              f"{len(materiality_trends['significant_changes'])} significant changes")
+
+        # Load entity document details for citation support
+        print("[Report] Loading entity source documents...")
+        entity_docs_by_id = {}
+        for etype, entities in entities_by_type.items():
+            for entity in entities:
+                if entity.get('doc_ids'):
+                    entity_docs_by_id[entity['id']] = get_document_details(
+                        session, entity['doc_ids'][:5]
+                    )
 
     # Step 4: Build global source map (citation numbers)
     print("[Report] Building citation map...")
@@ -916,6 +1330,25 @@ def generate_report(
                     })
                     source_counter += 1
 
+    # Add entity docs to source map
+    for entity_id, docs in entity_docs_by_id.items():
+        for doc in docs[:5]:
+            doc_id = doc['doc_id']
+            if doc_id not in source_map:
+                source_map[doc_id] = source_counter
+                repo_hyperlink = build_hyperlink([doc_id])
+                all_sources.append({
+                    'citation_number': source_counter,
+                    'doc_id': doc_id,
+                    'headline': doc['headline'],
+                    'source_name': doc['source_name'],
+                    'published_date': doc['published_date'],
+                    'categories': doc['categories'],
+                    'recipients': doc['recipients'],
+                    'repo_hyperlink': repo_hyperlink
+                })
+                source_counter += 1
+
     print(f"[Report] Total citations: {len(all_sources)}")
 
     # Step 5: Generate event narratives
@@ -923,7 +1356,10 @@ def generate_report(
         print("[Report] Generating event narratives...")
         for category, events in events_by_category.items():
             for event in events:
-                narrative = generate_event_narrative(event, config)
+                event_docs = documents_by_event.get(event['id'], [])
+                narrative = generate_event_narrative(
+                    event, config, source_docs=event_docs, source_map=source_map
+                )
                 event['overview'] = narrative.get('overview', '')
                 event['outcomes'] = narrative.get('outcomes', '')
     else:
@@ -970,7 +1406,11 @@ def generate_report(
         entity_list = []
         for entity in entities:
             if llm_available:
-                summary = generate_entity_summary(entity, country, start_date, end_date)
+                ent_docs = entity_docs_by_id.get(entity['id'], [])
+                summary = generate_entity_summary(
+                    entity, country, start_date, end_date,
+                    source_docs=ent_docs, source_map=source_map
+                )
             else:
                 summary = f"{entity['name']} was mentioned in {entity['total_documents']} documents during this period."
 
@@ -1020,13 +1460,14 @@ def generate_report(
     else:
         title = f"{country} Strategic Activities: {start_date.strftime('%B %Y')}"
 
-    # Step 9: Build categories output
+    # Step 9: Build categories output (sorted by materiality desc)
     categories_output = []
     for category in config.categories:
         events = events_by_category.get(category, [])
         if not events:
             continue
 
+        sorted_events = sorted(events, key=lambda e: e['materiality_score'], reverse=True)
         categories_output.append({
             'category': category,
             'narrative': category_summaries.get(category, ''),
@@ -1039,14 +1480,52 @@ def generate_report(
                     'materiality_score': e['materiality_score'],
                     'overview': e.get('overview', ''),
                     'outcomes': e.get('outcomes', ''),
+                    'material_justification': e.get('material_justification'),
+                    'key_entities': e.get('key_entities', []),
                     'doc_ids': e['doc_ids']
                 }
-                for e in events
+                for e in sorted_events
             ]
         })
 
-    # Step 10: Build citations grouped by event
+    # Step 10: Build citations grouped by event (includes entity citations)
+    citations_by_event = _build_citations_output(
+        config, events_by_category, documents_by_event, source_map,
+        entities_by_type=entities_by_type, entity_docs_by_id=entity_docs_by_id
+    )
+
+    # Assemble final report
+    report = {
+        'country': country,
+        'title': title,
+        'period_start': start_date.isoformat(),
+        'period_end': end_date.isoformat(),
+        'recipient_filter': recipient or 'All',
+        'generated_at': datetime.now().isoformat(),
+        'overall_summary': overall_summary,
+        'categories': categories_output,
+        'entities': entities_output,
+        'metrics': metrics,
+        'materiality_trends': materiality_trends,
+        'citations_by_event': citations_by_event
+    }
+
+    print("[Report] Generation complete!")
+    return report
+
+
+def _build_citations_output(
+    config: Config,
+    events_by_category: Dict[str, List[Dict]],
+    documents_by_event: Dict[str, List[Dict]],
+    source_map: Dict[str, int],
+    entities_by_type: Optional[Dict[str, List[Dict]]] = None,
+    entity_docs_by_id: Optional[Dict[str, List[Dict]]] = None
+) -> list:
+    """Build citations grouped by category/event, plus entity citations."""
     citations_by_event = []
+
+    # Event citations grouped by category
     for category in config.categories:
         events = events_by_category.get(category, [])
         if not events:
@@ -1084,68 +1563,46 @@ def generate_report(
                 'events': category_event_citations
             })
 
-    # Assemble final report
-    report = {
-        'country': country,
-        'title': title,
-        'period_start': start_date.isoformat(),
-        'period_end': end_date.isoformat(),
-        'recipient_filter': recipient or 'All',
-        'generated_at': datetime.now().isoformat(),
-        'overall_summary': overall_summary,
-        'categories': categories_output,
-        'entities': entities_output,
-        'metrics': metrics,
-        'citations_by_event': citations_by_event
-    }
+    # Entity citations — collect docs unique to entities (not already in event citations)
+    if entities_by_type and entity_docs_by_id:
+        cited_doc_ids = set()
+        for group in citations_by_event:
+            for evt in group['events']:
+                for cit in evt['citations']:
+                    cited_doc_ids.add(cit['doc_id'])
 
-    print("[Report] Generation complete!")
-    return report
+        entity_citations = []
+        for etype, entities in entities_by_type.items():
+            for entity in entities:
+                docs = entity_docs_by_id.get(entity['id'], [])
+                ent_cits = []
+                for doc in docs[:5]:
+                    doc_id = doc['doc_id']
+                    if doc_id in source_map and doc_id not in cited_doc_ids:
+                        ent_cits.append({
+                            'citation_number': source_map[doc_id],
+                            'doc_id': doc_id,
+                            'headline': doc['headline'],
+                            'source_name': doc['source_name'],
+                            'published_date': doc['published_date'],
+                            'categories': doc['categories'],
+                            'recipients': doc['recipients'],
+                            'repo_hyperlink': build_hyperlink([doc_id])
+                        })
+                        cited_doc_ids.add(doc_id)
+                if ent_cits:
+                    entity_citations.extend(ent_cits)
 
-
-def _build_citations_output(
-    config: Config,
-    events_by_category: Dict[str, List[Dict]],
-    documents_by_event: Dict[str, List[Dict]],
-    source_map: Dict[str, int]
-) -> list:
-    """Build citations grouped by category and event (shared by both report modes)."""
-    citations_by_event = []
-    for category in config.categories:
-        events = events_by_category.get(category, [])
-        if not events:
-            continue
-
-        category_event_citations = []
-        for event in events:
-            docs = documents_by_event.get(event['id'], [])
-            event_citations = []
-            for doc in docs[:5]:
-                doc_id = doc['doc_id']
-                if doc_id in source_map:
-                    event_citations.append({
-                        'citation_number': source_map[doc_id],
-                        'doc_id': doc_id,
-                        'headline': doc['headline'],
-                        'source_name': doc['source_name'],
-                        'published_date': doc['published_date'],
-                        'categories': doc['categories'],
-                        'recipients': doc['recipients'],
-                        'repo_hyperlink': build_hyperlink([doc_id])
-                    })
-
-            if event_citations:
-                category_event_citations.append({
-                    'event_name': event['event_name'],
-                    'materiality_score': event['materiality_score'],
-                    'date_range': f"{event['first_mention_date']} to {event['last_mention_date']}",
-                    'citations': event_citations
-                })
-
-        if category_event_citations:
+        if entity_citations:
+            entity_citations.sort(key=lambda c: c['citation_number'])
             citations_by_event.append({
-                'category': category,
-                'events': category_event_citations
+                'category': 'Key Entities',
+                'events': [{
+                    'event_name': 'Entity References',
+                    'materiality_score': 0,
+                    'date_range': '',
+                    'citations': entity_citations
+                }]
             })
 
     return citations_by_event
@@ -1247,6 +1704,12 @@ def generate_report_stream(
                     'category_distribution': [], 'subcategory_distribution': [],
                     'recipient_distribution': [], 'materiality_histogram': []
                 },
+                'materiality_trends': {
+                    'trend_start': (start_date - timedelta(days=90)).isoformat(),
+                    'recipient_series': {},
+                    'overall_series': [],
+                    'significant_changes': []
+                },
                 'citations_by_event': []
             }}
             yield {"type": "complete", "payload": {}}
@@ -1263,13 +1726,31 @@ def generate_report_stream(
 
         print("[Report SSE] Computing metrics...")
         metrics = compute_metrics(
-            session, country, start_date, end_date, recipient, events_by_category
+            session, country, start_date, end_date, recipient, events_by_category,
+            valid_recipients=config.recipients
         )
 
         print("[Report SSE] Loading entities...")
         entities_by_type = get_top_entities(
             session, country, start_date, end_date, recipient, top_n=5
         )
+
+        # Materiality trends
+        print("[Report SSE] Computing materiality trends...")
+        materiality_trends = compute_materiality_trends(
+            session, country, start_date, end_date, recipient,
+            valid_recipients=config.recipients
+        )
+
+        # Load entity document details for citation support
+        print("[Report SSE] Loading entity source documents...")
+        entity_docs_by_id = {}
+        for etype, entities in entities_by_type.items():
+            for entity in entities:
+                if entity.get('doc_ids'):
+                    entity_docs_by_id[entity['id']] = get_document_details(
+                        session, entity['doc_ids'][:5]
+                    )
 
     # Build source map (Step 4)
     print("[Report SSE] Building citation map...")
@@ -1285,12 +1766,23 @@ def generate_report_stream(
                     source_map[doc_id] = source_counter
                     source_counter += 1
 
-    # Build skeleton
+    # Add entity docs to source map
+    for entity_id, docs in entity_docs_by_id.items():
+        for doc in docs[:5]:
+            doc_id = doc['doc_id']
+            if doc_id not in source_map:
+                source_map[doc_id] = source_counter
+                source_counter += 1
+
+    # Build skeleton (sorted by materiality desc)
     categories_output = []
     for category in config.categories:
         events = events_by_category.get(category, [])
         if not events:
             continue
+        sorted_events = sorted(events, key=lambda e: e['materiality_score'], reverse=True)
+        # Update events_by_category with sorted order so SSE streaming follows same order
+        events_by_category[category] = sorted_events
         categories_output.append({
             'category': category,
             'narrative': None,
@@ -1303,15 +1795,18 @@ def generate_report_stream(
                     'materiality_score': e['materiality_score'],
                     'overview': None,
                     'outcomes': None,
+                    'material_justification': e.get('material_justification'),
+                    'key_entities': e.get('key_entities', []),
                     'doc_ids': e['doc_ids']
                 }
-                for e in events
+                for e in sorted_events
             ]
         })
 
     entities_output = _build_entities_skeleton(entities_by_type, source_map)
     citations_by_event = _build_citations_output(
-        config, events_by_category, documents_by_event, source_map
+        config, events_by_category, documents_by_event, source_map,
+        entities_by_type=entities_by_type, entity_docs_by_id=entity_docs_by_id
     )
 
     skeleton = {
@@ -1325,6 +1820,7 @@ def generate_report_stream(
         'categories': categories_output,
         'entities': entities_output,
         'metrics': metrics,
+        'materiality_trends': materiality_trends,
         'citations_by_event': citations_by_event
     }
 
@@ -1340,7 +1836,10 @@ def generate_report_stream(
         events = events_by_category.get(category, [])
         for evt_idx, event in enumerate(events):
             if llm_available:
-                narrative = generate_event_narrative(event, config)
+                event_docs = documents_by_event.get(event['id'], [])
+                narrative = generate_event_narrative(
+                    event, config, source_docs=event_docs, source_map=source_map
+                )
                 overview = narrative.get('overview', '')
                 outcomes = narrative.get('outcomes', '')
             else:
@@ -1405,7 +1904,11 @@ def generate_report_stream(
             entities_raw = entities_by_type.get(etype, [])
             for ent_idx, entity in enumerate(entities_raw):
                 if llm_available:
-                    summary = generate_entity_summary(entity, country, start_date, end_date)
+                    ent_docs = entity_docs_by_id.get(entity['id'], [])
+                    summary = generate_entity_summary(
+                        entity, country, start_date, end_date,
+                        source_docs=ent_docs, source_map=source_map
+                    )
                 else:
                     summary = f"{entity['name']} was mentioned in {entity['total_documents']} documents during this period."
 
