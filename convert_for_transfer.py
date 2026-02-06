@@ -7,6 +7,9 @@ and writes a manifest so they can be reverted on the other side.
 
 Usage:
     python convert_for_transfer.py [--dry-run] [--root-dir /path/to/project]
+    python convert_for_transfer.py --add-ext .jsx .mjs .cjs
+    python convert_for_transfer.py --add-name Makefile Vagrantfile
+    python convert_for_transfer.py --add-ext .jsx --add-name Makefile --dry-run
 """
 
 import argparse
@@ -35,7 +38,7 @@ SKIP_DIRS = {
 }
 
 
-def should_convert(file_path: Path) -> bool:
+def should_convert(file_path: Path, extra_extensions: set[str], extra_names: set[str]) -> bool:
     """Determine if a file should be converted to .txt for transfer."""
     name = file_path.name
     suffix = file_path.suffix.lower()
@@ -45,8 +48,12 @@ def should_convert(file_path: Path) -> bool:
     if suffix == ".txt":
         return False
 
-    # Match by extension
-    if suffix in EXTENSIONS_TO_CONVERT:
+    # Match by extension (built-in + user-added)
+    if suffix in EXTENSIONS_TO_CONVERT or suffix in extra_extensions:
+        return True
+
+    # Match by exact filename (case-insensitive, user-added)
+    if name.lower() in extra_names:
         return True
 
     # Match Dockerfile (with or without extension, e.g., Dockerfile, api.Dockerfile)
@@ -62,7 +69,7 @@ def should_convert(file_path: Path) -> bool:
     return False
 
 
-def collect_files(root_dir: Path) -> list[Path]:
+def collect_files(root_dir: Path, extra_extensions: set[str], extra_names: set[str]) -> list[Path]:
     """Walk the directory tree and collect files that need conversion."""
     targets = []
     for dirpath, dirnames, filenames in os.walk(root_dir):
@@ -73,7 +80,7 @@ def collect_files(root_dir: Path) -> list[Path]:
             fpath = Path(dirpath) / fname
             if fpath.name == MANIFEST_FILENAME:
                 continue
-            if should_convert(fpath):
+            if should_convert(fpath, extra_extensions, extra_names):
                 targets.append(fpath)
     return sorted(targets)
 
@@ -103,7 +110,30 @@ def main():
         action="store_true",
         help="Show what would be renamed without making changes",
     )
+    parser.add_argument(
+        "--add-ext",
+        nargs="+",
+        default=[],
+        metavar="EXT",
+        help="Additional file extensions to convert (e.g. .jsx .mjs .wasm)",
+    )
+    parser.add_argument(
+        "--add-name",
+        nargs="+",
+        default=[],
+        metavar="NAME",
+        help="Additional exact filenames to convert (e.g. Makefile Vagrantfile)",
+    )
     args = parser.parse_args()
+
+    # Normalize extra extensions: ensure they start with a dot and are lowercase
+    extra_extensions = set()
+    for ext in args.add_ext:
+        ext = ext if ext.startswith(".") else f".{ext}"
+        extra_extensions.add(ext.lower())
+
+    # Normalize extra names to lowercase for case-insensitive matching
+    extra_names = {n.lower() for n in args.add_name}
 
     root_dir = args.root_dir.resolve()
     if not root_dir.is_dir():
@@ -121,7 +151,15 @@ def main():
         )
         sys.exit(1)
 
-    targets = collect_files(root_dir)
+    if extra_extensions or extra_names:
+        print("Additional file types included:")
+        if extra_extensions:
+            print(f"  Extensions: {', '.join(sorted(extra_extensions))}")
+        if extra_names:
+            print(f"  Filenames:  {', '.join(sorted(extra_names))}")
+        print()
+
+    targets = collect_files(root_dir, extra_extensions, extra_names)
 
     if not targets:
         print("No files found that need conversion.")
@@ -157,6 +195,9 @@ def main():
             "created_at": datetime.now(timezone.utc).isoformat(),
             "root_dir": str(root_dir),
             "file_count": len(manifest_entries),
+            "default_extensions": sorted(EXTENSIONS_TO_CONVERT),
+            "extra_extensions": sorted(extra_extensions) if extra_extensions else [],
+            "extra_names": sorted(extra_names) if extra_names else [],
             "files": manifest_entries,
         }
         with open(manifest_path, "w") as f:
