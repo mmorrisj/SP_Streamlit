@@ -51,7 +51,11 @@ sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
 from shared.database.database import get_session
-from shared.models.models import EventCluster, CanonicalEvent, Document, InitiatingCountry, RecipientCountry, Category, RawEntity, EntityCluster, EntityTypeEnum
+from shared.models.models import (
+    EventCluster, CanonicalEvent, Document, InitiatingCountry, RecipientCountry,
+    Category, RawEntity, EntityCluster, EntityTypeEnum, EventSummary, PeriodType,
+    DailyEventMention
+)
 from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLUSTER_DECONFLICT,
     JOB_TYPE_CANONICAL_DECONFLICT,
@@ -59,6 +63,8 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_SCORE_MATERIALITY,
     JOB_TYPE_DAILY_ENTITY_EXTRACT,
     JOB_TYPE_ENTITY_DECONFLICT,
+    JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
+    JOB_TYPE_GENERATE_DAILY_SUMMARY,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
@@ -940,6 +946,443 @@ Return ONLY the JSON object, no additional text."""
     }
 
 
+VALID_ENTITY_ROLES = [
+    "government_official", "diplomat", "business_leader", "cultural_figure",
+    "military_official", "academic", "media_figure", "civil_society",
+    "implementing_organization", "funding_organization", "recipient_institution",
+    "infrastructure_project", "venue", "other"
+]
+
+
+def build_canonical_entity_deconflict_prompt(entities: List[Dict]) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for canonical entity group deconfliction.
+
+    Adapted from llm_deconflict_canonical_entities.py:llm_review_group()
+
+    Args:
+        entities: List of entity dicts with canonical_name, entity_type, primary_role,
+                  country_affiliations, alternative_names, entity_description,
+                  total_documents, days_mentioned
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    entity_lines = []
+    for i, e in enumerate(entities):
+        line = f"{i+1}. \"{e['canonical_name']}\""
+        line += f" ({e['total_documents']} docs, {e['days_mentioned']} days)"
+        if e.get('primary_role'):
+            line += f" [role: {e['primary_role']}]"
+        if e.get('country_affiliations'):
+            affiliations = e['country_affiliations']
+            if isinstance(affiliations, list):
+                line += f" [affiliations: {', '.join(affiliations[:5])}]"
+        if e.get('alternative_names'):
+            alt_names = e['alternative_names']
+            if isinstance(alt_names, list):
+                line += f" [aliases: {', '.join(alt_names[:3])}]"
+        if e.get('entity_description'):
+            desc = str(e['entity_description'])[:100]
+            line += f" [desc: {desc}]"
+        entity_lines.append(line)
+
+    names_list = "\\n".join(entity_lines)
+    entity_type = entities[0].get('entity_type', 'unknown')
+
+    sys_prompt = f"""You are an expert at analyzing entity names to determine if they represent the same real-world {entity_type}.
+
+**Your Task:**
+1. Determine if all entity names refer to the SAME real-world {entity_type} (even if spelled differently or using aliases)
+2. If they are the same entity, pick the BEST canonical name
+3. Pick the best primary_role from the allowed values
+4. If they are different entities that were incorrectly grouped, identify how to split them
+
+**Guidelines for "Same Entity":**
+For PERSON type:
+  - Same person, different name forms: "Xi Jinping" vs "President Xi" vs "Xi"
+  - Same person, different transliterations: "Mohammed bin Salman" vs "MBS" vs "Muhammad bin Salman"
+  - Different people with same/similar name: SPLIT these (e.g., "Wang Wei" the diplomat vs "Wang Wei" the artist)
+
+For ORGANIZATION type:
+  - Same org, different abbreviations: "United Nations" vs "UN"
+  - Same org, different branches: Consider if they function as one entity or distinct units
+  - Different orgs with similar names: SPLIT these
+
+For COMPANY type:
+  - Same company, different name forms: "Huawei Technologies" vs "Huawei"
+  - Parent vs subsidiary: Generally SPLIT unless they're commonly referred to interchangeably
+
+**Guidelines for Picking Best Name:**
+1. Prefer full formal name over abbreviations: "Xi Jinping" > "Xi"
+2. Prefer widely recognized form: "Huawei" > "Huawei Technologies Co., Ltd."
+3. Prefer standard English transliteration for non-English names
+4. Consider document count - higher coverage often indicates more standard naming
+
+**Allowed primary_role values:**
+{', '.join(VALID_ENTITY_ROLES)}"""
+
+    user_prompt = f"""Entity group to analyze:
+{names_list}
+
+**Entity Type:** {entity_type}
+**Country:** {entities[0].get('initiating_country', 'Unknown')}
+**Group size:** {len(entities)} entities
+
+**Analyze:**
+1. Do all these entity names refer to the SAME real-world {entity_type}?
+2. If yes, which name is the best canonical name?
+3. What is the best primary_role for this entity?
+4. If no, how should this group be split?
+
+**Output JSON format:**
+{{
+    "same_entity": true/false,
+    "best_canonical_name": "The best name from the list (if same_entity=true)",
+    "best_primary_role": "one of the allowed role values",
+    "reasoning": "2-3 sentence explanation of your decision",
+    "should_split": true/false,
+    "split_groups": [
+        {{"indices": [1,2], "canonical_name": "Best name for subgroup", "primary_role": "role"}},
+        {{"indices": [3,4,5], "canonical_name": "Best name for subgroup", "primary_role": "role"}}
+    ]
+}}
+
+Now analyze the entity group above and return your assessment as JSON."""
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
+def load_unprocessed_canonical_entity_groups(
+    session,
+    country: Optional[str]
+) -> Dict[str, List[Dict]]:
+    """
+    Load consolidated canonical entity groups needing LLM validation.
+
+    Adapted from llm_deconflict_canonical_entities.py:load_entity_groups()
+
+    Args:
+        session: Database session
+        country: Filter by country (optional)
+
+    Returns:
+        Dictionary mapping master_entity_id to list of entity dicts
+    """
+    from collections import defaultdict
+
+    # Load child entities (those with master_entity_id set)
+    query = """
+        SELECT
+            ce.id,
+            ce.canonical_name,
+            ce.initiating_country,
+            ce.entity_type,
+            ce.primary_role,
+            ce.master_entity_id,
+            ce.alternative_names,
+            ce.country_affiliations,
+            ce.entity_description,
+            COALESCE(SUM(dem.document_count), 0) as total_documents,
+            COUNT(DISTINCT dem.mention_date) as days_mentioned
+        FROM canonical_entities ce
+        LEFT JOIN daily_entity_mentions dem ON ce.id = dem.canonical_entity_id
+        WHERE ce.master_entity_id IS NOT NULL
+          AND ce.master_entity_id IN (
+              SELECT id FROM canonical_entities
+              WHERE master_entity_id IS NULL
+              AND (llm_validated = FALSE OR llm_validated IS NULL)
+          )
+    """
+
+    params = {}
+    if country:
+        query += " AND ce.initiating_country = :country"
+        params['country'] = country
+
+    query += """
+        GROUP BY ce.id, ce.canonical_name, ce.initiating_country, ce.entity_type,
+                 ce.primary_role, ce.master_entity_id, ce.alternative_names,
+                 ce.country_affiliations, ce.entity_description
+        ORDER BY ce.master_entity_id, total_documents DESC
+    """
+
+    result = session.execute(text(query), params).fetchall()
+
+    groups = defaultdict(list)
+    for row in result:
+        master_id = str(row[5])
+        groups[master_id].append({
+            'id': str(row[0]),
+            'canonical_name': row[1],
+            'initiating_country': row[2],
+            'entity_type': str(row[3]) if row[3] else None,
+            'primary_role': str(row[4]) if row[4] else None,
+            'master_entity_id': str(row[5]),
+            'alternative_names': row[6] or [],
+            'country_affiliations': row[7] or [],
+            'entity_description': row[8],
+            'total_documents': row[9],
+            'days_mentioned': row[10]
+        })
+
+    # Also load master entities themselves
+    master_query = """
+        SELECT
+            ce.id,
+            ce.canonical_name,
+            ce.initiating_country,
+            ce.entity_type,
+            ce.primary_role,
+            ce.alternative_names,
+            ce.country_affiliations,
+            ce.entity_description,
+            COALESCE(SUM(dem.document_count), 0) as total_documents,
+            COUNT(DISTINCT dem.mention_date) as days_mentioned
+        FROM canonical_entities ce
+        LEFT JOIN daily_entity_mentions dem ON ce.id = dem.canonical_entity_id
+        WHERE ce.master_entity_id IS NULL
+          AND (ce.llm_validated = FALSE OR ce.llm_validated IS NULL)
+          AND EXISTS (
+              SELECT 1 FROM canonical_entities child
+              WHERE child.master_entity_id = ce.id
+          )
+    """
+
+    if country:
+        master_query += " AND ce.initiating_country = :country"
+
+    master_query += """
+        GROUP BY ce.id, ce.canonical_name, ce.initiating_country, ce.entity_type,
+                 ce.primary_role, ce.alternative_names, ce.country_affiliations,
+                 ce.entity_description
+    """
+
+    master_result = session.execute(text(master_query), params).fetchall()
+
+    for row in master_result:
+        master_id = str(row[0])
+        if master_id in groups:
+            groups[master_id].insert(0, {
+                'id': str(row[0]),
+                'canonical_name': row[1],
+                'initiating_country': row[2],
+                'entity_type': str(row[3]) if row[3] else None,
+                'primary_role': str(row[4]) if row[4] else None,
+                'master_entity_id': None,
+                'alternative_names': row[5] or [],
+                'country_affiliations': row[6] or [],
+                'entity_description': row[7],
+                'total_documents': row[8],
+                'days_mentioned': row[9]
+            })
+
+    # Filter groups with 2+ entities (single-entity groups don't need LLM)
+    filtered_groups = {k: v for k, v in groups.items() if len(v) > 1}
+
+    return filtered_groups
+
+
+def load_events_needing_daily_summaries(
+    session,
+    country: str,
+    start_date: DateType,
+    end_date: DateType
+) -> List[Dict]:
+    """
+    Load master events that need daily summaries across a date range.
+
+    For each date in the range, queries active master events with ≥3 articles,
+    checks for existing EventSummary records, and collects representative
+    document samples for prompt generation.
+
+    Args:
+        session: Database session
+        country: Initiating country (required)
+        start_date: Start date (inclusive)
+        end_date: End date (inclusive)
+
+    Returns:
+        List of dicts, each representing one (event, date) pair ready for
+        prompt generation. Each dict contains:
+        - master_id, date_str, canonical_name, country, article_count,
+          categories, recipients, article_samples, doc_ids
+    """
+    from datetime import timedelta
+    from sqlalchemy import select
+
+    events_to_process = []
+    current_date = start_date
+
+    while current_date <= end_date:
+        # Query active master events for this date (same CTE as generate_daily_summaries.py)
+        query = text("""
+            WITH master_events AS (
+                SELECT
+                    ce.id as master_id,
+                    ce.canonical_name,
+                    ce.primary_categories,
+                    ce.primary_recipients
+                FROM canonical_events ce
+                WHERE ce.master_event_id IS NULL
+                  AND ce.initiating_country = :country
+                  AND ce.first_mention_date <= :date
+                  AND ce.last_mention_date >= :date
+            ),
+            event_family AS (
+                SELECT
+                    me.master_id,
+                    me.canonical_name,
+                    me.primary_categories,
+                    me.primary_recipients,
+                    ce.id as canonical_event_id
+                FROM master_events me
+                LEFT JOIN canonical_events ce ON (
+                    ce.master_event_id = me.master_id OR ce.id = me.master_id
+                )
+            ),
+            daily_mentions AS (
+                SELECT
+                    dem.canonical_event_id,
+                    dem.doc_ids
+                FROM daily_event_mentions dem
+                WHERE dem.mention_date = :date
+            )
+            SELECT
+                ef.master_id,
+                ef.canonical_name,
+                ef.primary_categories,
+                ef.primary_recipients,
+                COALESCE(
+                    array_agg(DISTINCT unnested_doc ORDER BY unnested_doc)
+                    FILTER (WHERE unnested_doc IS NOT NULL),
+                    ARRAY[]::text[]
+                ) as doc_ids,
+                COUNT(DISTINCT unnested_doc)
+                FILTER (WHERE unnested_doc IS NOT NULL) as article_count
+            FROM event_family ef
+            LEFT JOIN daily_mentions dm ON dm.canonical_event_id = ef.canonical_event_id
+            LEFT JOIN LATERAL unnest(dm.doc_ids) unnested_doc ON true
+            GROUP BY ef.master_id, ef.canonical_name, ef.primary_categories, ef.primary_recipients
+            HAVING COUNT(DISTINCT unnested_doc) FILTER (WHERE unnested_doc IS NOT NULL) >= 3
+            ORDER BY article_count DESC
+        """)
+
+        result = session.execute(
+            query, {"country": country, "date": current_date}
+        ).fetchall()
+
+        for row in result:
+            master_id = row.master_id
+            canonical_name = row.canonical_name
+            doc_ids = list(row.doc_ids) if row.doc_ids else []
+
+            # Check if summary already exists (use raw SQL to avoid model/DB column mismatch)
+            existing_check = session.execute(text("""
+                SELECT 1 FROM event_summaries
+                WHERE period_type = :period_type
+                  AND period_start = :period_start
+                  AND period_end = :period_end
+                  AND initiating_country = :country
+                  AND event_name = :event_name
+                LIMIT 1
+            """), {
+                'period_type': 'DAILY',
+                'period_start': current_date,
+                'period_end': current_date,
+                'country': country,
+                'event_name': canonical_name
+            }).fetchone()
+
+            if existing_check:
+                continue
+
+            if not doc_ids:
+                continue
+
+            # Select representative docs (5 most recent)
+            stmt = (
+                select(Document)
+                .where(Document.doc_id.in_(doc_ids))
+                .order_by(Document.date.desc())
+                .limit(5)
+            )
+            representative_docs = list(session.execute(stmt).scalars().all())
+
+            if not representative_docs:
+                continue
+
+            # Format article samples
+            samples = []
+            for i, doc in enumerate(representative_docs, 1):
+                samples.append(f"[{i}] {doc.title}\n"
+                               f"Source: {doc.source_name}\n"
+                               f"Date: {doc.date.strftime('%B %d, %Y') if doc.date else 'Unknown'}\n"
+                               f"Excerpt: {doc.distilled_text[:500] if doc.distilled_text else doc.title[:500] if doc.title else 'No text available'}...\n")
+            article_samples = "\n".join(samples)
+
+            # Extract categories and recipients
+            categories = list(row.primary_categories.keys()) if row.primary_categories else []
+            recipients = list(row.primary_recipients.keys()) if row.primary_recipients else []
+
+            events_to_process.append({
+                'master_id': str(master_id),
+                'date_str': current_date.strftime('%Y-%m-%d'),
+                'date_formatted': current_date.strftime('%B %d, %Y'),
+                'canonical_name': canonical_name,
+                'country': country,
+                'article_count': row.article_count,
+                'categories': categories,
+                'recipients': recipients,
+                'article_samples': article_samples,
+                'doc_ids': doc_ids
+            })
+
+        current_date += timedelta(days=1)
+
+    return events_to_process
+
+
+def build_daily_summary_prompt(event_data: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for daily summary generation.
+
+    Uses the DAILY_SUMMARY_PROMPT template from summary_prompts.py.
+
+    Args:
+        event_data: Dict with canonical_name, country, date_formatted,
+                    article_count, article_samples, categories, recipients
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    from services.pipeline.summaries.summary_prompts import DAILY_SUMMARY_PROMPT
+
+    prompt = DAILY_SUMMARY_PROMPT.format(
+        country=event_data['country'],
+        date=event_data['date_formatted'],
+        event_name=event_data['canonical_name'],
+        article_count=event_data['article_count'],
+        article_samples=event_data['article_samples'],
+        categories=', '.join(event_data['categories']),
+        recipients=', '.join(event_data['recipients'])
+    )
+
+    sys_prompt = "You are an experienced journalist writing in Associated Press (AP) style. Follow the instructions exactly and output valid JSON only."
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+
 def build_daily_entity_extract_prompt(doc: Dict) -> Dict[str, List[Dict[str, str]]]:
     """
     Build prompt for extracting entities from a document.
@@ -1265,6 +1708,45 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_CANONICAL_ENTITY_DECONFLICT:
+        # records is a dict mapping master_entity_id to list of entity dicts
+        for master_id, entities in records.items():
+            custom_id = generate_custom_id(job_type, master_id)
+            prompt_data = build_canonical_entity_deconflict_prompt(entities)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
+    elif job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
+        # records is a list of (event, date) dicts needing daily summaries
+        for event_data in records:
+            custom_id = generate_custom_id(
+                job_type, event_data['master_id'],
+                suffix=event_data['date_str']
+            )
+            prompt_data = build_daily_summary_prompt(event_data)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
 
 
@@ -1309,7 +1791,8 @@ def main():
     parser.add_argument('--job-type', required=True,
                        choices=[JOB_TYPE_CLUSTER_DECONFLICT, JOB_TYPE_CANONICAL_DECONFLICT,
                                JOB_TYPE_ENTITY_EXTRACT, JOB_TYPE_SCORE_MATERIALITY,
-                               JOB_TYPE_DAILY_ENTITY_EXTRACT, JOB_TYPE_ENTITY_DECONFLICT],
+                               JOB_TYPE_DAILY_ENTITY_EXTRACT, JOB_TYPE_ENTITY_DECONFLICT,
+                               JOB_TYPE_CANONICAL_ENTITY_DECONFLICT, JOB_TYPE_GENERATE_DAILY_SUMMARY],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -1408,6 +1891,28 @@ def main():
                 end_date
             )
             print(f"Found {len(records)} entity clusters needing LLM deconfliction")
+
+        elif args.job_type == JOB_TYPE_CANONICAL_ENTITY_DECONFLICT:
+            records = load_unprocessed_canonical_entity_groups(
+                session,
+                args.country
+            )
+            print(f"Found {len(records)} canonical entity groups needing LLM validation")
+
+        elif args.job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
+            if not args.country:
+                print("Error: --country is required for generate_daily_summary")
+                return
+            if not start_date or not end_date:
+                print("Error: --start-date and --end-date are required for generate_daily_summary")
+                return
+            records = load_events_needing_daily_summaries(
+                session,
+                args.country,
+                start_date,
+                end_date
+            )
+            print(f"Found {len(records)} (event, date) pairs needing daily summaries")
 
         else:
             print(f"Error: Unsupported job type: {args.job_type}")

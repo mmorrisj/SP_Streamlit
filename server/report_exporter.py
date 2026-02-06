@@ -11,6 +11,8 @@ from docx import Document
 from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 import matplotlib
 matplotlib.use('Agg')
@@ -146,6 +148,52 @@ def _make_materiality_trends(trends: Dict[str, Any]) -> io.BytesIO:
     fig.autofmt_xdate(rotation=30)
     fig.tight_layout()
     return _fig_to_bytes(fig)
+
+
+# ── Hyperlink helper ────────────────────────────────────────────
+
+def _add_hyperlink(paragraph, text: str, url: str,
+                   font_size: int = 8, color_hex: str = '2563EB'):
+    """Add a clickable hyperlink run to an existing paragraph."""
+    part = paragraph.part
+    r_id = part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
+
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+
+    # Font size (half-points)
+    sz = OxmlElement('w:sz')
+    sz.set(qn('w:val'), str(font_size * 2))
+    rPr.append(sz)
+
+    # Color
+    c = OxmlElement('w:color')
+    c.set(qn('w:val'), color_hex)
+    rPr.append(c)
+
+    # Underline
+    u = OxmlElement('w:u')
+    u.set(qn('w:val'), 'single')
+    rPr.append(u)
+
+    # Font name
+    rFonts = OxmlElement('w:rFonts')
+    rFonts.set(qn('w:ascii'), 'Calibri')
+    rFonts.set(qn('w:hAnsi'), 'Calibri')
+    rPr.append(rFonts)
+
+    new_run.append(rPr)
+
+    t = OxmlElement('w:t')
+    t.text = text
+    t.set(qn('xml:space'), 'preserve')
+    new_run.append(t)
+
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
 
 
 # ── Style helpers ───────────────────────────────────────────────
@@ -394,21 +442,33 @@ def export_report_to_docx(report_data: dict) -> io.BytesIO:
                 r = p.add_run(entity['name'])
                 _set_font(r, size=10, bold=True)
                 role = entity.get('role', 'Unknown')
-                if role and role != 'Unknown':
-                    r = p.add_run(f'  —  {role}')
+                if role and role not in ('Unknown', 'OTHER'):
+                    display_role = role.replace('_', ' ').title()
+                    r = p.add_run(f'  —  {display_role}')
                     _set_font(r, size=9, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
 
-                # Document count and date range
-                meta_parts = [f"Documents: {entity.get('total_documents', 0)}"]
-                first_seen = entity.get('first_mention_date') or entity.get('first_seen')
-                last_seen = entity.get('last_mention_date') or entity.get('last_seen')
-                if first_seen:
-                    meta_parts.append(
-                        f"Period: {_format_date(first_seen)} – {_format_date(last_seen)}"
-                    )
+                # Document count and mention days
+                meta_parts = [
+                    f"Documents: {entity.get('total_documents', 0)}",
+                    f"Mention Days: {entity.get('total_mention_days', 0)}",
+                ]
                 meta_para = doc.add_paragraph()
                 r = meta_para.add_run('  |  '.join(meta_parts))
                 _set_font(r, size=8, color=RGBColor(0x94, 0xA3, 0xB8))
+
+                # Categories and recipients
+                categories = entity.get('primary_categories') or {}
+                recipients = entity.get('primary_recipients') or {}
+                if categories or recipients:
+                    tags_para = doc.add_paragraph()
+                    top_cats = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:4]
+                    for cat, count in top_cats:
+                        r = tags_para.add_run(f'{cat} ({count})  ')
+                        _set_font(r, size=8, color=RGBColor(0x25, 0x63, 0xEB))
+                    top_recips = sorted(recipients.items(), key=lambda x: x[1], reverse=True)[:3]
+                    for recip, count in top_recips:
+                        r = tags_para.add_run(f'{recip} ({count})  ')
+                        _set_font(r, size=8, color=RGBColor(0xEA, 0x58, 0x0C))
 
                 # Summary
                 summary = entity.get('summary')
@@ -418,6 +478,51 @@ def export_report_to_docx(report_data: dict) -> io.BytesIO:
                         _set_font(run, size=9)
 
                 doc.add_paragraph()  # spacer
+
+    # ── Methodology ─────────────────────────────────────────────
+
+    doc.add_page_break()
+    _add_heading(doc, 'Methodology', level=1,
+                 color=RGBColor(0x1A, 0x36, 0x5D))
+
+    methodology_paras = [
+        (
+            "This report is produced through an automated analytical pipeline that ingests "
+            "open-source media reporting from a curated set of international news sources. "
+            "Documents are collected, classified by thematic category and geographic relevance, "
+            "and stored in a structured database for systematic analysis."
+        ),
+        (
+            "Key Event Selection.  "
+            "Individual articles are clustered into canonical events using embedding-based "
+            "similarity analysis combined with temporal proximity. Events appearing in at least "
+            "two independent source documents within the reporting period are surfaced for "
+            "inclusion. Events are ranked by materiality score and filtered to the most "
+            "substantive developments per thematic category."
+        ),
+        (
+            "Materiality Scoring.  "
+            "Each event is assigned a materiality score on a 1\u201310 scale reflecting its "
+            "assessed policy relevance. Scoring criteria include the scope of actors involved, "
+            "the scale of commitments or outcomes documented, coverage breadth across independent "
+            "sources, and the degree to which the event represents a departure from established "
+            "patterns. Scores are generated through a combination of algorithmic assessment and "
+            "language model analysis of source material."
+        ),
+        (
+            "Validation.  "
+            "All narrative content, source attributions, and materiality assessments in this "
+            "report are subject to review by subject matter experts (SMEs). Inline citations "
+            "link each factual claim to its originating source document to support verification "
+            "and traceability."
+        ),
+    ]
+
+    for para_text in methodology_paras:
+        p = doc.add_paragraph()
+        r = p.add_run(para_text)
+        _set_font(r, size=10)
+        p.paragraph_format.space_after = Pt(6)
 
     # ── End Notes / Citations ───────────────────────────────────
 
@@ -450,6 +555,7 @@ def export_report_to_docx(report_data: dict) -> io.BytesIO:
                     headline = cit.get('headline', 'Untitled')
                     source = cit.get('source_name', 'Unknown')
                     pub_date = _format_date(cit.get('published_date'))
+                    hyperlink = cit.get('repo_hyperlink', '')
 
                     p = doc.add_paragraph()
                     r = p.add_run(f'[{num}] ')
@@ -458,6 +564,9 @@ def export_report_to_docx(report_data: dict) -> io.BytesIO:
                     _set_font(r, size=8, bold=True)
                     r = p.add_run(f'  — {source}, {pub_date}')
                     _set_font(r, size=8, color=RGBColor(0x64, 0x74, 0x8B))
+                    if hyperlink:
+                        r = p.add_run('  ')
+                        _add_hyperlink(p, '[ATOM]', hyperlink)
 
     # ── Write to buffer ─────────────────────────────────────────
 

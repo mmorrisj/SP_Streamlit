@@ -18,8 +18,8 @@ python -c "from shared.database.database import health_check; print('✅ Connect
 **Option 2: Non-Docker (Bare Metal / Production)**
 ```bash
 # Automated startup (all services)
-./start_services.sh all          # Linux/macOS
-.\start_services.ps1 -Service all  # Windows
+./scripts/start_services.sh all          # Linux/macOS
+.\scripts\start_services.ps1 -Service all  # Windows
 
 # Manual startup (individual services)
 # Terminal 1 - FastAPI
@@ -33,8 +33,8 @@ cd services/dashboard
 streamlit run app.py
 
 # Stop non-Docker services
-./start_services.sh stop         # Linux/macOS
-.\start_services.ps1 -Stop       # Windows
+./scripts/start_services.sh stop         # Linux/macOS
+.\scripts\start_services.ps1 -Stop       # Windows
 
 # See SETUP_NON_DOCKER.md for full installation guide
 ```
@@ -226,16 +226,33 @@ SP_Streamlit/
 │       ├── utils.py           # Common utilities
 │       └── prompts.py         # LLM prompts
 │
-├── docker/                     # Docker configurations
+├── docker/                     # Docker configurations (Dockerfiles only)
 │   ├── api.Dockerfile         # API service Dockerfile
 │   ├── dashboard.Dockerfile   # Dashboard Dockerfile
 │   └── pipeline.Dockerfile    # Pipeline Dockerfile (future use)
 │
+├── scripts/                    # All installation and deployment scripts
+│   ├── start_services.sh      # Non-Docker startup (Linux/macOS)
+│   ├── start_services.ps1     # Non-Docker startup (Windows)
+│   ├── build-docker.sh/ps1    # Docker build scripts
+│   ├── deploy-full.sh/ps1     # Full stack deployment
+│   ├── deploy-webapp.sh       # Web app deployment
+│   ├── deploy-docker-only.*   # Pure Docker deployment (no compose)
+│   ├── run_tests.sh/ps1       # Test runner scripts
+│   └── docker/                # Docker-specific scripts
+│       ├── build-all.*        # Build all images
+│       ├── run-all.*          # Run all services
+│       ├── run-database.sh    # Database only
+│       ├── run-webapp.sh      # Web app only
+│       ├── run-streamlit.sh   # Streamlit only
+│       ├── run-pipeline.sh    # Pipeline only
+│       ├── stop-all.*         # Stop all services
+│       ├── airgap-package.sh  # Air-gapped deployment
+│       └── push-to-registry.sh # Registry push
+│
 ├── alembic/                    # Database migrations
 ├── docker-compose.yml          # Docker orchestration
 ├── requirements.txt            # Unified Python dependencies
-├── start_services.sh           # Non-Docker startup script (Linux/macOS)
-├── start_services.ps1          # Non-Docker startup script (Windows)
 ├── QUICKSTART.md               # Quick start guide
 ├── SETUP_NON_DOCKER.md         # Non-Docker installation guide
 └── CLAUDE.md                   # This file
@@ -294,7 +311,7 @@ The project supports **both Docker and non-Docker deployments** with automatic e
 - Services run directly on host system
 - Database host: `localhost` (from `.env`)
 - API URL: `http://localhost:5001` (from `.env`)
-- Start with: `./start_services.sh all` or `.\start_services.ps1 -Service all`
+- Start with: `./scripts/start_services.sh all` or `.\scripts\start_services.ps1 -Service all`
 
 **Environment Variable Hierarchy**:
 ```

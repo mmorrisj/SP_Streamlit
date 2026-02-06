@@ -16,6 +16,8 @@ JOB_TYPE_ENTITY_EXTRACT = "entity_extract"
 JOB_TYPE_SCORE_MATERIALITY = "score_materiality"
 JOB_TYPE_DAILY_ENTITY_EXTRACT = "daily_entity_extract"
 JOB_TYPE_ENTITY_DECONFLICT = "entity_deconflict"
+JOB_TYPE_CANONICAL_ENTITY_DECONFLICT = "canonical_entity_deconflict"
+JOB_TYPE_GENERATE_DAILY_SUMMARY = "generate_daily_summary"
 
 # Supported job types
 SUPPORTED_JOB_TYPES = [
@@ -25,6 +27,8 @@ SUPPORTED_JOB_TYPES = [
     JOB_TYPE_SCORE_MATERIALITY,
     JOB_TYPE_DAILY_ENTITY_EXTRACT,
     JOB_TYPE_ENTITY_DECONFLICT,
+    JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
+    JOB_TYPE_GENERATE_DAILY_SUMMARY,
 ]
 
 # OpenAI API configuration
@@ -40,6 +44,8 @@ DEFAULT_MODELS = {
     JOB_TYPE_SCORE_MATERIALITY: "gpt-4o-mini",
     JOB_TYPE_DAILY_ENTITY_EXTRACT: "gpt-4o-mini",
     JOB_TYPE_ENTITY_DECONFLICT: "gpt-4o-mini",
+    JOB_TYPE_CANONICAL_ENTITY_DECONFLICT: "gpt-4o-mini",
+    JOB_TYPE_GENERATE_DAILY_SUMMARY: "gpt-4o-mini",
 }
 
 # Model temperature settings

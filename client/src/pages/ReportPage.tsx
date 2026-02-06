@@ -70,6 +70,7 @@ export default function ReportPage() {
   const [endDate, setEndDate] = useState<string>(defaults.end)
   const [recipient, setRecipient] = useState<string>('All')
   const [topEvents, setTopEvents] = useState<number>(10)
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
   const [report, setReport] = useState<ReportData | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [streamPhase, setStreamPhase] = useState('')
@@ -101,6 +102,7 @@ export default function ReportPage() {
       end_date: endDate,
       recipient: recipient === 'All' ? 'All' : recipient,
       top_events: topEvents,
+      model: selectedModel,
     }
 
     try {
@@ -193,7 +195,7 @@ export default function ReportPage() {
       setError(err instanceof Error ? err.message : 'Failed to generate report')
       setIsGenerating(false)
     }
-  }, [country, startDate, endDate, recipient, topEvents])
+  }, [country, startDate, endDate, recipient, topEvents, selectedModel])
 
   const handleCancel = () => {
     abortRef.current?.abort()
@@ -301,6 +303,21 @@ export default function ReportPage() {
               max={25}
               style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.9rem', width: '80px' }}
             />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', color: '#666', marginBottom: '0.4rem', fontWeight: 500 }}>
+              LLM Model
+            </label>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.9rem', minWidth: '140px' }}
+            >
+              <option value="gpt-4o-mini">GPT-4o Mini</option>
+              <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+              <option value="gpt-4.1">GPT-4.1</option>
+            </select>
           </div>
 
           <button
@@ -577,7 +594,9 @@ export default function ReportPage() {
                             <div>
                               <h5 style={{ margin: 0, fontSize: '0.95rem' }}>{entity.name}</h5>
                               <p style={{ fontSize: '0.75rem', color: '#888', margin: '0.2rem 0 0' }}>
-                                {entity.role && entity.role !== 'OTHER' && entity.role !== 'Unknown' ? `${entity.role} | ` : ''}{entity.total_documents} documents | {formatDate(entity.first_mention_date)} to {formatDate(entity.last_mention_date)}
+                                {entity.role && entity.role !== 'OTHER' && entity.role !== 'Unknown'
+                                  ? `${entity.role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} | `
+                                  : ''}{entity.total_documents} documents | {entity.total_mention_days} mention days
                               </p>
                             </div>
                             {entity.citation_numbers.length > 0 && (
@@ -586,6 +605,35 @@ export default function ReportPage() {
                               </span>
                             )}
                           </div>
+                          {/* Category and recipient tags */}
+                          {(entity.primary_categories && Object.keys(entity.primary_categories).length > 0) && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.5rem' }}>
+                              {Object.entries(entity.primary_categories)
+                                .sort(([,a], [,b]) => b - a)
+                                .slice(0, 4)
+                                .map(([cat, count]) => (
+                                  <span key={cat} style={{
+                                    fontSize: '0.65rem', padding: '0.15rem 0.5rem',
+                                    borderRadius: '9999px', background: '#f0f4ff', color: '#3b5998',
+                                    border: '1px solid #d0d8ee'
+                                  }}>
+                                    {cat} ({count})
+                                  </span>
+                                ))}
+                              {entity.primary_recipients && Object.entries(entity.primary_recipients)
+                                .sort(([,a], [,b]) => b - a)
+                                .slice(0, 3)
+                                .map(([recip, count]) => (
+                                  <span key={recip} style={{
+                                    fontSize: '0.65rem', padding: '0.15rem 0.5rem',
+                                    borderRadius: '9999px', background: '#fef9ec', color: '#92400e',
+                                    border: '1px solid #e8d5a3'
+                                  }}>
+                                    {recip} ({count})
+                                  </span>
+                                ))}
+                            </div>
+                          )}
                           {entity.summary ? (
                             <p style={{ marginTop: '0.6rem', fontSize: '0.85rem', lineHeight: 1.6, color: '#444' }}>
                               {entity.summary}

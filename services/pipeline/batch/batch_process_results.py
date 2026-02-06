@@ -27,7 +27,8 @@ sys.path.insert(0, str(project_root))
 from shared.database.database import get_session
 from shared.models.models import (
     EventCluster, CanonicalEvent, DailyEventMention, Document, RawEntity,
-    EntityTypeEnum, EntityCluster, CanonicalEntity, DailyEntityMention, EntityRoleEnum
+    EntityTypeEnum, EntityCluster, CanonicalEntity, DailyEntityMention, EntityRoleEnum,
+    EventSummary, EventSourceLink, PeriodType
 )
 from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLUSTER_DECONFLICT,
@@ -36,6 +37,8 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_SCORE_MATERIALITY,
     JOB_TYPE_DAILY_ENTITY_EXTRACT,
     JOB_TYPE_ENTITY_DECONFLICT,
+    JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
+    JOB_TYPE_GENERATE_DAILY_SUMMARY,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -749,6 +752,396 @@ def process_entity_deconflict_result(
         raise
 
 
+VALID_ENTITY_ROLES = [
+    "government_official", "diplomat", "business_leader", "cultural_figure",
+    "military_official", "academic", "media_figure", "civil_society",
+    "implementing_organization", "funding_organization", "recipient_institution",
+    "infrastructure_project", "venue", "other"
+]
+
+
+def process_canonical_entity_deconflict_result(
+    session,
+    master_entity_id: str,
+    llm_response: Dict[str, Any],
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process canonical entity group deconfliction result from batch API.
+
+    Adapted from llm_deconflict_canonical_entities.py:process_country()
+
+    Handles:
+    - Splitting groups into subgroups with new masters
+    - Renaming (swapping master when best name is on a child)
+    - Role updates
+    - Marking master as llm_validated=True
+
+    Args:
+        session: Database session
+        master_entity_id: Master entity UUID
+        llm_response: Parsed LLM response from batch result
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'validated': 0,
+        'renamed': 0,
+        'split': 0,
+        'errors': 0
+    }
+
+    try:
+        # Load master entity
+        master_entity = session.get(CanonicalEntity, master_entity_id)
+        if not master_entity:
+            if verbose:
+                print(f"  Warning: Master entity {master_entity_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        if master_entity.llm_validated:
+            if verbose:
+                print(f"  Master entity {master_entity_id}: Already validated, skipping")
+            return stats
+
+        # Load child entities
+        child_entities = session.query(CanonicalEntity).filter(
+            CanonicalEntity.master_entity_id == master_entity_id
+        ).all()
+
+        # Build ordered entity list (master first, then children)
+        all_entities = [master_entity] + child_entities
+
+        # Extract LLM response fields
+        same_entity = llm_response.get('same_entity', True)
+        should_split = llm_response.get('should_split', False)
+        best_canonical_name = llm_response.get('best_canonical_name')
+        best_role = llm_response.get('best_primary_role')
+
+        # Validate role
+        if best_role and best_role not in VALID_ENTITY_ROLES:
+            best_role = 'other'
+
+        # Handle splitting
+        if should_split and llm_response.get('split_groups'):
+            if verbose:
+                print(f"  Master entity {master_entity_id}: Splitting into {len(llm_response['split_groups'])} groups")
+            stats['split'] += 1
+
+            for subgroup in llm_response['split_groups']:
+                indices = subgroup.get('indices', [])
+                new_canonical_name = subgroup.get('canonical_name')
+                new_role = subgroup.get('primary_role')
+
+                if not indices or not new_canonical_name:
+                    continue
+
+                # Get entities in this subgroup (1-indexed)
+                subgroup_entities = [all_entities[idx-1] for idx in indices
+                                     if 0 < idx <= len(all_entities)]
+
+                if len(subgroup_entities) == 0:
+                    continue
+
+                # Find the entity with this name, or use highest doc count
+                best_entity = next((e for e in subgroup_entities
+                                    if e.canonical_name == new_canonical_name), None)
+                if not best_entity:
+                    best_entity = max(subgroup_entities,
+                                      key=lambda e: e.total_documents or 0)
+
+                new_master_id = best_entity.id
+
+                # Set the new master: clear master_entity_id, mark validated
+                best_entity.master_entity_id = None
+                best_entity.llm_validated = True
+                best_entity.llm_validated_at = datetime.utcnow()
+
+                if new_role and new_role in VALID_ENTITY_ROLES:
+                    try:
+                        best_entity.primary_role = EntityRoleEnum(new_role)
+                    except ValueError:
+                        pass
+
+                # Point all other entities in this subgroup to the new master
+                for entity in subgroup_entities:
+                    if entity.id != new_master_id:
+                        entity.master_entity_id = new_master_id
+
+        # Handle rename / role update
+        elif same_entity and best_canonical_name:
+            current_master_name = master_entity.canonical_name
+
+            if best_canonical_name != current_master_name:
+                stats['renamed'] += 1
+
+                # Find the entity with the best name
+                best_entity = next((e for e in all_entities
+                                    if e.canonical_name == best_canonical_name), None)
+
+                if best_entity and best_entity.id != master_entity.id:
+                    old_master_id = master_entity.id
+                    new_master_id = best_entity.id
+
+                    # Set old master to point to new master
+                    master_entity.master_entity_id = new_master_id
+
+                    # Update all other children to point to new master
+                    session.execute(
+                        text('UPDATE canonical_entities SET master_entity_id = :new_master WHERE master_entity_id = :old_master'),
+                        {'new_master': new_master_id, 'old_master': old_master_id}
+                    )
+
+                    # Set new master's fields
+                    best_entity.master_entity_id = None
+                    best_entity.llm_validated = True
+                    best_entity.llm_validated_at = datetime.utcnow()
+
+                    if best_role and best_role in VALID_ENTITY_ROLES:
+                        try:
+                            best_entity.primary_role = EntityRoleEnum(best_role)
+                        except ValueError:
+                            pass
+
+                    if verbose:
+                        print(f"  Master entity {master_entity_id}: Swapped master to {best_canonical_name}")
+                else:
+                    # Name not found in group or already master, just validate
+                    master_entity.llm_validated = True
+                    master_entity.llm_validated_at = datetime.utcnow()
+
+                    if best_role and best_role in VALID_ENTITY_ROLES:
+                        try:
+                            master_entity.primary_role = EntityRoleEnum(best_role)
+                        except ValueError:
+                            pass
+            else:
+                # No name change, update role and validate
+                master_entity.llm_validated = True
+                master_entity.llm_validated_at = datetime.utcnow()
+
+                if best_role and best_role in VALID_ENTITY_ROLES:
+                    try:
+                        master_entity.primary_role = EntityRoleEnum(best_role)
+                    except ValueError:
+                        pass
+        else:
+            # No changes needed, just mark as validated
+            master_entity.llm_validated = True
+            master_entity.llm_validated_at = datetime.utcnow()
+
+        stats['validated'] += 1
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing master entity {master_entity_id}: {e}")
+        stats['errors'] += 1
+        raise
+
+
+def process_daily_summary_result(
+    session,
+    master_event_id: str,
+    llm_response: Dict[str, Any],
+    date_str: str,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process daily summary generation result from batch API.
+
+    Re-queries the database for event metadata and doc_ids, then creates
+    EventSummary and EventSourceLink records.
+
+    Adapted from generate_daily_summaries.py:generate_daily_summary_for_event()
+
+    Args:
+        session: Database session
+        master_event_id: Master canonical event UUID
+        llm_response: Parsed LLM response with 'overview' and 'outcomes'
+        date_str: Date string (YYYY-MM-DD) from custom_id suffix
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    from shared.utils.citation_utils import build_hyperlink, get_citations_for_doc_ids
+    from sqlalchemy import select
+
+    stats = {
+        'summaries_created': 0,
+        'source_links_created': 0,
+        'errors': 0
+    }
+
+    try:
+        date = datetime.strptime(date_str, '%Y-%m-%d').date()
+
+        # Load master event
+        master_event = session.get(CanonicalEvent, master_event_id)
+        if not master_event:
+            if verbose:
+                print(f"  Warning: Master event {master_event_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        country = master_event.initiating_country
+        canonical_name = master_event.canonical_name
+
+        # Check if summary already exists (use raw SQL to avoid model/DB column mismatch)
+        existing = session.execute(text("""
+            SELECT 1 FROM event_summaries
+            WHERE period_type = :period_type
+              AND period_start = :period_start
+              AND period_end = :period_end
+              AND initiating_country = :country
+              AND event_name = :event_name
+            LIMIT 1
+        """), {
+            'period_type': 'DAILY',
+            'period_start': date,
+            'period_end': date,
+            'country': country,
+            'event_name': canonical_name
+        }).fetchone()
+
+        if existing:
+            if verbose:
+                print(f"  Summary already exists for {canonical_name} on {date_str}, skipping")
+            return stats
+
+        # Validate LLM response
+        overview = llm_response.get('overview')
+        outcomes = llm_response.get('outcomes')
+        if not overview or not outcomes:
+            if verbose:
+                print(f"  Warning: Missing overview/outcomes in response for {master_event_id} on {date_str}")
+            stats['errors'] += 1
+            return stats
+
+        # Re-query doc_ids for this event on this date
+        doc_query = text("""
+            WITH event_family AS (
+                SELECT ce.id as canonical_event_id
+                FROM canonical_events ce
+                WHERE ce.id = :master_id OR ce.master_event_id = :master_id
+            ),
+            daily_mentions AS (
+                SELECT dem.doc_ids
+                FROM daily_event_mentions dem
+                WHERE dem.canonical_event_id IN (SELECT canonical_event_id FROM event_family)
+                  AND dem.mention_date = :date
+            )
+            SELECT COALESCE(
+                array_agg(DISTINCT unnested_doc) FILTER (WHERE unnested_doc IS NOT NULL),
+                ARRAY[]::text[]
+            ) as doc_ids
+            FROM daily_mentions dm
+            LEFT JOIN LATERAL unnest(dm.doc_ids) unnested_doc ON true
+        """)
+
+        doc_result = session.execute(
+            doc_query, {"master_id": master_event_id, "date": date}
+        ).fetchone()
+
+        doc_ids = list(doc_result.doc_ids) if doc_result and doc_result.doc_ids else []
+        valid_doc_ids = [d for d in doc_ids if d is not None]
+
+        if not valid_doc_ids:
+            if verbose:
+                print(f"  Warning: No doc_ids found for {master_event_id} on {date_str}")
+            stats['errors'] += 1
+            return stats
+
+        # Get representative docs for weighting
+        stmt = (
+            select(Document)
+            .where(Document.doc_id.in_(valid_doc_ids))
+            .order_by(Document.date.desc())
+            .limit(5)
+        )
+        representative_docs = list(session.execute(stmt).scalars().all())
+        representative_doc_ids = {d.doc_id for d in representative_docs}
+
+        # Build hyperlink and citations
+        source_link = build_hyperlink(valid_doc_ids)
+        citations = get_citations_for_doc_ids(valid_doc_ids[:10])
+
+        # Get categories and recipients from master event
+        primary_categories = master_event.primary_categories or {}
+        primary_recipients = master_event.primary_recipients or {}
+
+        # Create EventSummary via raw SQL (model has columns not yet in DB)
+        import uuid as _uuid
+        summary_id = str(_uuid.uuid4())
+        narrative = json.dumps({
+            'overview': overview,
+            'outcomes': outcomes,
+            'source_link': source_link,
+            'source_count': len(valid_doc_ids),
+            'citations': citations
+        })
+        cat_json = json.dumps(primary_categories)
+        recip_json = json.dumps(primary_recipients)
+
+        session.execute(text("""
+            INSERT INTO event_summaries (
+                id, period_type, period_start, period_end,
+                event_name, initiating_country,
+                first_observed_date, last_observed_date,
+                narrative_summary, count_by_category, count_by_recipient,
+                total_documents_across_sources
+            ) VALUES (
+                :id, :period_type, :period_start, :period_end,
+                :event_name, :country,
+                :first_observed, :last_observed,
+                :narrative::jsonb, :categories::jsonb, :recipients::jsonb,
+                :total_docs
+            )
+        """), {
+            'id': summary_id,
+            'period_type': 'DAILY',
+            'period_start': date,
+            'period_end': date,
+            'event_name': canonical_name,
+            'country': country,
+            'first_observed': date,
+            'last_observed': date,
+            'narrative': narrative,
+            'categories': cat_json,
+            'recipients': recip_json,
+            'total_docs': len(valid_doc_ids)
+        })
+
+        stats['summaries_created'] += 1
+
+        # Create EventSourceLink records
+        for doc_id in valid_doc_ids:
+            weight = 1.0 if doc_id in representative_doc_ids else 0.5
+            link = EventSourceLink(
+                event_summary_id=summary_id,
+                doc_id=doc_id,
+                contribution_weight=weight
+            )
+            session.add(link)
+            stats['source_links_created'] += 1
+
+        if verbose:
+            print(f"  Created summary for {canonical_name} on {date_str} "
+                  f"({len(valid_doc_ids)} docs, {stats['source_links_created']} links)")
+
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing daily summary {master_event_id} on {date_str}: {e}")
+        stats['errors'] += 1
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Stage 4: Process batch results and update database",
@@ -828,7 +1221,9 @@ def main():
                 'renamed': 0,
                 'split': 0,
                 'entities_extracted': 0,
-                'events_scored': 0
+                'events_scored': 0,
+                'summaries_created': 0,
+                'source_links_created': 0
             }
 
             processed_count = 0
@@ -910,6 +1305,21 @@ def main():
                                 stats = process_entity_deconflict_result(
                                     session, record_id, llm_response, verbose=args.verbose
                                 )
+                            elif job_type == JOB_TYPE_CANONICAL_ENTITY_DECONFLICT:
+                                stats = process_canonical_entity_deconflict_result(
+                                    session, record_id, llm_response, verbose=args.verbose
+                                )
+                            elif job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
+                                date_suffix = custom_id_parts.get('suffix')
+                                if not date_suffix:
+                                    print(f"  Warning: No date suffix in custom_id {custom_id}")
+                                    overall_stats['total_errors'] += 1
+                                    savepoint.rollback()
+                                    continue
+                                stats = process_daily_summary_result(
+                                    session, record_id, llm_response,
+                                    date_str=date_suffix, verbose=args.verbose
+                                )
                             else:
                                 savepoint.rollback()
                                 print(f"  Warning: Unknown job type '{job_type}' for {custom_id}")
@@ -975,6 +1385,9 @@ def main():
                 print(f"Events scored: {overall_stats['events_scored']}")
             elif batch_job.job_type == JOB_TYPE_DAILY_ENTITY_EXTRACT:
                 print(f"Entities extracted: {overall_stats.get('entities_extracted', 0)}")
+            elif batch_job.job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
+                print(f"Summaries created: {overall_stats.get('summaries_created', 0)}")
+                print(f"Source links created: {overall_stats.get('source_links_created', 0)}")
 
             print("=" * 80)
 
