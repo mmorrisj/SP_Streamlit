@@ -42,6 +42,8 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_SCORE_MATERIALITY,
     JOB_TYPE_DAILY_ENTITY_EXTRACT,
     JOB_TYPE_ENTITY_DECONFLICT,
+    JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
+    JOB_TYPE_GENERATE_DAILY_SUMMARY,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -53,7 +55,9 @@ from services.pipeline.batch.batch_process_results import (
     process_entity_extract_result,
     process_materiality_score_result,
     process_daily_entity_extract_result,
-    process_entity_deconflict_result
+    process_entity_deconflict_result,
+    process_canonical_entity_deconflict_result,
+    process_daily_summary_result
 )
 from services.pipeline.events.llm_deconflict_clusters import LLMClusterDeconfliction
 
@@ -93,7 +97,9 @@ def process_single_batch(
         'renamed': 0,
         'split': 0,
         'entities_extracted': 0,
-        'events_scored': 0
+        'events_scored': 0,
+        'summaries_created': 0,
+        'source_links_created': 0
     }
 
     # Verify output file exists
@@ -173,9 +179,10 @@ def process_single_batch(
                 # doesn't abort the entire transaction
                 savepoint = session.begin_nested()
                 try:
+                    suffix = custom_id_parts.get('suffix')
                     stats = _route_result(
                         session, job_type, record_id, llm_response,
-                        deconfliction_processor, verbose
+                        deconfliction_processor, verbose, suffix=suffix
                     )
                     savepoint.commit()
                     overall_stats['total_processed'] += 1
@@ -213,7 +220,7 @@ def process_single_batch(
 
 def _route_result(
     session, job_type, record_id, llm_response,
-    deconfliction_processor, verbose
+    deconfliction_processor, verbose, suffix=None
 ) -> Dict[str, Any]:
     """Route a result to the appropriate handler based on job_type."""
     if job_type == JOB_TYPE_CLUSTER_DECONFLICT:
@@ -241,6 +248,17 @@ def _route_result(
         return process_entity_deconflict_result(
             session, record_id, llm_response, verbose=verbose
         )
+    elif job_type == JOB_TYPE_CANONICAL_ENTITY_DECONFLICT:
+        return process_canonical_entity_deconflict_result(
+            session, record_id, llm_response, verbose=verbose
+        )
+    elif job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
+        if not suffix:
+            raise ValueError("generate_daily_summary requires date suffix in custom_id")
+        return process_daily_summary_result(
+            session, record_id, llm_response,
+            date_str=suffix, verbose=verbose
+        )
     else:
         return {'errors': 1}
 
@@ -267,6 +285,13 @@ def _merge_stats(overall: Dict, stats: Dict, job_type: str):
         overall['daily_mentions_created'] += stats.get('daily_mentions_created', 0)
         overall['confirmed'] += stats.get('confirmed', 0)
         overall['split'] += stats.get('split', 0)
+    elif job_type == JOB_TYPE_CANONICAL_ENTITY_DECONFLICT:
+        overall['validated'] += stats.get('validated', 0)
+        overall['renamed'] += stats.get('renamed', 0)
+        overall['split'] += stats.get('split', 0)
+    elif job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
+        overall['summaries_created'] += stats.get('summaries_created', 0)
+        overall['source_links_created'] += stats.get('source_links_created', 0)
 
 
 def main():
@@ -374,7 +399,9 @@ def main():
                 'renamed': 0,
                 'split': 0,
                 'entities_extracted': 0,
-                'events_scored': 0
+                'events_scored': 0,
+                'summaries_created': 0,
+                'source_links_created': 0
             }
 
             for i, job in enumerate(batch_jobs, 1):
@@ -405,6 +432,8 @@ def main():
                     grand_total['split'] += stats['split']
                     grand_total['entities_extracted'] += stats['entities_extracted']
                     grand_total['events_scored'] += stats['events_scored']
+                    grand_total['summaries_created'] += stats.get('summaries_created', 0)
+                    grand_total['source_links_created'] += stats.get('source_links_created', 0)
 
                     print(f"  Done: {stats['total_processed']} processed, "
                           f"{stats['total_errors']} errors")
@@ -447,6 +476,10 @@ def main():
                 print(f"Entities extracted: {grand_total['entities_extracted']:,}")
             if grand_total['events_scored'] > 0:
                 print(f"Events scored: {grand_total['events_scored']:,}")
+            if grand_total['summaries_created'] > 0:
+                print(f"Summaries created: {grand_total['summaries_created']:,}")
+            if grand_total['source_links_created'] > 0:
+                print(f"Source links created: {grand_total['source_links_created']:,}")
 
             print("=" * 80)
             print()

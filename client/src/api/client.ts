@@ -277,6 +277,8 @@ export interface ReportEntity {
   total_mention_days: number
   first_mention_date: string
   last_mention_date: string
+  primary_categories: Record<string, number>
+  primary_recipients: Record<string, number>
   summary: string | null
   citation_numbers: number[]
   doc_ids: string[]
@@ -340,6 +342,7 @@ export interface ReportRequest {
   end_date: string
   recipient?: string
   top_events?: number
+  model?: string
 }
 
 export const fetchReportConfig = async (): Promise<ReportConfig> => {

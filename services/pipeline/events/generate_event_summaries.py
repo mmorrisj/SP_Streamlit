@@ -1,4 +1,16 @@
 """
+DEPRECATED: This script uses the old RawEvent pipeline and is superseded by the
+canonical event summary pipeline in services/pipeline/summaries/.
+
+Use the following scripts instead (run in order):
+    1. python services/pipeline/summaries/generate_daily_summaries.py --country China --start-date 2024-08-01 --end-date 2024-10-31
+    2. python services/pipeline/summaries/generate_weekly_summaries.py --country China --start-date 2024-08-01 --end-date 2024-10-31
+    3. python services/pipeline/summaries/generate_monthly_summaries.py --country China --start-date 2024-08-01 --end-date 2024-10-31
+
+Those scripts work with canonical_events + daily_event_mentions (the current pipeline)
+rather than the old RawEvent + Document tables used here.
+
+--- Original docstring ---
 Generate EventSummary records from processed documents and events.
 
 This pipeline creates the EventSummary records needed for publication generation by:

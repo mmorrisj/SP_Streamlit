@@ -2171,6 +2171,7 @@ class ReportRequest(BaseModel):
     end_date: str    # YYYY-MM-DD
     recipient: str = "All"
     top_events: int = 10
+    model: str = "gpt-4o-mini"
 
 @app.get("/api/report/config", response_model=ReportConfigResponse)
 def get_report_config():
@@ -2215,7 +2216,8 @@ def generate_report_endpoint(request: ReportRequest):
         start_date_str=request.start_date,
         end_date_str=request.end_date,
         recipient=recipient,
-        top_n=request.top_events
+        top_n=request.top_events,
+        model=request.model
     )
     return result
 
@@ -2245,7 +2247,8 @@ def generate_report_stream_endpoint(request: ReportRequest):
                 start_date_str=request.start_date,
                 end_date_str=request.end_date,
                 recipient=recipient,
-                top_n=request.top_events
+                top_n=request.top_events,
+                model=request.model
             ):
                 event_type = event.get("type", "unknown")
                 payload = json.dumps(event.get("payload", {}))

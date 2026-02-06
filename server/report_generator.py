@@ -807,7 +807,8 @@ def generate_event_narrative(
     event: Dict,
     config: Config,
     source_docs: Optional[List[Dict]] = None,
-    source_map: Optional[Dict[str, int]] = None
+    source_map: Optional[Dict[str, int]] = None,
+    model: str = "gpt-4o-mini"
 ) -> Dict[str, str]:
     """Generate Overview and Outcomes for an event using LLM, with inline citations."""
 
@@ -855,7 +856,7 @@ Generate Overview and Outcomes.
 Return JSON: {{"overview": "...", "outcomes": "..."}}"""
 
     try:
-        response = gai(sys_prompt, user_prompt, model="gpt-4o-mini")
+        response = gai(sys_prompt, user_prompt, model=model)
 
         if isinstance(response, dict):
             return response
@@ -882,7 +883,8 @@ def generate_category_narrative(
     source_map: Dict[str, int],
     documents_by_event: Dict[str, List[Dict]],
     start_date: date,
-    end_date: date
+    end_date: date,
+    model: str = "gpt-4o"
 ) -> str:
     """Generate a category-level narrative with inline citations."""
 
@@ -931,7 +933,7 @@ Top Events (with citation numbers):
 Write a factual summary paragraph with inline citations [1], [2], etc."""
 
     try:
-        response = gai(sys_prompt, user_prompt, model="gpt-4o")
+        response = gai(sys_prompt, user_prompt, model=model)
         narrative = response if isinstance(response, str) else response.get('summary', '')
         return narrative
     except Exception as e:
@@ -946,7 +948,8 @@ def generate_overall_synthesis(
     country: str,
     category_summaries: Dict[str, str],
     start_date: date,
-    end_date: date
+    end_date: date,
+    model: str = "gpt-4o"
 ) -> str:
     """Generate overall strategic synthesis from category narratives."""
 
@@ -981,7 +984,7 @@ Category Summaries (with citations):
 Write a factual synthesis. Preserve all [#] citations."""
 
     try:
-        overall_summary = gai(sys_prompt, user_prompt, model="gpt-4o")
+        overall_summary = gai(sys_prompt, user_prompt, model=model)
         if isinstance(overall_summary, dict):
             overall_summary = overall_summary.get('summary', '')
         return overall_summary
@@ -994,7 +997,8 @@ def generate_publication_title(
     country: str,
     events_by_category: Dict[str, List[Dict]],
     start_date: date,
-    end_date: date
+    end_date: date,
+    model: str = "gpt-4o-mini"
 ) -> str:
     """Generate a descriptive title for the publication."""
     start_str = start_date.strftime("%B %Y")
@@ -1018,7 +1022,7 @@ Key Events: {', '.join(top_events[:6])}
 Generate a title."""
 
     try:
-        response = gai(sys_prompt, user_prompt, model="gpt-4o-mini")
+        response = gai(sys_prompt, user_prompt, model=model)
         title = response if isinstance(response, str) else str(response)
         return title.strip().strip('"\'')
     except Exception:
@@ -1076,7 +1080,21 @@ def get_top_entities(
                     WHERE dem2.canonical_entity_id = ce.id
                     AND dem2.mention_date >= :start_date
                     AND dem2.mention_date <= :end_date
-                ) as doc_ids
+                ) as doc_ids,
+                (
+                    SELECT COUNT(DISTINCT d)
+                    FROM daily_entity_mentions dem3, unnest(dem3.doc_ids) as d
+                    WHERE dem3.canonical_entity_id = ce.id
+                    AND dem3.mention_date >= :start_date
+                    AND dem3.mention_date <= :end_date
+                ) as period_doc_count,
+                (
+                    SELECT COUNT(DISTINCT dem4.mention_date)
+                    FROM daily_entity_mentions dem4
+                    WHERE dem4.canonical_entity_id = ce.id
+                    AND dem4.mention_date >= :start_date
+                    AND dem4.mention_date <= :end_date
+                ) as period_mention_days
             FROM canonical_entities ce
             WHERE ce.initiating_country = :country
                 AND ce.master_entity_id IS NULL
@@ -1084,7 +1102,7 @@ def get_top_entities(
                 AND ce.first_mention_date <= :end_date
                 AND ce.last_mention_date >= :start_date
                 {recipient_clause}
-            ORDER BY ce.total_documents DESC
+            ORDER BY period_doc_count DESC, ce.total_documents DESC
             LIMIT :top_n
         """)
 
@@ -1107,8 +1125,8 @@ def get_top_entities(
                 'role': row.primary_role,
                 'description': row.entity_description,
                 'country_affiliations': row.country_affiliations or [],
-                'total_documents': row.total_documents or 0,
-                'total_mention_days': row.total_mention_days or 0,
+                'total_documents': row.period_doc_count or 0,
+                'total_mention_days': row.period_mention_days or 0,
                 'first_mention_date': row.first_mention_date.isoformat() if row.first_mention_date else None,
                 'last_mention_date': row.last_mention_date.isoformat() if row.last_mention_date else None,
                 'primary_categories': row.primary_categories or {},
@@ -1129,7 +1147,8 @@ def generate_entity_summary(
     start_date: date,
     end_date: date,
     source_docs: Optional[List[Dict]] = None,
-    source_map: Optional[Dict[str, int]] = None
+    source_map: Optional[Dict[str, int]] = None,
+    model: str = "gpt-4o-mini"
 ) -> str:
     """Generate a brief summary of an entity's role during the time period, with citations."""
 
@@ -1189,7 +1208,7 @@ Existing Description: {entity.get('description') or 'None'}{source_context}
 Write a factual summary of this entity's documented activities during this period."""
 
     try:
-        response = gai(sys_prompt, user_prompt, model="gpt-4o-mini")
+        response = gai(sys_prompt, user_prompt, model=model)
         summary = response if isinstance(response, str) else str(response)
         return summary.strip()
     except Exception as e:
@@ -1205,7 +1224,8 @@ def generate_report(
     start_date_str: str,
     end_date_str: str,
     recipient: Optional[str] = None,
-    top_n: int = 10
+    top_n: int = 10,
+    model: str = "gpt-4o-mini"
 ) -> Dict[str, Any]:
     """
     Main report generation orchestrator.
@@ -1358,7 +1378,8 @@ def generate_report(
             for event in events:
                 event_docs = documents_by_event.get(event['id'], [])
                 narrative = generate_event_narrative(
-                    event, config, source_docs=event_docs, source_map=source_map
+                    event, config, source_docs=event_docs, source_map=source_map,
+                    model=model
                 )
                 event['overview'] = narrative.get('overview', '')
                 event['outcomes'] = narrative.get('outcomes', '')
@@ -1379,7 +1400,8 @@ def generate_report(
                 continue
             narrative = generate_category_narrative(
                 country, category, events, source_map,
-                documents_by_event, start_date, end_date
+                documents_by_event, start_date, end_date,
+                model=model
             )
             category_summaries[category] = narrative
     else:
@@ -1393,7 +1415,8 @@ def generate_report(
     if llm_available:
         print("[Report] Generating overall synthesis...")
         overall_summary = generate_overall_synthesis(
-            country, category_summaries, start_date, end_date
+            country, category_summaries, start_date, end_date,
+            model=model
         )
     else:
         print("[Report] Skipping overall synthesis (LLM unavailable)")
@@ -1409,7 +1432,8 @@ def generate_report(
                 ent_docs = entity_docs_by_id.get(entity['id'], [])
                 summary = generate_entity_summary(
                     entity, country, start_date, end_date,
-                    source_docs=ent_docs, source_map=source_map
+                    source_docs=ent_docs, source_map=source_map,
+                    model=model
                 )
             else:
                 summary = f"{entity['name']} was mentioned in {entity['total_documents']} documents during this period."
@@ -1455,7 +1479,8 @@ def generate_report(
     if llm_available:
         print("[Report] Generating title...")
         title = generate_publication_title(
-            country, events_by_category, start_date, end_date
+            country, events_by_category, start_date, end_date,
+            model=model
         )
     else:
         title = f"{country} Strategic Activities: {start_date.strftime('%B %Y')}"
@@ -1661,7 +1686,8 @@ def generate_report_stream(
     start_date_str: str,
     end_date_str: str,
     recipient: Optional[str] = None,
-    top_n: int = 10
+    top_n: int = 10,
+    model: str = "gpt-4o-mini"
 ):
     """
     Streaming version of generate_report().
@@ -1838,7 +1864,8 @@ def generate_report_stream(
             if llm_available:
                 event_docs = documents_by_event.get(event['id'], [])
                 narrative = generate_event_narrative(
-                    event, config, source_docs=event_docs, source_map=source_map
+                    event, config, source_docs=event_docs, source_map=source_map,
+                    model=model
                 )
                 overview = narrative.get('overview', '')
                 outcomes = narrative.get('outcomes', '')
@@ -1868,7 +1895,8 @@ def generate_report_stream(
         if llm_available:
             narrative = generate_category_narrative(
                 country, category, events, source_map,
-                documents_by_event, start_date, end_date
+                documents_by_event, start_date, end_date,
+                model=model
             )
         else:
             narrative = f"Key developments in {category} during this period included {len(events)} significant events."
@@ -1883,7 +1911,8 @@ def generate_report_stream(
     print("[Report SSE] Generating overall synthesis...")
     if llm_available:
         overall_summary = generate_overall_synthesis(
-            country, category_summaries, start_date, end_date
+            country, category_summaries, start_date, end_date,
+            model=model
         )
     else:
         overall_summary = (
@@ -1907,7 +1936,8 @@ def generate_report_stream(
                     ent_docs = entity_docs_by_id.get(entity['id'], [])
                     summary = generate_entity_summary(
                         entity, country, start_date, end_date,
-                        source_docs=ent_docs, source_map=source_map
+                        source_docs=ent_docs, source_map=source_map,
+                        model=model
                     )
                 else:
                     summary = f"{entity['name']} was mentioned in {entity['total_documents']} documents during this period."
@@ -1925,7 +1955,8 @@ def generate_report_stream(
     if llm_available:
         print("[Report SSE] Generating title...")
         title = generate_publication_title(
-            country, events_by_category, start_date, end_date
+            country, events_by_category, start_date, end_date,
+            model=model
         )
     else:
         title = f"{country} Strategic Activities: {start_date.strftime('%B %Y')}"
