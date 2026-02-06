@@ -103,6 +103,9 @@ rag_validation_output.txt
 _data/
 !_data/.gitkeep
 !_data/*/.gitkeep
+
+# Air-gapped sync artifacts
+_airgap_sync/
 tmpclaude-1be9-cwd
 tmpclaude-7ecf-cwd
 tmpclaude-7fe0-cwd
