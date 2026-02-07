@@ -340,25 +340,6 @@ def get_category_count_over_time(country_list='ALL',category='ALL',subcategory='
         df = pd.read_sql(stmt, conn)
         return df
 
-@st.cache_data
-def get_category_count_over_time(country='ALL',start_date=None):
-    from backend.scripts.models import SoftPowerActivity
-    start_date = set_start_date(start_date)
-    
-    stmt = (select(func.date_trunc('month', SoftPowerActivity.date).label('month_start'),
-            func.count(SoftPowerActivity.id)).select_from(SoftPowerActivity)).where(Category.category.in_(cfg.categories),
-            Document.date >=cfg.start_date)
-    
-    stmt = stmt.group_by(
-            'month'
-            ).order_by(
-                desc('category_count')
-            )
-
-    with get_engine().connect() as conn:
-        df = pd.read_sql(stmt, conn)
-        return df
-
 #get Category df
 @st.cache_data
 def get_category_df():
