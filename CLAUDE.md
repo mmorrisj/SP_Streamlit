@@ -22,9 +22,9 @@ python -c "from shared.database.database import health_check; print('✅ Connect
 .\scripts\start_services.ps1 -Service all  # Windows
 
 # Manual startup (individual services)
-# Terminal 1 - FastAPI
+# Terminal 1 - FastAPI (serves React UI + API + S3/Batch proxy)
 source venv/bin/activate
-cd services/api
+cd server
 uvicorn main:app --host 0.0.0.0 --port 5001 --reload
 
 # Terminal 2 - Streamlit
@@ -190,15 +190,14 @@ SP_Streamlit/
 │   ├── vite.config.ts         # Vite configuration
 │   └── tsconfig.json          # TypeScript configuration
 │
-├── server/                      # Production FastAPI server (serves React + API)
-│   └── main.py                # FastAPI app that serves client/dist + /api/* endpoints
+├── server/                      # Consolidated FastAPI server
+│   ├── main.py                # FastAPI: React UI + API + Chat/RAG + S3/Batch proxy
+│   ├── report_generator.py    # Report generation logic
+│   └── report_exporter.py     # Word document export
 │
 ├── services/                    # Application services
-│   ├── api/                    # FastAPI API-only service (development mode)
-│   │   ├── main.py            # FastAPI app with API endpoints only
-│   │   ├── routes.py          # API routes
-│   │   ├── api_client.py      # S3 API client
-│   │   └── commands.py        # CLI commands
+│   ├── chat/                   # Chat/RAG service
+│   │   └── rag_service.py     # Semantic search + LLM response generation
 │   │
 │   ├── dashboard/              # Streamlit analytics dashboard
 │   │   ├── app.py             # Main dashboard app
@@ -277,7 +276,7 @@ The application runs as a multi-container Docker stack:
 │  └─> services/dashboard → Streamlit UI                       │
 │                                                               │
 │  api-service (port 8000)                                     │
-│  └─> services/api → FastAPI + S3 operations                  │
+│  └─> server/main.py → React UI + API + Chat/RAG              │
 │                                                               │
 │  softpower_db (port 5432)                                    │
 │  └─> PostgreSQL + pgvector                                   │
@@ -285,17 +284,17 @@ The application runs as a multi-container Docker stack:
 │  redis (internal)                                            │
 │  └─> Redis cache/queue                                       │
 └─────────────────────────────────────────────────────────────┘
-         ↑                                    ↑
-    Host Machine                      Host: FastAPI Server
-  (port 5001, optional)              (for local S3 access)
+         ↑
+    Host Machine (port 5001)
+    └─> server/main.py (S3/Batch/LLM proxy for Docker containers)
 ```
 
 **Key Points**:
 - PostgreSQL exposed on host port 5432
-- API service uses `host.docker.internal` to access host-based FastAPI S3 proxy (port 5001)
+- Docker api-service runs `server/main.py` on port 8000
+- Host runs same `server/main.py` on port 5001 for S3/Batch/LLM proxy (Docker uses `host.docker.internal:5001`)
 - Shared network `softpower_net` allows inter-container communication
 - Volume `postgres_data` persists database data
-- All services mount `shared/` directory for common code access
 
 ### Deployment Modes
 

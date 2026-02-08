@@ -105,7 +105,7 @@ $StreamlitHost = if ($env:STREAMLIT_HOST) { $env:STREAMLIT_HOST } else { "0.0.0.
 # Function to start FastAPI service
 function Start-API {
     Write-Host "[→] Starting FastAPI service on port $ApiPort..." -ForegroundColor Blue
-    $apiPath = Join-Path $ProjectRoot "services\api"
+    $apiPath = Join-Path $ProjectRoot "server"
 
     # Start in new window
     Start-Process powershell -ArgumentList "-NoExit", "-Command",

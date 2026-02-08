@@ -85,8 +85,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./server:/app/server                      # React-serving API
-      - ./services/api:/app/services/api          # Legacy API endpoints
+      - ./server:/app/server                      # React-serving API + S3/Batch proxy
       - ./services/pipeline:/app/services/pipeline
       - ./shared:/app/shared
       # Note: client/dist is built inside Docker image (multi-stage build)
