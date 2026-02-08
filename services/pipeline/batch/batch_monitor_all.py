@@ -23,12 +23,10 @@ Usage:
     python batch_monitor_all.py --check-once
 """
 import argparse
-import os
 import sys
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import List
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -294,7 +292,7 @@ def main():
 
                     # Wait before next poll
                     print(f"Waiting {args.poll_interval} seconds before next check...")
-                    print(f"(Press Ctrl+C to stop monitoring)")
+                    print("(Press Ctrl+C to stop monitoring)")
                     print()
                     time.sleep(args.poll_interval)
 

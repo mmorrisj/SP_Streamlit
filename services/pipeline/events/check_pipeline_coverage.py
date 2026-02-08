@@ -112,8 +112,8 @@ def check_coverage(country: str):
             print(f"   Coverage: {coverage:.1f}% of canonical events have mentions")
 
             if coverage < 50:
-                print(f"   🔴 CRITICAL: Most canonical events are missing daily_event_mentions!")
-                print(f"   This means llm_deconflict_clusters.py didn't complete for most dates")
+                print("   🔴 CRITICAL: Most canonical events are missing daily_event_mentions!")
+                print("   This means llm_deconflict_clusters.py didn't complete for most dates")
 
         # Stage 5: Check date coverage gap
         print("\nDATE COVERAGE GAP ANALYSIS")
@@ -143,9 +143,9 @@ def check_coverage(country: str):
             print(f"   Found {len(result)} dates with clusters but NO mentions (showing first 10):")
             for row in result:
                 print(f"      {row[0]}: {row[1]} clusters, {row[2]} canonical events, {row[3]} mentions")
-            print(f"\n   ⚠️  These dates need to be processed through llm_deconflict_clusters.py")
+            print("\n   ⚠️  These dates need to be processed through llm_deconflict_clusters.py")
         else:
-            print(f"   ✅ All cluster dates have corresponding mentions")
+            print("   ✅ All cluster dates have corresponding mentions")
 
         # Stage 6: Check consolidation
         print("\nSTAGE 5-6: CONSOLIDATION & MERGE")
@@ -165,9 +165,9 @@ def check_coverage(country: str):
         print(f"   Children (not yet merged): {result[2]:,}")
 
         if result[2] > 0:
-            print(f"   ⚠️  merge_canonical_events.py hasn't run yet (children still exist)")
+            print("   ⚠️  merge_canonical_events.py hasn't run yet (children still exist)")
         elif result[0] > 0:
-            print(f"   ✅ merge_canonical_events.py completed (children deleted)")
+            print("   ✅ merge_canonical_events.py completed (children deleted)")
 
         # Summary
         print("\n" + "=" * 100)
@@ -181,7 +181,7 @@ def check_coverage(country: str):
 
         if clusters_deconflicted > 0:
             print(f"1. Run llm_deconflict_clusters.py for {country} to process {clusters_deconflicted:,} pending clusters")
-            print(f"   This will create canonical_events and daily_event_mentions")
+            print("   This will create canonical_events and daily_event_mentions")
 
         if result[1] > result[0]:  # More unvalidated than validated
             print(f"2. Run consolidate_all_events.py for {country} (creates master-child links)")

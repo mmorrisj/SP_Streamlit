@@ -4,14 +4,14 @@ import os
 import re
 import time
 from pathlib import Path
-import yaml
 import ast
 from openai import AzureOpenAI
-import json
 import boto3
 from botocore.exceptions import ClientError
 # import pandas as pd
 from functools import wraps
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 class Config:
     def __init__(self, **entries):
@@ -38,17 +38,17 @@ class Config:
 cfg = Config.from_yaml()
 
 def get_secret():
- 
+
     secret_name = cfg.aws['secret_name']
     region_name = cfg.aws['region_name']
- 
+
     # Create a Secrets Manager client
     session = boto3.session.Session()
     client = session.client(
         service_name='secretsmanager',
         region_name=region_name
     )
- 
+
     try:
         get_secret_value_response = client.get_secret_value(
             SecretId=secret_name
@@ -57,10 +57,10 @@ def get_secret():
         # For a list of exceptions thrown, see
         # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
         raise e
- 
+
     secret = get_secret_value_response['SecretString']
     return secret
- 
+
 def get_db_secret(secret_name):
     """
     Fetches a specific secret from AWS Secrets Manager by name.
@@ -157,7 +157,6 @@ def rate_limit(min_interval):
 
 @rate_limit(min_interval=10.0)
 def fetch_gai_response(sys_prompt,prompt,model):
-    import re
     gpt_client = initialize_client()
     secret_name = "azure-open-ai-credentials"
     secret_dict = get_db_secret(secret_name)
@@ -188,7 +187,7 @@ def fetch_gai_response(sys_prompt,prompt,model):
 
     IMPORTANT: ONLY output the list of consolidated  ids
     '''
-    user_prompt = str(id_dct)
+    user_prompt = str(prompt)
 
 
     response = gpt_client.chat.completions.create(
@@ -209,7 +208,7 @@ def fetch_gai_response(sys_prompt,prompt,model):
         presence_penalty=0.0,
         model=deployment
     )
-    raw = response.choices[0].message.content
+    return response.choices[0].message.content
 
 
 @rate_limit(min_interval=10.0)
@@ -472,7 +471,7 @@ def extract_jsons(text):
     Attempts to extract JSON data from the input text.
     """
     cleaned_text = clean_json_string(text)
-    
+
     # Attempt to load the cleaned JSON string
     try:
         json_data = json.loads(cleaned_text)
@@ -497,7 +496,7 @@ def clean_and_extract_json(text):
     Cleans the input text and attempts to extract JSON data.
     """
     cleaned_text = clean_json_string(text)
-    
+
     # Replace single quotes around keys and values with double quotes
     cleaned_text = re.sub(r"'([^']*)'", r'"\1"', cleaned_text)
 
@@ -512,7 +511,7 @@ def extract_json_regex(text):
     Attempts to extract JSON data using regular expressions.
     """
     cleaned_text = clean_json_string(text)
-    
+
     # Replace single quotes around values with double quotes
     cleaned_text = re.sub(r'\'([^,{}[\]\s]*)\'', r'"\1"', cleaned_text)
 
@@ -587,171 +586,4 @@ def migrate_softpower_entities_table(engine):
             print("❌ Migration failed:", e)
             conn.rollback()
 
-    
-def clean_json_string(text):
-    """
-    Cleans the input text to prepare it for JSON parsing.
-    - Removes Markdown code block delimiters.
-    - Replaces single quotes around values with double quotes.
-    - Handles escaped quotes and special characters.
-    """
-    # Remove Markdown code block delimiters
-    text = text.strip().strip('```json').strip().strip('```').strip()
 
-    # Replace single quotes around values with double quotes
-    text = re.sub(r':\s*\'([^\']*)\'', r': "\1"', text)
-
-    # Replace escaped single quotes within values
-    text = text.replace("\\'", "'")
-    text = text.replace('\\"', '"')
-
-    # Handle special characters and ensure proper JSON formatting
-    text = text.replace('\n', ' ').replace('\r', '')
-
-    return text
-
-def extract_jsons(text):
-    """
-    Attempts to extract JSON data from the input text.
-    """
-    cleaned_text = clean_json_string(text)
-    
-    # Attempt to load the cleaned JSON string
-    try:
-        json_data = json.loads(cleaned_text)
-        return json_data
-    except json.JSONDecodeError:
-        return extract_json_regex(cleaned_text)
-
-def extract_json_ast(text):
-    """
-    Attempts to extract JSON data using the ast.literal_eval method.
-    """
-    cleaned_text = clean_json_string(text)
-
-    try:
-        json_data = ast.literal_eval(cleaned_text)
-        return json_data
-    except (ValueError, SyntaxError):
-        return None
-
-# def clean_and_extract_json(text):
-#     """
-#     Cleans the input text and attempts to extract JSON data.
-#     """
-#     cleaned_text = clean_json_string(text)
-    
-#     # Replace single quotes around keys and values with double quotes
-#     cleaned_text = re.sub(r"'([^']*)'", r'"\1"', cleaned_text)
-
-#     try:
-#         json_data = json.loads(cleaned_text)
-#         return json_data
-#     except json.JSONDecodeError:
-#         return extract_json_ast(cleaned_text)
-
-# def extract_json_regex(text):
-#     """
-#     Attempts to extract JSON data using regular expressions.
-#     """
-#     cleaned_text = clean_json_string(text)
-    
-#     # Replace single quotes around values with double quotes
-#     cleaned_text = re.sub(r'\'([^,{}[\]\s]*)\'', r'"\1"', cleaned_text)
-
-#     try:
-#         json_data = json.loads(cleaned_text)
-#         return json_data
-#     except json.JSONDecodeError:
-#         return clean_and_extract_json(cleaned_text)
-
-# def find_json_objects(text):
-#     """
-#     Finds and extracts JSON objects from the input text.
-#     """
-#     json_objects = []
-#     stack = []
-#     start = -1
-
-#     # Clean the text to handle escaped single quotes
-#     cleaned_text = re.sub(r'\\\'', "'", str(text)).replace("'s",'')
-
-#     # Iterate through the text character by character
-#     for i, char in enumerate(cleaned_text):
-#         if char == '{':
-#             if not stack:
-#                 start = i
-#             stack.append(char)
-#         elif char == '}':
-#             if stack:
-#                 stack.pop()
-#                 if not stack:
-#                     # End of a JSON object
-#                     try:
-#                         json_str = cleaned_text[start:i+1]
-#                         json_str = json_str.replace('""', '"')
-#                         obj = json.loads(json_str)
-#                         json_objects.append(obj)
-#                         start = -1  # Reset start for the next object
-#                     except json.JSONDecodeError:
-#                         pass
-
-#     if json_objects:
-#         return json_objects
-#     else:
-#         return extract_jsons(cleaned_text)
-
-# def concatenate_files(directory, columns=None,insert_value=None,str_value=None,num_docs=None,sort_by=None):
-#     """
-#     Concatenates all Excel files in the specified directory into a single DataFrame.
-    
-#     Parameters:
-#     - directory (str): The path to the directory containing Excel files.
-#     - columns (list of str, optional): If specified, the resulting DataFrame will include these columns only.
-    
-#     Returns:
-#     - pd.DataFrame: A DataFrame containing the concatenated data from all Excel files in the directory.
-#     """
-#     # Initialize the DataFrame with specified columns if provided
-#     if columns:
-#         df = pd.DataFrame(columns=columns)
-#     else:
-#         df = pd.DataFrame()
-
-#     # Iterate through all files in the directory
-#     for filename in os.listdir(directory):
-#         if filename.endswith('.xlsx'):
-#             if str_value:
-#                 if str_value in filename:
-#                     file_path = os.path.join(directory, filename)
-#                 else:
-#                     continue
-#             else:   
-#                 file_path = os.path.join(directory, filename)
-#             # Read the Excel file into a DataFrame
-#             try:
-#                 # Test for 1toN output
-#                 file_df = pd.read_excel(file_path, sheet_name='Outputs')
-            
-#             except:
-#                 #otherwise load first sheet
-#                 file_df = pd.read_excel(file_path)
-            
-#             if insert_value:
-#                 for k,v in insert_value.items():
-#                     file_df[k] = v
-#             if sort_by:
-#                 # Sort by the 'Score' column in descending order
-#                 file_df = file_df.sort_values(by=sort_by, ascending=False)
-                
-#             if num_docs:
-#                 file_df = file_df[:num_docs]
-            
-#             # If columns are specified, ensure the file DataFrame has those columns
-#             if columns:
-#                 file_df = file_df[columns]
-
-#             # Concatenate the DataFrame with the main DataFrame
-#             df = pd.concat([df, file_df])
-#     df.reset_index(drop=True,inplace=True)        
-#     return df

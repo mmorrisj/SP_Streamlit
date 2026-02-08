@@ -466,7 +466,7 @@ def generate_bilateral_category_summary(
     ).first()
 
     if existing and not regenerate:
-        print(f"  ⏭️  Summary already exists (use --regenerate to update)")
+        print("  ⏭️  Summary already exists (use --regenerate to update)")
         return existing
 
     # Gather data
@@ -523,7 +523,7 @@ def generate_bilateral_category_summary(
     material_justification = category_summary.get('material_assessment', {}).get('justification')
 
     if dry_run:
-        print(f"\n  🔍 DRY RUN - Would create/update:")
+        print("\n  🔍 DRY RUN - Would create/update:")
         print(f"     {initiating_country} → {recipient_country} → {category}")
         return None
 
@@ -551,7 +551,7 @@ def generate_bilateral_category_summary(
 
         summary = existing
     else:
-        print(f"  ✨ Creating new bilateral category summary")
+        print("  ✨ Creating new bilateral category summary")
         summary = BilateralCategorySummary(
             initiating_country=initiating_country,
             recipient_country=recipient_country,
@@ -577,7 +577,7 @@ def generate_bilateral_category_summary(
         session.add(summary)
 
     session.commit()
-    print(f"  ✅ Summary saved successfully!")
+    print("  ✅ Summary saved successfully!")
 
     return summary
 
@@ -634,7 +634,7 @@ def main():
     config = Config.from_yaml('shared/config/config.yaml')
 
     print(f"\n{'=' * 80}")
-    print(f"BILATERAL CATEGORY SUMMARY GENERATION")
+    print("BILATERAL CATEGORY SUMMARY GENERATION")
     print(f"{'=' * 80}\n")
 
     with get_session() as session:
@@ -652,7 +652,7 @@ def main():
         elif args.all:
             # Get all triplets meeting threshold
             print(f"\n🔍 Finding country-category triplets with ≥{args.min_docs} documents...")
-            print(f"   (Filtering by config influencers/recipients/categories)")
+            print("   (Filtering by config influencers/recipients/categories)")
             triplets = get_category_pairs_with_minimum_docs(
                 session,
                 min_docs=args.min_docs,
@@ -702,7 +702,7 @@ def main():
 
         # Summary
         print(f"\n{'=' * 80}")
-        print(f"GENERATION COMPLETE")
+        print("GENERATION COMPLETE")
         print(f"{'=' * 80}")
         print(f"✅ Success: {success_count}")
         print(f"⏭️  Skipped: {skip_count}")

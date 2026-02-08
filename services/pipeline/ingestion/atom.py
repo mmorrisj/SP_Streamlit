@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from shared.utils.utils import cfg, concatenate_files  # Import the already-loaded config
+from shared.utils.utils import cfg  # Import the already-loaded config
 from datetime import datetime
 
 def clean_atom_output(df,fields,process_body,filter_fields,qry=None):
@@ -13,27 +13,27 @@ def clean_atom_output(df,fields,process_body,filter_fields,qry=None):
     df = df[cols]
     df[cfg.text_field] = df['Body']
     if filter_fields:
-        
+
         df = df[fields]
-    
+
     if qry:
         df["Query"] = qry
-    
+
     df.drop_duplicates('Title', inplace=True)
     df[cfg.text_field] = [text.replace('\n', ' ').strip() for text in df['BODY']]
 
     return df
 
-def process_atom_files(directory= './backend/atom', 
+def process_atom_files(directory= './backend/atom',
                        output_directory = os.path.join(directory,'processed'),
                        delete=True,
                        fields=cfg.fields['raw_atom'],
                        process_body=True,
                        filter_fields=True):
-    
+
     # Get the current date
     current_date = datetime.now().strftime("%Y-%m-%d")  # Format: YYYY-MM-DD
-    
+
     for filename in os.listdir(directory):
         if filename.endswith('.csv'):
             file_path = os.path.join(directory, filename)
@@ -49,7 +49,7 @@ def process_atom_files(directory= './backend/atom',
             #     continue
             # Clean the data
             cleaned_df = clean_atom_output(df,fields,process_body,filter_fields)
-            
+
             # Export the cleaned data
             cleaned_file_path = os.path.join(output_directory, f'cleaned_{filename[:-4]}_{current_date}.xlsx')
             cleaned_df.to_excel(cleaned_file_path, index=False)

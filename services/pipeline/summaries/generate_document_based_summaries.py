@@ -90,7 +90,6 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from shared.database.database import get_session
-from shared.models.models import Document
 from shared.utils.utils import gai, Config
 
 
@@ -1593,7 +1592,7 @@ def main():
                     print(f"📁 Found {len(existing_daily)} existing daily summaries")
                     latest_date = max(existing_daily.keys())
                     print(f"📅 Latest: {latest_date}")
-                    print(f"🔄 Resuming from next day...")
+                    print("🔄 Resuming from next day...")
                     print()
 
             generated_count = 0
@@ -1864,7 +1863,7 @@ def main():
                         combined_filepath = bilateral_output_dir / combined_filename
 
                         if combined_filepath.exists() and not args.force:
-                            print(f"    • All Categories: ⏭️  Exists")
+                            print("    • All Categories: ⏭️  Exists")
                         else:
                             combined_summary = generate_bilateral_monthly_summary(
                                 session, args.influencer, recipient,
@@ -1878,7 +1877,7 @@ def main():
                                 save_json(combined_summary, combined_filepath, quiet=True)
                                 print(f"    • All Categories: ✅ {combined_summary['metrics']['total_documents']} docs")
                             else:
-                                print(f"    • All Categories: ⏭️  No docs")
+                                print("    • All Categories: ⏭️  No docs")
 
                     # Move to next month
                     current_month = next_month

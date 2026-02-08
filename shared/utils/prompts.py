@@ -1935,7 +1935,7 @@ IMPORTANT: and event, initiative, or project should ONLY be reference ONCE acros
  ONLY output the JSON output. ONLY use the JSON format. 
  '''
 
- 
+
 tableau_ht_summary = '''
 TODAY's DATE IS {date_string}.
 '\nYou are an international relations expert on {country}\'s use of Soft Power influence across the globe and an expert summarizer of large bodies of text as well as a professional news editor for a journal that writes on soft power activities in the Middle East. 

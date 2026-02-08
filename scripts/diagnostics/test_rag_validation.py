@@ -8,13 +8,11 @@ Shows exactly what data would be loaded into the prompt.
 import sys
 from pathlib import Path
 import json
-from datetime import date, timedelta
 
 # Add project root to path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from services.agent.soft_power_agent import SoftPowerAgent
 from services.agent.tools.analytics_tools import get_trending_events
 from services.agent.query_engine import QueryEngine
 
@@ -97,7 +95,7 @@ if trending_results['results']:
     november_events = [e for e in trending_results['results'] if '2025-11' in e['period_start']]
     october_events = [e for e in trending_results['results'] if '2025-10' in e['period_start']]
 
-    print(f"\n📊 Event Distribution:")
+    print("\n📊 Event Distribution:")
     print(f"   - November 2025 events: {len(november_events)}")
     print(f"   - October 2025 events: {len(october_events)}")
 

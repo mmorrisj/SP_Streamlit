@@ -57,7 +57,7 @@ def create_admin(username: str, password: str, force_password_change: bool = Fal
         session.commit()
 
         print(f"Admin user '{username}' created successfully!")
-        print(f"  Role: admin")
+        print("  Role: admin")
         print(f"  Force password change: {force_password_change}")
 
 

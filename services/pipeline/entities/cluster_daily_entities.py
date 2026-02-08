@@ -26,10 +26,8 @@ import sys
 import argparse
 import numpy as np
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
-from pathlib import Path
+from typing import List, Dict, Any
 from collections import defaultdict
-import gc
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
@@ -39,7 +37,6 @@ from shared.models.models import (
     Document, RawEntity, EntityCluster, EntityTypeEnum,
     InitiatingCountry
 )
-from shared.utils.utils import Config
 from sqlalchemy import text, func, and_, distinct
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import DBSCAN
@@ -285,9 +282,9 @@ def process_date_range(
     print(f"Entity types: {[et.value for et in entity_types]}")
     print(f"Clustering parameters: eps={eps}, min_samples={min_samples}")
     if force:
-        print(f"Mode: FORCE - will delete existing clusters and reprocess")
+        print("Mode: FORCE - will delete existing clusters and reprocess")
     else:
-        print(f"Mode: Skip dates with existing clusters (use --force to reprocess)")
+        print("Mode: Skip dates with existing clusters (use --force to reprocess)")
     print(f"{'='*80}\n")
 
     # Load embedding model
@@ -347,7 +344,7 @@ def process_date_range(
             current_date += timedelta(days=1)
 
         print(f"\n{'='*80}")
-        print(f"✅ Clustering Complete!")
+        print("✅ Clustering Complete!")
         print(f"  Total clusters created: {total_clusters_created}")
         print(f"{'='*80}\n")
 
@@ -391,14 +388,14 @@ def show_status(country: str):
         ).fetchall()
 
         print(f"Date range: {date_range[0]} to {date_range[1]}")
-        print(f"\nClusters by type:")
+        print("\nClusters by type:")
 
         for entity_type, total_clusters, llm_processed in cluster_counts:
             print(f"  {entity_type.value}:")
             print(f"    Total clusters: {total_clusters}")
             print(f"    LLM processed: {llm_processed} ({llm_processed / total_clusters * 100 if total_clusters > 0 else 0:.1f}%)")
 
-        print(f"\nEntities in clusters:")
+        print("\nEntities in clusters:")
         for row in total_entities_result:
             print(f"  {row.entity_type}: {row.total_entities}")
 

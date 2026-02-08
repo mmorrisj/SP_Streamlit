@@ -5,10 +5,10 @@ Uses current database models (EventSummary, PeriodSummary, Document, etc.)
 to fetch data needed for summary publications.
 """
 
-from datetime import date, datetime
+from datetime import date
 from typing import List, Dict, Any, Optional, Tuple
-from sqlalchemy import func, and_, or_, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, or_, text
+from sqlalchemy.orm import Session
 
 from shared.models.models import (
     Document,

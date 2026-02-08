@@ -15,14 +15,12 @@ import os
 import sys
 import time
 from pathlib import Path
-from openai import OpenAI
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from services.pipeline.batch.batch_config import (
-    OPENAI_API_KEY_ENV,
     OPENAI_BATCH_ENDPOINT,
     OPENAI_COMPLETION_WINDOW,
     MAX_SUBMISSION_RETRIES,
@@ -68,7 +66,7 @@ def submit_batch_to_openai(
             print(f"✓ File uploaded: {file_id}")
 
             # Create batch job via proxy
-            print(f"Creating batch job...")
+            print("Creating batch job...")
             batch_result = client.create_batch(
                 input_file_id=file_id,
                 endpoint=OPENAI_BATCH_ENDPOINT,
@@ -133,7 +131,7 @@ def main():
                 print(f"Error: Batch job not found: {args.batch_job_id}")
                 return
 
-            print(f"✓ Loaded batch job")
+            print("✓ Loaded batch job")
             print(f"  Job type: {batch_job.job_type}")
             print(f"  Batch size: {batch_job.batch_size}")
             print(f"  Status: {batch_job.status}")
@@ -143,7 +141,7 @@ def main():
             # Validate status
             if batch_job.status != BatchJobStatus.PREPARING.value:
                 print(f"Warning: Batch job status is '{batch_job.status}', expected 'preparing'")
-                print(f"Continuing anyway...")
+                print("Continuing anyway...")
                 print()
 
             # Check input file exists

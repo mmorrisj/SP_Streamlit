@@ -134,7 +134,7 @@ def diagnose_country(country: str):
         if children_count > 0:
             print(f"   ✅ consolidate_all_events.py RAN ({children_count:,} children created)")
         else:
-            print(f"   ❌ consolidate_all_events.py NEVER RAN or found zero groups")
+            print("   ❌ consolidate_all_events.py NEVER RAN or found zero groups")
 
         # Check if LLM validation ran
         validated_count = session.execute(text("""
@@ -147,7 +147,7 @@ def diagnose_country(country: str):
         if validated_count > 0:
             print(f"   ✅ llm_deconflict_canonical_events.py RAN ({validated_count:,} validated)")
         else:
-            print(f"   ❌ llm_deconflict_canonical_events.py NEVER RAN")
+            print("   ❌ llm_deconflict_canonical_events.py NEVER RAN")
 
         # Check if merge ran (would move mentions to masters)
         if children_count > 0 and validated_count > 0:
@@ -164,7 +164,7 @@ def diagnose_country(country: str):
             if masters_with_mentions > 0:
                 print(f"   ✅ merge_canonical_events.py RAN ({masters_with_mentions:,} masters have mentions)")
             else:
-                print(f"   ❌ merge_canonical_events.py NEVER RAN or failed")
+                print("   ❌ merge_canonical_events.py NEVER RAN or failed")
 
         # 6. DIAGNOSIS
         print("\n6. ROOT CAUSE DIAGNOSIS:")

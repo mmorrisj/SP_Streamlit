@@ -7,7 +7,7 @@ This will help identify why raw events aren't being found.
 from datetime import date
 from backend.database import get_session
 from backend.models import Document, RawEvent, InitiatingCountry
-from sqlalchemy import select, func, and_, text
+from sqlalchemy import select, func, and_
 
 def diagnose_relationships(target_date_str: str = None, country: str = None):
     """Diagnose data relationships and potential JOIN issues."""
@@ -64,7 +64,7 @@ def diagnose_relationships(target_date_str: str = None, country: str = None):
                 raw_events = session.query(RawEvent.event_name).filter(
                     RawEvent.doc_id == doc_id
                 ).all()
-                print(f"  → Flattened RawEvents:")
+                print("  → Flattened RawEvents:")
                 for (evt,) in raw_events:
                     print(f"     - {evt[:80]}...")
 
@@ -72,7 +72,7 @@ def diagnose_relationships(target_date_str: str = None, country: str = None):
                 init_countries = session.query(InitiatingCountry.initiating_country).filter(
                     InitiatingCountry.doc_id == doc_id
                 ).all()
-                print(f"  → Flattened InitiatingCountries:")
+                print("  → Flattened InitiatingCountries:")
                 for (country_name,) in init_countries:
                     print(f"     - {country_name}")
 

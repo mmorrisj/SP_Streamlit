@@ -14,19 +14,16 @@ Usage:
     python batch_monitor.py --batch-job-id <UUID> --poll-interval 120
 """
 import argparse
-import os
 import sys
 import time
 from pathlib import Path
 from datetime import datetime
-from openai import OpenAI
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from services.pipeline.batch.batch_config import (
-    OPENAI_API_KEY_ENV,
     DEFAULT_POLL_INTERVAL,
     MAX_POLL_DURATION,
     get_batch_file_path
@@ -129,7 +126,7 @@ def download_batch_results(
     results = {}
 
     # Download output file via proxy
-    print(f"Downloading output file via proxy...")
+    print("Downloading output file via proxy...")
     download_result = client.download_results(openai_batch_id)
     content = download_result['content']
 
@@ -185,10 +182,10 @@ def main():
                 return
 
             if not batch_job.openai_batch_id:
-                print(f"Error: Batch job has no OpenAI batch ID. Was it submitted?")
+                print("Error: Batch job has no OpenAI batch ID. Was it submitted?")
                 return
 
-            print(f"✓ Loaded batch job")
+            print("✓ Loaded batch job")
             print(f"  OpenAI Batch ID: {batch_job.openai_batch_id}")
             print(f"  Status: {batch_job.status}")
             print(f"  Batch size: {batch_job.batch_size}")

@@ -51,8 +51,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from shared.database.database import get_session
 from shared.models.models import (
-    EntityCluster, CanonicalEntity, DailyEntityMention, RawEntity,
-    EntityTypeEnum, EntityRoleEnum
+    EntityCluster, CanonicalEntity, DailyEntityMention, EntityTypeEnum, EntityRoleEnum
 )
 from shared.utils.utils import gai
 from sentence_transformers import SentenceTransformer
@@ -108,7 +107,7 @@ class LLMEntityDeconfliction:
         Returns:
             List of dicts with keys: initiating_country, cluster_date, entity_type, batch_number
         """
-        from sqlalchemy import distinct, and_
+        from sqlalchemy import and_
 
         # Use ORM query to properly handle enum types
         query = (
@@ -609,7 +608,7 @@ Return ONLY the JSON object, no additional text."""
                 print(f"\n      🔴 ERROR: Failed to create daily_entity_mention for '{safe_name}'")
                 print(f"         Cluster: {cluster.cluster_id}, Date: {cluster.cluster_date}")
                 print(f"         Error: {str(e)}")
-                print(f"         Rolled back savepoint to prevent orphaned canonical_entity")
+                print("         Rolled back savepoint to prevent orphaned canonical_entity")
 
                 # Re-raise to signal failure to caller
                 raise Exception(
@@ -796,7 +795,7 @@ Return ONLY the JSON object, no additional text."""
 
             for i, batch in enumerate(batches, 1):
                 print(f"\nBatch {i}/{len(batches)}: {batch['cluster_date']} - {batch['entity_type'].value}")
-                print(f"-" * 80)
+                print("-" * 80)
 
                 batch_stats = self.process_batch(
                     session,
@@ -814,7 +813,7 @@ Return ONLY the JSON object, no additional text."""
 
         # Print summary
         print(f"\n{'='*80}")
-        print(f"✅ LLM Deconfliction Complete!")
+        print("✅ LLM Deconfliction Complete!")
         print(f"{'='*80}")
         print(f"Total batches processed: {total_stats['total_batches']}")
         print(f"Total clusters processed: {total_stats['total_clusters']}")

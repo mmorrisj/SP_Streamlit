@@ -176,7 +176,7 @@ def main():
     print(f"Model:             {args.model}")
     print(f"Min Docs/Event:    {args.min_docs}")
     print(f"Max Sources:       {args.max_sources}")
-    print(f"\nPipeline Steps:")
+    print("\nPipeline Steps:")
     print(f"  1. EventSummary Generation:  {'SKIP' if args.skip_summary else 'RUN'}")
     print(f"  2. Publication Generation:   {'SKIP' if args.skip_publication else 'RUN'}")
     print("="*80 + "\n")
@@ -264,13 +264,13 @@ def main():
     print(f"Failed Steps:          {total_steps - success_count}")
 
     if success_count == total_steps:
-        print(f"\n✅ ALL STEPS COMPLETED SUCCESSFULLY")
+        print("\n✅ ALL STEPS COMPLETED SUCCESSFULLY")
         print("\nGenerated files can be found in:")
         print("  - services/publication/output/")
     elif success_count > 0:
         print(f"\n⚠️  PARTIALLY COMPLETED ({success_count}/{total_steps} steps)")
     else:
-        print(f"\n❌ PIPELINE FAILED")
+        print("\n❌ PIPELINE FAILED")
         sys.exit(1)
 
     print("="*80 + "\n")

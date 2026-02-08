@@ -336,7 +336,7 @@ Now analyze the entity group above and return your assessment as JSON."""
                 result = json.loads(response)
 
         if 'same_entity' not in result:
-            raise ValueError(f"Invalid LLM response: missing 'same_entity' field")
+            raise ValueError("Invalid LLM response: missing 'same_entity' field")
 
         # Validate primary_role
         if result.get('best_primary_role') and result['best_primary_role'] not in VALID_ROLES:
@@ -386,9 +386,9 @@ def process_country(
         print(f"\n{'='*80}")
         print(f"LLM Deconfliction (Entities): {country}")
         if force:
-            print(f"  [FORCE MODE] Reprocessing all groups (ignoring validation status)")
+            print("  [FORCE MODE] Reprocessing all groups (ignoring validation status)")
         elif resume:
-            print(f"  [RESUME MODE] Skipping already-validated groups")
+            print("  [RESUME MODE] Skipping already-validated groups")
         print(f"{'='*80}")
 
     # Load entity groups
@@ -396,7 +396,7 @@ def process_country(
 
     if len(groups) == 0:
         if verbose:
-            print(f"  No consolidated entity groups found")
+            print("  No consolidated entity groups found")
         return {'groups': 0, 'validated': 0, 'split': 0, 'renamed': 0, 'skipped': 0}
 
     if verbose:
@@ -506,7 +506,7 @@ def process_country(
 
             if best_name != current_master_name:
                 if verbose:
-                    print(f"    [RENAME] Master entity name should change")
+                    print("    [RENAME] Master entity name should change")
                 stats['renamed'] += 1
 
                 if not dry_run:
@@ -544,7 +544,7 @@ def process_country(
                         session.execute(text(update_sql), update_params)
 
                         if verbose:
-                            print(f"    [UPDATED] Swapped master entity")
+                            print("    [UPDATED] Swapped master entity")
                     else:
                         # Mark current master as validated, update role if needed
                         update_sql = """UPDATE canonical_entities
@@ -597,7 +597,7 @@ def process_country(
     if not dry_run and groups_since_commit > 0:
         session.commit()
         if verbose:
-            print(f"\n  [COMMITTED] Final batch")
+            print("\n  [COMMITTED] Final batch")
 
     return stats
 
@@ -695,9 +695,9 @@ def main():
     print(f"Groups renamed: {overall_stats['total_renamed']}")
     print(f"Groups skipped (single-entity): {overall_stats['total_skipped']}")
     if args.force:
-        print(f"\n[FORCE MODE] All groups were reprocessed")
+        print("\n[FORCE MODE] All groups were reprocessed")
     elif args.resume:
-        print(f"\n[RESUME MODE] Already-validated groups were skipped")
+        print("\n[RESUME MODE] Already-validated groups were skipped")
     print("="*80)
 
 

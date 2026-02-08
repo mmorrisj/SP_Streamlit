@@ -3,7 +3,7 @@ Query functions for master events and canonical events dashboard.
 """
 import pandas as pd
 import streamlit as st
-from sqlalchemy import func, desc, text
+from sqlalchemy import text
 from shared.database.database import get_engine
 from shared.utils.utils import Config
 

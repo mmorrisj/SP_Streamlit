@@ -37,7 +37,6 @@ import numpy as np
 from sqlalchemy import text
 
 from shared.database.database import get_session
-from shared.utils.utils import Config
 
 
 def get_monthly_windows(start_date: datetime, end_date: datetime) -> List[Tuple[datetime, datetime]]:
@@ -237,12 +236,12 @@ def consolidate_within_window(
 
     # Show cluster statistics
     cluster_sizes = [len(c) for c in clusters]
-    print(f"Cluster size distribution:")
+    print("Cluster size distribution:")
     print(f"  Min: {min(cluster_sizes)}, Max: {max(cluster_sizes)}, Avg: {np.mean(cluster_sizes):.1f}")
 
     # Show sample clusters
     events_by_id = {e['id']: e for e in events}
-    print(f"\nSample clusters (top 3 by size):")
+    print("\nSample clusters (top 3 by size):")
     for i, cluster in enumerate(sorted(clusters, key=len, reverse=True)[:3]):
         print(f"\n  Cluster {i+1} ({len(cluster)} events):")
         for event_id in list(cluster)[:5]:  # Show first 5 events
@@ -355,7 +354,7 @@ def consolidate_cross_boundary(
 
     # Show sample clusters
     events_by_id = {e['id']: e for e in unique_boundary_events}
-    print(f"\nSample cross-boundary clusters (top 3 by size):")
+    print("\nSample cross-boundary clusters (top 3 by size):")
     for i, cluster in enumerate(sorted(clusters, key=len, reverse=True)[:3]):
         print(f"\n  Cluster {i+1} ({len(cluster)} events):")
         for event_id in list(cluster)[:5]:
@@ -486,7 +485,7 @@ def main():
 
         # Level 2: Cross-boundary consolidation
         if not args.skip_cross_boundary:
-            print(f"\nLevel 2: Cross-boundary consolidation")
+            print("\nLevel 2: Cross-boundary consolidation")
             clusters, consolidated = consolidate_cross_boundary(
                 session,
                 args.country,

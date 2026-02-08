@@ -9,13 +9,10 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime
-from typing import Optional, List, Dict
 from queries.category_queries import (
     get_all_country_category_summaries,
-    get_country_category_summary,
     get_country_categories,
     get_category_by_countries,
-    get_top_country_categories_by_documents,
     get_country_category_statistics
 )
 

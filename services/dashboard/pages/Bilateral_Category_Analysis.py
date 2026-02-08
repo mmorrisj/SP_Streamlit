@@ -9,12 +9,9 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime
-from typing import Optional, List, Dict
 from queries.category_queries import (
     get_all_bilateral_category_summaries,
-    get_bilateral_category_summary,
     get_bilateral_categories,
-    get_top_bilateral_categories_by_documents,
     get_bilateral_category_statistics
 )
 

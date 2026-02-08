@@ -6,7 +6,7 @@ source traceability.
 """
 
 import streamlit as st
-from datetime import datetime, date, timedelta
+from datetime import timedelta
 from shared.utils.utils import Config
 from queries.summary_queries import (
     get_available_summary_dates,

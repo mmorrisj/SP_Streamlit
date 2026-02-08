@@ -35,7 +35,6 @@ import json
 import sys
 from typing import List, Dict, Optional
 from pathlib import Path
-from datetime import datetime
 
 # Configure stdout encoding for Unicode support on Windows
 if sys.platform == "win32":
@@ -295,7 +294,7 @@ def extract_event_entities(
         # Validate structure
         required_keys = ['persons', 'organizations', 'companies', 'locations']
         if not all(key in entities_data for key in required_keys):
-            print(f"    [ERROR] Missing required entity types in response")
+            print("    [ERROR] Missing required entity types in response")
             return None
 
         # Ensure all are lists
@@ -361,7 +360,7 @@ def extract_country_event_entities(
 
         if not events:
             if verbose:
-                print(f"\n  [INFO] No events found to process")
+                print("\n  [INFO] No events found to process")
             return {'total': 0, 'extracted': 0, 'failed': 0}
 
         if verbose:
@@ -387,7 +386,7 @@ def extract_country_event_entities(
 
             # Extract entities
             if verbose:
-                print(f"    [PROXY] Calling LLM for entity extraction...")
+                print("    [PROXY] Calling LLM for entity extraction...")
 
             entities = extract_event_entities(event, use_proxy=True)
 
@@ -409,17 +408,17 @@ def extract_country_event_entities(
                     )
                     session.commit()
                     if verbose:
-                        print(f"    [SAVED] Entities updated")
+                        print("    [SAVED] Entities updated")
 
                 stats['extracted'] += 1
             else:
                 if verbose:
-                    print(f"    [FAILED] Could not extract entities")
+                    print("    [FAILED] Could not extract entities")
                 stats['failed'] += 1
 
         if verbose:
             print(f"\n{'='*80}")
-            print(f"SUMMARY")
+            print("SUMMARY")
             print(f"{'='*80}")
             print(f"  Total events: {stats['total']}")
             print(f"  Successfully extracted: {stats['extracted']}")

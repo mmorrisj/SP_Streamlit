@@ -6,9 +6,8 @@ from enum import Enum as PyEnum
 
 # Core SQLAlchemy imports
 from sqlalchemy import (
-    Column, Integer, String, Text, Date, Float, BigInteger,
-    DateTime, Boolean, ForeignKey, UniqueConstraint, Index,
-    PrimaryKeyConstraint, func, Enum, CheckConstraint, Numeric
+    Integer, String, Text, Date, Float, DateTime, Boolean, ForeignKey, UniqueConstraint, Index,
+    Enum, CheckConstraint, Numeric
 )
 
 # PostgreSQL-specific types
@@ -53,11 +52,11 @@ class Document(Base):
     - Added relationship to Salience
     """
     __tablename__ = 'documents'
-    
+
     # Primary key
     doc_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    
-    # Core document metadata  
+
+    # Core document metadata
     title: Mapped[Optional[str]] = mapped_column(Text)
     source_name: Mapped[Optional[str]] = mapped_column(Text)
     source_geofocus: Mapped[Optional[str]] = mapped_column(Text)
@@ -66,34 +65,34 @@ class Document(Base):
     source_medium: Mapped[Optional[str]] = mapped_column(Text)
     source_location: Mapped[Optional[str]] = mapped_column(Text)
     source_editorial: Mapped[Optional[str]] = mapped_column(Text)
-    
+
     # Temporal data
     date: Mapped[Optional[DateType]] = mapped_column(Date)
-    
+
     # Processing metadata
     collection_name: Mapped[Optional[str]] = mapped_column(Text)
     gai_engine: Mapped[Optional[str]] = mapped_column(Text)
     gai_promptid: Mapped[Optional[str]] = mapped_column(Text)
     gai_promptversion: Mapped[Optional[int]] = mapped_column(Integer)
-    
-    # Analysis results 
+
+    # Analysis results
     salience: Mapped[Optional[str]] = mapped_column(Text)
     salience_justification: Mapped[Optional[str]] = mapped_column(Text)
     salience_bool: Mapped[Optional[str]] = mapped_column(Text)
     category: Mapped[Optional[str]] = mapped_column(Text)
     category_justification: Mapped[Optional[str]] = mapped_column(Text)
     subcategory: Mapped[Optional[str]] = mapped_column(Text)
-    
+
     # Geographic and relational data
     initiating_country: Mapped[Optional[str]] = mapped_column(Text)
     recipient_country: Mapped[Optional[str]] = mapped_column(Text)
     _projects: Mapped[Optional[str]] = mapped_column(Text)
     lat_long: Mapped[Optional[str]] = mapped_column(Text)
     location: Mapped[Optional[str]] = mapped_column(Text)
-    
+
     # Financial data
     monetary_commitment: Mapped[Optional[str]] = mapped_column(Text)
-    
+
     # Content
     distilled_text: Mapped[Optional[str]] = mapped_column(Text)
     event_name: Mapped[Optional[str]] = mapped_column(Text)
@@ -124,7 +123,7 @@ class Document(Base):
 
     def __repr__(self) -> str:
         return f"<Document(doc_id='{self.doc_id}', title='{self.title}')>"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary for API serialization."""
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
@@ -143,16 +142,16 @@ class Category(Base):
     - Type hints for all fields
     """
     __tablename__ = 'categories'
-    
+
     doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
     category: Mapped[str] = mapped_column(Text, primary_key=True)
-    
+
     # Bidirectional relationship for easier querying
     document = relationship("Document", back_populates="categories")
-    
+
     def __repr__(self) -> str:
         return f"<Category(doc_id='{self.doc_id}', category='{self.category}')>"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
@@ -161,16 +160,16 @@ class Subcategory(Base):
     Document subcategories - many-to-many relationship with documents.
     """
     __tablename__ = 'subcategories'
-    
+
     doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
     subcategory: Mapped[str] = mapped_column(Text, primary_key=True)
-    
+
     # Bidirectional relationship for easier querying
     document = relationship("Document", back_populates="subcategories")
-    
+
     def __repr__(self) -> str:
         return f"<Subcategory(doc_id='{self.doc_id}', subcategory='{self.subcategory}')>"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
@@ -179,16 +178,16 @@ class InitiatingCountry(Base):
     Countries that initiate soft power activities - many-to-many with documents.
     """
     __tablename__ = 'initiating_countries'
-    
+
     doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
     initiating_country: Mapped[str] = mapped_column(Text, primary_key=True)
-    
+
     # Bidirectional relationship for easier querying
     document = relationship("Document", back_populates="initiating_countries")
-    
+
     def __repr__(self) -> str:
         return f"<InitiatingCountry(doc_id='{self.doc_id}', country='{self.initiating_country}')>"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
@@ -197,16 +196,16 @@ class RecipientCountry(Base):
     Countries that receive soft power activities - many-to-many with documents.
     """
     __tablename__ = 'recipient_countries'
-    
+
     doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
     recipient_country: Mapped[str] = mapped_column(Text, primary_key=True)
-    
+
     # Bidirectional relationship for easier querying
     document = relationship("Document", back_populates="recipient_countries")
-    
+
     def __repr__(self) -> str:
         return f"<RecipientCountry(doc_id='{self.doc_id}', country='{self.recipient_country}')>"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
@@ -588,33 +587,33 @@ class CanonicalEvent(Base):
     # Core identity
     canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
     initiating_country: Mapped[str] = mapped_column(Text, nullable=False)
-    
+
     # News mention tracking (key for news feeds)
     first_mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
     last_mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
     total_mention_days: Mapped[int] = mapped_column(Integer, default=1)  # Days with mentions
     total_articles: Mapped[int] = mapped_column(Integer, default=0)
-    
+
     # Story arc tracking
     story_phase: Mapped[str] = mapped_column(String(50))  # "emerging", "developing", "peak", "fading", "dormant"
     days_since_last_mention: Mapped[int] = mapped_column(Integer, default=0)
-    
+
     # News source diversity
     unique_sources: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
     source_count: Mapped[int] = mapped_column(Integer, default=0)
-    
+
     # Peak coverage tracking
     peak_mention_date: Mapped[Optional[DateType]] = mapped_column(Date)
     peak_daily_article_count: Mapped[int] = mapped_column(Integer, default=0)
-    
+
     # Aggregated information (builds over time as articles mention different details)
     consolidated_description: Mapped[Optional[str]] = mapped_column(Text)
     key_facts: Mapped[Dict[str, str]] = mapped_column(JSONB, default=dict)  # Facts extracted from articles
-    
+
     # For matching
     embedding_vector: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float))
     alternative_names: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)  # Different headlines for same event
-    
+
     # Metadata
     primary_categories: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)
     primary_recipients: Mapped[Dict[str, int]] = mapped_column(JSONB, default=dict)
@@ -668,25 +667,25 @@ class DailyEventMention(Base):
 
     mention_date: Mapped[DateType] = mapped_column(Date, nullable=False)
     article_count: Mapped[int] = mapped_column(Integer, default=0)
-    
+
     # Consolidation metadata (from your daily clustering + LLM)
     consolidated_headline: Mapped[str] = mapped_column(Text)  # Best representation of event on this day
     daily_summary: Mapped[Optional[str]] = mapped_column(Text)  # What was new this day
-    
+
     # Source tracking
     source_names: Mapped[List[str]] = mapped_column(ARRAY(Text))
     source_diversity_score: Mapped[float] = mapped_column(Float, default=0.0)
-    
+
     # Signals for temporal matching
     mention_context: Mapped[str] = mapped_column(Text)  # "announcement", "preparation", "execution", "aftermath"
     news_intensity: Mapped[str] = mapped_column(String(20))  # "breaking", "developing", "follow-up", "recap"
-    
+
     # Links to source documents
     doc_ids: Mapped[List[str]] = mapped_column(ARRAY(Text))
-    
+
     # Relationships
     canonical_event = relationship("CanonicalEvent", back_populates="daily_mentions")
-    
+
     __table_args__ = (
         UniqueConstraint("canonical_event_id", "mention_date", name="uq_daily_mention"),
         Index("ix_daily_mention_date", "mention_date"),

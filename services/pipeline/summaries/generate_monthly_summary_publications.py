@@ -14,11 +14,11 @@ import argparse
 import json
 import yaml
 from datetime import datetime, date
-from typing import List, Dict, Optional
+from typing import List, Dict
 from pathlib import Path
 
 from shared.database.database import get_session
-from shared.models.models import EventSummary, EventSourceLink, PeriodType, EventStatus, Document
+from shared.models.models import EventSummary, EventSourceLink, PeriodType, EventStatus
 
 
 def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
@@ -176,12 +176,12 @@ def save_publication(publication: Dict, output_dir: str = '_data/publications'):
 def print_summary_statistics(publication: Dict):
     """Print summary statistics"""
     print("\n" + "="*80)
-    print(f"MONTHLY SUMMARY PUBLICATION")
+    print("MONTHLY SUMMARY PUBLICATION")
     print("="*80)
     print(f"Country: {publication['country']}")
     print(f"Period: {publication['period_start']} to {publication['period_end']}")
     print(f"Total Events: {publication['total_events']}")
-    print(f"\nEvents by Category:")
+    print("\nEvents by Category:")
 
     for category, events in publication['events_by_category'].items():
         print(f"  {category}: {len(events)} events")
@@ -232,7 +232,7 @@ def main():
         end_date = date.fromisoformat(args.end_date)
 
     print(f"\n{'='*80}")
-    print(f"GENERATING MONTHLY SUMMARY PUBLICATIONS")
+    print("GENERATING MONTHLY SUMMARY PUBLICATIONS")
     print(f"{'='*80}")
     print(f"Countries: {', '.join(countries)}")
     print(f"Period: {start_date} to {end_date}")

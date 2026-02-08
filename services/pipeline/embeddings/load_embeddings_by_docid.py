@@ -22,7 +22,6 @@ Usage:
     python services/pipeline/embeddings/load_embeddings_by_docid.py --source local --doc-ids doc1 --dry-run
 """
 
-import os
 import sys
 import argparse
 import pandas as pd
@@ -30,7 +29,6 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime
-import json
 
 # Add project root to path for imports
 script_dir = Path(__file__).resolve().parent
@@ -41,12 +39,9 @@ sys.path.insert(0, str(project_root))
 from sqlalchemy import text
 from shared.database.database import get_session, get_engine
 from shared.models.models import Document
-from shared.utils.utils import cfg  # Import the already-loaded config
 
 # LangChain imports
-from langchain_community.vectorstores.pgvector import PGVector
 from services.pipeline.embeddings.embedding_vectorstore import (
-    chunk_store,
     stores
 )
 
@@ -123,7 +118,7 @@ class EmbeddingLoader:
                 f"Available: {', '.join(collection_map.keys())}"
             )
 
-        print(f"Initialized EmbeddingLoader:")
+        print("Initialized EmbeddingLoader:")
         print(f"  Source: {source}")
         if source == 'local':
             print(f"  Local Directory: {self.local_dir.absolute()}")
@@ -329,7 +324,7 @@ class EmbeddingLoader:
                 print(f"  Filtered to {len(df)} rows matching requested doc_ids")
 
             if len(df) == 0:
-                print(f"  No matching documents in this file")
+                print("  No matching documents in this file")
                 continue
 
             # Skip already-embedded docs unless force_reprocess
@@ -341,7 +336,7 @@ class EmbeddingLoader:
                     print(f"  Skipped {skipped} documents already in collection")
 
             if len(df) == 0:
-                print(f"  All documents already in collection")
+                print("  All documents already in collection")
                 continue
 
             # Collect embeddings data
@@ -490,7 +485,7 @@ class EmbeddingLoader:
                 print(f"  Filtered to {len(df)} rows matching requested doc_ids")
 
             if len(df) == 0:
-                print(f"  No matching documents in this file")
+                print("  No matching documents in this file")
                 continue
 
             # Skip already-embedded docs unless force_reprocess
@@ -502,7 +497,7 @@ class EmbeddingLoader:
                     print(f"  Skipped {skipped} documents already in collection")
 
             if len(df) == 0:
-                print(f"  All documents already in collection")
+                print("  All documents already in collection")
                 continue
 
             # Collect embeddings data

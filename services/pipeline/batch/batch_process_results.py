@@ -26,9 +26,9 @@ sys.path.insert(0, str(project_root))
 
 from shared.database.database import get_session
 from shared.models.models import (
-    EventCluster, CanonicalEvent, DailyEventMention, Document, RawEntity,
+    EventCluster, CanonicalEvent, Document, RawEntity,
     EntityTypeEnum, EntityCluster, CanonicalEntity, DailyEntityMention, EntityRoleEnum,
-    EventSummary, EventSourceLink, PeriodType
+    EventSourceLink
 )
 from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLUSTER_DECONFLICT,
@@ -1181,10 +1181,10 @@ def main():
                 return
 
             if not batch_job.output_file_path:
-                print(f"Error: No output file path in batch job. Was Stage 3 (monitor) completed?")
+                print("Error: No output file path in batch job. Was Stage 3 (monitor) completed?")
                 return
 
-            print(f"✓ Loaded batch job")
+            print("✓ Loaded batch job")
             print(f"  Job type: {batch_job.job_type}")
             print(f"  Status: {batch_job.status}")
             print(f"  Output file: {batch_job.output_file_path}")
@@ -1234,7 +1234,7 @@ def main():
                 # Parse custom_id
                 custom_id = result.get('custom_id')
                 if not custom_id:
-                    print(f"  Warning: Result missing custom_id, skipping")
+                    print("  Warning: Result missing custom_id, skipping")
                     overall_stats['total_errors'] += 1
                     continue
 
@@ -1358,7 +1358,7 @@ def main():
             # Final commit
             if not args.dry_run:
                 session.commit()
-                print(f"\n[COMMITTED] Final batch")
+                print("\n[COMMITTED] Final batch")
 
                 # Update batch job status
                 tracker.update_status(batch_job.id, BatchJobStatus.COMPLETED)

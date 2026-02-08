@@ -30,13 +30,12 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from datetime import datetime
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from services.pipeline.batch.batch_config import get_batch_file_path, SCRATCHPAD_DIR
+from services.pipeline.batch.batch_config import get_batch_file_path
 from services.pipeline.batch.batch_tracker import BatchJobTracker
 from services.pipeline.batch.utils.batch_api_client import get_batch_api_client
 from shared.models.models import BatchJob, BatchJobStatus
@@ -109,15 +108,15 @@ def check_and_download_batch(
             # Make sure database is updated
             if job.status != BatchJobStatus.COMPLETED.value:
                 tracker.update_status(job.id, BatchJobStatus.COMPLETED)
-                print(f"  ✓ Updated database status to 'completed'")
+                print("  ✓ Updated database status to 'completed'")
 
             return (True, "Already downloaded")
 
         # Download results
         if file_exists and force:
-            print(f"  ⚠️  Force re-downloading (will overwrite existing file)")
+            print("  ⚠️  Force re-downloading (will overwrite existing file)")
 
-        print(f"  📥 Downloading output file...")
+        print("  📥 Downloading output file...")
         download_result = client.download_results(job.openai_batch_id)
         content = download_result['content']
 
@@ -148,7 +147,7 @@ def check_and_download_batch(
             tracker.update_status(job.id, BatchJobStatus.COMPLETED)
 
         session.commit()
-        print(f"  ✓ Database updated")
+        print("  ✓ Database updated")
 
         return (True, "Downloaded successfully")
 
@@ -267,7 +266,7 @@ def main():
                             print(f"  ✓ File exists: {os.path.basename(output_path)}")
                             already_downloaded_count += 1
                         else:
-                            print(f"  ⚠️  File missing: Would download")
+                            print("  ⚠️  File missing: Would download")
                             print(f"  Target: {output_path}")
                         print()
                         continue

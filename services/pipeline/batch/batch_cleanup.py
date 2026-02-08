@@ -55,7 +55,7 @@ def upload_to_s3(local_path: str, s3_key: str, bucket: str) -> bool:
         return True
 
     except ImportError:
-        print(f"  ✗ boto3 not installed. Install with: pip install boto3")
+        print("  ✗ boto3 not installed. Install with: pip install boto3")
         return False
     except Exception as e:
         print(f"  ✗ Failed to upload to S3: {e}")
@@ -136,7 +136,7 @@ def main():
                 print(f"Error: Batch job not found: {args.batch_job_id}")
                 return
 
-            print(f"✓ Loaded batch job")
+            print("✓ Loaded batch job")
             print(f"  Job type: {batch_job.job_type}")
             print(f"  Status: {batch_job.status}")
             print(f"  Input file: {batch_job.input_file_path}")
@@ -151,8 +151,8 @@ def main():
 
                 s3_bucket = os.getenv(S3_BUCKET_ENV)
                 if not s3_bucket:
-                    print(f"  Warning: S3_BUCKET environment variable not set")
-                    print(f"  Skipping S3 archiving")
+                    print("  Warning: S3_BUCKET environment variable not set")
+                    print("  Skipping S3 archiving")
                 else:
                     # Archive input file
                     if batch_job.input_file_path and Path(batch_job.input_file_path).exists():
@@ -231,12 +231,12 @@ def main():
             print(f"Status: {batch_job.status}")
 
             if args.archive_s3:
-                print(f"Files archived to S3: Yes")
+                print("Files archived to S3: Yes")
                 if args.delete_local:
-                    print(f"Local files deleted: Yes")
+                    print("Local files deleted: Yes")
 
             if not args.skip_openai_delete:
-                print(f"OpenAI files deleted: Yes")
+                print("OpenAI files deleted: Yes")
 
             print("=" * 80)
             print()

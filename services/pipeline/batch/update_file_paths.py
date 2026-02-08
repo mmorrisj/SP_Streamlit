@@ -5,7 +5,6 @@ Update database with correct output file paths.
 Scans the batches directory and updates batch_job records with the
 correct output_file_path for files that exist but have wrong/missing paths.
 """
-import os
 import sys
 from pathlib import Path
 
@@ -14,7 +13,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from services.pipeline.batch.batch_tracker import BatchJobTracker
-from shared.models.models import BatchJob, BatchJobStatus
+from shared.models.models import BatchJobStatus
 from shared.database.database import get_session
 
 # Batches directory
@@ -64,7 +63,7 @@ def main():
                         job = tracker.get_batch_job(UUID(batch_job_id))
 
                         if not job:
-                            print(f"  ⚠️  Batch job not found in database")
+                            print("  ⚠️  Batch job not found in database")
                             not_found_count += 1
                             print()
                             continue
@@ -73,7 +72,7 @@ def main():
 
                         # Check if path needs updating
                         if job.output_file_path == correct_path:
-                            print(f"  ✓ Path already correct")
+                            print("  ✓ Path already correct")
                             already_correct_count += 1
                         else:
                             print(f"  Old path: {job.output_file_path or '(empty)'}")
@@ -88,18 +87,18 @@ def main():
                             # Also update status to completed if it's not already
                             if job.status != BatchJobStatus.COMPLETED.value:
                                 tracker.update_status(job.id, BatchJobStatus.COMPLETED)
-                                print(f"  ✓ Updated status to 'completed'")
+                                print("  ✓ Updated status to 'completed'")
 
                             session.commit()
-                            print(f"  ✓ Path updated")
+                            print("  ✓ Path updated")
                             updated_count += 1
 
-                    except ValueError as e:
+                    except ValueError:
                         print(f"  ✗ Invalid UUID: {batch_job_id}")
                         not_found_count += 1
 
                 else:
-                    print(f"  ⚠️  Unexpected filename format")
+                    print("  ⚠️  Unexpected filename format")
                     not_found_count += 1
 
                 print()

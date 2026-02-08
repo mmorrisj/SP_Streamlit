@@ -61,7 +61,7 @@ def main():
 
         # Check if target already exists
         if target_file.exists():
-            print(f"  ⚠️  Target already exists, skipping")
+            print("  ⚠️  Target already exists, skipping")
             skipped_count += 1
             print()
             continue
@@ -69,7 +69,7 @@ def main():
         try:
             # Move the file
             shutil.move(str(source_file), str(target_file))
-            print(f"  ✓ Moved successfully")
+            print("  ✓ Moved successfully")
             moved_count += 1
         except Exception as e:
             print(f"  ✗ Error: {str(e)}")

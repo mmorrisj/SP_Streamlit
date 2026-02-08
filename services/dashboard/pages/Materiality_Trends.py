@@ -8,7 +8,7 @@ rhetorical gestures and concrete material investments.
 import streamlit as st
 import pandas as pd
 import altair as alt
-from datetime import datetime, date
+from datetime import date
 from sqlalchemy import text
 from shared.database.database import get_engine
 from shared.utils.utils import Config

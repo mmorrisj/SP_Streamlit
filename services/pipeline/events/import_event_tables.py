@@ -30,8 +30,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import json
-from typing import List, Optional
-import uuid
+from typing import List
 
 # Add project root to path
 script_dir = Path(__file__).resolve().parent
@@ -630,8 +629,8 @@ def main():
             # Handle stale file handle (common in Docker when directory was removed/recreated on host)
             print(f"[ERROR] Cannot access input directory: {input_dir}")
             print(f"        OS Error: {e}")
-            print(f"        This often happens in Docker when the directory was removed and recreated on the host.")
-            print(f"        Try: 1) Exit and re-enter the container, or 2) Use an absolute path")
+            print("        This often happens in Docker when the directory was removed and recreated on the host.")
+            print("        Try: 1) Exit and re-enter the container, or 2) Use an absolute path")
             return
 
         if not dir_exists:
@@ -643,7 +642,7 @@ def main():
         except OSError as e:
             print(f"[ERROR] Cannot list files in directory: {input_dir}")
             print(f"        OS Error: {e}")
-            print(f"        Try exiting and re-entering the Docker container.")
+            print("        Try exiting and re-entering the Docker container.")
             return
 
         if not input_files:

@@ -29,8 +29,7 @@ project_root = script_dir.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
-from shared.database.database import get_session, get_engine
-from shared.models.models import Document
+from shared.database.database import get_engine
 from services.pipeline.ingestion.dsr import embed_documents_direct
 
 
@@ -80,7 +79,7 @@ def find_missing_embeddings(collection_name='chunk_embeddings'):
     print(f"\nFound {len(missing_docs)} documents without embeddings")
 
     if missing_docs:
-        print(f"\nSample of missing documents (first 10):")
+        print("\nSample of missing documents (first 10):")
         print(f"{'Doc ID':<30} {'Date':<12} {'Title':<50} {'Text Len':<10}")
         print("-" * 102)
 
@@ -244,7 +243,7 @@ Examples:
         print("\n--yes flag provided, proceeding automatically...")
 
     # Embed documents
-    print(f"\nStarting direct embedding process...")
+    print("\nStarting direct embedding process...")
     start_time = datetime.now()
 
     try:

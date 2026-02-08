@@ -44,12 +44,12 @@ with get_session() as session:
                 # Check body structure
                 body = data.get('body', {})
                 if 'messages' not in body:
-                    print(f"  ERROR: Missing 'messages' in body")
+                    print("  ERROR: Missing 'messages' in body")
                 else:
                     print(f"  messages: {len(body['messages'])} messages")
 
                 if 'model' not in body:
-                    print(f"  ERROR: Missing 'model' in body")
+                    print("  ERROR: Missing 'model' in body")
                 else:
                     print(f"  model: {body['model']}")
 

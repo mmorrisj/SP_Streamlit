@@ -12,17 +12,15 @@ Usage:
 """
 
 import argparse
-import json
 from pathlib import Path
 from datetime import datetime, date
-from typing import List, Dict, Set
+from typing import List, Dict
 from collections import defaultdict
 
 from docx import Document
-from docx.shared import Pt, RGBColor, Inches
+from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pandas as pd
-from sqlalchemy import text
 
 from shared.database.database import get_session
 from shared.models.models import EventSummary, EventSourceLink, PeriodType, EventStatus, Document as DocModel

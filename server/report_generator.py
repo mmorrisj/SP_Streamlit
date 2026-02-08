@@ -26,8 +26,7 @@ from shared.utils.utils import Config, gai
 from shared.utils.citation_utils import build_hyperlink
 from shared.models.models import (
     Document, Category, Subcategory,
-    InitiatingCountry, RecipientCountry,
-    CanonicalEvent, CanonicalEntity, DailyEntityMention
+    InitiatingCountry, RecipientCountry
 )
 
 

@@ -79,6 +79,11 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov pytest-timeout pytest-xdist
 
+      - name: Setup test directories
+        run: |
+          mkdir -p test-results
+          mkdir -p htmlcov
+
       - name: Run unit tests
         env:
           POSTGRES_USER: testuser
@@ -89,7 +94,8 @@ jobs:
           DATABASE_URL: postgresql+psycopg2://testuser:testpass@localhost:5432/testdb
           TESTING: 1
         run: |
-          pytest tests/ -m unit -v --tb=short --junitxml=test-results/junit-unit.xml
+          pytest tests/ -m unit -v --tb=short --junitxml=test-results/junit-unit.xml || echo "Unit tests failed or no tests matched"
+        continue-on-error: true
 
       - name: Run integration tests
         env:
@@ -101,7 +107,8 @@ jobs:
           DATABASE_URL: postgresql+psycopg2://testuser:testpass@localhost:5432/testdb
           TESTING: 1
         run: |
-          pytest tests/ -m "integration and not slow and not llm" -v --tb=short --junitxml=test-results/junit-integration.xml
+          pytest tests/ -m "integration and not slow and not llm" -v --tb=short --junitxml=test-results/junit-integration.xml || echo "Integration tests failed or skipped"
+        continue-on-error: true
 
       - name: Run all tests with coverage
         env:
@@ -113,8 +120,7 @@ jobs:
           DATABASE_URL: postgresql+psycopg2://testuser:testpass@localhost:5432/testdb
           TESTING: 1
         run: |
-          pytest tests/ -v --cov --cov-report=xml --cov-report=html --cov-report=term-missing --junitxml=test-results/junit-all.xml
-        continue-on-error: false
+          pytest tests/ -v --cov=shared --cov=services --cov=server --cov-report=xml --cov-report=html --cov-report=term-missing --junitxml=test-results/junit-all.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -131,6 +137,7 @@ jobs:
         with:
           name: test-results
           path: test-results/
+          if-no-files-found: warn
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -140,6 +147,7 @@ jobs:
           path: |
             coverage.xml
             htmlcov/
+          if-no-files-found: warn
 
       - name: Comment coverage on PR
         uses: py-cov-action/python-coverage-comment-action@v3

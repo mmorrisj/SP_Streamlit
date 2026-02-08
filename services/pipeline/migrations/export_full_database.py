@@ -42,7 +42,7 @@ project_root = script_dir.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
-from shared.database.database import get_engine, get_session
+from shared.database.database import get_session
 
 # Optional S3 support
 try:
@@ -381,7 +381,7 @@ def export_all_tables(output_dir: Path, include_optional: bool = True, tables: O
         if tables:
             export_tables = [t for t in EXPORT_ORDER if t['name'] in tables]
             if len(export_tables) == 0:
-                print(f"\n[ERROR] No matching tables found. Available tables:")
+                print("\n[ERROR] No matching tables found. Available tables:")
                 for t in EXPORT_ORDER:
                     print(f"  - {t['name']}")
                 return
@@ -502,7 +502,7 @@ def upload_to_s3(output_dir: Path, bucket: str, prefix: str) -> List[str]:
                 s3_key
             )
 
-            print(f"[OK]")
+            print("[OK]")
             uploaded_keys.append(s3_key)
 
         except ClientError as e:
@@ -565,8 +565,8 @@ Examples:
         )
 
         if uploaded:
-            print(f"\nTo restore from S3, use:")
-            print(f"  python services/pipeline/migrations/import_full_database.py \\")
+            print("\nTo restore from S3, use:")
+            print("  python services/pipeline/migrations/import_full_database.py \\")
             print(f"      --s3-bucket {args.s3_bucket} --s3-prefix {args.s3_prefix}")
 
 

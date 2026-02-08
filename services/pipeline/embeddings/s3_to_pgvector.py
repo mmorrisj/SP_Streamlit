@@ -15,7 +15,6 @@ Usage:
     python backend/scripts/s3_to_pgvector.py --files file1.parquet file2.parquet
 """
 
-import os
 import sys
 import argparse
 import pandas as pd
@@ -35,12 +34,6 @@ from langchain_community.vectorstores.pgvector import PGVector
 from langchain_huggingface import HuggingFaceEmbeddings
 from services.pipeline.embeddings.embedding_vectorstore import (
     build_connection_string,
-    chunk_store,
-    summary_store,
-    daily_store,
-    weekly_store,
-    monthly_store,
-    yearly_store,
     stores
 )
 
@@ -109,7 +102,7 @@ class S3ToPgVectorMigrator:
                 embedding_function=embedding_function,
             )
 
-        print(f"Initialized S3ToPgVectorMigrator:")
+        print("Initialized S3ToPgVectorMigrator:")
         print(f"  Bucket: {bucket_name}")
         print(f"  S3 Prefix: {self.s3_prefix}")
         print(f"  Collection: {collection_name}")
@@ -422,7 +415,7 @@ class S3ToPgVectorMigrator:
         # Check if already processed (unless force_reprocess is True)
         if self._is_file_processed(filename):
             print(f"⊘ Skipping {filename} - already processed")
-            print(f"  Use --force to reprocess this file")
+            print("  Use --force to reprocess this file")
             return 0
 
         # Download parquet file
@@ -722,7 +715,7 @@ def main():
     )
 
     # If no command specified, default to migrate with old-style args
-    if len(sys.argv) == 1 or (len(sys.argv) > 1 and not sys.argv[1] in ['migrate', 'view', 'reset']):
+    if len(sys.argv) == 1 or (len(sys.argv) > 1 and sys.argv[1] not in ['migrate', 'view', 'reset']):
         # Old-style usage without subcommands - default to migrate
         parser.add_argument(
             '--bucket',

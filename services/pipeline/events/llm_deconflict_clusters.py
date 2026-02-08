@@ -49,7 +49,7 @@ from collections import defaultdict
 from sqlalchemy import text
 
 from shared.database.database import get_session
-from shared.models.models import EventCluster, CanonicalEvent, DailyEventMention, RawEvent
+from shared.models.models import EventCluster, CanonicalEvent, DailyEventMention
 from shared.utils.utils import gai
 from sentence_transformers import SentenceTransformer
 
@@ -627,7 +627,7 @@ For each potential group, verify:
                 print(f"\n      🔴 ERROR: Failed to create daily_event_mention for '{safe_name}'")
                 print(f"         Cluster: {cluster.cluster_id}, Date: {cluster.cluster_date}")
                 print(f"         Error: {str(e)}")
-                print(f"         Rolled back savepoint to prevent orphaned canonical_event")
+                print("         Rolled back savepoint to prevent orphaned canonical_event")
 
                 # Re-raise to signal failure to caller
                 raise Exception(
@@ -739,7 +739,7 @@ For each potential group, verify:
                 except Exception as e:
                     # Log the error but continue processing other clusters
                     print(f"\n    ⚠️  Skipping cluster {cluster.cluster_id} due to error: {str(e)}")
-                    print(f"       This cluster will remain in llm_deconflicted state but without canonical events")
+                    print("       This cluster will remain in llm_deconflicted state but without canonical events")
                     # Continue to next cluster without incrementing stats
 
             clusters_since_commit += 1
@@ -761,7 +761,7 @@ For each potential group, verify:
                 print(f"  [OK] Batch {batch_number} completed (all changes already committed)")
         else:
             if self.verbose:
-                print(f"  [OK] Dry run - no changes committed")
+                print("  [OK] Dry run - no changes committed")
 
         return stats
 
@@ -938,7 +938,7 @@ def main():
             start_date = datetime.strptime(args.start_date, '%Y-%m-%d').date()
             end_date = datetime.strptime(args.end_date, '%Y-%m-%d').date()
 
-            print(f"Processing all countries")
+            print("Processing all countries")
             print(f"Date range: {start_date} to {end_date}")
             print("=" * 60)
             print()

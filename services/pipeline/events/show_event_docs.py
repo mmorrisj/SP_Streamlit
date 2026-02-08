@@ -38,7 +38,7 @@ def show_event_documents(event_name: str, country: str = None):
 
         event_id, name, init_country, first_date, last_date, total_articles = event
 
-        print(f"\nCanonical Event Info:")
+        print("\nCanonical Event Info:")
         print(f"  ID: {event_id}")
         print(f"  Name: {name}")
         print(f"  Country: {init_country}")
@@ -62,27 +62,27 @@ def show_event_documents(event_name: str, country: str = None):
         """), {'event_id': event_id}).fetchall()
 
         if not mentions:
-            print(f"\n❌ NO DAILY_EVENT_MENTIONS FOUND!")
-            print(f"\nThis event has NO doc_ids array - cannot link to documents.")
-            print(f"This is why query_master_events.py returns 'Total: 0 documents'")
+            print("\n❌ NO DAILY_EVENT_MENTIONS FOUND!")
+            print("\nThis event has NO doc_ids array - cannot link to documents.")
+            print("This is why query_master_events.py returns 'Total: 0 documents'")
 
             print(f"\n{'='*100}")
             print("DIAGNOSIS")
             print('='*100)
             print(f"The canonical_event exists and claims {total_articles} articles,")
-            print(f"but there are no daily_event_mentions records to tell us WHICH documents.")
-            print(f"\nPossible causes:")
-            print(f"  1. llm_deconflict_clusters.py never ran for this event's dates")
-            print(f"  2. This canonical_event was created by a different/older script")
-            print(f"  3. daily_event_mentions were deleted but canonical_event wasn't")
+            print("but there are no daily_event_mentions records to tell us WHICH documents.")
+            print("\nPossible causes:")
+            print("  1. llm_deconflict_clusters.py never ran for this event's dates")
+            print("  2. This canonical_event was created by a different/older script")
+            print("  3. daily_event_mentions were deleted but canonical_event wasn't")
 
-            print(f"\nTo fix:")
+            print("\nTo fix:")
             print(f"  Option 1: Re-run llm_deconflict_clusters.py for date {first_date}")
-            print(f"  Option 2: Run backfill_daily_mentions.py to reconstruct from raw_events")
+            print("  Option 2: Run backfill_daily_mentions.py to reconstruct from raw_events")
             return
 
         print(f"\n✅ Found {len(mentions)} daily mentions")
-        print(f"\nMentions by Date:")
+        print("\nMentions by Date:")
 
         total_docs_in_mentions = 0
         all_doc_ids = []
@@ -99,11 +99,11 @@ def show_event_documents(event_name: str, country: str = None):
 
         # Now query the actual documents
         print(f"\n{'='*100}")
-        print(f"ACTUAL DOCUMENTS (from doc_ids array)")
+        print("ACTUAL DOCUMENTS (from doc_ids array)")
         print('='*100)
 
         if not all_doc_ids:
-            print(f"\n❌ No doc_ids in daily_event_mentions!")
+            print("\n❌ No doc_ids in daily_event_mentions!")
             return
 
         # Remove duplicates
@@ -130,7 +130,7 @@ def show_event_documents(event_name: str, country: str = None):
             print(f"⚠️  WARNING: {len(unique_doc_ids) - len(documents)} doc_ids not found in documents table")
 
         if documents:
-            print(f"\nSample Documents (first 10):")
+            print("\nSample Documents (first 10):")
             for i, (doc_id, pub_date, headline, source) in enumerate(documents[:10], 1):
                 safe_headline = headline[:60] if headline else 'No headline'
                 print(f"\n  {i}. {doc_id}")

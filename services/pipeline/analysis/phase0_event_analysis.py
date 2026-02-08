@@ -9,7 +9,6 @@ from shared.database.database import get_session
 from sqlalchemy import text
 import json
 from datetime import datetime
-from collections import defaultdict
 
 def analyze_event_distribution():
     """Analyze frequency distribution of raw events"""
@@ -106,7 +105,7 @@ def analyze_event_distribution():
         print("-" * 100)
 
         # Check for common patterns
-        patterns = session.execute(text("""
+        patterns = session.execute(text(r"""
             WITH event_words AS (
                 SELECT
                     event_name,

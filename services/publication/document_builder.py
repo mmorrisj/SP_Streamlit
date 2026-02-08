@@ -9,7 +9,6 @@ Creates both reviewer and summary versions of publications:
 import os
 from typing import List, Dict, Any, Optional
 from datetime import date
-from pathlib import Path
 
 from docx import Document
 from docx.shared import Pt, Inches

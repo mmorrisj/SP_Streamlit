@@ -14,10 +14,9 @@ Usage:
 import argparse
 import json
 import yaml
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from typing import List, Dict, Tuple, Optional
 from sqlalchemy import text
-from uuid import UUID
 
 from shared.database.database import get_session
 from shared.models.models import EventSummary, PeriodType, EventStatus, EventSourceLink
@@ -177,7 +176,7 @@ Strategic Significance: {narrative.get('strategic_significance', 'N/A')}""")
     )
 
     if dry_run:
-        print(f"    [DRY RUN] Would generate yearly summary")
+        print("    [DRY RUN] Would generate yearly summary")
         return None
 
     # Call LLM via FastAPI proxy
@@ -202,7 +201,7 @@ Strategic Significance: {narrative.get('strategic_significance', 'N/A')}""")
     # Validate required fields
     required_fields = ['yearly_overview', 'major_developments', 'annual_outcomes', 'strategic_assessment']
     if not all(field in yearly_summary for field in required_fields):
-        print(f"    [ERROR] Missing required fields in LLM response")
+        print("    [ERROR] Missing required fields in LLM response")
         print(f"    Expected: {required_fields}")
         print(f"    Received: {list(yearly_summary.keys())}")
         return None
@@ -249,7 +248,7 @@ Strategic Significance: {narrative.get('strategic_significance', 'N/A')}""")
 
         print(f"    [LINKS] Created {len(doc_ids)} EventSourceLink records")
     else:
-        print(f"    [WARNING] No source documents found from monthly summaries")
+        print("    [WARNING] No source documents found from monthly summaries")
 
     print(f"    [SAVED] Created yearly summary: {event_summary.id}")
     print(f"    [INFO] Synthesized from {len(monthly_summaries)} monthly summaries")
@@ -278,7 +277,7 @@ def process_year(
     events_map = load_monthly_summaries_for_year(session, country, year_start, year_end)
 
     if not events_map:
-        print(f"  No monthly summaries found for this year")
+        print("  No monthly summaries found for this year")
         return {'events': 0, 'summaries_created': 0}
 
     print(f"  Found {len(events_map)} master events with monthly summaries")

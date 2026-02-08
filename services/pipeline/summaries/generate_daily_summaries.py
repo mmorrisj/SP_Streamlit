@@ -16,21 +16,20 @@ Usage:
 """
 
 import sys
-import io
 import argparse
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 # Configure stdout encoding for Unicode support on Windows
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-from shared.database.database import get_session, get_engine
+from shared.database.database import get_session
 from shared.models.models import (
-    CanonicalEvent, DailyEventMention, EventSummary, EventSourceLink,
+    EventSummary, EventSourceLink,
     Document, PeriodType
 )
 from shared.utils.utils import gai, Config
@@ -229,7 +228,7 @@ def generate_daily_summary_for_event(
     )
 
     if not representative_docs:
-        print(f"[WARNING] No documents found for event, skipping")
+        print("[WARNING] No documents found for event, skipping")
         return None
 
     # Format article samples for prompt
@@ -251,7 +250,7 @@ def generate_daily_summary_for_event(
     )
 
     # Call LLM
-    print(f"Calling LLM for summary generation...")
+    print("Calling LLM for summary generation...")
 
     try:
         # Call LLM via FastAPI proxy
@@ -273,7 +272,7 @@ def generate_daily_summary_for_event(
         else:
             summary_data = response
 
-        print(f"[OK] Generated summary:")
+        print("[OK] Generated summary:")
         try:
             print(f"   Overview: {summary_data['overview'][:100]}...")
             print(f"   Outcomes: {summary_data['outcomes'][:100]}...")
@@ -286,13 +285,13 @@ def generate_daily_summary_for_event(
         try:
             print(f"   Response: {response[:500] if isinstance(response, str) else str(response)[:500]}...")
         except UnicodeEncodeError:
-            print(f"   Response: [Unicode encoding error - response contains non-ASCII characters]")
+            print("   Response: [Unicode encoding error - response contains non-ASCII characters]")
         return None
     except Exception as e:
         try:
             print(f"[ERROR] LLM call failed: {e}")
         except UnicodeEncodeError:
-            print(f"[ERROR] LLM call failed: [Unicode encoding error]")
+            print("[ERROR] LLM call failed: [Unicode encoding error]")
         return None
 
     if dry_run:
@@ -367,11 +366,11 @@ def generate_daily_summaries(
         limit_per_day: Maximum events to summarize per day
     """
     print(f"\n{'='*80}")
-    print(f"DAILY SUMMARY GENERATION")
+    print("DAILY SUMMARY GENERATION")
     print(f"{'='*80}")
     print(f"Country: {country}")
     print(f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-    print(f"Selection Criteria: All events with ≥3 articles")
+    print("Selection Criteria: All events with ≥3 articles")
     print(f"Dry Run: {dry_run}")
     print(f"{'='*80}\n")
 
@@ -390,7 +389,7 @@ def generate_daily_summaries(
             print(f"   Found {len(events)} active master events")
 
             if not events:
-                print(f"   [WARNING] No events found for this day, skipping")
+                print("   [WARNING] No events found for this day, skipping")
                 current_date += timedelta(days=1)
                 continue
 
@@ -411,7 +410,7 @@ def generate_daily_summaries(
             current_date += timedelta(days=1)
 
     print(f"\n{'='*80}")
-    print(f"SUMMARY GENERATION COMPLETE")
+    print("SUMMARY GENERATION COMPLETE")
     print(f"{'='*80}")
     print(f"Total Summaries Created: {total_summaries}")
     print(f"{'='*80}\n")

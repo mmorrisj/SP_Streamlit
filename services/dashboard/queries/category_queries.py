@@ -3,7 +3,6 @@ Query functions for category summaries (country-level and bilateral).
 """
 
 from typing import List, Dict, Optional
-from datetime import date
 from sqlalchemy import text
 from shared.database.database import get_session
 from shared.models.models import CountryCategorySummary, BilateralCategorySummary

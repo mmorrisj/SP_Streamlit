@@ -18,22 +18,19 @@ import os
 import sys
 import argparse
 import logging
-import time
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from contextlib import contextmanager
 
 # Add the parent directory to the path to import our models
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import psycopg2
-from sqlalchemy import create_engine, text, inspect, MetaData, Table
+from sqlalchemy import create_engine, text, inspect, MetaData
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.engine import Engine
 
 # Import our models
-from shared.models.models import Base, Document, Category, Subcategory, InitiatingCountry, RecipientCountry, Project, RawEvent, Citation, EventSummary, PeriodSummary, EventSourceLink
+from shared.models.models import Base
 
 # Configure logging
 logging.basicConfig(

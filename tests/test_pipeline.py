@@ -7,7 +7,6 @@ import pytest
 import numpy as np
 import pandas as pd
 from datetime import date, datetime
-from unittest.mock import Mock, patch, MagicMock
 
 
 @pytest.mark.unit
@@ -301,10 +300,6 @@ class TestDataValidation:
 class TestLLMIntegration:
     """Test LLM integration (requires API key)."""
 
-    @pytest.mark.skipif(
-        not pytest.config.getoption("--run-llm-tests", default=False),
-        reason="LLM tests are expensive, use --run-llm-tests to enable"
-    )
     def test_llm_event_deconfliction(self, mock_openai_response):
         """Test LLM-based event deconfliction."""
         # Mock LLM response

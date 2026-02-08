@@ -10,15 +10,14 @@ from pyvis.network import Network
 import streamlit.components.v1 as components
 import tempfile
 import os
-from typing import List, Dict, Any
-from datetime import date
+from typing import List, Dict
 
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
 from shared.database.database import get_session
 from shared.models.models import CanonicalEntity, EntityRelationship
-from sqlalchemy import func, and_
+from sqlalchemy import and_
 
 st.set_page_config(page_title="Entity Network", page_icon="🕸️", layout="wide")
 

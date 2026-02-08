@@ -5,8 +5,7 @@ Provides functions to read, write, and manipulate JSONL (JSON Lines) files
 used by the OpenAI Batch API.
 """
 import json
-from typing import List, Dict, Any, Generator, Optional
-from pathlib import Path
+from typing import List, Dict, Any, Generator
 
 
 def read_jsonl(file_path: str) -> Generator[Dict[str, Any], None, None]:

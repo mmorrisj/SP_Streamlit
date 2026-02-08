@@ -3,8 +3,7 @@ Query functions for bilateral relationship summaries.
 """
 
 from typing import List, Dict, Optional
-from datetime import date
-from sqlalchemy import text, or_, and_
+from sqlalchemy import text
 from shared.database.database import get_session
 from shared.models.models import BilateralRelationshipSummary, EventSummary
 

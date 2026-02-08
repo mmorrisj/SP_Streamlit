@@ -327,7 +327,7 @@ def process_groups(
         if not dry_run and groups_since_commit > 0:
             session.commit()
             save_progress(country, list(processed_master_ids), stats)
-            print(f"\n✅ FINAL COMMIT: Saved progress")
+            print("\n✅ FINAL COMMIT: Saved progress")
 
     print(f"\n{'='*80}")
     print("PROCESSING COMPLETE")

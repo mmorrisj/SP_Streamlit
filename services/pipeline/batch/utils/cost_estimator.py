@@ -10,7 +10,7 @@ OpenAI Batch API Pricing (as of 2025):
 - gpt-4o: $2.50/1M input tokens, $10.00/1M output tokens (batch)
 """
 import tiktoken
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 
 # Pricing per 1M tokens (Batch API - 50% discount applied)
@@ -64,7 +64,7 @@ def calculate_token_count(text: str, model: str = DEFAULT_MODEL) -> int:
 
         tokens = encoding.encode(text)
         return len(tokens)
-    except Exception as e:
+    except Exception:
         # Fallback: rough estimate (4 characters per token)
         return len(text) // 4
 

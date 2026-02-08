@@ -172,7 +172,7 @@ def fix_master_event_dates(country=None, dry_run=False):
         session.commit()
 
         # Verify
-        print(f'\n[COMMITTED] Updated master event metadata')
+        print('\n[COMMITTED] Updated master event metadata')
 
         # Show results
         result = session.execute(text(f'''

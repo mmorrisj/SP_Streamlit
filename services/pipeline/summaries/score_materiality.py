@@ -13,10 +13,8 @@ Usage:
 import argparse
 import json
 import sys
-import io
 from datetime import date, datetime
 from typing import List, Dict, Optional
-from pathlib import Path
 
 # Configure stdout encoding for Unicode support on Windows
 if sys.platform == "win32":
@@ -172,7 +170,7 @@ def score_event_materiality(
 
         # Validate score
         if 'material_score' not in score_data:
-            print(f"    [ERROR] No material_score in response")
+            print("    [ERROR] No material_score in response")
             return None
 
         score = float(score_data['material_score'])
@@ -248,7 +246,7 @@ def score_country_summaries(
 
         if not summaries:
             if verbose:
-                print(f"\n  [INFO] No summaries found to score")
+                print("\n  [INFO] No summaries found to score")
             return {'total': 0, 'scored': 0, 'failed': 0}
 
         if verbose:
@@ -271,7 +269,7 @@ def score_country_summaries(
 
             # Score the event
             if verbose:
-                print(f"    [PROXY] Calling LLM for materiality assessment...")
+                print("    [PROXY] Calling LLM for materiality assessment...")
 
             score_result = score_event_materiality(summary, use_proxy=True)
 
@@ -292,17 +290,17 @@ def score_country_summaries(
                     )
                     session.commit()
                     if verbose:
-                        print(f"    [SAVED] Material score updated")
+                        print("    [SAVED] Material score updated")
 
                 stats['scored'] += 1
             else:
                 if verbose:
-                    print(f"    [FAILED] Could not score this event")
+                    print("    [FAILED] Could not score this event")
                 stats['failed'] += 1
 
         if verbose:
             print(f"\n{'='*80}")
-            print(f"SUMMARY")
+            print("SUMMARY")
             print(f"{'='*80}")
             print(f"  Total summaries: {stats['total']}")
             print(f"  Successfully scored: {stats['scored']}")

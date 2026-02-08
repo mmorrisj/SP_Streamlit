@@ -30,7 +30,6 @@ sys.path.insert(0, str(project_root))
 
 from shared.database.database import get_session
 from shared.models.models import PeriodType
-from shared.config.config import Config
 from services.publication.publication_service import PublicationService
 
 
