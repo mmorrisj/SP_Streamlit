@@ -48,7 +48,7 @@ RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('s
 # Copy application code
 COPY shared/ ./shared/
 COPY server/ ./server/
-COPY services/api/ ./services/api/
+COPY services/chat/ ./services/chat/
 COPY services/pipeline/ ./services/pipeline/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
