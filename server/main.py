@@ -2730,10 +2730,13 @@ async def chat_query(request: ChatRequest):
     Supports intelligent query analysis - temporal keywords like "recently"
     will automatically filter to recent documents, and country/category
     references will apply appropriate filters.
+
+    Includes entity-aware search with soft boosting for documents
+    mentioning matched entities.
     """
     from services.chat.rag_service import intelligent_search, generate_response
 
-    # Perform intelligent semantic search with automatic filter inference
+    # Perform intelligent semantic search with automatic filter inference and entity boost
     sources, search_metadata = intelligent_search(
         query=request.message,
         k=10,
@@ -2742,18 +2745,23 @@ async def chat_query(request: ChatRequest):
         category=request.category,
         start_date=request.start_date,
         end_date=request.end_date,
-        apply_intelligence=True
+        apply_intelligence=True,
+        enable_entity_boost=True
     )
 
-    # Generate response
-    response_text = generate_response(request.message, sources)
+    # Get matched entities for context injection
+    matched_entities = search_metadata.get("_matched_entities_full", [])
+
+    # Generate response with entity context injection
+    response_text = generate_response(request.message, sources, matched_entities=matched_entities)
 
     return {
         "response": response_text,
         "sources": sources,
         "filters_applied": search_metadata["applied_filters"],
         "filters_inferred": search_metadata["inferred_filters"],
-        "inference_notes": search_metadata["confidence_notes"]
+        "inference_notes": search_metadata["confidence_notes"],
+        "matched_entities": search_metadata.get("matched_entities", [])
     }
 
 @app.post("/api/chat/stream")
@@ -2765,11 +2773,14 @@ async def chat_query_stream(request: ChatRequest):
     Supports intelligent query analysis - temporal keywords like "recently"
     will automatically filter to recent documents, and country/category
     references will apply appropriate filters.
+
+    Includes entity-aware search with soft boosting for documents
+    mentioning matched entities, and entity context injection.
     """
     from services.chat.rag_service import intelligent_search, generate_response_stream
     import json
 
-    # Perform intelligent semantic search with automatic filter inference
+    # Perform intelligent semantic search with automatic filter inference and entity boost
     sources, search_metadata = intelligent_search(
         query=request.message,
         k=10,
@@ -2778,18 +2789,29 @@ async def chat_query_stream(request: ChatRequest):
         category=request.category,
         start_date=request.start_date,
         end_date=request.end_date,
-        apply_intelligence=True
+        apply_intelligence=True,
+        enable_entity_boost=True
     )
 
+    # Get matched entities for context injection
+    matched_entities = search_metadata.get("_matched_entities_full", [])
+
     async def event_generator():
-        # First, send search metadata (applied filters, inferences)
-        yield f"data: {json.dumps({'type': 'metadata', 'applied_filters': search_metadata['applied_filters'], 'inferred_filters': search_metadata['inferred_filters'], 'inference_notes': search_metadata['confidence_notes']})}\n\n"
+        # First, send search metadata (applied filters, inferences, matched entities)
+        metadata_payload = {
+            'type': 'metadata',
+            'applied_filters': search_metadata['applied_filters'],
+            'inferred_filters': search_metadata['inferred_filters'],
+            'inference_notes': search_metadata['confidence_notes'],
+            'matched_entities': search_metadata.get('matched_entities', [])
+        }
+        yield f"data: {json.dumps(metadata_payload)}\n\n"
 
         # Then send the sources
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-        # Then stream the response
-        for chunk in generate_response_stream(request.message, sources):
+        # Then stream the response with entity context injection
+        for chunk in generate_response_stream(request.message, sources, matched_entities=matched_entities):
             yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
 
         # Signal completion
