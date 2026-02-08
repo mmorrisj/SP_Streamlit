@@ -236,8 +236,9 @@ def get_entity_doc_ids(entity_ids: List[str], limit: int = 100) -> List[str]:
 
     with engine.connect() as conn:
         # Join through daily_entity_mentions to get doc_ids
+        # doc_ids is an ARRAY column, so we use unnest to get individual values
         sql = """
-            SELECT DISTINCT dem.doc_id
+            SELECT DISTINCT unnest(dem.doc_ids) as doc_id
             FROM daily_entity_mentions dem
             WHERE dem.canonical_entity_id::text IN :entity_ids
             LIMIT :limit
