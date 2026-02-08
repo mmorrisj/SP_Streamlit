@@ -1,7 +1,7 @@
 import json
 import os
 from shared.utils.utils import cfg  # Import the already-loaded config
-from shared.models.models import Document, RawEvent, Category, Subcategory, InitiatingCountry, RecipientCountry
+from shared.models.models import Document
 from shared.database.database import get_session, init_database, get_engine
 from services.pipeline.embeddings.embedding_vectorstore import chunk_store
 from datetime import datetime
@@ -64,7 +64,7 @@ def move_file(src, dst):
     print(f"Moved {src} to {dst}")
 
 def load_dsr(directory=None,relocate=True):
-    if directory is None: 
+    if directory is None:
         directory = cfg.dsr_data
         # Resolve the full directory path relative to this script
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -80,9 +80,9 @@ def load_dsr(directory=None,relocate=True):
                 data = json.load(f)
                 dsr.append(data)
                 print(f'loaded {file}...')
-            if relocate:    
+            if relocate:
                 move_file(file,os.path.join(directory,'processed'))
-    print(f'{len(dsr)} documents loaded...')  
+    print(f'{len(dsr)} documents loaded...')
     return dsr
 
 def parse_date(date_str):
@@ -261,7 +261,7 @@ def flatten_all_relationships(session, documents):
     counts['raw_events'] = event_count
 
     # Print summary
-    print(f"[INFO] Flattened relationships:")
+    print("[INFO] Flattened relationships:")
     print(f"   - Categories: {counts['categories']}")
     print(f"   - Subcategories: {counts['subcategories']}")
     print(f"   - Initiating Countries: {counts['initiating_countries']}")
@@ -377,7 +377,7 @@ def parse_doc(dsr_doc):
         print(f"[INFO]  Doc {doc.doc_id}: Using 'projects' as fallback: '{projects_value}'")
 
     return doc
-   
+
 def process_dsr(relocate=True, batch_size=100):
     """
     Process DSR JSON files and load them into the database efficiently.
@@ -464,7 +464,7 @@ def process_dsr(relocate=True, batch_size=100):
             flatten_all_relationships(session, document_batch)
             session.commit()
 
-    print(f"\nDSR Processing complete:")
+    print("\nDSR Processing complete:")
     print(f"  - Loaded: {loaded_count} documents")
     print(f"  - Skipped: {skipped_count} documents")
     print(f"  - Errors: {error_count} documents")
@@ -662,7 +662,7 @@ def process_dsr_s3(s3_prefix: str = "dsr_extracts/", specific_files: Optional[Li
             flatten_all_relationships(session, document_batch)
             session.commit()
 
-    print(f"\nS3 DSR Processing complete:")
+    print("\nS3 DSR Processing complete:")
     print(f"  - Loaded: {loaded_count} documents")
     print(f"  - Skipped: {skipped_count} documents")
     print(f"  - Errors: {error_count} documents")

@@ -33,9 +33,9 @@ import json
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 from shared.database.database import get_session
-from shared.models.models import Document, RawEntity, EntityTypeEnum, InitiatingCountry, RecipientCountry, Category
+from shared.models.models import Document, RawEntity, EntityTypeEnum, InitiatingCountry, RecipientCountry
 from shared.utils.utils import Config, gai
-from sqlalchemy import text, func, and_, select
+from sqlalchemy import func, and_
 from sqlalchemy.dialects.postgresql import insert
 
 
@@ -182,7 +182,7 @@ def extract_entities_from_document(
 
         # Validate structure
         if not isinstance(entities, dict):
-            print(f"    Warning: Response is not a dictionary")
+            print("    Warning: Response is not a dictionary")
             return None
 
         # Ensure all entity types exist
@@ -285,9 +285,9 @@ def process_date_range(
     print(f"Date range: {start_date.date()} to {end_date.date()}")
     print(f"Batch size: {batch_size}")
     if force:
-        print(f"Mode: FORCE - will reprocess documents with existing entities")
+        print("Mode: FORCE - will reprocess documents with existing entities")
     else:
-        print(f"Mode: Skip documents with existing entities (use --force to reprocess)")
+        print("Mode: Skip documents with existing entities (use --force to reprocess)")
 
     # Get valid recipients from config (exclude self-referential)
     valid_recipients = [r for r in config.recipients if r != country]
@@ -397,7 +397,7 @@ def process_date_range(
             current_date += timedelta(days=1)
 
         print(f"\n{'='*80}")
-        print(f"✅ Entity Extraction Complete!")
+        print("✅ Entity Extraction Complete!")
         print(f"  Total documents processed: {total_docs_processed}")
         print(f"  Total entities extracted: {total_entities_extracted}")
         print(f"  Average entities per document: {total_entities_extracted / total_docs_processed if total_docs_processed > 0 else 0:.2f}")
@@ -485,7 +485,7 @@ def show_status(country: str):
         print(f"Documents with entities: {docs_with_entities}")
         print(f"Coverage: {docs_with_entities / total_docs * 100 if total_docs > 0 else 0:.1f}%")
         print(f"Date range: {date_range[0]} to {date_range[1]}")
-        print(f"\nEntities by type:")
+        print("\nEntities by type:")
 
         for entity_type, count in entity_counts:
             print(f"  {entity_type.value}: {count}")

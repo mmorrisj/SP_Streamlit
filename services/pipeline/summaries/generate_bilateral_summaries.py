@@ -35,8 +35,7 @@ import argparse
 import json
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
-from collections import defaultdict
-from sqlalchemy import select, text, func, and_
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 # Configure stdout encoding for Unicode support on Windows
@@ -45,8 +44,7 @@ if sys.platform == "win32":
 
 from shared.database.database import get_session
 from shared.models.models import (
-    BilateralRelationshipSummary, Document, EventSummary,
-    PeriodType, EventSourceLink
+    BilateralRelationshipSummary
 )
 from shared.utils.utils import gai, Config
 
@@ -534,11 +532,11 @@ def generate_bilateral_summary(
         return existing
 
     # Gather data
-    print(f"  📊 Gathering bilateral data...")
+    print("  📊 Gathering bilateral data...")
     data = gather_bilateral_data(session, initiating_country, recipient_country)
 
     if data['total_documents'] == 0:
-        print(f"  ⚠️  No documents found for this country pair.")
+        print("  ⚠️  No documents found for this country pair.")
         return None
 
     print(f"  📈 Found {data['total_documents']:,} documents ({data['first_date']} to {data['last_date']})")
@@ -548,7 +546,7 @@ def generate_bilateral_summary(
     prompt_data = format_bilateral_data_for_prompt(data)
 
     # Generate AI summary
-    print(f"  🤖 Generating AI summary...")
+    print("  🤖 Generating AI summary...")
 
     prompt = BILATERAL_SUMMARY_PROMPT.format(
         initiating_country=initiating_country,
@@ -588,7 +586,7 @@ def generate_bilateral_summary(
     material_justification = relationship_summary.get('material_assessment', {}).get('justification')
 
     if dry_run:
-        print(f"\n  🔍 DRY RUN - Would create/update:")
+        print("\n  🔍 DRY RUN - Would create/update:")
         print(f"     Initiator: {initiating_country}")
         print(f"     Recipient: {recipient_country}")
         print(f"     Documents: {data['total_documents']:,}")
@@ -620,7 +618,7 @@ def generate_bilateral_summary(
 
         summary = existing
     else:
-        print(f"  ✨ Creating new bilateral summary")
+        print("  ✨ Creating new bilateral summary")
         summary = BilateralRelationshipSummary(
             initiating_country=initiating_country,
             recipient_country=recipient_country,
@@ -646,7 +644,7 @@ def generate_bilateral_summary(
         session.add(summary)
 
     session.commit()
-    print(f"  ✅ Summary saved successfully!")
+    print("  ✅ Summary saved successfully!")
 
     return summary
 
@@ -726,7 +724,7 @@ def main():
         else:
             # Get all pairs meeting threshold
             print(f"\n🔍 Finding country pairs with ≥{args.min_docs} documents...")
-            print(f"   (Filtering by config influencers/recipients)")
+            print("   (Filtering by config influencers/recipients)")
             pairs = get_country_pairs_with_minimum_docs(
                 session,
                 min_docs=args.min_docs,
@@ -768,7 +766,7 @@ def main():
 
     # Summary
     print(f"\n{'=' * 80}")
-    print(f"SUMMARY")
+    print("SUMMARY")
     print(f"{'=' * 80}")
     print(f"✅ Successfully generated: {success_count}")
     print(f"⏭️  Skipped: {skip_count}")

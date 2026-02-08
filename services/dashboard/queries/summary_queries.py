@@ -2,7 +2,7 @@
 Query functions for event summaries (daily, weekly, monthly).
 """
 
-from datetime import datetime, date
+from datetime import date
 from typing import List, Dict, Optional, Any
 from sqlalchemy import text
 from shared.database.database import get_engine

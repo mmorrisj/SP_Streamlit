@@ -26,8 +26,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from sqlalchemy import text
-from shared.database.database import get_session, get_engine
-from shared.utils.utils import cfg  # Import the already-loaded config
+from shared.database.database import get_engine
 from services.pipeline.embeddings.embedding_vectorstore import chunk_store
 from services.pipeline.embeddings.s3 import _get_api_client, bucket_name
 import ast
@@ -391,7 +390,6 @@ def save_local_processed_tracker(tracker_data: Dict[str, Any]) -> None:
 
 def load_s3_processed_tracker(s3_prefix: str = S3_TRACKER_PREFIX) -> Dict[str, Any]:
     """Load the S3 processed files tracker."""
-    from services.pipeline.embeddings.s3 import load_processed_files_tracker
 
     # Use the existing S3 tracker utilities
     tracker_key = f"{s3_prefix}processed_embeddings.json"
@@ -570,7 +568,7 @@ def process_local_embeddings(directory: str = "_data/processed/embeddings",
             total_counts['errors'] += 1
             continue
 
-    print(f"\n📊 Local Processing Complete:")
+    print("\n📊 Local Processing Complete:")
     print(f"  - Inserted: {total_counts['inserted']}")
     print(f"  - Skipped: {total_counts['skipped']}")
     print(f"  - Errors: {total_counts['errors']}")
@@ -649,7 +647,7 @@ def process_s3_embeddings(s3_prefix: str = S3_TRACKER_PREFIX,
             total_counts['errors'] += 1
             continue
 
-    print(f"\n📊 S3 Processing Complete:")
+    print("\n📊 S3 Processing Complete:")
     print(f"  - Inserted: {total_counts['inserted']}")
     print(f"  - Skipped: {total_counts['skipped']}")
     print(f"  - Errors: {total_counts['errors']}")
@@ -658,7 +656,7 @@ def process_s3_embeddings(s3_prefix: str = S3_TRACKER_PREFIX,
 
 def show_local_status(directory: str = "_data/processed/embeddings"):
     """Show status of local parquet files."""
-    print(f"📊 Local Embedding Files Status")
+    print("📊 Local Embedding Files Status")
     print("=" * 60)
 
     tracker_data = load_local_processed_tracker()

@@ -40,7 +40,7 @@ sys.path.insert(0, str(project_root))
 
 import argparse
 import yaml
-from typing import Dict, List, Tuple
+from typing import Dict
 from sqlalchemy import text
 
 from shared.database.database import get_session
@@ -94,7 +94,7 @@ def show_status(session, country: str) -> None:
         print(f"    Coverage:                 {(with_embeddings/total)*100:.1f}%")
 
     if type_breakdown:
-        print(f"\n    By entity type:")
+        print("\n    By entity type:")
         for etype, total_count, embed_count in type_breakdown:
             missing = total_count - embed_count
             print(f"      {etype}: {embed_count}/{total_count} embedded ({missing} missing)")
@@ -162,7 +162,7 @@ def embed_entities_for_country(
 
     # Load the sentence transformer model
     if verbose:
-        print(f"  Loading sentence transformer model (all-MiniLM-L6-v2)...")
+        print("  Loading sentence transformer model (all-MiniLM-L6-v2)...")
 
     from sentence_transformers import SentenceTransformer
     model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
@@ -245,7 +245,7 @@ def main():
     print("CANONICAL ENTITY EMBEDDING GENERATION")
     print("=" * 80)
     print(f"Countries: {', '.join(countries)}")
-    print(f"Model: sentence-transformers/all-MiniLM-L6-v2")
+    print("Model: sentence-transformers/all-MiniLM-L6-v2")
     if args.status:
         print("[STATUS MODE]")
     elif args.dry_run:

@@ -5,7 +5,6 @@ Coordinates database queries, AI summary generation, and document building
 to create comprehensive publication reports.
 """
 
-import os
 from datetime import date
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -173,7 +172,7 @@ class PublicationService:
             categories=categories
         )
 
-        print(f"✅ Publication generated successfully!")
+        print("✅ Publication generated successfully!")
         print(f"   Reviewer version: {reviewer_path}")
         print(f"   Summary version: {summary_path}")
 

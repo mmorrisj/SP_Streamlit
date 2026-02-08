@@ -1,11 +1,8 @@
 from logging.config import fileConfig
 import os
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
 from alembic import context
 
 # Import your database connection and models - now from project root
-from shared.database.database import get_engine
 from shared.models.models import Base
 
 # this is the Alembic Config object, which provides
@@ -35,14 +32,14 @@ def get_database_url():
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
         return database_url
-    
+
     # Construct from individual variables
     db_user = os.getenv("POSTGRES_USER", "matthew50")
     db_pass = os.getenv("POSTGRES_PASSWORD", "softpower")
     db_host = os.getenv("DB_HOST", "localhost")
     db_port = os.getenv("POSTGRES_PORT", "5432")
     db_name = os.getenv("POSTGRES_DB", "softpower-db")
-    
+
     return f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 
 def run_migrations_offline() -> None:
@@ -78,13 +75,13 @@ def run_migrations_online() -> None:
     """
     # Create engine with our database URL instead of using config
     from sqlalchemy import create_engine
-    
+
     url = get_database_url()
     connectable = create_engine(url)
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, 
+            connection=connection,
             target_metadata=target_metadata
         )
 

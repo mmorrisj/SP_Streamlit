@@ -5,12 +5,11 @@ Uses GPT models to generate titles, consolidate events, and create
 narrative summaries from event data and documents.
 """
 
-import os
 import json
-from typing import List, Dict, Any, Optional
-from datetime import date, datetime
+from typing import List, Dict, Any
+from datetime import date
 
-from shared.utils.utils import gai, fetch_gai_content
+from shared.utils.utils import gai
 
 
 class SummaryGenerator:

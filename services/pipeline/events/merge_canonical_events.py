@@ -238,7 +238,7 @@ def merge_canonical_events_for_country(
         if verbose:
             print(f"\n  [COMMITTED] Reassigned {stats['mentions_reassigned']} mentions")
             print(f"  [COMMITTED] Deleted {stats['events_deleted']} child events")
-            print(f"  [COMMITTED] Updated master event metadata (dates, mention days, articles)")
+            print("  [COMMITTED] Updated master event metadata (dates, mention days, articles)")
     elif dry_run and verbose:
         print(f"\n  [DRY RUN] Would reassign {stats['mentions_reassigned']} mentions")
         print(f"  [DRY RUN] Would delete {stats['events_deleted']} child events")

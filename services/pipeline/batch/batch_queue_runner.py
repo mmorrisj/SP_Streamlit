@@ -37,14 +37,13 @@ import sys
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple
+from typing import Tuple
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from services.pipeline.batch.batch_config import (
-    DEFAULT_POLL_INTERVAL,
     get_batch_file_path
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -98,7 +97,7 @@ def submit_batch(job: BatchJob, client, tracker: BatchJobTracker, session) -> bo
         tracker.update_status(job.id, BatchJobStatus.SUBMITTED)
         session.commit()
 
-        print(f"  ✓ Status: preparing → submitted")
+        print("  ✓ Status: preparing → submitted")
         return True
 
     except Exception as e:
@@ -293,7 +292,7 @@ def main():
 
                     active_batches = active_query.order_by(BatchJob.created_at.asc()).all()
 
-                    print(f"Queue Status:")
+                    print("Queue Status:")
                     print(f"  Pending: {len(queue)} batches")
                     print(f"  Active: {len(active_batches)}/{args.max_concurrent} batches")
                     print()
@@ -382,14 +381,14 @@ def main():
 
                     # Summary
                     print("=" * 80)
-                    print(f"Session Summary (This Run):")
+                    print("Session Summary (This Run):")
                     print(f"  Submitted this session: {total_submitted}")
                     print(f"  Completed this session: {total_completed}")
                     print(f"  Failed this session: {total_failed}")
                     print(f"  Currently active: {len(active_batches) + (0 if args.dry_run else to_submit if available_slots > 0 and queue else 0)}")
                     print(f"  Remaining in queue: {len(queue) - (to_submit if available_slots > 0 and queue and not args.dry_run else 0)}")
                     print()
-                    print(f"Overall Database Status:")
+                    print("Overall Database Status:")
                     print(f"  Total completed: {total_db_completed}")
                     print(f"  Total in progress/submitted: {len(active_batches)}")
                     print(f"  Total preparing (ready): {len(queue)}")
@@ -405,7 +404,7 @@ def main():
 
                     # Wait before next poll
                     print(f"Waiting {args.poll_interval} seconds before next check...")
-                    print(f"(Press Ctrl+C to stop monitoring)")
+                    print("(Press Ctrl+C to stop monitoring)")
                     print()
                     time.sleep(args.poll_interval)
 

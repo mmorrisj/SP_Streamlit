@@ -313,7 +313,7 @@ Now analyze the event group above and return your assessment as JSON."""
 
         # Validate response
         if 'same_event' not in result:
-            raise ValueError(f"Invalid LLM response: missing 'same_event' field")
+            raise ValueError("Invalid LLM response: missing 'same_event' field")
 
         return result
 
@@ -359,9 +359,9 @@ def process_country(
         print(f"\n{'='*80}")
         print(f"LLM Deconfliction: {country}")
         if force:
-            print(f"  [FORCE MODE] Reprocessing all groups (ignoring validation status)")
+            print("  [FORCE MODE] Reprocessing all groups (ignoring validation status)")
         elif resume:
-            print(f"  [RESUME MODE] Skipping already-validated groups")
+            print("  [RESUME MODE] Skipping already-validated groups")
         print(f"{'='*80}")
 
     # Load event groups
@@ -369,7 +369,7 @@ def process_country(
 
     if len(groups) == 0:
         if verbose:
-            print(f"  No consolidated event groups found")
+            print("  No consolidated event groups found")
         return {'groups': 0, 'validated': 0, 'split': 0, 'renamed': 0, 'skipped': 0}
 
     if verbose:
@@ -479,7 +479,7 @@ def process_country(
 
             if best_name != current_master_name:
                 if verbose:
-                    print(f"    [RENAME] Master event name should change")
+                    print("    [RENAME] Master event name should change")
                 stats['renamed'] += 1
 
                 if not dry_run:
@@ -514,7 +514,7 @@ def process_country(
                         )
 
                         if verbose:
-                            print(f"    [UPDATED] Swapped master event")
+                            print("    [UPDATED] Swapped master event")
                     else:
                         # Mark current master as validated
                         if not dry_run:
@@ -560,7 +560,7 @@ def process_country(
     if not dry_run and groups_since_commit > 0:
         session.commit()
         if verbose:
-            print(f"\n  [COMMITTED] Final batch")
+            print("\n  [COMMITTED] Final batch")
 
     return stats
 
@@ -654,9 +654,9 @@ def main():
     print(f"Groups renamed: {overall_stats['total_renamed']}")
     print(f"Groups skipped (single-event): {overall_stats['total_skipped']}")
     if args.force:
-        print(f"\n[FORCE MODE] All groups were reprocessed")
+        print("\n[FORCE MODE] All groups were reprocessed")
     elif args.resume:
-        print(f"\n[RESUME MODE] Already-validated groups were skipped")
+        print("\n[RESUME MODE] Already-validated groups were skipped")
     print("="*80)
 
 

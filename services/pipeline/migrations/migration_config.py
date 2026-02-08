@@ -7,7 +7,7 @@ for PostgreSQL database migrations.
 """
 
 import os
-from typing import Dict, Optional, List
+from typing import Optional, List
 from dataclasses import dataclass
 
 

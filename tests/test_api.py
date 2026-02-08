@@ -5,7 +5,6 @@ Tests API endpoints, request/response validation, and error handling.
 """
 import pytest
 from datetime import date
-from fastapi.testclient import TestClient
 
 
 @pytest.mark.integration
@@ -79,7 +78,6 @@ class TestDocumentEndpoints:
 
     def test_get_documents_filter_by_country(self, api_client, create_test_document):
         """Test filtering documents by initiating country."""
-        from shared.models.models import InitiatingCountry
 
         doc1 = create_test_document(doc_id="FILTER001")
         doc2 = create_test_document(doc_id="FILTER002")

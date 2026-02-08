@@ -8,7 +8,6 @@ import uuid
 from datetime import datetime, date as DateType
 from typing import Dict, Optional, List, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 from shared.models.models import BatchJob, BatchJobStatus
 from shared.database.database import get_session

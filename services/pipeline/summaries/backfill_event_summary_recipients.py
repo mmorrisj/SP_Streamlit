@@ -11,7 +11,6 @@ Usage:
 
 import sys
 import argparse
-from sqlalchemy import text
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -35,7 +34,7 @@ def backfill_event_summaries(dry_run: bool = False):
         ).all()
 
         print(f"\n{'=' * 80}")
-        print(f"BACKFILLING EVENT SUMMARY RECIPIENTS")
+        print("BACKFILLING EVENT SUMMARY RECIPIENTS")
         print(f"{'=' * 80}\n")
         print(f"Found {len(summaries)} event summaries with empty count_by_recipient")
 
@@ -88,11 +87,11 @@ def backfill_event_summaries(dry_run: bool = False):
         # Commit all updates
         if not dry_run:
             session.commit()
-            print(f"\nAll changes committed to database")
+            print("\nAll changes committed to database")
 
         # Summary
         print(f"\n{'=' * 80}")
-        print(f"BACKFILL COMPLETE")
+        print("BACKFILL COMPLETE")
         print(f"{'=' * 80}")
         print(f"Updated: {updated_count}")
         print(f"No canonical event: {no_canonical_count}")

@@ -6,7 +6,6 @@ Creates publication-ready charts and embeds them into Word documents.
 """
 
 import io
-from pathlib import Path
 from typing import Dict, List
 from collections import Counter
 
@@ -548,4 +547,4 @@ def add_charts_to_document(doc, events_by_category: Dict[str, List[Dict]], count
     except Exception as e:
         print(f"  [WARNING] Failed to create event count histogram: {e}")
 
-    print(f"  [CHARTS] Added 7 visualization charts to document")
+    print("  [CHARTS] Added 7 visualization charts to document")

@@ -38,7 +38,7 @@ sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
 from shared.database.database import get_session, get_engine
-from shared.models.models import EventSummary, PeriodType
+from shared.models.models import EventSummary
 from services.pipeline.embeddings import embedding_vectorstore
 
 
@@ -103,7 +103,7 @@ def find_missing_embeddings(period_type: Optional[str] = None):
 
                 print(f"\n{period} Summaries:")
                 print(f"  Missing embeddings: {len(missing_summaries)}")
-                print(f"  Sample (first 5):")
+                print("  Sample (first 5):")
                 print(f"  {'Event Name':<50} {'Country':<20} {'Period':<25}")
                 print(f"  {'-'*95}")
 
@@ -365,7 +365,7 @@ Examples:
         print("\nProceeding automatically (--yes flag provided)...")
 
     # Embed summaries by period
-    print(f"\nStarting event summary embedding process...")
+    print("\nStarting event summary embedding process...")
     start_time = datetime.now()
 
     try:

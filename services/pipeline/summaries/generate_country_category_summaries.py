@@ -462,7 +462,7 @@ def generate_country_category_summary(
     ).first()
 
     if existing and not regenerate:
-        print(f"  ⏭️  Summary already exists (use --regenerate to update)")
+        print("  ⏭️  Summary already exists (use --regenerate to update)")
         return existing
 
     # Gather data
@@ -518,7 +518,7 @@ def generate_country_category_summary(
     material_justification = category_summary.get('material_assessment', {}).get('justification')
 
     if dry_run:
-        print(f"\n  🔍 DRY RUN - Would create/update:")
+        print("\n  🔍 DRY RUN - Would create/update:")
         print(f"     {country} → {category}")
         return None
 
@@ -547,7 +547,7 @@ def generate_country_category_summary(
 
         summary = existing
     else:
-        print(f"  ✨ Creating new country category summary")
+        print("  ✨ Creating new country category summary")
         summary = CountryCategorySummary(
             initiating_country=country,
             category=category,
@@ -573,7 +573,7 @@ def generate_country_category_summary(
         session.add(summary)
 
     session.commit()
-    print(f"  ✅ Summary saved successfully!")
+    print("  ✅ Summary saved successfully!")
 
     return summary
 
@@ -625,7 +625,7 @@ def main():
     config = Config.from_yaml('shared/config/config.yaml')
 
     print(f"\n{'=' * 80}")
-    print(f"COUNTRY CATEGORY SUMMARY GENERATION")
+    print("COUNTRY CATEGORY SUMMARY GENERATION")
     print(f"{'=' * 80}\n")
 
     with get_session() as session:
@@ -643,7 +643,7 @@ def main():
         elif args.all:
             # Get all pairs meeting threshold
             print(f"\n🔍 Finding country-category pairs with ≥{args.min_docs} documents...")
-            print(f"   (Filtering by config influencers/categories)")
+            print("   (Filtering by config influencers/categories)")
             pairs = get_country_categories_with_minimum_docs(
                 session,
                 min_docs=args.min_docs,
@@ -694,7 +694,7 @@ def main():
 
         # Summary
         print(f"\n{'=' * 80}")
-        print(f"GENERATION COMPLETE")
+        print("GENERATION COMPLETE")
         print(f"{'=' * 80}")
         print(f"✅ Success: {success_count}")
         print(f"⏭️  Skipped: {skip_count}")

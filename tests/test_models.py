@@ -4,7 +4,7 @@ Unit tests for database models.
 Tests model creation, relationships, validation, and serialization.
 """
 import pytest
-from datetime import date, datetime
+from datetime import date
 from sqlalchemy.exc import IntegrityError
 
 

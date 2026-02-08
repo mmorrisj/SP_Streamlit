@@ -24,11 +24,9 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from datetime import datetime
 import pandas as pd
 import numpy as np
-import json
-from typing import List, Optional
+from typing import List
 from decimal import Decimal
 
 # Add project root to path
@@ -36,7 +34,6 @@ script_dir = Path(__file__).resolve().parent
 project_root = script_dir.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from sqlalchemy import text, and_
 from shared.database.database import get_engine, get_session
 from shared.models.models import CanonicalEvent
 

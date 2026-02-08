@@ -1,0 +1,32 @@
+[tool.ruff]
+# Exclude archive and generated folders
+exclude = [
+    "_archive",
+    "client/node_modules",
+    ".git",
+    "__pycache__",
+    "*.egg-info",
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+    "alembic/versions",
+]
+
+line-length = 120
+
+[tool.ruff.lint]
+# Enable common linting rules
+select = ["E", "F", "W"]
+# Ignore line-too-long (handled by formatter) and some common issues
+# E501: line too long - handled by formatter
+# E402: module level import not at top - common pattern for conditional imports
+# E712: comparison to True/False - needed for SQLAlchemy filter() expressions
+# E722: bare except - review case by case but don't fail CI
+ignore = ["E501", "E402", "E712", "E722"]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow unused imports in __init__.py files
+"__init__.py" = ["F401"]
+# Allow star imports in conftest
+"conftest.py" = ["F401", "F403"]

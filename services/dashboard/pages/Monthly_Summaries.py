@@ -6,8 +6,7 @@ weekly summaries with strategic analysis.
 """
 
 import streamlit as st
-from datetime import datetime, date, timedelta
-from dateutil.relativedelta import relativedelta
+from datetime import date
 from shared.utils.utils import Config
 from queries.summary_queries import (
     get_available_summary_dates,

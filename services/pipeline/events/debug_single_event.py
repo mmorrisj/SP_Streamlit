@@ -33,12 +33,12 @@ def debug_event(event_name: str, country: str):
         """), {'name': event_name, 'country': country}).fetchone()
 
         if not event:
-            print(f"\n❌ Canonical event not found!")
+            print("\n❌ Canonical event not found!")
             return
 
         event_id, name, init_country, first_date, last_date, total_articles, mention_days, master_id, validated = event
 
-        print(f"\nCANONICAL EVENT:")
+        print("\nCANONICAL EVENT:")
         print(f"  ID: {event_id}")
         print(f"  Name: {name}")
         print(f"  Country: {init_country}")
@@ -65,7 +65,7 @@ def debug_event(event_name: str, country: str):
             for mention_date, article_count, doc_count in mentions:
                 print(f"  {mention_date}: {article_count} articles, {doc_count} doc_ids")
         else:
-            print(f"\n❌ NO DAILY_EVENT_MENTIONS FOUND!")
+            print("\n❌ NO DAILY_EVENT_MENTIONS FOUND!")
 
         # Check event_clusters for this date
         print(f"\n{'='*100}")
@@ -92,7 +92,7 @@ def debug_event(event_name: str, country: str):
 
         # Check if this event name appears in any cluster's event_names array
         print(f"\n{'='*100}")
-        print(f"SEARCH FOR EVENT NAME IN CLUSTERS:")
+        print("SEARCH FOR EVENT NAME IN CLUSTERS:")
         print('='*100)
 
         # This is tricky - need to search for the name in the event_names array
@@ -113,8 +113,8 @@ def debug_event(event_name: str, country: str):
                 if refined:
                     print(f"    Refined clusters: {refined}")
         else:
-            print(f"\n❌ Event name NOT found in any event_clusters!")
-            print(f"\nThis means the canonical_event was created OUTSIDE the normal pipeline!")
+            print("\n❌ Event name NOT found in any event_clusters!")
+            print("\nThis means the canonical_event was created OUTSIDE the normal pipeline!")
 
         # DIAGNOSIS
         print(f"\n{'='*100}")
@@ -122,24 +122,24 @@ def debug_event(event_name: str, country: str):
         print('='*100)
 
         if not mentions and matching_clusters:
-            print(f"\n🔴 BUG CONFIRMED:")
-            print(f"  - Event_clusters exist for this event and are deconflicted")
-            print(f"  - Canonical_event exists")
-            print(f"  - But daily_event_mentions were NOT created!")
-            print(f"\nThis indicates a bug in llm_deconflict_clusters.py:")
-            print(f"  create_canonical_events_from_cluster() created the canonical_event")
-            print(f"  but failed to create the daily_event_mention")
+            print("\n🔴 BUG CONFIRMED:")
+            print("  - Event_clusters exist for this event and are deconflicted")
+            print("  - Canonical_event exists")
+            print("  - But daily_event_mentions were NOT created!")
+            print("\nThis indicates a bug in llm_deconflict_clusters.py:")
+            print("  create_canonical_events_from_cluster() created the canonical_event")
+            print("  but failed to create the daily_event_mention")
 
         elif not mentions and not matching_clusters:
-            print(f"\n🔴 DATA INCONSISTENCY:")
-            print(f"  - Canonical_event exists")
-            print(f"  - But NO event_clusters contain this event name")
-            print(f"  - And NO daily_event_mentions exist")
-            print(f"\nThis canonical_event was created OUTSIDE the standard pipeline!")
-            print(f"Possibly from:")
-            print(f"  1. An old/different script")
-            print(f"  2. Manual database insertion")
-            print(f"  3. A migration from a different schema")
+            print("\n🔴 DATA INCONSISTENCY:")
+            print("  - Canonical_event exists")
+            print("  - But NO event_clusters contain this event name")
+            print("  - And NO daily_event_mentions exist")
+            print("\nThis canonical_event was created OUTSIDE the standard pipeline!")
+            print("Possibly from:")
+            print("  1. An old/different script")
+            print("  2. Manual database insertion")
+            print("  3. A migration from a different schema")
 
 
 def main():

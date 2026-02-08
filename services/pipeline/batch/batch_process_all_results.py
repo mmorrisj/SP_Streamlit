@@ -26,7 +26,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from datetime import datetime
 from typing import Dict, Any
 
 # Add project root to path
@@ -129,7 +128,7 @@ def process_single_batch(
         custom_id = result.get('custom_id')
         if not custom_id:
             if verbose:
-                print(f"    Warning: Result missing custom_id, skipping")
+                print("    Warning: Result missing custom_id, skipping")
             overall_stats['total_errors'] += 1
             continue
 

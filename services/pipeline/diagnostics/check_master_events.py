@@ -100,7 +100,7 @@ with get_session() as session:
         stage = row[0]
         stage_counts[stage] = stage_counts.get(stage, 0) + 1
 
-    print(f'\n  Pipeline Stages:')
+    print('\n  Pipeline Stages:')
     for stage in ['Stage 1', 'Stage 2A', 'Stage 2B/2C', 'Complete']:
         count = stage_counts.get(stage, 0)
         if count > 0:
@@ -397,7 +397,7 @@ with get_session() as session:
         FROM canonical_events
     ''')).fetchone()
 
-    print(f'\nOVERALL STATISTICS:')
+    print('\nOVERALL STATISTICS:')
     print(f'  Total Master Events: {summary[0]:,}')
     print(f'  Total Child Events: {summary[1]:,}')
     print(f'  Validated Masters: {summary[2]:,} ({100*summary[2]/summary[0]:.1f}%)')

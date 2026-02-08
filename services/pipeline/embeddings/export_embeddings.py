@@ -362,7 +362,7 @@ def main():
         print("\n[WARNING] No collections with embeddings found!")
         return
 
-    print(f"\nAvailable collections:")
+    print("\nAvailable collections:")
     for col in available_collections:
         print(f"  - {col['name']}: {col['count']:,} embeddings")
 

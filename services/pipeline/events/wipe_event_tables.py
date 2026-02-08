@@ -87,9 +87,9 @@ def get_table_counts(session, country: str = None, start_date: date = None, end_
     # Event clusters
     where_clause = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
     if start_date and end_date and where_clauses:
-        where_clause += f" AND cluster_date BETWEEN :start_date AND :end_date"
+        where_clause += " AND cluster_date BETWEEN :start_date AND :end_date"
     elif start_date and end_date:
-        where_clause = f" WHERE cluster_date BETWEEN :start_date AND :end_date"
+        where_clause = " WHERE cluster_date BETWEEN :start_date AND :end_date"
 
     query_params = params.copy()
     if start_date and end_date:
@@ -103,9 +103,9 @@ def get_table_counts(session, country: str = None, start_date: date = None, end_
     # Canonical events
     where_clause = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
     if start_date and end_date and where_clauses:
-        where_clause += f" AND first_mention_date <= :end_date AND last_mention_date >= :start_date"
+        where_clause += " AND first_mention_date <= :end_date AND last_mention_date >= :start_date"
     elif start_date and end_date:
-        where_clause = f" WHERE first_mention_date <= :end_date AND last_mention_date >= :start_date"
+        where_clause = " WHERE first_mention_date <= :end_date AND last_mention_date >= :start_date"
 
     counts['canonical_events'] = session.execute(
         text(f"SELECT COUNT(*) FROM canonical_events{where_clause}"),
@@ -115,9 +115,9 @@ def get_table_counts(session, country: str = None, start_date: date = None, end_
     # Daily event mentions
     where_clause = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
     if start_date and end_date and where_clauses:
-        where_clause += f" AND mention_date BETWEEN :start_date AND :end_date"
+        where_clause += " AND mention_date BETWEEN :start_date AND :end_date"
     elif start_date and end_date:
-        where_clause = f" WHERE mention_date BETWEEN :start_date AND :end_date"
+        where_clause = " WHERE mention_date BETWEEN :start_date AND :end_date"
 
     counts['daily_event_mentions'] = session.execute(
         text(f"SELECT COUNT(*) FROM daily_event_mentions{where_clause}"),

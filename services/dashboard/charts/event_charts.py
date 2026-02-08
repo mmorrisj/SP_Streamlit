@@ -2,7 +2,6 @@
 Chart visualization functions for master events and canonical events.
 """
 import altair as alt
-import pandas as pd
 
 
 def top_master_events_chart(df):

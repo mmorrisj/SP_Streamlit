@@ -17,20 +17,16 @@ Usage:
 
 import argparse
 from pathlib import Path
-from datetime import datetime, date
+from datetime import date
 from typing import List, Dict
-from collections import defaultdict
-import re
 
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from sqlalchemy import and_, extract
 import yaml
 import requests
 
 from shared.database.database import get_session
-from shared.models.models import EventSummary, EventSourceLink, PeriodType, EventStatus
+from shared.models.models import EventSourceLink
 from services.pipeline.summaries.publication_charts import add_charts_to_document
 
 
@@ -89,16 +85,16 @@ def sanitize_event_data(event: Dict, api_url: str = None) -> Dict:
 
     # Translate event name if needed
     if not is_mostly_english(sanitized['event_name']):
-        print(f"  [TRANSLATING] Non-English event name detected")
+        print("  [TRANSLATING] Non-English event name detected")
         sanitized['event_name'] = translate_to_english_via_api(sanitized['event_name'], api_url)
 
     # Overview and Outcome should already be in English from LLM generation
     # but we can check and mark if not
     if sanitized['overview'] and not is_mostly_english(sanitized['overview']):
-        print(f"  [WARNING] Non-English overview detected")
+        print("  [WARNING] Non-English overview detected")
 
     if sanitized['outcome'] and not is_mostly_english(sanitized['outcome']):
-        print(f"  [WARNING] Non-English outcome detected")
+        print("  [WARNING] Non-English outcome detected")
 
     return sanitized
 
@@ -423,7 +419,7 @@ def export_publications(
             total_events = sum(len(events) for events in events_by_category.values())
 
             if total_events == 0:
-                print(f"  [SKIP] No monthly summaries found")
+                print("  [SKIP] No monthly summaries found")
                 continue
 
             print(f"  Found {total_events} total events (sorted by document count):")
@@ -432,7 +428,7 @@ def export_publications(
                     print(f"    {category}: {len(events)} events")
 
             # Sanitize events to ensure English-only text
-            print(f"  Sanitizing event data for English-only output...")
+            print("  Sanitizing event data for English-only output...")
             for category in events_by_category:
                 events_by_category[category] = [
                     sanitize_event_data(event, api_url)
@@ -505,7 +501,7 @@ def main():
     print("=" * 80)
     print(f"Countries: {', '.join(countries)}")
     print(f"Period: {start_date} to {end_date}")
-    print(f"Filter: None (all events included, sorted by document count)")
+    print("Filter: None (all events included, sorted by document count)")
     print(f"Output: {output_dir}")
     print("=" * 80)
     print()

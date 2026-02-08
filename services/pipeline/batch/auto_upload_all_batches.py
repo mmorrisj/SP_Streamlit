@@ -23,9 +23,7 @@ Usage:
     python auto_upload_all_batches.py --dry-run
 """
 import argparse
-import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -69,7 +67,7 @@ def upload_via_proxy(batch_file: str, client) -> dict:
     file_size_mb = os.path.getsize(batch_file) / 1024 / 1024
     print(f"  File: {os.path.basename(batch_file)}")
     print(f"  Size: {file_size_mb:.2f} MB")
-    print(f"  Uploading via FastAPI proxy...")
+    print("  Uploading via FastAPI proxy...")
 
     try:
         response = client.upload_file(batch_file)
@@ -77,13 +75,13 @@ def upload_via_proxy(batch_file: str, client) -> dict:
         if 'file_id' not in response:
             raise Exception(f"No 'file_id' in response: {response}")
 
-        print(f"  ✓ Uploaded successfully")
+        print("  ✓ Uploaded successfully")
         print(f"  File ID: {response['file_id']}")
 
         return response
 
     except Exception as e:
-        print(f"  ✗ Upload failed")
+        print("  ✗ Upload failed")
         print(f"  Error: {str(e)}")
         raise Exception(f"Proxy upload failed: {str(e)}")
 
@@ -99,7 +97,7 @@ def create_batch_job_via_proxy(file_id: str, client) -> dict:
     Returns:
         Dictionary with batch job response (includes 'id' field with batch ID)
     """
-    print(f"  Creating batch job...")
+    print("  Creating batch job...")
 
     try:
         response = client.create_batch(
@@ -111,13 +109,13 @@ def create_batch_job_via_proxy(file_id: str, client) -> dict:
         if 'id' not in response:
             raise Exception(f"No 'id' in response: {response}")
 
-        print(f"  ✓ Batch job created")
+        print("  ✓ Batch job created")
         print(f"  Batch ID: {response['id']}")
 
         return response
 
     except Exception as e:
-        print(f"  ✗ Batch creation failed")
+        print("  ✗ Batch creation failed")
         print(f"  Error: {str(e)}")
         raise Exception(f"Batch creation failed: {str(e)}")
 
@@ -196,7 +194,7 @@ def main():
             print(f"   File: {file_path}")
 
             if not os.path.exists(file_path):
-                print(f"   ⚠️  Warning: File not found!")
+                print("   ⚠️  Warning: File not found!")
 
             print()
 
@@ -219,7 +217,7 @@ def main():
         if running_count > 0:
             print(f"⚠️  WARNING: {running_count} batches are currently running/submitted.")
             print(f"Adding {len(batch_jobs)} more may exceed OpenAI's enqueued token limit.")
-            print(f"Consider waiting for some batches to complete before uploading more.")
+            print("Consider waiting for some batches to complete before uploading more.")
             print()
 
         # Confirm before proceeding
@@ -271,8 +269,8 @@ def main():
                 job.submitted_at = datetime.utcnow()
                 session.commit()
 
-                print(f"  ✓ Database updated")
-                print(f"  Status: preparing → submitted")
+                print("  ✓ Database updated")
+                print("  Status: preparing → submitted")
                 print()
 
                 success_count += 1
@@ -306,8 +304,8 @@ def main():
 
         if success_count > 0:
             print("Next steps:")
-            print(f"  1. Monitor batches: python services/pipeline/batch/batch_monitor.py --batch-job-id <id> --auto-download")
-            print(f"  2. Or use batch runner to monitor all")
+            print("  1. Monitor batches: python services/pipeline/batch/batch_monitor.py --batch-job-id <id> --auto-download")
+            print("  2. Or use batch runner to monitor all")
 
         print()
 

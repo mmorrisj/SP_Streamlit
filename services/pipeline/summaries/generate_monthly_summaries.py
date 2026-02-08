@@ -16,7 +16,6 @@ import yaml
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Tuple, Optional
 from sqlalchemy import text
-from uuid import UUID
 
 from shared.database.database import get_session
 from shared.models.models import EventSummary, PeriodType, EventStatus, EventSourceLink
@@ -180,7 +179,7 @@ Progression: {narrative.get('progression', 'N/A')}""")
     )
 
     if dry_run:
-        print(f"    [DRY RUN] Would generate monthly summary")
+        print("    [DRY RUN] Would generate monthly summary")
         return None
 
     # Call LLM via FastAPI proxy
@@ -205,7 +204,7 @@ Progression: {narrative.get('progression', 'N/A')}""")
     # Validate required fields
     required_fields = ['monthly_overview', 'key_outcomes', 'strategic_significance']
     if not all(field in monthly_summary for field in required_fields):
-        print(f"    [ERROR] Missing required fields in LLM response")
+        print("    [ERROR] Missing required fields in LLM response")
         return None
 
     # Get first and last observed dates from weekly summaries
@@ -250,7 +249,7 @@ Progression: {narrative.get('progression', 'N/A')}""")
 
         print(f"    [LINKS] Created {len(doc_ids)} EventSourceLink records")
     else:
-        print(f"    [WARNING] No source documents found from weekly summaries")
+        print("    [WARNING] No source documents found from weekly summaries")
 
     print(f"    [SAVED] Created monthly summary: {event_summary.id}")
     print(f"    [INFO] Synthesized from {len(weekly_summaries)} weekly summaries")
@@ -279,7 +278,7 @@ def process_month(
     events_map = load_weekly_summaries_for_month(session, country, month_start, month_end)
 
     if not events_map:
-        print(f"  No weekly summaries found for this month")
+        print("  No weekly summaries found for this month")
         return {'events': 0, 'summaries_created': 0}
 
     print(f"  Found {len(events_map)} master events with weekly summaries")

@@ -70,14 +70,14 @@ try:
         with open(tmp_path, 'rb') as f:
             batch_file = client.files.create(file=f, purpose="batch")
 
-        print(f"  [OK] Upload successful!")
+        print("  [OK] Upload successful!")
         print(f"    File ID: {batch_file.id}")
         print(f"    Size: {batch_file.bytes} bytes")
 
         # Clean up test file
-        print(f"\nTest 4: Delete test file...")
+        print("\nTest 4: Delete test file...")
         client.files.delete(batch_file.id)
-        print(f"  [OK] Cleanup successful")
+        print("  [OK] Cleanup successful")
 
     finally:
         os.unlink(tmp_path)

@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 
 daily_dir = Path("publications/events/China/daily")

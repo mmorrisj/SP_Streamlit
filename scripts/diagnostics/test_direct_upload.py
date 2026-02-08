@@ -53,7 +53,7 @@ try:
             purpose="batch"
         )
 
-    print(f"\n✓ UPLOAD SUCCESSFUL!")
+    print("\n✓ UPLOAD SUCCESSFUL!")
     print(f"File ID: {batch_file.id}")
     print(f"Filename: {batch_file.filename}")
     print(f"Size: {batch_file.bytes / 1024 / 1024:.2f} MB")
@@ -63,7 +63,7 @@ try:
     print("However, the issue might be with network/firewall on the host.")
 
 except Exception as e:
-    print(f"\n✗ UPLOAD FAILED")
+    print("\n✗ UPLOAD FAILED")
     print(f"Error: {e}")
     print()
     import traceback

@@ -45,7 +45,7 @@ from sklearn.cluster import DBSCAN
 from sentence_transformers import SentenceTransformer
 
 from shared.database.database import get_session
-from shared.models.models import EventCluster, RawEvent, Document, InitiatingCountry
+from shared.models.models import EventCluster
 
 
 def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
@@ -379,7 +379,7 @@ class EventBatchClusterer:
 
         print(f"  Found {len(events)} events")
         print(f"  Clustering ALL {len(events)} events together...")
-        print(f"    Generating embeddings...")
+        print("    Generating embeddings...")
         print(f"    Running DBSCAN (eps={self.eps})...")
 
         # Cluster ALL events for this day at once
@@ -388,7 +388,7 @@ class EventBatchClusterer:
         print(f"  [OK] Found {len(clusters)} clusters from {len(events)} events")
 
         # Show cluster summary
-        print(f"\n  Cluster Summary:")
+        print("\n  Cluster Summary:")
         # Sort clusters by size (largest first)
         sorted_clusters = sorted(clusters, key=lambda x: len(x[1]), reverse=True)
 

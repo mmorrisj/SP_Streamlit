@@ -46,7 +46,7 @@ project_root = script_dir.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
-from shared.database.database import get_engine, get_session
+from shared.database.database import get_session
 
 # Optional S3 support
 try:
@@ -679,7 +679,7 @@ def import_full_database(input_dir: Path, dry_run: bool = False, clear_existing:
     if tables:
         import_tables = [t for t in manifest['tables'] if t['table'] in tables]
         if len(import_tables) == 0:
-            print(f"\n[ERROR] No matching tables found in manifest. Available tables:")
+            print("\n[ERROR] No matching tables found in manifest. Available tables:")
             for t in manifest['tables']:
                 print(f"  - {t['table']}")
             return

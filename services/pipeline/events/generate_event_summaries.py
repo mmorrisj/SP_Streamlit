@@ -26,8 +26,8 @@ Usage:
 
 import argparse
 import sys
-from datetime import date, datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from datetime import date, datetime
+from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from pathlib import Path
 import uuid
@@ -36,7 +36,7 @@ import uuid
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from sqlalchemy import func, and_, text
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from shared.database.database import get_session
@@ -49,11 +49,10 @@ from shared.models.models import (
     RawEvent,
     EventSummary,
     EventSourceLink,
-    PeriodSummary,
     PeriodType,
     EventStatus
 )
-from shared.utils.utils import Config, gai, fetch_gai_content
+from shared.utils.utils import Config, gai
 # from shared.utils.prompts import event_summary_prompt  # Not used
 
 
@@ -86,7 +85,7 @@ class EventSummaryGenerator:
             List of created EventSummary objects
         """
         print(f"\n{'='*80}")
-        print(f"GENERATING EVENT SUMMARIES")
+        print("GENERATING EVENT SUMMARIES")
         print(f"{'='*80}")
         print(f"Country: {country}")
         print(f"Period: {start_date} to {end_date}")
@@ -128,7 +127,7 @@ class EventSummaryGenerator:
                     event_summaries.append(event_summary)
                     print(f"  ✅ EventSummary created: {event_summary.id}")
                 else:
-                    print(f"  ⚠️  Skipped (already exists or error)")
+                    print("  ⚠️  Skipped (already exists or error)")
 
             except Exception as e:
                 print(f"  ❌ Error: {e}")
@@ -229,7 +228,7 @@ class EventSummaryGenerator:
         ).all()
 
         if not documents:
-            print(f"  ⚠️  No documents found")
+            print("  ⚠️  No documents found")
             return None
 
         # Get date range from documents
@@ -349,7 +348,7 @@ class EventSummaryGenerator:
         Returns:
             Dict with 'overview' and 'outcome' keys
         """
-        print(f"  Generating AI narrative...")
+        print("  Generating AI narrative...")
 
         # Prepare document excerpts
         doc_excerpts = []
@@ -402,7 +401,7 @@ RELATED DOCUMENTS:
                 "outcome": result.get("outcome", "Information not available.")
             }
 
-            print(f"  ✅ Narrative generated")
+            print("  ✅ Narrative generated")
             return narrative
 
         except Exception as e:
@@ -522,12 +521,12 @@ def main():
             total_summaries += len(summaries)
 
     print(f"\n{'='*80}")
-    print(f"✅ PIPELINE COMPLETED")
+    print("✅ PIPELINE COMPLETED")
     print(f"{'='*80}")
     print(f"Total EventSummary records created: {total_summaries}")
     print(f"Countries processed: {', '.join(countries)}")
-    print(f"\nYou can now run the publication generation:")
-    print(f"  python services/publication/generate_publication.py \\")
+    print("\nYou can now run the publication generation:")
+    print("  python services/publication/generate_publication.py \\")
     print(f"    --country {countries[0]} \\")
     print(f"    --start {args.start} \\")
     print(f"    --end {args.end}")

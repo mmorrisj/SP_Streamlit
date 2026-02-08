@@ -1,5 +1,4 @@
 # pages/Material_Score_Over_Time.py
-import os
 import pandas as pd
 import datetime as dt
 from sqlalchemy import text, bindparam
@@ -44,7 +43,6 @@ def fetch_available_recipients() -> list[str]:
 # -----------------------------
 # Core query (supports grouping by initiator or recipient)
 # -----------------------------
-from sqlalchemy import create_engine, text, bindparam
 
 @st.cache_data(ttl=300, show_spinner=True)
 def fetch_timeseries(

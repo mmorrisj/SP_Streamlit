@@ -420,7 +420,7 @@ def upload_to_s3(files: list, bucket: str, prefix: str):
         print("[ERROR] boto3 not installed. Cannot upload to S3.")
         return False
 
-    print(f"\n" + "="*80)
+    print("\n" + "="*80)
     print(f"UPLOADING TO S3: s3://{bucket}/{prefix}")
     print("="*80)
 
@@ -549,7 +549,7 @@ def main():
         if success:
             print(f"\n✅ Successfully uploaded to s3://{args.s3_bucket}/{args.s3_prefix}")
         else:
-            print(f"\n❌ Upload to S3 failed")
+            print("\n❌ Upload to S3 failed")
 
 
 if __name__ == "__main__":

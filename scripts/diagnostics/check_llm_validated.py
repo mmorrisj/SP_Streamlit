@@ -34,7 +34,7 @@ with get_session() as session:
             AND master_event_id IS NULL
         """)).fetchone()
 
-        print(f"\nChina master events status:")
+        print("\nChina master events status:")
         print(f"  Validated: {result[0]}")
         print(f"  Not validated: {result[1]}")
         print(f"  Total: {result[2]}")

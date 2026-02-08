@@ -43,7 +43,7 @@ sys.path.insert(0, str(project_root))
 import argparse
 import json
 import yaml
-from typing import Dict, List, Any
+from typing import Dict
 from sqlalchemy import text
 
 from shared.database.database import get_session
@@ -321,7 +321,7 @@ def merge_canonical_entities_for_country(
         if verbose:
             print(f"\n  [COMMITTED] Reassigned {stats['mentions_reassigned']} mentions")
             print(f"  [COMMITTED] Deleted {stats['entities_deleted']} child entities")
-            print(f"  [COMMITTED] Updated master entity metadata (dates, mentions, categories, recipients)")
+            print("  [COMMITTED] Updated master entity metadata (dates, mentions, categories, recipients)")
     elif dry_run and verbose:
         print(f"\n  [DRY RUN] Would reassign {stats['mentions_reassigned']} mentions")
         print(f"  [DRY RUN] Would delete {stats['entities_deleted']} child entities")

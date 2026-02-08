@@ -13,7 +13,6 @@ Usage examples:
 """
 
 import argparse
-from datetime import date
 from typing import List, Dict
 from sqlalchemy import text
 

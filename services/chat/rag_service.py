@@ -14,7 +14,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from sqlalchemy import text
 import torch
 
-from shared.database.database import get_session, get_engine
+from shared.database.database import get_engine
 
 
 # =============================================================================
@@ -1178,10 +1178,10 @@ def format_export(messages: List[Dict[str, Any]], format_type: str = "markdown")
             content = msg.get("content", "")
 
             if role == "User":
-                lines.append(f"## User Question")
+                lines.append("## User Question")
                 lines.append(f"> {content}")
             else:
-                lines.append(f"## Assistant Response")
+                lines.append("## Assistant Response")
                 lines.append(content)
 
             # Add sources if present

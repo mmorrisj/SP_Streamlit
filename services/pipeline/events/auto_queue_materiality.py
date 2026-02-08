@@ -10,7 +10,6 @@ import time
 import subprocess
 import sys
 import os
-from pathlib import Path
 
 def is_process_running(log_file):
     """Check if a process is still running by monitoring its log file"""
@@ -62,7 +61,7 @@ def start_iran_materiality():
         )
 
     print(f"[OK] Iran materiality scoring started (PID: {process.pid})")
-    print(f"[LOG] Log file: logs/materiality_scoring_iran.log")
+    print("[LOG] Log file: logs/materiality_scoring_iran.log")
     return process.pid
 
 def main():

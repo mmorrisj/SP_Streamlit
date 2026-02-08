@@ -38,12 +38,10 @@ Usage:
         --dry-run
 """
 import argparse
-import json
 import sys
 from pathlib import Path
 from datetime import datetime, date as DateType
 from typing import List, Dict, Any, Optional
-import yaml
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -52,9 +50,8 @@ sys.path.insert(0, str(project_root))
 from sqlalchemy import text
 from shared.database.database import get_session
 from shared.models.models import (
-    EventCluster, CanonicalEvent, Document, InitiatingCountry, RecipientCountry,
-    Category, RawEntity, EntityCluster, EntityTypeEnum, EventSummary, PeriodType,
-    DailyEventMention
+    EventCluster, Document, InitiatingCountry, RecipientCountry,
+    RawEntity, EntityCluster, EntityTypeEnum
 )
 from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLUSTER_DECONFLICT,
@@ -72,7 +69,7 @@ from services.pipeline.batch.batch_config import (
 from services.pipeline.batch.batch_tracker import BatchJobTracker
 from services.pipeline.batch.utils.custom_id import generate_custom_id
 from services.pipeline.batch.utils.jsonl_utils import write_jsonl
-from services.pipeline.batch.utils.cost_estimator import estimate_batch_cost, calculate_message_tokens
+from services.pipeline.batch.utils.cost_estimator import calculate_message_tokens
 
 
 def build_cluster_deconflict_prompt(cluster: EventCluster) -> Dict[str, List[Dict[str, str]]]:
@@ -1512,7 +1509,7 @@ def load_documents_for_entity_extraction(
         List of document dictionaries
     """
     from datetime import datetime
-    from sqlalchemy import and_, func
+    from sqlalchemy import and_
     from shared.utils.utils import Config
     from pathlib import Path
 
@@ -1948,12 +1945,12 @@ def main():
             print(f"{'='*80}")
 
             # Generate batch requests for this chunk
-            print(f"Generating batch API requests...")
+            print("Generating batch API requests...")
             batch_requests = generate_batch_requests(args.job_type, chunk, model)
             print(f"Generated {len(batch_requests)} batch requests")
 
             # Estimate cost
-            print(f"Estimating costs...")
+            print("Estimating costs...")
             total_input_tokens = sum(
                 calculate_message_tokens(req['body']['messages'], model)
                 for req in batch_requests
@@ -1993,7 +1990,7 @@ def main():
             print(f"✓ Wrote {len(batch_requests)} requests to {output_file}")
 
             # Create batch_job record
-            print(f"Creating batch_job database record...")
+            print("Creating batch_job database record...")
             with BatchJobTracker(session) as tracker:
                 batch_job = tracker.create_batch_job(
                     job_type=args.job_type,

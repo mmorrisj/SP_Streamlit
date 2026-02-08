@@ -13,8 +13,7 @@ Identifies:
 """
 
 import sys
-from pathlib import Path
-from sqlalchemy import text, func
+from sqlalchemy import text
 from shared.database.database import get_session
 
 def print_section(title):
@@ -112,14 +111,14 @@ def check_doc_id_references(session):
             else:
                 valid_refs += 1
 
-    print(f"\nSample results:")
+    print("\nSample results:")
     print(f"  Valid references: {valid_refs}")
     print(f"  Broken references: {broken_refs}")
 
     if broken_refs > 0:
-        print(f"\n⚠️  WARNING: Found broken doc_id references!")
+        print("\n⚠️  WARNING: Found broken doc_id references!")
     else:
-        print(f"\n✅ All sampled doc_id references are valid")
+        print("\n✅ All sampled doc_id references are valid")
 
     return broken_refs
 
@@ -287,7 +286,7 @@ def check_master_event_hierarchy(session):
         if broken_refs > 0:
             print(f"\n⚠️  WARNING: {broken_refs:,} child events have broken master_event_id references!")
         else:
-            print(f"\n✅ All master_event_id references are valid")
+            print("\n✅ All master_event_id references are valid")
 
 def main():
     """Run all data integrity checks."""

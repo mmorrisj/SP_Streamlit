@@ -4,7 +4,6 @@ Analyze raw events to understand the consolidation challenge.
 
 from shared.database.database import get_session
 from sqlalchemy import text
-import pandas as pd
 
 def analyze_raw_events():
     with get_session() as session:
@@ -105,7 +104,7 @@ def analyze_raw_events():
         if similar:
             for name1, name2, count1, count2 in similar:
                 print(f"\n'{name1}' ({count1} docs)")
-                print(f"  vs")
+                print("  vs")
                 print(f"'{name2}' ({count2} docs)")
         else:
             print("(pg_trgm extension needed for similarity analysis)")

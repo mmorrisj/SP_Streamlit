@@ -92,7 +92,7 @@ def export_audit(output_file: Path):
     # Test connection
     try:
         doc_count = run_scalar("SELECT COUNT(*) FROM documents")
-        output.append(f"Connection: SUCCESS")
+        output.append("Connection: SUCCESS")
         output.append(f"Documents: {doc_count:,}")
     except Exception as e:
         output.append(f"Connection: FAILED - {e}")
@@ -129,7 +129,7 @@ def export_audit(output_file: Path):
         try:
             count = run_scalar(f"SELECT COUNT(*) FROM {table}")
             table_counts.append({'table_name': table, 'row_count': count})
-        except Exception as e:
+        except Exception:
             table_counts.append({'table_name': table, 'row_count': 0})
 
     tables_df = pd.DataFrame(table_counts).sort_values('row_count', ascending=False)
@@ -158,7 +158,7 @@ def export_audit(output_file: Path):
         FROM documents
         WHERE date IS NOT NULL
     """)
-    output.append(f"\nDate Range:")
+    output.append("\nDate Range:")
     output.append(f"  Earliest: {date_range['earliest_date'].iloc[0]}")
     output.append(f"  Latest: {date_range['latest_date'].iloc[0]}")
     output.append(f"  Unique Dates: {date_range['unique_dates'].iloc[0]:,}")
@@ -566,7 +566,7 @@ def export_audit(output_file: Path):
     """)
 
     total = null_checks['total_docs'].iloc[0]
-    output.append(f"\nNull Value Analysis (Documents table):")
+    output.append("\nNull Value Analysis (Documents table):")
     output.append(f"  Total documents: {total:,}")
     output.append(f"  Null dates: {null_checks['null_dates'].iloc[0]:,} ({null_checks['null_dates'].iloc[0]/total*100:.1f}%)")
     output.append(f"  Null initiating_country: {null_checks['null_init_country'].iloc[0]:,} ({null_checks['null_init_country'].iloc[0]/total*100:.1f}%)")
@@ -661,12 +661,12 @@ def main():
         # Save to diagnostics directory where this script is located
         output_file = script_dir / 'database_audit_report.txt'
 
-    print(f"Executing database audit...")
+    print("Executing database audit...")
     print(f"Connecting to {DB_NAME} @ {DB_HOST}:{DB_PORT}")
 
     try:
         result_file, lines = export_audit(output_file)
-        print(f"\n[SUCCESS] Audit complete!")
+        print("\n[SUCCESS] Audit complete!")
         print(f"   Output: {result_file.absolute()}")
         print(f"   Lines: {lines:,}")
         print(f"   Size: {result_file.stat().st_size / 1024:.1f} KB")

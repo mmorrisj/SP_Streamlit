@@ -8,7 +8,6 @@ Usage:
 """
 
 import argparse
-import sys
 from sqlalchemy import text
 from shared.database.database import get_session
 
@@ -95,7 +94,7 @@ def diagnose_canonical_events(country: str = None):
             """)
             result3 = session.execute(query3).fetchone()
 
-        print(f"\n2. Materiality Scoring Status (Master Events Only):")
+        print("\n2. Materiality Scoring Status (Master Events Only):")
         print(f"   - Unscored (material_score IS NULL): {result3[0]}")
         print(f"   - Scored (material_score IS NOT NULL): {result3[1]}")
         if result3[2]:
@@ -133,7 +132,7 @@ def diagnose_canonical_events(country: str = None):
             """)
             result4 = session.execute(query4).fetchone()
 
-        print(f"\n3. Article Count Distribution (Master Events Only):")
+        print("\n3. Article Count Distribution (Master Events Only):")
         print(f"   - NULL articles: {result4[0]}")
         print(f"   - Under 2 articles: {result4[1]}")
         print(f"   - 2-4 articles: {result4[2]}")
@@ -144,7 +143,7 @@ def diagnose_canonical_events(country: str = None):
             print(f"   - Max articles: {result4[6]}")
 
         # Query 5: Events meeting scoring criteria
-        print(f"\n4. Events Meeting Scoring Criteria:")
+        print("\n4. Events Meeting Scoring Criteria:")
 
         criteria = [
             (1, 1, "min_days=1, min_articles=1"),
@@ -209,13 +208,13 @@ def diagnose_canonical_events(country: str = None):
             """)
             result6 = session.execute(query6).fetchone()
 
-        print(f"\n5. LLM Validation Status (Master Events Only):")
+        print("\n5. LLM Validation Status (Master Events Only):")
         print(f"   - NULL (not processed): {result6[0]}")
         print(f"   - TRUE (validated): {result6[1]}")
         print(f"   - FALSE (rejected): {result6[2]}")
 
         # Query 7: Sample of unscored events
-        print(f"\n6. Sample Unscored Events (with article counts):")
+        print("\n6. Sample Unscored Events (with article counts):")
         if country:
             query7 = text("""
                 SELECT
@@ -262,7 +261,7 @@ def diagnose_canonical_events(country: str = None):
 
         # Query 8: Country breakdown
         if not country:
-            print(f"\n7. Country Breakdown (Master Events):")
+            print("\n7. Country Breakdown (Master Events):")
             query8 = text("""
                 SELECT
                     initiating_country,

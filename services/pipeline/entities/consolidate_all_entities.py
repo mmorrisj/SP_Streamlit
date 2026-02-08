@@ -266,7 +266,7 @@ def consolidate_country(
         Dict with statistics
     """
     if verbose:
-        print(f"\n" + "=" * 80)
+        print("\n" + "=" * 80)
         print(f"Consolidating Entities: {country}")
         print("=" * 80)
 
@@ -280,8 +280,8 @@ def consolidate_country(
 
     if existing_consolidations > 0 and not force and not dry_run:
         print(f"\n  [WARNING] {existing_consolidations} entities already consolidated for {country}")
-        print(f"  To prevent accumulation of multiple consolidation runs:")
-        print(f"    - Use --force to reset and re-consolidate")
+        print("  To prevent accumulation of multiple consolidation runs:")
+        print("    - Use --force to reset and re-consolidate")
         print(f"    - Or manually reset: UPDATE canonical_entities SET master_entity_id = NULL WHERE initiating_country = '{country}'")
         return {'entities': 0, 'groups': 0, 'consolidated': 0, 'updated': 0, 'skipped': True}
 
@@ -441,7 +441,7 @@ def main():
     print("=" * 80)
     print(f"Countries: {', '.join(countries)}")
     print(f"Similarity threshold: {args.similarity_threshold}")
-    print(f"NOTE: Entities are only compared within the SAME entity_type")
+    print("NOTE: Entities are only compared within the SAME entity_type")
     if args.dry_run:
         print("[DRY RUN MODE] No changes will be saved")
     if args.force:

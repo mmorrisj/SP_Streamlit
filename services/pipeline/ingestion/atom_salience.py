@@ -1,14 +1,11 @@
 import sqlite3
-import re
 import json
 import os
 import boto3
 from botocore.exceptions import ClientError
 from openai import AzureOpenAI
-from shared.utils.utils import Config, gai, fetch_gai_content
+from shared.utils.utils import gai, fetch_gai_content
 from shared.utils.utils import find_json_objects,concatenate_files
-from collections import defaultdict
-import pandas as pd
 from datetime import datetime
 
 def load_sql(command):
@@ -22,7 +19,7 @@ def sql(conn,command,data=None):
     if data:
         cursor.execute(command,check_tuple(data))
     else:
-        cursor.execute(command) 
+        cursor.execute(command)
 
 def load_schema():
     cmd = load_sql('schema')
@@ -45,17 +42,17 @@ def fetch_atom_files(directory="./backend/atom/processed"):
     return df
 
 def get_secret():
- 
+
     secret_name = "AZURE_OPENAI_API_KEY_NORTHCENTRALUS"
     region_name = "us-east-1"
- 
+
     # Create a Secrets Manager client
     session = boto3.session.Session()
     client = session.client(
         service_name='secretsmanager',
         region_name=region_name
     )
- 
+
     try:
         get_secret_value_response = client.get_secret_value(
             SecretId=secret_name
@@ -64,10 +61,10 @@ def get_secret():
         # For a list of exceptions thrown, see
         # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
         raise e
- 
+
     secret = get_secret_value_response['SecretString']
     return secret
- 
+
 
 secret_string = get_secret()
 
@@ -91,7 +88,7 @@ def fetch_gai_content(response):
 def gai(sys_prompt, user_prompt, model="gpt-4o-mini"):
     # Create a chat completion using the specified model and prompts
     completion = client.chat.completions.create(
-        model=model, 
+        model=model,
         messages=[
             {
                 "role": "system",
@@ -111,7 +108,7 @@ def process_output(output):
         return output
     if isinstance(output,list):
         return output[0]
-    
+
 def process_salience(gai_output):
     gai_output = process_output(gai_output)
     if str(gai_output['salience']).lower() == 'false':
@@ -176,4 +173,3 @@ if __name__ == "__main__":
         run_salience(conn,df)
     else:
         print("no data")
-    

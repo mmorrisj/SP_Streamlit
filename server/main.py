@@ -6,18 +6,16 @@ from fastapi import FastAPI, Query, HTTPException, File, UploadFile, Depends, He
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-from typing import Optional, List, Dict, Any
-from datetime import datetime, date
+from typing import Optional, List
+from datetime import datetime
 from pydantic import BaseModel
-from sqlalchemy import func, text
+from sqlalchemy import func
 from pathlib import Path
 import yaml
 import json
 import tempfile
 import boto3
 from botocore.exceptions import ClientError
-import pandas as pd
-import numpy as np
 import pyarrow.parquet as pq
 from dotenv import load_dotenv
 
@@ -264,8 +262,6 @@ def get_document_stats(
 
         # Count total canonical events (master events only) with same filters
         # Use the primary_recipients JSONB field for recipient filtering
-        from sqlalchemy import text
-        from sqlalchemy.dialects.postgresql import JSONB
 
         events_query = session.query(CanonicalEvent.id).filter(
             CanonicalEvent.master_event_id.is_(None),
@@ -604,12 +600,12 @@ def get_events(
             CanonicalEvent.story_phase,
             CanonicalEvent.consolidated_description
         )
-        
+
         if country and country != 'ALL':
             query = query.filter(CanonicalEvent.initiating_country == country)
-            
+
         events = query.order_by(CanonicalEvent.first_mention_date.desc()).limit(limit).all()
-        
+
         return EventsResponse(
             events=[
                 {
@@ -640,12 +636,12 @@ def get_summaries(
             EventSummary.event_name,
             EventSummary.initiating_country
         )
-        
+
         if country and country != 'ALL':
             query = query.filter(EventSummary.initiating_country == country)
-            
+
         summaries = query.order_by(EventSummary.period_start.desc()).limit(limit).all()
-        
+
         return SummariesResponse(
             summaries=[
                 {
@@ -731,7 +727,7 @@ def get_categories():
             InitiatingCountry.initiating_country != RecipientCountry.recipient_country
         ).group_by(Subcategory.subcategory
         ).order_by(func.count(func.distinct(Subcategory.doc_id)).desc()).limit(20).all()
-        
+
         return CategoriesResponse(
             categories=[
                 {"category": row.category, "count": row.count}
@@ -1938,7 +1934,6 @@ def get_event_timeline(
     """Get event timeline with daily article density for Gantt chart visualization."""
     import json
     from datetime import datetime
-    from collections import defaultdict
     import sys
 
     print(f"DEBUG: get_event_timeline called with country={country}, level={level}", file=sys.stderr, flush=True)
@@ -1958,7 +1953,7 @@ def get_event_timeline(
 
     if level == "overall":
         # Load overall file
-        overall_files = list(events_country_dir.glob(f"overall_*_events.json"))
+        overall_files = list(events_country_dir.glob("overall_*_events.json"))
         for overall_file in overall_files:
             try:
                 with open(overall_file, 'r', encoding='utf-8') as f:

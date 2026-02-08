@@ -12,7 +12,6 @@ if sys.platform == "win32":
 from shared.database.database import get_session
 from shared.models.models import BilateralRelationshipSummary
 from sqlalchemy import text
-from datetime import datetime, timedelta
 
 with get_session() as session:
     # Config countries
@@ -66,5 +65,5 @@ with get_session() as session:
 
     print()
     print('=' * 80)
-    print(f'Dashboard: http://localhost:8501')
+    print('Dashboard: http://localhost:8501')
     print('=' * 80)

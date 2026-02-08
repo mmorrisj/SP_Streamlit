@@ -16,7 +16,6 @@ import yaml
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Tuple, Optional
 from sqlalchemy import text
-from uuid import UUID
 
 from shared.database.database import get_session
 from shared.models.models import EventSummary, PeriodType, EventStatus, EventSourceLink
@@ -176,7 +175,7 @@ Outcomes: {narrative.get('outcomes', 'N/A')}""")
     )
 
     if dry_run:
-        print(f"    [DRY RUN] Would generate weekly summary")
+        print("    [DRY RUN] Would generate weekly summary")
         return None
 
     # Call LLM via FastAPI proxy
@@ -201,7 +200,7 @@ Outcomes: {narrative.get('outcomes', 'N/A')}""")
     # Validate required fields
     required_fields = ['overview', 'outcomes', 'progression']
     if not all(field in weekly_summary for field in required_fields):
-        print(f"    [ERROR] Missing required fields in LLM response")
+        print("    [ERROR] Missing required fields in LLM response")
         return None
 
     # Get first and last observed dates from daily summaries
@@ -246,7 +245,7 @@ Outcomes: {narrative.get('outcomes', 'N/A')}""")
 
         print(f"    [LINKS] Created {len(doc_ids)} EventSourceLink records")
     else:
-        print(f"    [WARNING] No source documents found from daily summaries")
+        print("    [WARNING] No source documents found from daily summaries")
 
     print(f"    [SAVED] Created weekly summary: {event_summary.id}")
     print(f"    [INFO] Synthesized from {len(daily_summaries)} daily summaries")
@@ -275,7 +274,7 @@ def process_week(
     events_map = load_daily_summaries_for_week(session, country, week_start, week_end)
 
     if not events_map:
-        print(f"  No daily summaries found for this week")
+        print("  No daily summaries found for this week")
         return {'events': 0, 'summaries_created': 0}
 
     print(f"  Found {len(events_map)} master events with daily summaries")

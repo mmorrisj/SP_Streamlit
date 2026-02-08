@@ -38,7 +38,7 @@ class DatabaseManager:
     Centralized database connection manager with connection pooling,
     error handling, and health monitoring.
     """
-    
+
     def __init__(self):
         self.engine: Optional[Engine] = None
         self.SessionLocal: Optional[sessionmaker] = None
@@ -46,7 +46,7 @@ class DatabaseManager:
         self._retry_delay = 1  # seconds
         self._setup_connection()
         self._setup_event_listeners()
-    
+
     def _get_database_url(self) -> str:
         """
         Construct database URL from environment variables with fallbacks.
@@ -58,13 +58,13 @@ class DatabaseManager:
         db_pass = os.getenv("POSTGRES_PASSWORD", "softpower")
         db_name = os.getenv("POSTGRES_DB", "softpower-db")
         db_port = os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT", "5432")
-        
+
         # Alternative environment variable names (for flexibility)
         if not all([db_user, db_pass, db_name]):
             db_user = os.getenv("DATABASE_USER", db_user)
             db_pass = os.getenv("DATABASE_PASSWORD", db_pass)
             db_name = os.getenv("DATABASE_NAME", db_name)
-        
+
         # Support for full DATABASE_URL (common in production)
         database_url = os.getenv("DATABASE_URL")
         if database_url:
@@ -72,12 +72,12 @@ class DatabaseManager:
             if database_url.startswith("postgres://"):
                 database_url = database_url.replace("postgres://", "postgresql://", 1)
             return database_url
-        
+
         # Construct URL from components
         url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
         logger.info(f"Database URL: postgresql://{db_user}:***@{db_host}:{db_port}/{db_name}")
         return url
-    
+
     def _get_engine_options(self) -> dict:
         """
         Configure SQLAlchemy engine options for optimal performance and reliability.
@@ -88,13 +88,13 @@ class DatabaseManager:
             "echo_pool": os.getenv("SQL_ECHO_POOL", "false").lower() == "true",
             "future": True,  # Use SQLAlchemy 2.0 style
         }
-        
+
         # Connection pool configuration
         pool_size = int(os.getenv("DB_POOL_SIZE", "10"))
         max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "20"))
         pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", "30"))
         pool_recycle = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # 1 hour
-        
+
         options.update({
             "poolclass": pool.QueuePool,
             "pool_size": pool_size,
@@ -103,7 +103,7 @@ class DatabaseManager:
             "pool_recycle": pool_recycle,
             "pool_pre_ping": True,  # Validate connections before use
         })
-        
+
         # Development vs Production settings
         if os.getenv("ENVIRONMENT") == "production":
             options.update({
@@ -120,32 +120,32 @@ class DatabaseManager:
                     "application_name": "softpower-dev",
                 }
             })
-        
+
         return options
-    
+
     def _setup_connection(self):
         """Initialize database engine and session factory with retry logic."""
         database_url = self._get_database_url()
         engine_options = self._get_engine_options()
-        
+
         for attempt in range(self._connection_retries):
             try:
                 self.engine = create_engine(database_url, **engine_options)
-                
+
                 # Test the connection - use text() for raw SQL
                 with self.engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
-                
+
                 self.SessionLocal = sessionmaker(
                     bind=self.engine,
                     autoflush=True,
                     autocommit=False,
                     expire_on_commit=False
                 )
-                
+
                 logger.info("Database connection established successfully")
                 return
-                
+
             except Exception as e:
                 logger.error(f"Database connection attempt {attempt + 1} failed: {e}")
                 if attempt < self._connection_retries - 1:
@@ -155,7 +155,7 @@ class DatabaseManager:
 
     def _setup_event_listeners(self):
         """Setup SQLAlchemy event listeners for monitoring and logging."""
-        
+
         @event.listens_for(self.engine, "connect")
         def set_postgresql_settings(dbapi_connection, connection_record):
             """Configure connection-level settings."""
@@ -163,19 +163,19 @@ class DatabaseManager:
                 with dbapi_connection.cursor() as cursor:
                     # Set timezone to UTC
                     cursor.execute("SET timezone TO 'UTC'")
-        
+
         @event.listens_for(self.engine, "checkout")
         def checkout_listener(dbapi_connection, connection_record, connection_proxy):
             """Log connection checkout in debug mode."""
             if os.getenv("SQL_DEBUG") == "true":
                 logger.debug("Connection checked out from pool")
-        
+
         @event.listens_for(self.engine, "checkin")
         def checkin_listener(dbapi_connection, connection_record):
             """Log connection checkin in debug mode."""
             if os.getenv("SQL_DEBUG") == "true":
                 logger.debug("Connection checked back into pool")
-            
+
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
         """
@@ -189,7 +189,7 @@ class DatabaseManager:
         """
         if not self.SessionLocal:
             raise RuntimeError("Database not initialized. Call _setup_connection() first.")
-        
+
         session = self.SessionLocal()
         try:
             yield session
@@ -200,7 +200,7 @@ class DatabaseManager:
             raise
         finally:
             session.close()
-    
+
     def create_session(self) -> Session:
         """
         Create a new database session for manual management.
@@ -210,9 +210,9 @@ class DatabaseManager:
         """
         if not self.SessionLocal:
             raise RuntimeError("Database not initialized. Call _setup_connection() first.")
-        
+
         return self.SessionLocal()
-    
+
     def health_check(self) -> bool:
         """
         Perform a health check on the database connection.
@@ -227,7 +227,7 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
             return False
-    
+
     def get_pool_status(self) -> dict:
         """
         Get current connection pool status for monitoring.
@@ -237,7 +237,7 @@ class DatabaseManager:
         """
         if not self.engine:
             return {"error": "Engine not initialized"}
-        
+
         pool = self.engine.pool
         return {
             "pool_size": pool.size(),
@@ -245,13 +245,13 @@ class DatabaseManager:
             "overflow": pool.overflow(),
             "checked_in": pool.checkedin(),
         }
-    
+
     def close_all_connections(self):
         """Close all database connections and dispose of the engine."""
         if self.engine:
             self.engine.dispose()
             logger.info("All database connections closed")
-    
+
     def recreate_connection(self):
         """Recreate the database connection (useful for connection recovery)."""
         logger.info("Recreating database connection...")
@@ -310,7 +310,6 @@ def init_database():
     """
     try:
         # Import models to ensure all models are registered
-        from shared.models.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent
 
         Base.metadata.create_all(get_db_manager().engine)
         logger.info("Database tables created successfully")
@@ -324,7 +323,6 @@ def drop_database():
     """
     try:
         # Import models to ensure all models are registered
-        from shared.models.models import Document, Category, Subcategory, InitiatingCountry, RecipientCountry, RawEvent
 
         Base.metadata.drop_all(get_db_manager().engine)
         logger.info("Database tables dropped successfully")
@@ -381,21 +379,21 @@ def validate_environment():
     """
     required_vars = ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
-    
+
     if missing_vars and not os.getenv("DATABASE_URL"):
         raise EnvironmentError(
             f"Missing required environment variables: {missing_vars}. "
             "Either set these variables or provide DATABASE_URL."
         )
-    
+
     logger.info("Environment validation passed")
 
 # Export the Base for model definitions
 __all__ = [
     'Base',
-    'db_manager', 
-    'get_session', 
-    'create_session', 
+    'db_manager',
+    'get_session',
+    'create_session',
     'get_engine',
     'init_database',
     'drop_database',

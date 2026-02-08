@@ -14,13 +14,11 @@ Usage:
 
 import argparse
 import yaml
-from datetime import datetime
-from typing import List, Set
+from typing import Set
 from sqlalchemy import text
-from uuid import UUID
 
 from shared.database.database import get_session
-from shared.models.models import EventSummary, EventSourceLink, PeriodType
+from shared.models.models import EventSourceLink
 
 
 def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
@@ -189,7 +187,7 @@ def backfill_weekly_source_links(session, country: str = None, dry_run: bool = F
 
     if not dry_run:
         session.commit()
-        print(f"\n[COMMITTED] All changes saved to database")
+        print("\n[COMMITTED] All changes saved to database")
 
     return stats
 
@@ -289,7 +287,7 @@ def backfill_monthly_source_links(session, country: str = None, dry_run: bool = 
 
     if not dry_run:
         session.commit()
-        print(f"\n[COMMITTED] All changes saved to database")
+        print("\n[COMMITTED] All changes saved to database")
 
     return stats
 
@@ -337,14 +335,14 @@ def main():
         print("="*80)
 
         if total_stats['weekly']:
-            print(f"\nWeekly Summaries:")
+            print("\nWeekly Summaries:")
             print(f"  Total processed: {total_stats['weekly']['total_weekly_summaries']}")
             print(f"  Summaries updated: {total_stats['weekly']['summaries_updated']}")
             print(f"  Links created: {total_stats['weekly']['links_created']}")
             print(f"  Errors: {total_stats['weekly']['errors']}")
 
         if total_stats['monthly']:
-            print(f"\nMonthly Summaries:")
+            print("\nMonthly Summaries:")
             print(f"  Total processed: {total_stats['monthly']['total_monthly_summaries']}")
             print(f"  Summaries updated: {total_stats['monthly']['summaries_updated']}")
             print(f"  Links created: {total_stats['monthly']['links_created']}")

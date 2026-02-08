@@ -53,7 +53,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import text
 
 from shared.database.database import get_session
-from shared.models.models import CanonicalEvent
 
 
 def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
@@ -160,7 +159,7 @@ def find_similar_events(
     if verbose:
         matrix_size_mb = (n * n * 8) / (1024 * 1024)  # 8 bytes per float64
         print(f"  Computing similarity matrix ({n:,} x {n:,} = {matrix_size_mb:.1f} MB)...")
-        print(f"  Using chunked computation to avoid memory issues...")
+        print("  Using chunked computation to avoid memory issues...")
 
     # Compute pairwise similarities in chunks to avoid memory corruption
     chunk_size = 1000  # Process 1000 rows at a time
@@ -249,7 +248,7 @@ def consolidate_country(
         Dict with statistics
     """
     if verbose:
-        print(f"\n" + "=" * 80)
+        print("\n" + "=" * 80)
         print(f"Consolidating: {country}")
         print("=" * 80)
 
@@ -263,8 +262,8 @@ def consolidate_country(
 
     if existing_consolidations > 0 and not force and not dry_run:
         print(f"\n  [WARNING] {existing_consolidations} events already consolidated for {country}")
-        print(f"  To prevent accumulation of multiple consolidation runs:")
-        print(f"    - Use --force to reset and re-consolidate")
+        print("  To prevent accumulation of multiple consolidation runs:")
+        print("    - Use --force to reset and re-consolidate")
         print(f"    - Or manually reset: UPDATE canonical_events SET master_event_id = NULL WHERE initiating_country = '{country}'")
         return {'events': 0, 'groups': 0, 'consolidated': 0, 'updated': 0, 'skipped': True}
 

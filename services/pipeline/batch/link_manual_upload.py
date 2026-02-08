@@ -39,7 +39,7 @@ def link_manual_upload(batch_job_id: str, openai_batch_id: str):
             print(f"Error: Batch job not found: {batch_job_id}")
             return False
 
-        print(f"Found batch job:")
+        print("Found batch job:")
         print(f"  ID: {batch_job.id}")
         print(f"  Job type: {batch_job.job_type}")
         print(f"  Country: {batch_job.initiating_country}")
@@ -65,7 +65,7 @@ def link_manual_upload(batch_job_id: str, openai_batch_id: str):
         print()
         print("Successfully linked OpenAI batch to database record")
         print(f"  OpenAI Batch ID: {openai_batch_id}")
-        print(f"  Status updated to: submitted")
+        print("  Status updated to: submitted")
         print()
         print("You can now monitor this batch with:")
         print(f"  python services/pipeline/batch/batch_monitor.py --batch-job-id {batch_job_id} --auto-download")

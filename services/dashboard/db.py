@@ -4,7 +4,6 @@ Uses modern SQLAlchemy 2.0 with centralized database management.
 """
 
 from shared.database.database import get_session, create_session, get_engine, health_check
-from contextlib import contextmanager
 
 # Re-export the main functions for backwards compatibility
 __all__ = ['get_session', 'create_session', 'get_engine', 'health_check']

@@ -12,7 +12,6 @@ Usage:
     python migrate_database.py migrate --env  # Use environment variables
 """
 
-import os
 import sys
 import argparse
 from pathlib import Path
@@ -23,7 +22,6 @@ sys.path.append(str(backend_path))
 
 from backend.scripts.postgres_migration import DatabaseMigrator
 from backend.scripts.migration_config import (
-    MigrationConfig,
     get_migration_config_from_env,
     get_sp_project_config,
     validate_config,

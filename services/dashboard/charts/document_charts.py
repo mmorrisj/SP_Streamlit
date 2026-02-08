@@ -2,7 +2,6 @@ import altair as alt
 import pandas as pd
 from streamlit import cache_data
 from shared.utils.utils import Config
-from sqlalchemy import func, desc
 
 
 # build streamlit filters for country and date and category
@@ -10,7 +9,6 @@ from queries.document_queries import (
     get_document_counts_per_week,
     get_subcategory_distribution_by_document_count,
     get_top_influencers_by_document_count,
-    get_top_recipients_by_document_count,
     get_category_distribution_by_document_count,
     get_category_distribution_by_document_count_by_country,
     get_category_count_over_time
@@ -100,7 +98,7 @@ def subcategory_distribution_by_document_count_chart(country=None):
 @cache_data
 def category_distribution_by_document_count_by_country_chart():
     df = get_category_distribution_by_document_count_by_country()
-    df['initiating_country'] = df['initiating_country'].astype(str) 
+    df['initiating_country'] = df['initiating_country'].astype(str)
     df['category'] = df['category'].astype(str)
     chart = (
     alt.Chart(df)
@@ -114,13 +112,13 @@ def category_distribution_by_document_count_by_country_chart():
       .properties(height=400, width=700)
     )
     return chart
-    
+
 #build streamlit chart for diplomacy count over time
 @cache_data
 def category_count_over_time_chart():
     df = get_category_count_over_time()
-    df['month'] = pd.to_datetime(df['month'])   
-    df['month'] = df['month'].dt.strftime('%Y-%m')  
+    df['month'] = pd.to_datetime(df['month'])
+    df['month'] = df['month'].dt.strftime('%Y-%m')
     return alt.Chart(df).mark_line(point=True).encode(
         x=alt.X('month:T', title='Month'),
         y=alt.Y('diplomacy_count:Q', title='Diplomacy Count'),

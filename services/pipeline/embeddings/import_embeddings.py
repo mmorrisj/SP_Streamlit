@@ -23,10 +23,8 @@ Usage:
 
 import argparse
 import sys
-import io
 import uuid
 from pathlib import Path
-from datetime import datetime
 import pandas as pd
 import numpy as np
 import json
@@ -40,7 +38,7 @@ sys.path.insert(0, str(project_root))
 
 from sqlalchemy import text
 from shared.database.database import get_engine, get_session
-from services.pipeline.embeddings.s3 import _get_api_client, bucket_name as default_bucket
+from services.pipeline.embeddings.s3 import _get_api_client
 
 # Optional direct boto3 for fallback
 try:
@@ -304,15 +302,15 @@ def import_parquet_to_collection(parquet_file: Path, collection_name: str, dry_r
 
     if 'cmetadata' not in df.columns:
         df['cmetadata'] = '{}'
-        print(f"  [DEFAULT] Added empty cmetadata")
+        print("  [DEFAULT] Added empty cmetadata")
 
     if 'custom_id' not in df.columns:
         df['custom_id'] = None
-        print(f"  [DEFAULT] Added null custom_id")
+        print("  [DEFAULT] Added null custom_id")
 
     if 'document' not in df.columns:
         df['document'] = ''
-        print(f"  [DEFAULT] Added empty document")
+        print("  [DEFAULT] Added empty document")
 
     # Convert cmetadata from JSON strings back to dicts (handle both string and dict inputs)
     def parse_cmetadata(x):

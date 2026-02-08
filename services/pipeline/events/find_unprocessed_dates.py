@@ -49,7 +49,7 @@ def find_unprocessed_dates(country: str):
             print('='*100)
             print(f"Run llm_deconflict_clusters.py for {country} from {first_date} to {last_date}:")
             print()
-            print(f"docker exec -it api-service python services/pipeline/events/llm_deconflict_clusters.py \\")
+            print("docker exec -it api-service python services/pipeline/events/llm_deconflict_clusters.py \\")
             print(f"  --country '{country}' --start-date {first_date} --end-date {last_date}")
         else:
             print(f"\n✅ All event_clusters have been deconflicted for {country}")
@@ -70,10 +70,10 @@ def find_unprocessed_dates(country: str):
 
         if orphaned > 0:
             print(f"\n⚠️  WARNING: {orphaned:,} canonical events exist WITHOUT daily_event_mentions")
-            print(f"\nThis suggests:")
-            print(f"  1. llm_deconflict_clusters.py was interrupted mid-processing")
-            print(f"  2. Canonical events were created by a different/older script")
-            print(f"  3. Data inconsistency - mentions were deleted but events weren't")
+            print("\nThis suggests:")
+            print("  1. llm_deconflict_clusters.py was interrupted mid-processing")
+            print("  2. Canonical events were created by a different/older script")
+            print("  3. Data inconsistency - mentions were deleted but events weren't")
 
             # Check a sample
             sample = session.execute(text("""
@@ -90,15 +90,15 @@ def find_unprocessed_dates(country: str):
                 LIMIT 5
             """), {'country': country}).fetchall()
 
-            print(f"\nTop 5 orphaned events by article count:")
+            print("\nTop 5 orphaned events by article count:")
             for name, date, articles in sample:
                 safe_name = name.encode('ascii', 'replace').decode('ascii')[:60]
                 print(f"  {safe_name}")
                 print(f"    Date: {date}, Articles: {articles}")
 
-            print(f"\n🔧 TO FIX:")
-            print(f"  These events need daily_event_mentions to be queryable.")
-            print(f"  Re-run llm_deconflict_clusters.py for their dates to recreate the mentions.")
+            print("\n🔧 TO FIX:")
+            print("  These events need daily_event_mentions to be queryable.")
+            print("  Re-run llm_deconflict_clusters.py for their dates to recreate the mentions.")
 
 
 def main():
