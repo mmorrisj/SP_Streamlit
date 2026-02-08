@@ -2,7 +2,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, Query, HTTPException, File, UploadFile
+from fastapi import FastAPI, Query, HTTPException, File, UploadFile, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -29,7 +29,12 @@ if env_path.exists():
 from shared.database.database import get_session
 from shared.models.models import (
     Document, EventSummary, CanonicalEvent,
-    Category, Subcategory, InitiatingCountry, RecipientCountry
+    Category, Subcategory, InitiatingCountry, RecipientCountry,
+    User, UserRole
+)
+from server.auth import (
+    hash_password, verify_password, create_access_token,
+    verify_token, get_token_from_header
 )
 
 app = FastAPI(title="Soft Power API", version="1.0.0")
@@ -137,6 +142,76 @@ class FiltersResponse(BaseModel):
     categories: list
     subcategories: list
     date_range: dict
+
+
+# ===== AUTHENTICATION MODELS =====
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class UserCreateRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "viewer"
+    display_name: Optional[str] = None
+    force_password_change: bool = True
+
+class UserUpdateRequest(BaseModel):
+    role: Optional[str] = None
+    display_name: Optional[str] = None
+    is_active: Optional[bool] = None
+    force_password_change: Optional[bool] = None
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    role: str
+    display_name: Optional[str]
+    is_active: bool
+    force_password_change: bool
+    created_at: Optional[str]
+    last_login: Optional[str]
+
+
+# ===== AUTHENTICATION DEPENDENCIES =====
+
+def get_current_user(authorization: str = Header(None)) -> dict:
+    """Dependency to get current user from JWT token."""
+    token = get_token_from_header(authorization)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    payload = verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    return payload
+
+def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency to require admin role."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+def require_analyst_or_above(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency to require analyst or admin role."""
+    if current_user.get("role") not in ["admin", "analyst"]:
+        raise HTTPException(status_code=403, detail="Analyst access required")
+    return current_user
+
 
 @app.get("/api/health")
 def health_check():
@@ -2865,6 +2940,198 @@ async def get_chat_filters():
         "recipients": RECIPIENTS,
         "categories": category_list
     }
+
+
+# ===== AUTHENTICATION ENDPOINTS =====
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+def login(request: LoginRequest):
+    """Authenticate user and return JWT token."""
+    with get_session() as session:
+        user = session.query(User).filter(
+            User.username == request.username,
+            User.is_active == True,
+            User.is_deleted == False
+        ).first()
+
+        if not user or not verify_password(request.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        # Update last login
+        user.last_login = datetime.utcnow()
+        session.commit()
+
+        # Create token
+        token = create_access_token(
+            user_id=str(user.id),
+            username=user.username,
+            role=user.role.value
+        )
+
+        return LoginResponse(
+            access_token=token,
+            user={
+                "id": str(user.id),
+                "username": user.username,
+                "role": user.role.value,
+                "display_name": user.display_name,
+                "force_password_change": user.force_password_change
+            }
+        )
+
+@app.get("/api/auth/verify")
+def verify_auth(current_user: dict = Depends(get_current_user)):
+    """Verify current token and return user info."""
+    with get_session() as session:
+        user = session.query(User).filter(
+            User.id == current_user["user_id"],
+            User.is_active == True,
+            User.is_deleted == False
+        ).first()
+
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+
+        return {
+            "id": str(user.id),
+            "username": user.username,
+            "role": user.role.value,
+            "display_name": user.display_name,
+            "force_password_change": user.force_password_change
+        }
+
+@app.post("/api/auth/change-password")
+def change_password(
+    request: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Change user's own password."""
+    with get_session() as session:
+        user = session.query(User).filter(User.id == current_user["user_id"]).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not verify_password(request.current_password, user.password_hash):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+        user.password_hash = hash_password(request.new_password)
+        user.force_password_change = False
+        user.updated_at = datetime.utcnow()
+        session.commit()
+
+        return {"message": "Password changed successfully"}
+
+
+# ===== ADMIN USER MANAGEMENT ENDPOINTS =====
+
+@app.get("/api/admin/users")
+def list_users(current_user: dict = Depends(require_admin)):
+    """List all users (admin only)."""
+    with get_session() as session:
+        users = session.query(User).filter(User.is_deleted == False).all()
+        return {"users": [u.to_dict() for u in users]}
+
+@app.post("/api/admin/users")
+def create_user(
+    request: UserCreateRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """Create a new user (admin only)."""
+    with get_session() as session:
+        # Check if username exists
+        existing = session.query(User).filter(User.username == request.username).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+
+        # Validate role
+        try:
+            role = UserRole(request.role)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid role: {request.role}")
+
+        user = User(
+            username=request.username,
+            password_hash=hash_password(request.password),
+            role=role,
+            display_name=request.display_name,
+            force_password_change=request.force_password_change,
+            created_by=current_user["user_id"]
+        )
+        session.add(user)
+        session.commit()
+
+        return {"message": "User created", "user": user.to_dict()}
+
+@app.put("/api/admin/users/{user_id}")
+def update_user(
+    user_id: str,
+    request: UserUpdateRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """Update a user (admin only)."""
+    with get_session() as session:
+        user = session.query(User).filter(User.id == user_id, User.is_deleted == False).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if request.role is not None:
+            try:
+                user.role = UserRole(request.role)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid role: {request.role}")
+
+        if request.display_name is not None:
+            user.display_name = request.display_name
+        if request.is_active is not None:
+            user.is_active = request.is_active
+        if request.force_password_change is not None:
+            user.force_password_change = request.force_password_change
+
+        user.updated_at = datetime.utcnow()
+        session.commit()
+
+        return {"message": "User updated", "user": user.to_dict()}
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def reset_user_password(
+    user_id: str,
+    request: ResetPasswordRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """Reset a user's password (admin only)."""
+    with get_session() as session:
+        user = session.query(User).filter(User.id == user_id, User.is_deleted == False).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.password_hash = hash_password(request.new_password)
+        user.force_password_change = True
+        user.updated_at = datetime.utcnow()
+        session.commit()
+
+        return {"message": "Password reset successfully"}
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_user(
+    user_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """Soft delete a user (admin only)."""
+    with get_session() as session:
+        user = session.query(User).filter(User.id == user_id, User.is_deleted == False).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Prevent self-deletion
+        if str(user.id) == current_user["user_id"]:
+            raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+        user.is_deleted = True
+        user.deleted_at = datetime.utcnow()
+        session.commit()
+
+        return {"message": "User deleted"}
 
 
 # Static file serving for React SPA

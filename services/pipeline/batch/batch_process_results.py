@@ -1098,7 +1098,7 @@ def process_daily_summary_result(
                 :id, :period_type, :period_start, :period_end,
                 :event_name, :country,
                 :first_observed, :last_observed,
-                :narrative::jsonb, :categories::jsonb, :recipients::jsonb,
+                CAST(:narrative AS jsonb), CAST(:categories AS jsonb), CAST(:recipients AS jsonb),
                 :total_docs
             )
         """), {
