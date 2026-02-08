@@ -488,4 +488,105 @@ export async function exportReportToDocx(report: ReportData): Promise<void> {
   window.URL.revokeObjectURL(url)
 }
 
+// ============================================================
+// Report Validation Types and Streaming
+// ============================================================
+
+export type ValidationStatus = 'green' | 'yellow' | 'red' | 'pending'
+
+export interface SectionValidation {
+  section_type: string
+  section_id: string
+  status: ValidationStatus
+  claims_validated: number
+  uncited_claims: number
+  issues: string[]
+  summary: string
+}
+
+export interface ValidationCallbacks {
+  onStart: (data: { total_sections: number }) => void
+  onSectionValidated: (data: SectionValidation) => void
+  onComplete: (data: { overall_status: ValidationStatus; validated_at: string }) => void
+  onError: (error: string) => void
+}
+
+export async function validateReportStream(
+  report: ReportData,
+  callbacks: ValidationCallbacks,
+  model: string = 'gpt-4o-mini',
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch('/api/report/validate/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ report, model }),
+    signal,
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Validation error ${response.status}: ${text}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No readable stream')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // Process complete SSE messages (separated by double newlines)
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+
+      for (const part of parts) {
+        if (!part.trim()) continue
+
+        let eventType = ''
+        let eventData = ''
+
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            eventData = line.slice(6)
+          }
+        }
+
+        if (!eventType || !eventData) continue
+
+        try {
+          const payload = JSON.parse(eventData)
+
+          switch (eventType) {
+            case 'validation_start':
+              callbacks.onStart(payload)
+              break
+            case 'section_validated':
+              callbacks.onSectionValidated(payload)
+              break
+            case 'validation_complete':
+              callbacks.onComplete(payload)
+              break
+            case 'error':
+              callbacks.onError(payload.error || 'Unknown validation error')
+              break
+          }
+        } catch (parseError) {
+          console.error('Failed to parse validation SSE payload:', parseError)
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 export default api

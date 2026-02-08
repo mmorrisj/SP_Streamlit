@@ -2382,6 +2382,46 @@ def export_report_endpoint(report_data: dict):
     )
 
 
+@app.post("/api/report/validate/stream")
+async def validate_report_stream_endpoint(request: Request):
+    """
+    SSE streaming validation of a completed report.
+    Validates that LLM-generated narratives are properly supported by cited sources.
+
+    Yields Server-Sent Events:
+    - validation_start: {total_sections: int}
+    - section_validated: {section_id, status, claims_validated, uncited_claims, issues, summary}
+    - validation_complete: {overall_status, validated_at}
+    """
+    import json
+    from server.report_validator import validate_report_stream
+
+    body = await request.json()
+    report = body.get("report", {})
+    model = body.get("model", "gpt-4o-mini")
+
+    def event_generator():
+        try:
+            for event in validate_report_stream(report, model):
+                event_type = event.get("type", "unknown")
+                payload = json.dumps(event.get("payload", {}))
+                yield f"event: {event_type}\ndata: {payload}\n\n"
+        except GeneratorExit:
+            print("[Validation SSE] Client disconnected")
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {error_payload}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
 # ===== S3/BATCH/LLM PROXY ENDPOINTS =====
 # These endpoints allow Docker containers to access S3 and OpenAI APIs
 # through this host-based server (for credential/authority proxying)
