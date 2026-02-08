@@ -7,11 +7,8 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from passlib.context import CryptContext
+import bcrypt
 import jwt
-
-# Password hashing context using bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT Configuration from environment
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-key-change-in-production")
@@ -29,7 +26,10 @@ def hash_password(password: str) -> str:
     Returns:
         Hashed password string
     """
-    return pwd_context.hash(password)
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -43,7 +43,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        password_bytes = plain_password.encode('utf-8')
+        hashed_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception:
+        return False
 
 
 def create_access_token(user_id: str, username: str, role: str) -> str:

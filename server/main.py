@@ -2806,10 +2806,14 @@ async def chat_query(request: ChatRequest):
     """
     from services.chat.rag_service import intelligent_search, generate_response
 
+    # Get RAG config values
+    rag_config = CONFIG.get('rag', {})
+    chat_doc_limit = rag_config.get('chat_document_limit', 50)
+
     # Perform intelligent semantic search with automatic filter inference and entity boost
     sources, search_metadata = intelligent_search(
         query=request.message,
-        k=10,
+        k=chat_doc_limit,
         influencer=request.influencer,
         recipient=request.recipient,
         category=request.category,
@@ -2850,10 +2854,14 @@ async def chat_query_stream(request: ChatRequest):
     from services.chat.rag_service import intelligent_search, generate_response_stream
     import json
 
+    # Get RAG config values
+    rag_config = CONFIG.get('rag', {})
+    chat_doc_limit = rag_config.get('chat_document_limit', 50)
+
     # Perform intelligent semantic search with automatic filter inference and entity boost
     sources, search_metadata = intelligent_search(
         query=request.message,
-        k=10,
+        k=chat_doc_limit,
         influencer=request.influencer,
         recipient=request.recipient,
         category=request.category,

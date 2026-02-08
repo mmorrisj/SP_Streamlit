@@ -175,7 +175,10 @@ export default function UserManagementPage() {
       {showCreateModal && (
         <UserFormModal
           title="Create User"
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => {
+            setShowCreateModal(false)
+            createMutation.reset()
+          }}
           onSubmit={(data) => createMutation.mutate(data)}
           isLoading={createMutation.isPending}
           error={createMutation.error as Error | null}
@@ -186,7 +189,10 @@ export default function UserManagementPage() {
         <UserFormModal
           title="Edit User"
           user={editingUser}
-          onClose={() => setEditingUser(null)}
+          onClose={() => {
+            setEditingUser(null)
+            updateMutation.reset()
+          }}
           onSubmit={(data) => updateMutation.mutate({ userId: editingUser.id, updates: data })}
           isLoading={updateMutation.isPending}
           error={updateMutation.error as Error | null}
@@ -196,7 +202,10 @@ export default function UserManagementPage() {
       {resetPasswordUser && (
         <ResetPasswordModal
           username={resetPasswordUser.username}
-          onClose={() => setResetPasswordUser(null)}
+          onClose={() => {
+            setResetPasswordUser(null)
+            resetPasswordMutation.reset()
+          }}
           onSubmit={(password) => resetPasswordMutation.mutate({
             userId: resetPasswordUser.id,
             password
