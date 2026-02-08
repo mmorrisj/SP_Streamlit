@@ -50,6 +50,14 @@ projects:
   min_samples: 2
   metric: 'cosine'
   
+rag:
+  chat_document_limit: 50        # Max documents returned for chat queries
+  entity_match_limit: 15         # Max entities to match per query
+  entity_boost_factor: 0.15      # Relevance boost for entity-matched docs
+  fuzzy_match_threshold: 0.7     # pg_trgm similarity threshold
+  semantic_match_threshold: 0.6  # Embedding cosine similarity threshold
+  max_context_chars: 4000        # Max chars per document in context
+
 cluster:
   threshold: 50
   event_threshold: 50

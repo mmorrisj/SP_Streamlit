@@ -87,6 +87,7 @@ services:
       - ./server:/app/server                      # React-serving API + S3/Batch proxy
       - ./services/pipeline:/app/services/pipeline
       - ./shared:/app/shared
+      - ./scripts:/app/scripts                    # Admin scripts
       # Note: client/dist is built inside Docker image (multi-stage build)
       # For frontend hot-reload during development, run: cd client && npm run dev
       - ./data:/app/data

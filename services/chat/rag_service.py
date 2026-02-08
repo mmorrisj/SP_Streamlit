@@ -5,6 +5,8 @@ Provides semantic search and LLM-powered response generation.
 import os
 import re
 import json
+import yaml
+from pathlib import Path
 from typing import Optional, List, Dict, Any, Generator, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -15,6 +17,20 @@ from sqlalchemy import text
 import torch
 
 from shared.database.database import get_engine
+
+# Load RAG configuration from config.yaml
+CONFIG_PATH = Path(__file__).parent.parent.parent / "shared" / "config" / "config.yaml"
+with open(CONFIG_PATH, 'r') as f:
+    _CONFIG = yaml.safe_load(f)
+RAG_CONFIG = _CONFIG.get('rag', {})
+
+# RAG configuration defaults (from config.yaml)
+CHAT_DOCUMENT_LIMIT = RAG_CONFIG.get('chat_document_limit', 50)
+ENTITY_MATCH_LIMIT = RAG_CONFIG.get('entity_match_limit', 15)
+ENTITY_BOOST_FACTOR = RAG_CONFIG.get('entity_boost_factor', 0.15)
+FUZZY_MATCH_THRESHOLD = RAG_CONFIG.get('fuzzy_match_threshold', 0.7)
+SEMANTIC_MATCH_THRESHOLD = RAG_CONFIG.get('semantic_match_threshold', 0.6)
+MAX_CONTEXT_CHARS = RAG_CONFIG.get('max_context_chars', 4000)
 
 
 # =============================================================================
@@ -39,9 +55,9 @@ class MatchedEntity:
 
 def search_entities(
     query: str,
-    top_k: int = 5,
-    semantic_threshold: float = 0.6,
-    fuzzy_threshold: float = 0.7
+    top_k: int = ENTITY_MATCH_LIMIT,
+    semantic_threshold: float = SEMANTIC_MATCH_THRESHOLD,
+    fuzzy_threshold: float = FUZZY_MATCH_THRESHOLD
 ) -> List[MatchedEntity]:
     """
     Search for entities matching the query using fuzzy and semantic matching.
@@ -160,8 +176,8 @@ def search_entities(
                         match_score=float(row["match_score"])
                     ))
             except Exception:
-                # pg_trgm might not be installed, skip fuzzy matching
-                pass
+                # pg_trgm might not be installed, rollback and skip fuzzy matching
+                conn.rollback()
 
         # Step 3: Semantic search using embedding similarity (if still not enough)
         if len(matched) < top_k:
@@ -212,8 +228,8 @@ def search_entities(
                         match_score=float(row["similarity"])
                     ))
             except Exception:
-                # pgvector might not work as expected, skip semantic matching
-                pass
+                # pgvector might not work as expected, rollback and skip semantic matching
+                conn.rollback()
 
     return matched
 
@@ -809,7 +825,7 @@ def semantic_search(
 
 def intelligent_search(
     query: str,
-    k: int = 10,
+    k: int = CHAT_DOCUMENT_LIMIT,
     influencer: Optional[str] = None,
     recipient: Optional[str] = None,
     category: Optional[str] = None,
@@ -817,7 +833,7 @@ def intelligent_search(
     end_date: Optional[str] = None,
     apply_intelligence: bool = True,
     enable_entity_boost: bool = True,
-    entity_boost_factor: float = 0.15
+    entity_boost_factor: float = ENTITY_BOOST_FACTOR
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Perform intelligent semantic search with automatic filter inference and entity boost.
@@ -902,7 +918,7 @@ def intelligent_search(
 
     if enable_entity_boost:
         try:
-            matched_entities = search_entities(query, top_k=5)
+            matched_entities = search_entities(query)  # Uses ENTITY_MATCH_LIMIT from config
             if matched_entities:
                 entity_ids = [e.entity_id for e in matched_entities]
                 entity_doc_ids = set(get_entity_doc_ids(entity_ids, limit=50))
