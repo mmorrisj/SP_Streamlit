@@ -1,6 +1,11 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { AuthProvider } from './contexts/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
+import LoginPage from './pages/LoginPage'
+import ChangePasswordPage from './pages/ChangePasswordPage'
+import UserManagementPage from './pages/UserManagementPage'
 import Dashboard from './pages/Dashboard'
 import Documents from './pages/Documents'
 import Events from './pages/Events'
@@ -26,31 +31,55 @@ const queryClient = new QueryClient()
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="documents" element={<Documents />} />
-            <Route path="events" element={<Events />} />
-            <Route path="summaries" element={<Summaries />} />
-            <Route path="document-summaries" element={<DocumentSummariesPage />} />
-            <Route path="document-summaries/detail" element={<SummaryDetailPage />} />
-            <Route path="bilateral-summaries" element={<BilateralSummariesPage />} />
-            <Route path="bilateral-summaries/detail" element={<BilateralSummaryDetailPage />} />
-            <Route path="bilateral" element={<BilateralRelationships />} />
-            <Route path="bilateral/:influencer/:recipient" element={<BilateralPage />} />
-            <Route path="bilateral-metrics/:influencer/:recipient" element={<BilateralMetricsPage />} />
-            <Route path="categories" element={<Categories />} />
-            <Route path="influencer/:country" element={<InfluencerPage />} />
-            <Route path="metrics" element={<OverallMetrics />} />
-            <Route path="metrics/influencer/:country" element={<InfluencerMetricsPage />} />
-            <Route path="metrics/recipient/:country" element={<RecipientMetricsPage />} />
-            <Route path="timeline" element={<TimelineComparison />} />
-            <Route path="chat" element={<ChatPage />} />
-            <Route path="report" element={<ReportPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/login" element={<LoginPage />} />
+
+            {/* Protected routes that don't use Layout */}
+            <Route path="/change-password" element={
+              <ProtectedRoute>
+                <ChangePasswordPage />
+              </ProtectedRoute>
+            } />
+
+            {/* Protected routes with Layout */}
+            <Route path="/" element={
+              <ProtectedRoute>
+                <Layout />
+              </ProtectedRoute>
+            }>
+              <Route index element={<Dashboard />} />
+              <Route path="documents" element={<Documents />} />
+              <Route path="events" element={<Events />} />
+              <Route path="summaries" element={<Summaries />} />
+              <Route path="document-summaries" element={<DocumentSummariesPage />} />
+              <Route path="document-summaries/detail" element={<SummaryDetailPage />} />
+              <Route path="bilateral-summaries" element={<BilateralSummariesPage />} />
+              <Route path="bilateral-summaries/detail" element={<BilateralSummaryDetailPage />} />
+              <Route path="bilateral" element={<BilateralRelationships />} />
+              <Route path="bilateral/:influencer/:recipient" element={<BilateralPage />} />
+              <Route path="bilateral-metrics/:influencer/:recipient" element={<BilateralMetricsPage />} />
+              <Route path="categories" element={<Categories />} />
+              <Route path="influencer/:country" element={<InfluencerPage />} />
+              <Route path="metrics" element={<OverallMetrics />} />
+              <Route path="metrics/influencer/:country" element={<InfluencerMetricsPage />} />
+              <Route path="metrics/recipient/:country" element={<RecipientMetricsPage />} />
+              <Route path="timeline" element={<TimelineComparison />} />
+              <Route path="chat" element={<ChatPage />} />
+              <Route path="report" element={<ReportPage />} />
+
+              {/* Admin-only routes */}
+              <Route path="admin/users" element={
+                <ProtectedRoute requiredRole="admin">
+                  <UserManagementPage />
+                </ProtectedRoute>
+              } />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </QueryClientProvider>
   )
 }

@@ -1506,3 +1506,70 @@ class BatchJob(Base):
             'error_message': self.error_message,
             'retry_count': self.retry_count
         }
+
+
+# ============================================================================
+# USER AUTHENTICATION MODELS
+# ============================================================================
+
+class UserRole(PyEnum):
+    """User role levels for RBAC"""
+    ADMIN = "admin"
+    ANALYST = "analyst"
+    VIEWER = "viewer"
+
+
+class User(Base):
+    """
+    User model for authentication and authorization.
+    Admin-provisioned users with role-based access control.
+    """
+    __tablename__ = "users"
+
+    # Primary key
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Authentication
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Role-based access control
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.VIEWER, nullable=False)
+
+    # User profile
+    display_name: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Account status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    force_password_change: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Audit fields
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=True))
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    # Soft delete
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("ix_user_username", "username"),
+        Index("ix_user_role", "role"),
+        Index("ix_user_active", "is_active", "is_deleted"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<User(id='{self.id}', username='{self.username}', role='{self.role.value}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'username': self.username,
+            'role': self.role.value,
+            'display_name': self.display_name,
+            'is_active': self.is_active,
+            'force_password_change': self.force_password_change,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+        }

@@ -1,5 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, LogOut, Shield } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 import './Layout.css'
 
 const navItems = [
@@ -20,6 +21,8 @@ const influencers = [
 
 
 export default function Layout() {
+  const { user, logout } = useAuth()
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -54,7 +57,35 @@ export default function Layout() {
               </NavLink>
             ))}
           </div>
+
+          {/* Admin section */}
+          {user?.role === 'admin' && (
+            <div className="nav-section">
+              <div className="nav-section-title">
+                <Shield size={16} />
+                <span>Admin</span>
+              </div>
+              <NavLink
+                to="/admin/users"
+                className={({ isActive }) => `nav-item nav-sub-item ${isActive ? 'active' : ''}`}
+              >
+                <span>User Management</span>
+              </NavLink>
+            </div>
+          )}
         </nav>
+
+        {/* User section at bottom */}
+        <div className="user-section">
+          <div className="user-info">
+            <span className="user-name">{user?.display_name || user?.username}</span>
+            <span className="user-role">{user?.role}</span>
+          </div>
+          <button onClick={logout} className="logout-button">
+            <LogOut size={18} />
+            <span>Logout</span>
+          </button>
+        </div>
       </aside>
       <main className="main-content">
         <Outlet />
