@@ -185,9 +185,9 @@ streamlit run app.py --server.port 8501
 **Terminal 1 - FastAPI API Service:**
 ```bash
 source venv/bin/activate
-cd services/api
+cd server
 uvicorn main:app --host 0.0.0.0 --port 5001 --reload
-# API at: http://localhost:5001
+# API at: http://localhost:5001 (serves React UI + API + S3/Batch proxy)
 ```
 
 **Terminal 2 - React Vite Dev Server:**

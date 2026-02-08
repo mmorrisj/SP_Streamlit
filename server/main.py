@@ -2,16 +2,29 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 from pydantic import BaseModel
 from sqlalchemy import func, text
 from pathlib import Path
 import yaml
+import json
+import tempfile
+import boto3
+from botocore.exceptions import ClientError
+import pandas as pd
+import numpy as np
+import pyarrow.parquet as pq
+from dotenv import load_dotenv
+
+# Load environment variables
+env_path = Path(__file__).parent.parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
 
 from shared.database.database import get_session
 from shared.models.models import (
@@ -30,6 +43,17 @@ with open(CONFIG_PATH, 'r') as f:
 
 INFLUENCERS = CONFIG.get('influencers', [])
 RECIPIENTS = CONFIG.get('recipients', [])
+
+# S3 client for proxy endpoints (used by Docker containers)
+s3_client = boto3.client('s3')
+
+# Import utility functions for LLM calls
+try:
+    from shared.utils.utils import gai, fetch_gai_content, fetch_gai_response
+except ImportError:
+    gai = None
+    fetch_gai_content = None
+    fetch_gai_response = None
 
 # Hardcoded mapping of subcategories to their parent categories
 # This is necessary because the database stores them separately without a direct link
@@ -2286,6 +2310,539 @@ def export_report_endpoint(report_data: dict):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+
+# ===== S3/BATCH/LLM PROXY ENDPOINTS =====
+# These endpoints allow Docker containers to access S3 and OpenAI APIs
+# through this host-based server (for credential/authority proxying)
+
+# S3 Request/Response models
+class S3DownloadRequest(BaseModel):
+    bucket: str
+    key: str
+
+class S3ListRequest(BaseModel):
+    bucket: str
+    prefix: Optional[str] = ""
+    max_keys: Optional[int] = 1000
+
+class S3UploadRequest(BaseModel):
+    bucket: str
+    key: str
+    content: str
+
+class QueryInput(BaseModel):
+    model: str = "gpt-4.1"
+    sys_prompt: str
+    prompt: str
+
+class BatchCreateRequest(BaseModel):
+    input_file_id: str
+    endpoint: str = "/v1/chat/completions"
+    completion_window: str = "24h"
+
+class BatchStatusRequest(BaseModel):
+    batch_id: str
+
+class ParquetListRequest(BaseModel):
+    bucket: str
+    prefix: str = "embeddings/"
+    max_keys: int = 1000
+
+class ParquetDownloadRequest(BaseModel):
+    bucket: str
+    key: str
+    num_rows: Optional[int] = None
+
+class JsonListRequest(BaseModel):
+    bucket: str
+    prefix: str = "dsr_extracts/"
+    max_keys: int = 1000
+
+class JsonBatchRequest(BaseModel):
+    bucket: str
+    keys: List[str]
+
+class ParquetBatchRequest(BaseModel):
+    bucket: str
+    keys: List[str]
+
+
+# ----- LLM Query Endpoints -----
+
+@app.post("/query")
+def query_gai(input: QueryInput):
+    """Simple LLM query endpoint."""
+    if gai is None:
+        raise HTTPException(status_code=500, detail="LLM utilities not available")
+    response = gai(sys_prompt='', user_prompt=input.prompt, model=input.model)
+    return fetch_gai_content(response)
+
+@app.post("/material_query")
+def material_gai_query(input: QueryInput):
+    """
+    LLM query endpoint with environment-based routing.
+    Priority: LITELLM > Azure (production) > OpenAI (development)
+    """
+    # Check for LITELLM configuration first
+    litellm_url = os.getenv('LITELLM_URL', '').strip()
+    litellm_key = os.getenv('LITELLM_API_KEY', '').strip()
+    litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
+
+    if litellm_url and litellm_key and gai:
+        try:
+            content = gai(input.sys_prompt, input.prompt, litellm_model, source="litellm")
+            return {"response": content}
+        except Exception as e:
+            print(f"LiteLLM call failed: {e}, falling back...")
+
+    env = os.getenv('ENV', 'development').lower()
+
+    if env == 'production' and gai:
+        model = input.model if input.model != "gpt-4.1" else "gpt-4.1-mini"
+        content = gai(input.sys_prompt, input.prompt, model, source="azure")
+        return {"response": content}
+    else:
+        from openai import OpenAI
+        api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise HTTPException(status_code=500, detail="No OpenAI API key configured")
+
+        client = OpenAI(api_key=api_key)
+        completion = client.chat.completions.create(
+            model=input.model,
+            messages=[
+                {"role": "system", "content": input.sys_prompt},
+                {"role": "user", "content": input.prompt},
+            ],
+            temperature=0.7,
+        )
+        content = completion.choices[0].message.content
+        try:
+            return {"response": json.loads(content)}
+        except json.JSONDecodeError:
+            return {"response": content}
+
+
+# ----- OpenAI Batch API Proxy -----
+
+@app.post("/batch/upload_file")
+async def upload_batch_file(file: UploadFile = File(...)):
+    """Proxy endpoint to upload JSONL file to OpenAI for batch processing."""
+    from openai import OpenAI
+    import httpx
+
+    api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+
+    try:
+        content = await file.read()
+        file_size_mb = len(content) / (1024 * 1024)
+
+        if file_size_mb > 100:
+            raise HTTPException(status_code=413, detail=f"File too large: {file_size_mb:.2f} MB (max 100 MB)")
+
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.jsonl', delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        try:
+            client = OpenAI(api_key=api_key, timeout=httpx.Timeout(600.0, connect=60.0), max_retries=2)
+            with open(tmp_path, 'rb') as f:
+                batch_file = client.files.create(file=f, purpose="batch")
+
+            return {
+                "file_id": batch_file.id,
+                "filename": batch_file.filename,
+                "bytes": batch_file.bytes,
+                "created_at": batch_file.created_at,
+                "status": batch_file.status
+            }
+        finally:
+            os.unlink(tmp_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+@app.post("/batch/create")
+async def create_batch(request: BatchCreateRequest):
+    """Create batch job with OpenAI."""
+    from openai import OpenAI
+    api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+        batch = client.batches.create(
+            input_file_id=request.input_file_id,
+            endpoint=request.endpoint,
+            completion_window=request.completion_window
+        )
+        return {
+            "id": batch.id,
+            "status": batch.status,
+            "created_at": batch.created_at,
+            "input_file_id": batch.input_file_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch creation failed: {str(e)}")
+
+@app.post("/batch/status")
+async def get_batch_status(request: BatchStatusRequest):
+    """Check batch status with OpenAI."""
+    from openai import OpenAI
+    api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+        batch = client.batches.retrieve(request.batch_id)
+        return {
+            "id": batch.id,
+            "status": batch.status,
+            "created_at": batch.created_at,
+            "completed_at": getattr(batch, 'completed_at', None),
+            "failed_at": getattr(batch, 'failed_at', None),
+            "output_file_id": batch.output_file_id,
+            "error_file_id": batch.error_file_id,
+            "request_counts": getattr(batch, 'request_counts', None)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch status check failed: {str(e)}")
+
+@app.post("/batch/download_results")
+async def download_batch_results(request: BatchStatusRequest):
+    """Download batch results from OpenAI."""
+    from openai import OpenAI
+    api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+        batch = client.batches.retrieve(request.batch_id)
+
+        if not batch.output_file_id:
+            raise HTTPException(status_code=400, detail="Batch has no output file yet")
+
+        file_content = client.files.content(batch.output_file_id)
+        return {
+            "batch_id": batch.id,
+            "output_file_id": batch.output_file_id,
+            "content": file_content.text,
+            "status": batch.status
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Results download failed: {str(e)}")
+
+
+# ----- S3 Endpoints -----
+
+@app.post("/s3/download")
+async def download_s3_file(request: S3DownloadRequest):
+    """Download file from S3 and return content."""
+    try:
+        response = s3_client.get_object(Bucket=request.bucket, Key=request.key)
+        content = response['Body'].read()
+        return {
+            "bucket": request.bucket,
+            "key": request.key,
+            "size": len(content),
+            "content": content.decode('utf-8') if request.key.endswith(('.txt', '.json', '.csv')) else None,
+            "content_type": response['ContentType']
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+
+@app.post("/s3/list")
+async def list_s3_files(request: S3ListRequest):
+    """List files in S3 bucket with optional prefix."""
+    try:
+        response = s3_client.list_objects_v2(
+            Bucket=request.bucket,
+            Prefix=request.prefix,
+            MaxKeys=request.max_keys
+        )
+        files = [{
+            "key": obj['Key'],
+            "size": obj['Size'],
+            "last_modified": obj['LastModified'].isoformat()
+        } for obj in response.get('Contents', [])]
+        return {"bucket": request.bucket, "prefix": request.prefix, "count": len(files), "files": files}
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+
+@app.post("/s3/upload")
+async def upload_s3_content(request: S3UploadRequest):
+    """Upload content to S3."""
+    try:
+        s3_client.put_object(
+            Bucket=request.bucket,
+            Key=request.key,
+            Body=request.content.encode('utf-8'),
+            ContentType='application/json'
+        )
+        return {"bucket": request.bucket, "key": request.key, "status": "uploaded"}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=f"S3 error: {str(e)}")
+
+
+# ----- S3 Parquet Endpoints -----
+
+@app.post("/s3/parquet/list")
+async def list_parquet_files(request: ParquetListRequest):
+    """List parquet files in S3 prefix."""
+    try:
+        s3_prefix = request.prefix.rstrip('/') + '/'
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=request.bucket, Prefix=s3_prefix, PaginationConfig={'MaxItems': request.max_keys})
+
+        parquet_files = []
+        for page in pages:
+            for obj in page.get('Contents', []):
+                if obj['Key'].endswith('.parquet'):
+                    parquet_files.append({
+                        'key': obj['Key'],
+                        'filename': obj['Key'].split('/')[-1],
+                        'size': obj['Size'],
+                        'size_mb': round(obj['Size'] / (1024 * 1024), 2),
+                        'last_modified': obj['LastModified'].isoformat()
+                    })
+        return {'bucket': request.bucket, 'prefix': request.prefix, 'count': len(parquet_files), 'files': parquet_files}
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+
+@app.post("/s3/parquet/metadata")
+async def get_parquet_metadata(request: S3DownloadRequest):
+    """Get metadata from parquet file without downloading full data."""
+    temp_path = None
+    try:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+        temp_path = temp_file.name
+        temp_file.close()
+        s3_client.download_file(request.bucket, request.key, temp_path)
+
+        parquet_file = pq.ParquetFile(temp_path)
+        metadata = parquet_file.metadata
+        return {
+            'filename': request.key.split('/')[-1],
+            'num_rows': metadata.num_rows,
+            'num_columns': metadata.num_columns,
+            'columns': [{'name': parquet_file.schema[i].name, 'type': str(parquet_file.schema[i].physical_type)} for i in range(len(parquet_file.schema))]
+        }
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+@app.get("/s3/parquet/download-binary")
+async def download_parquet_binary(bucket: str, key: str):
+    """Download parquet file as binary data."""
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        return StreamingResponse(
+            response['Body'],
+            media_type='application/octet-stream',
+            headers={'Content-Disposition': f'attachment; filename="{key.split("/")[-1]}"'}
+        )
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+
+
+# ----- S3 JSON Endpoints -----
+
+@app.post("/s3/json/list")
+async def list_json_files(request: JsonListRequest):
+    """List JSON files in S3 prefix."""
+    try:
+        s3_prefix = request.prefix.rstrip('/') + '/'
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=request.bucket, Prefix=s3_prefix, PaginationConfig={'MaxItems': request.max_keys})
+
+        json_files = []
+        for page in pages:
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if key.endswith('.json') and 'errors' not in key and 'processed_files.json' not in key:
+                    json_files.append({
+                        'key': key,
+                        'filename': key.split('/')[-1],
+                        'size': obj['Size'],
+                        'last_modified': obj['LastModified'].isoformat()
+                    })
+        return {'bucket': request.bucket, 'prefix': request.prefix, 'count': len(json_files), 'files': json_files}
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+
+@app.post("/s3/json/download")
+async def download_json_file(request: S3DownloadRequest):
+    """Download and parse a JSON file from S3."""
+    try:
+        response = s3_client.get_object(Bucket=request.bucket, Key=request.key)
+        content = response['Body'].read().decode('utf-8')
+        data = json.loads(content)
+        return {'filename': request.key.split('/')[-1], 's3_key': request.key, 'data': data}
+    except ClientError as e:
+        raise HTTPException(status_code=404, detail=f"S3 error: {str(e)}")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+
+@app.post("/s3/json/batch-download")
+async def batch_download_json(request: JsonBatchRequest):
+    """Download multiple JSON files from S3."""
+    results = {'bucket': request.bucket, 'successful': 0, 'failed': 0, 'files': []}
+    for s3_key in request.keys:
+        try:
+            response = s3_client.get_object(Bucket=request.bucket, Key=s3_key)
+            content = response['Body'].read().decode('utf-8')
+            data = json.loads(content)
+            results['successful'] += 1
+            results['files'].append({'filename': s3_key.split('/')[-1], 's3_key': s3_key, 'status': 'success', 'data': data})
+        except Exception as e:
+            results['failed'] += 1
+            results['files'].append({'filename': s3_key.split('/')[-1], 's3_key': s3_key, 'status': 'failed', 'error': str(e)})
+    return results
+
+
+# ===== CHAT/RAG ENDPOINTS =====
+
+class ChatRequest(BaseModel):
+    message: str
+    influencer: Optional[str] = None
+    recipient: Optional[str] = None
+    category: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+class ChatExportRequest(BaseModel):
+    messages: list
+    format: str = "markdown"  # markdown, json, txt
+
+@app.post("/api/chat")
+async def chat_query(request: ChatRequest):
+    """
+    Send a chat message and get a response with sources.
+    Non-streaming version for simple integrations.
+
+    Supports intelligent query analysis - temporal keywords like "recently"
+    will automatically filter to recent documents, and country/category
+    references will apply appropriate filters.
+    """
+    from services.chat.rag_service import intelligent_search, generate_response
+
+    # Perform intelligent semantic search with automatic filter inference
+    sources, search_metadata = intelligent_search(
+        query=request.message,
+        k=10,
+        influencer=request.influencer,
+        recipient=request.recipient,
+        category=request.category,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        apply_intelligence=True
+    )
+
+    # Generate response
+    response_text = generate_response(request.message, sources)
+
+    return {
+        "response": response_text,
+        "sources": sources,
+        "filters_applied": search_metadata["applied_filters"],
+        "filters_inferred": search_metadata["inferred_filters"],
+        "inference_notes": search_metadata["confidence_notes"]
+    }
+
+@app.post("/api/chat/stream")
+async def chat_query_stream(request: ChatRequest):
+    """
+    Send a chat message and get a streaming response.
+    Uses Server-Sent Events (SSE) for real-time streaming.
+
+    Supports intelligent query analysis - temporal keywords like "recently"
+    will automatically filter to recent documents, and country/category
+    references will apply appropriate filters.
+    """
+    from services.chat.rag_service import intelligent_search, generate_response_stream
+    import json
+
+    # Perform intelligent semantic search with automatic filter inference
+    sources, search_metadata = intelligent_search(
+        query=request.message,
+        k=10,
+        influencer=request.influencer,
+        recipient=request.recipient,
+        category=request.category,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        apply_intelligence=True
+    )
+
+    async def event_generator():
+        # First, send search metadata (applied filters, inferences)
+        yield f"data: {json.dumps({'type': 'metadata', 'applied_filters': search_metadata['applied_filters'], 'inferred_filters': search_metadata['inferred_filters'], 'inference_notes': search_metadata['confidence_notes']})}\n\n"
+
+        # Then send the sources
+        yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+
+        # Then stream the response
+        for chunk in generate_response_stream(request.message, sources):
+            yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+
+        # Signal completion
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+@app.post("/api/chat/export")
+async def export_chat(request: ChatExportRequest):
+    """
+    Export chat messages in various formats.
+    """
+    from services.chat.rag_service import format_export
+
+    exported = format_export(request.messages, request.format)
+
+    # Set appropriate content type
+    content_types = {
+        "markdown": "text/markdown",
+        "json": "application/json",
+        "txt": "text/plain"
+    }
+
+    return StreamingResponse(
+        iter([exported]),
+        media_type=content_types.get(request.format, "text/plain"),
+        headers={
+            "Content-Disposition": f"attachment; filename=chat_export.{request.format if request.format != 'markdown' else 'md'}"
+        }
+    )
+
+@app.get("/api/chat/filters")
+async def get_chat_filters():
+    """
+    Get available filter options for chat (from config.yaml).
+    """
+    with get_session() as session:
+        # Get categories from database
+        categories = session.query(Category.category).distinct().all()
+        category_list = sorted([c[0] for c in categories if c[0]])
+
+    return {
+        "influencers": INFLUENCERS,
+        "recipients": RECIPIENTS,
+        "categories": category_list
+    }
 
 
 # Static file serving for React SPA

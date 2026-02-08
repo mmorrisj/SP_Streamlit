@@ -19,6 +19,7 @@ import BilateralSummariesPage from './pages/BilateralSummariesPage'
 import BilateralSummaryDetailPage from './pages/BilateralSummaryDetailPage'
 import TimelineComparison from './pages/TimelineComparison'
 import ReportPage from './pages/ReportPage'
+import ChatPage from './pages/ChatPage'
 
 const queryClient = new QueryClient()
 
@@ -45,6 +46,7 @@ function App() {
             <Route path="metrics/influencer/:country" element={<InfluencerMetricsPage />} />
             <Route path="metrics/recipient/:country" element={<RecipientMetricsPage />} />
             <Route path="timeline" element={<TimelineComparison />} />
+            <Route path="chat" element={<ChatPage />} />
             <Route path="report" element={<ReportPage />} />
           </Route>
         </Routes>

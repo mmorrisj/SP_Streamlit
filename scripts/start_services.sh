@@ -57,7 +57,7 @@ fi
 # Function to start FastAPI service
 start_api() {
     echo -e "${BLUE}→${NC} Starting FastAPI service on port ${API_PORT:-5001}..."
-    cd "$PROJECT_ROOT/services/api"
+    cd "$PROJECT_ROOT/server"
     uvicorn main:app --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-5001} --reload &
     API_PID=$!
     echo -e "${GREEN}✓${NC} FastAPI started (PID: $API_PID)"
