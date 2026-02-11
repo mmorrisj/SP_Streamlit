@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { CheckCircle, AlertCircle, XCircle, Loader2 } from 'lucide-react'
-import { ValidationStatus } from '../api/client'
+import type { ValidationStatus } from '../api/client'
 import './ValidationIndicator.css'
 
 interface ValidationIndicatorProps {
