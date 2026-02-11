@@ -9,11 +9,15 @@ import {
   fetchReportConfig,
   generateReportStream,
   exportReportToDocx,
+  validateReportStream,
 } from '../api/client'
 import type {
   ReportData,
   ReportRequest,
+  ValidationStatus,
+  SectionValidation,
 } from '../api/client'
+import { ValidationIndicator } from '../components/ValidationIndicator'
 import './Pages.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -79,6 +83,13 @@ export default function ReportPage() {
   const [error, setError] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Validation state
+  const [isValidating, setIsValidating] = useState(false)
+  const [validationStatus, setValidationStatus] = useState<Record<string, SectionValidation>>({})
+  const [validationProgress, setValidationProgress] = useState({ done: 0, total: 0 })
+  const [overallValidationStatus, setOverallValidationStatus] = useState<ValidationStatus | null>(null)
+  const validationAbortRef = useRef<AbortController | null>(null)
 
   const { data: config } = useQuery({
     queryKey: ['reportConfig'],
@@ -214,6 +225,56 @@ export default function ReportPage() {
     }
   }
 
+  const handleValidation = useCallback(async () => {
+    if (!report) return
+    setIsValidating(true)
+    setValidationStatus({})
+    setValidationProgress({ done: 0, total: 0 })
+    setOverallValidationStatus(null)
+
+    const controller = new AbortController()
+    validationAbortRef.current = controller
+
+    try {
+      await validateReportStream(report, {
+        onStart: ({ total_sections }) => {
+          setValidationProgress({ done: 0, total: total_sections })
+        },
+        onSectionValidated: (section) => {
+          setValidationStatus(prev => ({
+            ...prev,
+            [section.section_id]: section
+          }))
+          setValidationProgress(prev => ({ ...prev, done: prev.done + 1 }))
+        },
+        onComplete: ({ overall_status }) => {
+          setOverallValidationStatus(overall_status)
+          setIsValidating(false)
+        },
+        onError: (errMsg) => {
+          setError(`Validation failed: ${errMsg}`)
+          setIsValidating(false)
+        },
+      }, selectedModel, controller.signal)
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setIsValidating(false)
+        return
+      }
+      setError(err instanceof Error ? err.message : 'Validation failed')
+      setIsValidating(false)
+    }
+  }, [report, selectedModel])
+
+  const handleCancelValidation = () => {
+    validationAbortRef.current?.abort()
+    validationAbortRef.current = null
+  }
+
+  const getValidationForSection = (sectionId: string): SectionValidation | undefined => {
+    return validationStatus[sectionId]
+  }
+
   // Count total citations
   const totalCitations = report?.citations_by_event?.reduce(
     (sum, group) => sum + group.events.reduce(
@@ -345,27 +406,55 @@ export default function ReportPage() {
           </button>
 
           {report && !isGenerating && (
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              style={{
-                padding: '0.5rem 1.5rem',
-                borderRadius: '6px',
-                border: '1px solid #d1d5db',
-                background: isExporting ? '#e5e7eb' : 'white',
-                color: isExporting ? '#9ca3af' : '#1a365d',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                cursor: isExporting ? 'not-allowed' : 'pointer',
-                height: '38px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-              }}
-            >
-              <Download size={16} />
-              {isExporting ? 'Exporting...' : 'Export to Word'}
-            </button>
+            <>
+              <button
+                onClick={isValidating ? handleCancelValidation : handleValidation}
+                disabled={isExporting}
+                style={{
+                  padding: '0.5rem 1.5rem',
+                  borderRadius: '6px',
+                  border: '1px solid #d1d5db',
+                  background: isValidating ? '#fef3c7' : overallValidationStatus === 'green' ? '#dcfce7' : overallValidationStatus === 'yellow' ? '#fef9c3' : overallValidationStatus === 'red' ? '#fee2e2' : 'white',
+                  color: isValidating ? '#d97706' : overallValidationStatus === 'green' ? '#166534' : overallValidationStatus === 'yellow' ? '#854d0e' : overallValidationStatus === 'red' ? '#991b1b' : '#1a365d',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  cursor: isExporting ? 'not-allowed' : 'pointer',
+                  height: '38px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                }}
+              >
+                {isValidating ? (
+                  <><X size={16} /> Cancel</>
+                ) : overallValidationStatus ? (
+                  `Re-validate Sources`
+                ) : (
+                  'Validate Sources'
+                )}
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={isExporting}
+                style={{
+                  padding: '0.5rem 1.5rem',
+                  borderRadius: '6px',
+                  border: '1px solid #d1d5db',
+                  background: isExporting ? '#e5e7eb' : 'white',
+                  color: isExporting ? '#9ca3af' : '#1a365d',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  cursor: isExporting ? 'not-allowed' : 'pointer',
+                  height: '38px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                }}
+              >
+                <Download size={16} />
+                {isExporting ? 'Exporting...' : 'Export to Word'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -396,6 +485,32 @@ export default function ReportPage() {
             ) : (
               <div className="report-progress-bar" />
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Validation Progress Bar */}
+      {isValidating && (
+        <div className="chart-card" style={{ marginBottom: '1.5rem', padding: '1rem 1.5rem', borderLeft: '4px solid #eab308' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.9rem', color: '#333', fontWeight: 500 }}>Validating sources...</span>
+            {validationProgress.total > 0 && (
+              <span style={{ fontSize: '0.8rem', color: '#666' }}>
+                {validationProgress.done}/{validationProgress.total} ({Math.round((validationProgress.done / validationProgress.total) * 100)}%)
+              </span>
+            )}
+          </div>
+          <div style={{
+            width: '100%', height: '6px', background: '#e2e8f0',
+            borderRadius: '3px', overflow: 'hidden'
+          }}>
+            <div style={{
+              width: `${validationProgress.total > 0 ? (validationProgress.done / validationProgress.total) * 100 : 0}%`,
+              height: '100%',
+              background: '#eab308',
+              borderRadius: '3px',
+              transition: 'width 0.3s ease',
+            }} />
           </div>
         </div>
       )}
@@ -433,7 +548,21 @@ export default function ReportPage() {
 
           {/* Strategic Overview */}
           <div className="chart-card" style={{ marginBottom: '1.5rem' }}>
-            <h3>Strategic Overview</h3>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              Strategic Overview
+              {getValidationForSection('overall_summary') && (
+                <ValidationIndicator
+                  status={getValidationForSection('overall_summary')!.status as ValidationStatus}
+                  issues={getValidationForSection('overall_summary')!.issues}
+                  summary={getValidationForSection('overall_summary')!.summary}
+                  claimsValidated={getValidationForSection('overall_summary')!.claims_validated}
+                  uncitedClaims={getValidationForSection('overall_summary')!.uncited_claims}
+                />
+              )}
+              {isValidating && !getValidationForSection('overall_summary') && (
+                <ValidationIndicator status="pending" />
+              )}
+            </h3>
             {report.overall_summary ? (
               <div style={{ lineHeight: 1.8, color: '#333', marginTop: '0.75rem' }}>
                 {report.overall_summary.split('\n\n').filter(p => p.trim()).map((paragraph, i) => (
@@ -446,10 +575,25 @@ export default function ReportPage() {
           </div>
 
           {/* Key Events by Category */}
-          {report.categories.map((cat) => (
+          {report.categories.map((cat) => {
+            const catSectionId = `category:${cat.category}`
+            const catValidation = getValidationForSection(catSectionId)
+            return (
             <div key={cat.category} className="chart-card" style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ color: CATEGORY_COLORS[cat.category] || '#1a365d', borderBottom: `2px solid ${CATEGORY_COLORS[cat.category] || '#1a365d'}`, paddingBottom: '0.5rem' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: CATEGORY_COLORS[cat.category] || '#1a365d', borderBottom: `2px solid ${CATEGORY_COLORS[cat.category] || '#1a365d'}`, paddingBottom: '0.5rem' }}>
                 {cat.category}
+                {catValidation && (
+                  <ValidationIndicator
+                    status={catValidation.status as ValidationStatus}
+                    issues={catValidation.issues}
+                    summary={catValidation.summary}
+                    claimsValidated={catValidation.claims_validated}
+                    uncitedClaims={catValidation.uncited_claims}
+                  />
+                )}
+                {isValidating && !catValidation && (
+                  <ValidationIndicator status="pending" />
+                )}
               </h3>
 
               {/* Category narrative */}
@@ -463,7 +607,10 @@ export default function ReportPage() {
 
               {/* Event cards */}
               <div style={{ display: 'grid', gap: '1rem' }}>
-                {cat.events.map((event, i) => (
+                {cat.events.map((event, i) => {
+                  const eventSectionId = `event:${cat.category}:${i}`
+                  const eventValidation = getValidationForSection(eventSectionId)
+                  return (
                   <div key={i} className="report-event-card" style={{
                     border: '1px solid #e2e8f0',
                     borderRadius: '8px',
@@ -471,11 +618,25 @@ export default function ReportPage() {
                     borderLeft: `4px solid ${CATEGORY_COLORS[cat.category] || '#1a365d'}`
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
-                      <div>
-                        <h4 style={{ margin: 0, fontSize: '1rem' }}>{event.event_name}</h4>
-                        <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
-                          {formatDate(event.first_mention_date)} to {formatDate(event.last_mention_date)} | {event.article_count} articles
-                        </p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '1rem' }}>{event.event_name}</h4>
+                          <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                            {formatDate(event.first_mention_date)} to {formatDate(event.last_mention_date)} | {event.article_count} articles
+                          </p>
+                        </div>
+                        {eventValidation && (
+                          <ValidationIndicator
+                            status={eventValidation.status as ValidationStatus}
+                            issues={eventValidation.issues}
+                            summary={eventValidation.summary}
+                            claimsValidated={eventValidation.claims_validated}
+                            uncitedClaims={eventValidation.uncited_claims}
+                          />
+                        )}
+                        {isValidating && !eventValidation && (
+                          <ValidationIndicator status="pending" />
+                        )}
                       </div>
                       <span className="materiality-badge" style={{
                         background: getMaterialityColor(event.materiality_score),
@@ -552,10 +713,12 @@ export default function ReportPage() {
                       </div>
                     )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
-          ))}
+            )
+          })}
 
           {/* Key Entities */}
           {report.entities && report.entities.length > 0 && (
@@ -583,7 +746,10 @@ export default function ReportPage() {
                     </h4>
 
                     <div style={{ display: 'grid', gap: '0.75rem' }}>
-                      {group.entities.map((entity, idx) => (
+                      {group.entities.map((entity, idx) => {
+                        const entitySectionId = `entity:${group.entity_type}:${entity.name}`
+                        const entityValidation = getValidationForSection(entitySectionId)
+                        return (
                         <div key={idx} style={{
                           border: '1px solid #e2e8f0',
                           borderRadius: '8px',
@@ -592,7 +758,21 @@ export default function ReportPage() {
                         }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
                             <div>
-                              <h5 style={{ margin: 0, fontSize: '0.95rem' }}>{entity.name}</h5>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <h5 style={{ margin: 0, fontSize: '0.95rem' }}>{entity.name}</h5>
+                                {entityValidation && (
+                                  <ValidationIndicator
+                                    status={entityValidation.status as ValidationStatus}
+                                    issues={entityValidation.issues}
+                                    summary={entityValidation.summary}
+                                    claimsValidated={entityValidation.claims_validated}
+                                    uncitedClaims={entityValidation.uncited_claims}
+                                  />
+                                )}
+                                {isValidating && !entityValidation && (
+                                  <ValidationIndicator status="pending" />
+                                )}
+                              </div>
                               <p style={{ fontSize: '0.75rem', color: '#888', margin: '0.2rem 0 0' }}>
                                 {entity.role && entity.role !== 'OTHER' && entity.role !== 'Unknown'
                                   ? `${entity.role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} | `
@@ -642,7 +822,8 @@ export default function ReportPage() {
                             <ShimmerBlock lines={2} />
                           ) : null}
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )
