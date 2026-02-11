@@ -42,15 +42,25 @@ cd "$PROJECT_ROOT"
 # ============================================
 # Step 1: Build Docker images
 # ============================================
-echo -e "${BLUE}[1/6]${NC} Building Docker images..."
+echo -e "${BLUE}[1/6]${NC} Preparing Docker images..."
 echo ""
 
-echo "  Building database image (PostgreSQL + pgvector on Debian)..."
-docker build \
-    -f docker/database-airgap.Dockerfile \
-    -t softpower-db-airgap:latest \
-    .
-echo -e "  ${GREEN}Database image built${NC}"
+# Database: Use pre-built Bitnami PostgreSQL + pgvector image
+# This must already be available locally (pulled from registry or loaded from tar)
+DB_IMAGE="bitnami/postgresql-pgvector:16"
+if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "bitnami/postgresql-pgvector"; then
+    echo -e "  ${GREEN}Database image found: ${DB_IMAGE}${NC}"
+else
+    echo -e "  ${YELLOW}Database image not found locally: ${DB_IMAGE}${NC}"
+    echo "  Attempting to pull from registry..."
+    if docker pull "$DB_IMAGE" 2>/dev/null; then
+        echo -e "  ${GREEN}Database image pulled${NC}"
+    else
+        echo -e "  ${RED}Cannot pull ${DB_IMAGE}. Please load it manually:${NC}"
+        echo "    docker load -i bitnami-pgvector-pg16.tar"
+        exit 1
+    fi
+fi
 
 echo ""
 echo "  Building application image (FastAPI + Streamlit)..."
@@ -69,8 +79,8 @@ echo ""
 
 mkdir -p "$PACKAGE_DIR/images"
 
-docker save softpower-db-airgap:latest -o "$PACKAGE_DIR/images/softpower-db-airgap.tar"
-echo -e "  ${GREEN}softpower-db-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-db-airgap.tar" | cut -f1))"
+docker save "$DB_IMAGE" -o "$PACKAGE_DIR/images/bitnami-pgvector-pg16.tar"
+echo -e "  ${GREEN}bitnami-pgvector-pg16.tar${NC} ($(du -h "$PACKAGE_DIR/images/bitnami-pgvector-pg16.tar" | cut -f1))"
 
 docker save softpower-app-airgap:latest -o "$PACKAGE_DIR/images/softpower-app-airgap.tar"
 echo -e "  ${GREEN}softpower-app-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
@@ -136,12 +146,12 @@ SoftPower Analytics - Air-Gapped Deployment Package
 
 Architecture:
   - 2 Docker containers (no docker-compose needed)
-  - Container 1: PostgreSQL 16 + pgvector (database)
+  - Container 1: Bitnami PostgreSQL 16 + pgvector (database)
   - Container 2: FastAPI + Streamlit (application)
 
 Contents:
   images/
-    softpower-db-airgap.tar     PostgreSQL 16 + pgvector
+    bitnami-pgvector-pg16.tar   Bitnami PostgreSQL 16 + pgvector
     softpower-app-airgap.tar    FastAPI + Streamlit (single container)
   airgap-deploy.sh              Deployment management script
   .env.example                  Environment variable template
@@ -249,8 +259,8 @@ Pre-Installation:
 Step 1 - Load Images:
 [ ] cd to package directory
 [ ] Run: ./airgap-deploy.sh load ./images
-[ ] Verify: docker images | grep softpower
-    - softpower-db-airgap:latest
+[ ] Verify: docker images | grep -E "softpower|bitnami"
+    - bitnami/postgresql-pgvector:16
     - softpower-app-airgap:latest
 
 Step 2 - Configure:
@@ -301,7 +311,7 @@ echo "Package:  ${PACKAGE_DIR}.tar.gz"
 echo "Size:     $(du -sh "${PACKAGE_DIR}.tar.gz" | cut -f1)"
 echo ""
 echo "Contents:"
-echo "  images/softpower-db-airgap.tar   ($(du -h "$PACKAGE_DIR/images/softpower-db-airgap.tar" | cut -f1))"
+echo "  images/bitnami-pgvector-pg16.tar ($(du -h "$PACKAGE_DIR/images/bitnami-pgvector-pg16.tar" | cut -f1))"
 echo "  images/softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
 if [ -f "$PACKAGE_DIR/softpower-backup.dump" ]; then
     echo "  softpower-backup.dump            ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"

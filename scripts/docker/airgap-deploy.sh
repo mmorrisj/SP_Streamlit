@@ -32,8 +32,10 @@ DB_PORT="${DB_PORT:-5432}"
 API_PORT="${API_PORT:-8000}"
 STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
 
-# Image names (must match what airgap-build.sh produces)
-DB_IMAGE="softpower-db-airgap:latest"
+# Image names
+# Database: Bitnami PostgreSQL + pgvector (pre-built, loaded from tar)
+DB_IMAGE="bitnami/postgresql-pgvector:16"
+# Application: Built by airgap-build.sh
 APP_IMAGE="softpower-app-airgap:latest"
 
 # Container names
@@ -114,7 +116,8 @@ cmd_load() {
 
     local image_dir="${1:-.}"
 
-    for tarfile in "$image_dir"/softpower-*.tar; do
+    # Load all tar files (softpower app images + bitnami pgvector)
+    for tarfile in "$image_dir"/*.tar; do
         if [ -f "$tarfile" ]; then
             log_info "Loading $(basename $tarfile)..."
             docker load -i "$tarfile"
@@ -124,7 +127,7 @@ cmd_load() {
 
     echo ""
     log_info "Current images:"
-    docker images | grep -E "softpower|REPOSITORY" || true
+    docker images | grep -E "softpower|bitnami|pgvector|REPOSITORY" || true
     echo ""
 }
 
@@ -141,7 +144,7 @@ cmd_start() {
     check_docker
 
     # Verify images exist
-    if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "$DB_IMAGE"; then
+    if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "bitnami/postgresql-pgvector"; then
         log_error "Database image not found: $DB_IMAGE"
         log_info "Run './airgap-deploy.sh load' first to load images from tar files"
         exit 1
@@ -175,20 +178,20 @@ cmd_start() {
             docker rm "$DB_CONTAINER"
         fi
 
-        log_info "Starting PostgreSQL + pgvector..."
+        log_info "Starting PostgreSQL + pgvector (Bitnami)..."
         docker run -d \
             --name "$DB_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
-            -e POSTGRES_USER="$POSTGRES_USER" \
-            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            -e POSTGRES_DB="$POSTGRES_DB" \
-            -v "$DB_VOLUME":/var/lib/postgresql/data \
+            -e POSTGRESQL_USERNAME="$POSTGRES_USER" \
+            -e POSTGRESQL_PASSWORD="$POSTGRES_PASSWORD" \
+            -e POSTGRESQL_DATABASE="$POSTGRES_DB" \
+            -v "$DB_VOLUME":/bitnami/postgresql \
             -p "${DB_PORT}:5432" \
             --shm-size=1g \
             "$DB_IMAGE"
 
-        log_ok "PostgreSQL container started"
+        log_ok "PostgreSQL container started (Bitnami pgvector)"
     fi
 
     wait_for_db
