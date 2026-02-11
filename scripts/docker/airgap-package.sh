@@ -38,10 +38,10 @@ echo "  ✅ softpower-pipeline.tar ($(du -h softpower-pipeline.tar | cut -f1))"
 
 # Pull and save base images
 echo "  Pulling base images..."
-docker pull pgvector/pgvector:pg16
+docker pull pgvector/pgvector:0.8.0-pg16
 docker pull redis:7-alpine
 
-docker save pgvector/pgvector:pg16 -o pgvector-pg16.tar
+docker save pgvector/pgvector:0.8.0-pg16 -o pgvector-pg16.tar
 echo "  ✅ pgvector-pg16.tar ($(du -h pgvector-pg16.tar | cut -f1))"
 
 docker save redis:7-alpine -o redis.tar

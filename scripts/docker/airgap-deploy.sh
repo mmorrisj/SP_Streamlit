@@ -35,7 +35,7 @@ STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
 # Image names
 # Database: Official pgvector image (PostgreSQL 16 + pgvector extension)
 # Source: https://hub.docker.com/r/pgvector/pgvector
-DB_IMAGE="pgvector/pgvector:pg16"
+DB_IMAGE="pgvector/pgvector:0.8.0-pg16"
 # Application: Built by airgap-build.sh
 APP_IMAGE="softpower-app-airgap:latest"
 
