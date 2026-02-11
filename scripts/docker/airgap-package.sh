@@ -38,11 +38,11 @@ echo "  ✅ softpower-pipeline.tar ($(du -h softpower-pipeline.tar | cut -f1))"
 
 # Pull and save base images
 echo "  Pulling base images..."
-docker pull bitnami/postgresql-pgvector:16
+docker pull pgvector/pgvector:pg16
 docker pull redis:7-alpine
 
-docker save bitnami/postgresql-pgvector:16 -o bitnami-pgvector-pg16.tar
-echo "  ✅ bitnami-pgvector-pg16.tar ($(du -h bitnami-pgvector-pg16.tar | cut -f1))"
+docker save pgvector/pgvector:pg16 -o pgvector-pg16.tar
+echo "  ✅ pgvector-pg16.tar ($(du -h pgvector-pg16.tar | cut -f1))"
 
 docker save redis:7-alpine -o redis.tar
 echo "  ✅ redis.tar ($(du -h redis.tar | cut -f1))"
@@ -84,7 +84,7 @@ Contents:
    - softpower-api.tar          (React Web App + FastAPI)
    - softpower-dashboard.tar    (Streamlit Dashboard)
    - softpower-pipeline.tar     (Data Processing Pipeline)
-   - bitnami-pgvector-pg16.tar   (Bitnami PostgreSQL 16 + pgvector)
+   - pgvector-pg16.tar           (PostgreSQL 16 + pgvector)
    - redis.tar                  (Redis Cache)
 
 2. Database Backup:
@@ -104,7 +104,7 @@ Quick Start:
 -----------
 1. Transfer this entire directory to air-gapped system
 2. Load Docker images:
-   docker load -i bitnami-pgvector-pg16.tar
+   docker load -i pgvector-pg16.tar
    docker load -i redis.tar
    docker load -i softpower-api.tar
    docker load -i softpower-dashboard.tar

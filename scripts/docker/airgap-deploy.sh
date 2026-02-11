@@ -33,8 +33,9 @@ API_PORT="${API_PORT:-8000}"
 STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
 
 # Image names
-# Database: Bitnami PostgreSQL + pgvector (pre-built, loaded from tar)
-DB_IMAGE="bitnami/postgresql-pgvector:16"
+# Database: Official pgvector image (PostgreSQL 16 + pgvector extension)
+# Source: https://hub.docker.com/r/pgvector/pgvector
+DB_IMAGE="pgvector/pgvector:pg16"
 # Application: Built by airgap-build.sh
 APP_IMAGE="softpower-app-airgap:latest"
 
@@ -127,7 +128,7 @@ cmd_load() {
 
     echo ""
     log_info "Current images:"
-    docker images | grep -E "softpower|bitnami|pgvector|REPOSITORY" || true
+    docker images | grep -E "softpower|pgvector|REPOSITORY" || true
     echo ""
 }
 
@@ -144,7 +145,7 @@ cmd_start() {
     check_docker
 
     # Verify images exist
-    if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "bitnami/postgresql-pgvector"; then
+    if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "pgvector/pgvector"; then
         log_error "Database image not found: $DB_IMAGE"
         log_info "Run './airgap-deploy.sh load' first to load images from tar files"
         exit 1
@@ -178,20 +179,20 @@ cmd_start() {
             docker rm "$DB_CONTAINER"
         fi
 
-        log_info "Starting PostgreSQL + pgvector (Bitnami)..."
+        log_info "Starting PostgreSQL + pgvector..."
         docker run -d \
             --name "$DB_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
-            -e POSTGRESQL_USERNAME="$POSTGRES_USER" \
-            -e POSTGRESQL_PASSWORD="$POSTGRES_PASSWORD" \
-            -e POSTGRESQL_DATABASE="$POSTGRES_DB" \
-            -v "$DB_VOLUME":/bitnami/postgresql \
+            -e POSTGRES_USER="$POSTGRES_USER" \
+            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            -e POSTGRES_DB="$POSTGRES_DB" \
+            -v "$DB_VOLUME":/var/lib/postgresql/data \
             -p "${DB_PORT}:5432" \
             --shm-size=1g \
             "$DB_IMAGE"
 
-        log_ok "PostgreSQL container started (Bitnami pgvector)"
+        log_ok "PostgreSQL container started"
     fi
 
     wait_for_db
