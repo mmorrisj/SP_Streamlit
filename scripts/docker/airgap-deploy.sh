@@ -32,12 +32,30 @@ DB_PORT="${DB_PORT:-5432}"
 API_PORT="${API_PORT:-8000}"
 STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
 
+# Deployment mode: "airgap" or "standard"
+# airgap  = TRANSFORMERS_OFFLINE=1, HF_HUB_OFFLINE=1 (no network access to HuggingFace)
+# standard = TRANSFORMERS_OFFLINE=0, HF_HUB_OFFLINE=0 (model still baked in, but can reach out)
+DEPLOY_MODE="${DEPLOY_MODE:-airgap}"
+
+if [ "$DEPLOY_MODE" = "airgap" ]; then
+    TRANSFORMERS_OFFLINE=1
+    HF_HUB_OFFLINE=1
+else
+    TRANSFORMERS_OFFLINE=0
+    HF_HUB_OFFLINE=0
+fi
+
 # Image names
-# Database: Official pgvector image (PostgreSQL 16 + pgvector extension)
-# Source: https://hub.docker.com/r/pgvector/pgvector
-DB_IMAGE="pgvector/pgvector:0.8.0-pg16"
-# Application: Built by airgap-build.sh
-APP_IMAGE="softpower-app-airgap:latest"
+# If AIRGAP_REGISTRY is set, use registry-prefixed image names
+if [ -n "$AIRGAP_REGISTRY" ]; then
+    DB_IMAGE="${AIRGAP_REGISTRY}/pgvector:0.8.0-pg16"
+    APP_IMAGE="${AIRGAP_REGISTRY}/softpower-app-airgap:latest"
+else
+    # Database: Official pgvector image (PostgreSQL 16 + pgvector extension)
+    DB_IMAGE="pgvector/pgvector:0.8.0-pg16"
+    # Application: Built by airgap-build.sh
+    APP_IMAGE="softpower-app-airgap:latest"
+fi
 
 # Container names
 DB_CONTAINER="softpower_db"
@@ -144,17 +162,24 @@ cmd_start() {
 
     check_docker
 
-    # Verify images exist
-    if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "pgvector/pgvector"; then
-        log_error "Database image not found: $DB_IMAGE"
-        log_info "Run './airgap-deploy.sh load' first to load images from tar files"
-        exit 1
-    fi
-    if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "$APP_IMAGE"; then
-        log_error "Application image not found: $APP_IMAGE"
-        log_info "Run './airgap-deploy.sh load' first to load images from tar files"
-        exit 1
-    fi
+    # Verify images exist (try pulling from registry if not local)
+    for img in "$DB_IMAGE" "$APP_IMAGE"; do
+        if docker image inspect "$img" &>/dev/null; then
+            log_ok "Image found: $img"
+        elif [ -n "$AIRGAP_REGISTRY" ] && [ "$DEPLOY_MODE" != "airgap" ]; then
+            log_info "Pulling $img from registry..."
+            if docker pull "$img"; then
+                log_ok "Pulled: $img"
+            else
+                log_error "Failed to pull: $img"
+                exit 1
+            fi
+        else
+            log_error "Image not found: $img"
+            log_info "Run './airgap-deploy.sh load' first to load images from tar files"
+            exit 1
+        fi
+    done
 
     # Create network
     if ! docker network inspect "$NETWORK_NAME" &>/dev/null; then
@@ -228,8 +253,8 @@ cmd_start() {
             -e API_URL="http://localhost:8000" \
             -e BACKEND_API_URL="http://localhost:8000" \
             -e FASTAPI_URL="http://localhost:8000/material_query" \
-            -e TRANSFORMERS_OFFLINE=1 \
-            -e HF_HUB_OFFLINE=1 \
+            -e TRANSFORMERS_OFFLINE="$TRANSFORMERS_OFFLINE" \
+            -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
             -p "${API_PORT}:8000" \
             -p "${STREAMLIT_PORT}:8501" \
@@ -244,6 +269,10 @@ cmd_start() {
     echo "=============================================="
     echo -e "${GREEN}Deployment Complete${NC}"
     echo "=============================================="
+    echo ""
+    echo "Deploy mode:  $DEPLOY_MODE"
+    echo "HF offline:   TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE, HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
+    echo "App image:    $APP_IMAGE"
     echo ""
     echo "Access:"
     echo "  React Web App:    http://localhost:${API_PORT}"
@@ -345,8 +374,12 @@ cmd_status() {
     docker ps -a --filter "name=softpower" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
 
     echo ""
+    log_info "Deploy mode: $DEPLOY_MODE (TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE)"
+    log_info "App image:   $APP_IMAGE"
+
+    echo ""
     log_info "Docker images:"
-    docker images | grep -E "softpower|REPOSITORY" || true
+    docker images | grep -E "softpower|pgvector|REPOSITORY" || true
 
     echo ""
     log_info "Volumes:"
@@ -479,6 +512,10 @@ case "${1:-help}" in
         echo "Environment:"
         echo "  Create a .env file to override defaults (see .env.example)"
         echo "  Key variables: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB"
+        echo ""
+        echo "  DEPLOY_MODE=airgap      HuggingFace fully offline (default)"
+        echo "  DEPLOY_MODE=standard    HuggingFace can reach network"
+        echo "  AIRGAP_REGISTRY=...     Use registry-prefixed image name"
         echo ""
         exit 1
         ;;
