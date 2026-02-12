@@ -32,6 +32,12 @@ DB_PORT="${DB_PORT:-5432}"
 API_PORT="${API_PORT:-8000}"
 STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
 
+# LLM/S3 Proxy Relay
+# The container lacks certificate authorizations to call external APIs directly.
+# LLM and S3 requests are proxied through a host-side FastAPI on LLM_PROXY_PORT.
+# Set LLM_PROXY_PORT=0 to disable (container calls APIs directly).
+LLM_PROXY_PORT="${LLM_PROXY_PORT:-7001}"
+
 # Deployment mode: "airgap" or "standard"
 # airgap  = TRANSFORMERS_OFFLINE=1, HF_HUB_OFFLINE=1 (no network access to HuggingFace)
 # standard = TRANSFORMERS_OFFLINE=0, HF_HUB_OFFLINE=0 (model still baked in, but can reach out)
@@ -231,11 +237,24 @@ cmd_start() {
             docker rm "$APP_CONTAINER"
         fi
 
+        # Proxy config: if LLM_PROXY_PORT is set and non-zero, route LLM/S3
+        # calls through a host-side proxy. Otherwise, the container calls APIs directly.
+        if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
+            PROXY_API_URL="http://host.docker.internal:${LLM_PROXY_PORT}"
+            PROXY_HOST_FLAG="--add-host=host.docker.internal:host-gateway"
+            log_info "LLM/S3 proxy: host.docker.internal:${LLM_PROXY_PORT}"
+        else
+            PROXY_API_URL="http://localhost:8000"
+            PROXY_HOST_FLAG=""
+            log_info "LLM/S3 proxy: disabled (container calls APIs directly)"
+        fi
+
         log_info "Starting application (FastAPI + Streamlit)..."
         docker run -d \
             --name "$APP_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
+            $PROXY_HOST_FLAG \
             -e DOCKER_ENV=true \
             -e NODE_ENV=production \
             -e DB_HOST="$DB_CONTAINER" \
@@ -250,9 +269,7 @@ cmd_start() {
             -e DB_MAX_OVERFLOW="${DB_MAX_OVERFLOW:-20}" \
             -e DB_POOL_TIMEOUT="${DB_POOL_TIMEOUT:-30}" \
             -e DB_POOL_RECYCLE="${DB_POOL_RECYCLE:-3600}" \
-            -e API_URL="http://localhost:8000" \
-            -e BACKEND_API_URL="http://localhost:8000" \
-            -e FASTAPI_URL="http://localhost:8000/material_query" \
+            -e API_URL="$PROXY_API_URL" \
             -e TRANSFORMERS_OFFLINE="$TRANSFORMERS_OFFLINE" \
             -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
@@ -273,6 +290,11 @@ cmd_start() {
     echo "Deploy mode:  $DEPLOY_MODE"
     echo "HF offline:   TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE, HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
     echo "App image:    $APP_IMAGE"
+    if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
+        echo "LLM proxy:    host.docker.internal:${LLM_PROXY_PORT}"
+    else
+        echo "LLM proxy:    disabled (container calls APIs directly)"
+    fi
     echo ""
     echo "Access:"
     echo "  React Web App:    http://localhost:${API_PORT}"
@@ -280,6 +302,13 @@ cmd_start() {
     echo "  Streamlit:        http://localhost:${STREAMLIT_PORT}"
     echo "  PostgreSQL:       localhost:${DB_PORT}"
     echo ""
+    if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
+        echo "LLM/S3 proxy prerequisite:"
+        echo "  The host-side proxy must be running on port ${LLM_PROXY_PORT}."
+        echo "  Start it with:  python llm_proxy.py"
+        echo "  Or disable with: LLM_PROXY_PORT=0 in .env"
+        echo ""
+    fi
     echo "First-time setup:"
     echo "  ./airgap-deploy.sh migrate     # Run database migrations"
     echo ""
@@ -516,6 +545,8 @@ case "${1:-help}" in
         echo "  DEPLOY_MODE=airgap      HuggingFace fully offline (default)"
         echo "  DEPLOY_MODE=standard    HuggingFace can reach network"
         echo "  AIRGAP_REGISTRY=...     Use registry-prefixed image name"
+        echo "  LLM_PROXY_PORT=7001     Host-side LLM/S3 proxy port (default: 7001)"
+        echo "  LLM_PROXY_PORT=0        Disable proxy (container calls APIs directly)"
         echo ""
         exit 1
         ;;

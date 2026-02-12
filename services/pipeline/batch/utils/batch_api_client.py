@@ -44,11 +44,10 @@ class BatchAPIClient:
         if api_url is None:
             api_url = os.getenv('API_URL', '').strip()
             if not api_url:
-                # Try FASTAPI_URL and extract base
+                # Backward compat: try FASTAPI_URL and extract base
                 fastapi_url = os.getenv('FASTAPI_URL', '').strip()
                 if fastapi_url:
-                    # Extract base URL from /material_query endpoint
-                    api_url = fastapi_url.replace('/material_query', '')
+                    api_url = fastapi_url.split('/proxy_query')[0].split('/material_query')[0]
 
         if not api_url:
             raise ValueError(

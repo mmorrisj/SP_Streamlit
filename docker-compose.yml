@@ -43,9 +43,7 @@ services:
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
       DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
-      BACKEND_API_URL: http://api:8000
       API_URL: http://host.docker.internal:8000
-      FASTAPI_URL: http://host.docker.internal:8000/material_query
     ports:
       - "8501:8501"
     volumes:
@@ -77,7 +75,6 @@ services:
       POSTGRES_PORT: 5432
       DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
       S3_PROXY_URL: http://host.docker.internal:5001
-      FASTAPI_URL: http://host.docker.internal:5001/material_query
       API_URL: http://host.docker.internal:5001
       USE_S3_API_CLIENT: "true"
       BATCH_SCRATCHPAD_DIR: ./services/pipeline/batch/batches

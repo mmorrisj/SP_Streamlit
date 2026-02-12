@@ -143,8 +143,8 @@ def health():
 # LLM Endpoints
 # ============================================================
 
-@app.post("/material_query")
-def material_query(input: QueryInput):
+@app.post("/proxy_query")
+def proxy_query(input: QueryInput):
     """
     LLM query endpoint with environment-based routing.
     Priority: LiteLLM > Azure (production) > OpenAI (development)
@@ -229,8 +229,14 @@ def material_query(input: QueryInput):
 
 @app.post("/query")
 def query_gai(input: QueryInput):
-    """Alias for /material_query."""
-    return material_query(input)
+    """Alias for /proxy_query."""
+    return proxy_query(input)
+
+
+@app.post("/material_query")
+def material_query_compat(input: QueryInput):
+    """Backward-compat alias for /proxy_query."""
+    return proxy_query(input)
 
 
 def _parse_response(content):
@@ -504,7 +510,7 @@ if __name__ == "__main__":
     print(f"  AWS creds:   {'set' if os.getenv('AWS_ACCESS_KEY_ID') else 'NOT SET (using default chain)'}")
     print(f"  ENV:         {os.getenv('ENV', 'development')}")
     print(f"\n  Endpoints:")
-    print(f"    LLM:   POST /material_query")
+    print(f"    LLM:   POST /proxy_query")
     print(f"    S3:    POST /s3/list, /s3/download, /s3/upload")
     print(f"    Batch: POST /batch/upload_file, /batch/create, /batch/status")
     print(f"    Docs:  http://localhost:{port}/docs")

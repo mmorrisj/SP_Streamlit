@@ -14,12 +14,14 @@ The database (PostgreSQL + pgvector) runs separately — either as its own conta
 
 ```
 Container (port 8000)  -->  Host FastAPI (port 7001)  -->  LLM API (OpenAI/Azure/LiteLLM)
-    via FASTAPI_URL            has certs/auth              external service
+    via API_URL                has certs/auth              external service
 ```
 
 This means the host-side FastAPI must be running for any LLM features (report generation, chat/RAG, validation) to work.
 
-## 1. Build the Image
+## 1. Get the Image
+
+### Development (internet-connected machine) — build from source
 
 ```bash
 sudo docker build -f docker/airgap.Dockerfile -t softpower-analytics:latest .
@@ -38,6 +40,52 @@ sudo docker build -f docker/airgap.Dockerfile -t softpower-analytics:latest .
 **If the build fails with TypeScript errors:**
 Fix the source files in `client/src/`, then re-run the build command. Only the changed layers rebuild.
 
+### Air-gapped system — load pre-built images
+
+The air-gapped system has no internet access, so you **cannot** `docker build`. Instead, load images that were built and exported from an internet-connected machine.
+
+**Option A: Pull from a registry accessible to the air-gapped network**
+
+If a Docker registry is reachable from the air-gapped system (e.g., an internal/corporate registry):
+
+```bash
+# Pull the app image (pushed earlier via push-to-registry.sh)
+sudo docker pull <REGISTRY>/softpower-app-airgap:latest
+
+# Tag it to match the expected name
+sudo docker tag <REGISTRY>/softpower-app-airgap:latest softpower-analytics:latest
+
+# Pull the database image
+sudo docker pull <REGISTRY>/pgvector:0.8.0-pg16
+```
+
+**Option B: Load from tar files (transferred via S3, SCP, or physical media)**
+
+On the internet-connected machine, export the images first (see Section 9). Then on the air-gapped system:
+
+```bash
+# Load the app image
+sudo docker load -i softpower-app-airgap.tar
+# or if saved with a different name:
+sudo docker load -i softpower-analytics.tar
+
+# Load the database image
+sudo docker load -i pgvector-pg16.tar
+
+# Verify both loaded
+sudo docker images | grep -E "softpower|pgvector"
+```
+
+**Option C: Use the automated deployment package**
+
+If the package was created with `airgap-build.sh`:
+
+```bash
+tar xzf softpower-airgap-YYYYMMDD.tar.gz
+cd softpower-airgap-YYYYMMDD
+./airgap-deploy.sh load ./images
+```
+
 ## 2. Run the Container
 
 ```bash
@@ -48,7 +96,7 @@ sudo docker run -d \
   --env-file .env \
   -e DOCKER_ENV=true \
   -e DATABASE_URL=postgresql+psycopg2://matthew50:softpower@host.docker.internal:5432/softpower-db \
-  -e FASTAPI_URL=http://host.docker.internal:7001/material_query \
+  -e API_URL=http://host.docker.internal:7001 \
   --add-host=host.docker.internal:host-gateway \
   softpower-analytics:latest
 ```
@@ -66,8 +114,10 @@ sudo docker run -d \
 | `--env-file .env` | Load environment variables from .env |
 | `-e DOCKER_ENV=true` | Tell the app it's running in Docker |
 | `-e DATABASE_URL=...` | Database connection string |
-| `-e FASTAPI_URL=...` | LLM proxy relay — points to host FastAPI on port 7001 (see Architecture) |
+| `-e API_URL=...` | LLM/S3 proxy relay — base URL for host proxy on port 7001 (code appends `/proxy_query`, `/s3/*`, etc.) |
 | `--add-host=host.docker.internal:host-gateway` | Linux-only: lets container reach host network |
+
+**IMPORTANT:** The `-e API_URL` flag **overrides** the value from `.env`. Your `.env` likely has `API_URL=http://localhost:7001` — correct on the host but wrong inside the container where `localhost` means the container itself. The `-e` override rewrites it to `host.docker.internal` so the container can reach the host.
 
 **Prerequisites:**
 - Host-side LLM proxy must be running on port 7001 for LLM features.
@@ -106,6 +156,9 @@ sudo docker logs -f softpower_analytics
 
 # Health check
 curl http://localhost:8005/api/health
+
+# Verify proxy env var is correct (should show host.docker.internal, NOT localhost)
+sudo docker exec softpower_analytics printenv API_URL
 ```
 
 ## 4. Stop the Container
@@ -140,7 +193,7 @@ sudo docker run -d \
   --env-file .env \
   -e DOCKER_ENV=true \
   -e DATABASE_URL=postgresql+psycopg2://matthew50:softpower@host.docker.internal:5432/softpower-db \
-  -e FASTAPI_URL=http://host.docker.internal:7001/material_query \
+  -e API_URL=http://host.docker.internal:7001 \
   --add-host=host.docker.internal:host-gateway \
   softpower-analytics:latest
 ```
@@ -191,14 +244,14 @@ The container proxies LLM requests through the host. Check:
    ```
    If not running, start the lightweight proxy:
    ```bash
-   pip install fastapi uvicorn openai python-dotenv
+   pip install fastapi uvicorn openai boto3 python-dotenv python-multipart
    python scripts/llm_proxy.py
    ```
 
-2. **FASTAPI_URL set correctly?** Must be `http://host.docker.internal:7001/material_query`.
+2. **API_URL set correctly?** Must be `http://host.docker.internal:7001`.
    Check from inside the container:
    ```bash
-   sudo docker exec softpower_analytics printenv FASTAPI_URL
+   sudo docker exec softpower_analytics printenv API_URL
    ```
 
 3. **Container can reach host?** Test connectivity:

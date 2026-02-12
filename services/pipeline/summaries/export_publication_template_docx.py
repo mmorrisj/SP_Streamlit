@@ -58,12 +58,12 @@ def translate_to_english_via_api(text: str, api_url: str = None) -> str:
     if not text or is_mostly_english(text):
         return text
 
-    # Try to use the FastAPI material_query endpoint for translation
+    # Try to use the FastAPI proxy_query endpoint for translation
     if api_url:
         try:
             prompt = f"Translate the following text to English. Provide ONLY the translation, no explanations:\n\n{text}"
             response = requests.post(
-                f"{api_url}/material_query",
+                f"{api_url}/proxy_query",
                 json={"prompt": prompt},
                 timeout=30
             )

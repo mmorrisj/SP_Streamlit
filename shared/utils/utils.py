@@ -225,7 +225,7 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
         azure_use_env: If True with source="azure", use env vars instead of AWS Secrets Manager
 
     Environment Variables:
-        FASTAPI_URL: Required for source="proxy"
+        API_URL: Required for source="proxy" (base URL, e.g. http://localhost:5001)
         LITELLM_URL, LITELLM_API_KEY: Required for source="litellm"
         LITELLM_MODEL: Optional model override for LITELLM (if not set, uses 'model' parameter)
         AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY: Required for source="azure" with azure_use_env=True
@@ -390,17 +390,18 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
 
     # PROXY (System 1, FastAPI → OpenAI)
     elif source == "proxy":
-        fastapi_url = os.getenv('FASTAPI_URL', '').strip()
-
-        if not fastapi_url:
-            api_url = os.getenv('API_URL', '').strip()
-            if api_url:
-                fastapi_url = f"{api_url.rstrip('/')}/material_query"
+        api_url = os.getenv('API_URL', '').strip()
+        if not api_url:
+            # Backward compat: try FASTAPI_URL and extract base
+            fastapi_url = os.getenv('FASTAPI_URL', '').strip()
+            if fastapi_url:
+                api_url = fastapi_url.split('/proxy_query')[0].split('/material_query')[0]
             else:
                 raise ValueError(
-                    "FASTAPI_URL or API_URL environment variable must be set for proxy mode. "
-                    "Example: FASTAPI_URL=http://127.0.0.1:5001/material_query"
+                    "API_URL environment variable must be set for proxy mode. "
+                    "Example: API_URL=http://127.0.0.1:5001"
                 )
+        fastapi_url = f"{api_url.rstrip('/')}/proxy_query"
 
         print(f"  [PROXY] Calling LLM via FastAPI proxy: {fastapi_url}")
 

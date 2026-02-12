@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Toaster } from 'sonner'
 import { AuthProvider } from './contexts/AuthContext'
+import { ReportGenerationProvider } from './contexts/ReportGenerationContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
@@ -33,6 +35,8 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
+          <ReportGenerationProvider>
+          <Toaster position="top-right" richColors />
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
@@ -78,6 +82,7 @@ function App() {
               } />
             </Route>
           </Routes>
+          </ReportGenerationProvider>
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>

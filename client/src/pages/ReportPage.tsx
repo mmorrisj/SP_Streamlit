@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -7,16 +7,15 @@ import {
 import { FileBarChart, ExternalLink, Users, Building2, MapPin, Briefcase, X, Download } from 'lucide-react'
 import {
   fetchReportConfig,
-  generateReportStream,
   exportReportToDocx,
   validateReportStream,
 } from '../api/client'
 import type {
-  ReportData,
   ReportRequest,
   ValidationStatus,
   SectionValidation,
 } from '../api/client'
+import { useReportGeneration } from '../contexts/ReportGenerationContext'
 import { ValidationIndicator } from '../components/ValidationIndicator'
 import './Pages.css'
 
@@ -75,16 +74,43 @@ export default function ReportPage() {
   const [recipient, setRecipient] = useState<string>('All')
   const [topEvents, setTopEvents] = useState<number>(10)
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
-  const [report, setReport] = useState<ReportData | null>(null)
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [streamPhase, setStreamPhase] = useState('')
-  const [narrativesDone, setNarrativesDone] = useState(0)
-  const [narrativesTotal, setNarrativesTotal] = useState(0)
-  const [error, setError] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
-  const abortRef = useRef<AbortController | null>(null)
 
-  // Validation state
+  // Report generation from context (persists across navigation)
+  const {
+    status,
+    report,
+    request: activeRequest,
+    error,
+    streamPhase,
+    narrativesDone,
+    narrativesTotal,
+    progressPct,
+    startGeneration,
+    cancelGeneration,
+    clearReport,
+    dismissError,
+  } = useReportGeneration()
+
+  const isGenerating = status === 'generating'
+
+  // Sync config inputs from active/completed request when returning to this page
+  useEffect(() => {
+    if (activeRequest && status !== 'idle') {
+      setCountry(activeRequest.country)
+      setStartDate(activeRequest.start_date)
+      setEndDate(activeRequest.end_date)
+      setRecipient(activeRequest.recipient || 'All')
+      setTopEvents(activeRequest.top_events || 10)
+      setSelectedModel(activeRequest.model || 'gpt-4o-mini')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only on mount
+
+  // Local error for export/validation failures (separate from context's generation error)
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  // Validation state (local — only relevant on this page)
   const [isValidating, setIsValidating] = useState(false)
   const [validationStatus, setValidationStatus] = useState<Record<string, SectionValidation>>({})
   const [validationProgress, setValidationProgress] = useState({ done: 0, total: 0 })
@@ -96,17 +122,7 @@ export default function ReportPage() {
     queryFn: fetchReportConfig,
   })
 
-  const handleGenerate = useCallback(async () => {
-    setError(null)
-    setIsGenerating(true)
-    setStreamPhase('Loading data...')
-    setNarrativesDone(0)
-    setNarrativesTotal(0)
-    setReport(null)
-
-    const controller = new AbortController()
-    abortRef.current = controller
-
+  const handleGenerate = useCallback(() => {
     const request: ReportRequest = {
       country,
       start_date: startDate,
@@ -115,102 +131,11 @@ export default function ReportPage() {
       top_events: topEvents,
       model: selectedModel,
     }
-
-    try {
-      await generateReportStream(request, {
-        onSkeleton: (skeleton) => {
-          setReport(skeleton)
-          // Count total narratives expected
-          const totalEvents = skeleton.categories.reduce((s, c) => s + c.events.length, 0)
-          const totalCats = skeleton.categories.length
-          // events + categories + synthesis + title = totalEvents + totalCats + 1 + 1
-          setNarrativesTotal(totalEvents + totalCats + 2)
-          setStreamPhase('Generating narratives...')
-        },
-
-        onEventNarrative: ({ category, event_index, overview, outcomes }) => {
-          setReport(prev => {
-            if (!prev) return prev
-            const updated = { ...prev, categories: prev.categories.map(cat => {
-              if (cat.category !== category) return cat
-              return {
-                ...cat,
-                events: cat.events.map((evt, idx) =>
-                  idx === event_index ? { ...evt, overview, outcomes } : evt
-                )
-              }
-            })}
-            return updated
-          })
-          setNarrativesDone(n => n + 1)
-        },
-
-        onCategoryNarrative: ({ category, narrative }) => {
-          setReport(prev => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              categories: prev.categories.map(cat =>
-                cat.category === category ? { ...cat, narrative } : cat
-              )
-            }
-          })
-          setNarrativesDone(n => n + 1)
-        },
-
-        onOverallSynthesis: ({ overall_summary }) => {
-          setReport(prev => prev ? { ...prev, overall_summary } : prev)
-          setNarrativesDone(n => n + 1)
-          setStreamPhase('Finishing up...')
-        },
-
-        onEntitySummary: ({ entity_type_index, entity_index, summary }) => {
-          setReport(prev => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              entities: prev.entities.map((group, gi) => {
-                if (gi !== entity_type_index) return group
-                return {
-                  ...group,
-                  entities: group.entities.map((ent, ei) =>
-                    ei === entity_index ? { ...ent, summary } : ent
-                  )
-                }
-              })
-            }
-          })
-        },
-
-        onTitle: ({ title }) => {
-          setReport(prev => prev ? { ...prev, title } : prev)
-          setNarrativesDone(n => n + 1)
-        },
-
-        onComplete: () => {
-          setIsGenerating(false)
-          setStreamPhase('')
-        },
-
-        onError: (errMsg) => {
-          setError(errMsg)
-          setIsGenerating(false)
-        },
-      }, controller.signal)
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        setStreamPhase('Cancelled')
-        setIsGenerating(false)
-        return
-      }
-      setError(err instanceof Error ? err.message : 'Failed to generate report')
-      setIsGenerating(false)
-    }
-  }, [country, startDate, endDate, recipient, topEvents, selectedModel])
+    startGeneration(request)
+  }, [country, startDate, endDate, recipient, topEvents, selectedModel, startGeneration])
 
   const handleCancel = () => {
-    abortRef.current?.abort()
-    abortRef.current = null
+    cancelGeneration()
   }
 
   const handleExport = async () => {
@@ -219,7 +144,7 @@ export default function ReportPage() {
     try {
       await exportReportToDocx(report)
     } catch (e: any) {
-      setError(`Export failed: ${e.message}`)
+      setLocalError(`Export failed: ${e.message}`)
     } finally {
       setIsExporting(false)
     }
@@ -252,7 +177,7 @@ export default function ReportPage() {
           setIsValidating(false)
         },
         onError: (errMsg) => {
-          setError(`Validation failed: ${errMsg}`)
+          setLocalError(`Validation failed: ${errMsg}`)
           setIsValidating(false)
         },
       }, selectedModel, controller.signal)
@@ -261,7 +186,7 @@ export default function ReportPage() {
         setIsValidating(false)
         return
       }
-      setError(err instanceof Error ? err.message : 'Validation failed')
+      setLocalError(err instanceof Error ? err.message : 'Validation failed')
       setIsValidating(false)
     }
   }, [report, selectedModel])
@@ -281,9 +206,6 @@ export default function ReportPage() {
       (eSum, evt) => eSum + evt.citations.length, 0
     ), 0
   ) || 0
-
-  // Progress percentage
-  const progressPct = narrativesTotal > 0 ? Math.round((narrativesDone / narrativesTotal) * 100) : 0
 
   return (
     <div className="page">
@@ -517,9 +439,33 @@ export default function ReportPage() {
 
       {/* Error State */}
       {error && (
-        <div className="chart-card" style={{ borderLeft: '4px solid #dc2626', padding: '1.5rem', marginBottom: '1.5rem' }}>
-          <p style={{ color: '#dc2626', fontWeight: 600 }}>Failed to generate report</p>
-          <p style={{ color: '#666', marginTop: '0.5rem' }}>{error}</p>
+        <div className="chart-card" style={{ borderLeft: '4px solid #dc2626', padding: '1.5rem', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <p style={{ color: '#dc2626', fontWeight: 600 }}>Failed to generate report</p>
+            <p style={{ color: '#666', marginTop: '0.5rem' }}>{error}</p>
+          </div>
+          <button
+            onClick={dismissError}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '0.25rem' }}
+            title="Dismiss"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {localError && (
+        <div className="chart-card" style={{ borderLeft: '4px solid #dc2626', padding: '1.5rem', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <p style={{ color: '#dc2626', fontWeight: 600 }}>Error</p>
+            <p style={{ color: '#666', marginTop: '0.5rem' }}>{localError}</p>
+          </div>
+          <button
+            onClick={() => setLocalError(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '0.25rem' }}
+            title="Dismiss"
+          >
+            <X size={16} />
+          </button>
         </div>
       )}
 

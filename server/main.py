@@ -2488,8 +2488,9 @@ def query_gai(input: QueryInput):
     response = gai(sys_prompt='', user_prompt=input.prompt, model=input.model)
     return fetch_gai_content(response)
 
-@app.post("/material_query")
-def material_gai_query(input: QueryInput):
+@app.post("/proxy_query")
+@app.post("/material_query")  # backward-compat alias
+def proxy_gai_query(input: QueryInput):
     """
     LLM query endpoint with environment-based routing.
     Priority: LITELLM > Azure (production) > OpenAI (development)

@@ -145,3 +145,89 @@
   background: rgba(255, 255, 255, 0.2);
   color: white;
 }
+
+/* Report generation progress widget */
+.report-progress-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.75rem 1rem;
+  margin-top: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.report-progress-widget:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.rpw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rpw-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rpw-spinner {
+  animation: rpw-spin 1s linear infinite;
+}
+
+@keyframes rpw-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.rpw-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.rpw-cancel:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+.rpw-phase {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.rpw-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.rpw-fill {
+  height: 100%;
+  background: #60a5fa;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.rpw-pct {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: right;
+}

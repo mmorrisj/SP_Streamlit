@@ -60,17 +60,17 @@ def _parse_entities_mentioned(entities_mentioned) -> List[Dict]:
 def _check_llm_availability() -> bool:
     """Quick check if the LLM proxy is reachable (< 2s timeout)."""
     import requests
-    fastapi_url = os.getenv('FASTAPI_URL', '').strip()
-    if not fastapi_url:
-        api_url = os.getenv('API_URL', '').strip()
-        if api_url:
-            fastapi_url = f"{api_url.rstrip('/')}/material_query"
+    api_url = os.getenv('API_URL', '').strip()
+    if not api_url:
+        # Backward compat: try FASTAPI_URL and extract base
+        fastapi_url = os.getenv('FASTAPI_URL', '').strip()
+        if fastapi_url:
+            api_url = fastapi_url.split('/proxy_query')[0].split('/material_query')[0]
         else:
             return False
     try:
         # Use HEAD/GET with a very short timeout just to check connectivity
-        base_url = fastapi_url.rsplit('/', 1)[0]  # strip /material_query
-        requests.get(f"{base_url}/docs", timeout=2)
+        requests.get(f"{api_url.rstrip('/')}/docs", timeout=2)
         return True
     except Exception:
         return False

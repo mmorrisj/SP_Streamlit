@@ -128,7 +128,6 @@ start_api() {
         -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
         -e AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1} \
         -e API_URL=${API_URL:-http://host.docker.internal:5001} \
-        -e FASTAPI_URL=http://$API_CONTAINER:8000/material_query \
         --restart unless-stopped \
         $API_IMAGE
 
@@ -156,7 +155,6 @@ start_dashboard() {
         -e DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-30} \
         -e DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600} \
         -e API_URL=http://$API_CONTAINER:8000 \
-        -e FASTAPI_URL=http://$API_CONTAINER:8000/material_query \
         --restart unless-stopped \
         $DASHBOARD_IMAGE
 

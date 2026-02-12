@@ -1,6 +1,7 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, LogOut, Shield } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, LogOut, Shield, X, Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useReportGeneration } from '../contexts/ReportGenerationContext'
 import './Layout.css'
 
 const navItems = [
@@ -22,6 +23,7 @@ const influencers = [
 
 export default function Layout() {
   const { user, logout } = useAuth()
+  const { status, streamPhase, progressPct, cancelGeneration } = useReportGeneration()
 
   return (
     <div className="layout">
@@ -74,6 +76,32 @@ export default function Layout() {
             </div>
           )}
         </nav>
+
+        {/* Report generation progress widget */}
+        {status === 'generating' && (
+          <NavLink to="/report" className="report-progress-widget">
+            <div className="rpw-header">
+              <div className="rpw-label">
+                <Loader2 size={14} className="rpw-spinner" />
+                <span>Generating Report</span>
+              </div>
+              <button
+                className="rpw-cancel"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelGeneration(); }}
+                title="Cancel generation"
+              >
+                <X size={12} />
+              </button>
+            </div>
+            {streamPhase && (
+              <div className="rpw-phase">{streamPhase}</div>
+            )}
+            <div className="rpw-bar">
+              <div className="rpw-fill" style={{ width: `${progressPct}%` }} />
+            </div>
+            <div className="rpw-pct">{progressPct}%</div>
+          </NavLink>
+        )}
 
         {/* User section at bottom */}
         <div className="user-section">

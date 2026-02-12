@@ -145,7 +145,6 @@ function Start-ApiService {
         -e AWS_SECRET_ACCESS_KEY=$env:AWS_SECRET_ACCESS_KEY `
         -e AWS_DEFAULT_REGION=$env:AWS_DEFAULT_REGION `
         -e API_URL=$env:API_URL `
-        -e FASTAPI_URL="http://${API_CONTAINER}:8000/material_query" `
         --restart unless-stopped `
         $API_IMAGE
 
@@ -173,7 +172,6 @@ function Start-DashboardService {
         -e DB_POOL_TIMEOUT=$env:DB_POOL_TIMEOUT `
         -e DB_POOL_RECYCLE=$env:DB_POOL_RECYCLE `
         -e API_URL="http://${API_CONTAINER}:8000" `
-        -e FASTAPI_URL="http://${API_CONTAINER}:8000/material_query" `
         --restart unless-stopped `
         $DASHBOARD_IMAGE
 

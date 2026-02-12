@@ -113,9 +113,8 @@ POSTGRES_USER=matthew50
 POSTGRES_PASSWORD=softpower
 POSTGRES_DB=softpower-db
 
-# API Configuration
+# API Configuration (base URL — code appends /proxy_query, /s3/*, /batch/* as needed)
 API_URL=http://localhost:5001
-FASTAPI_URL=http://localhost:5001/material_query
 
 # OpenAI/Claude Keys
 CLAUDE_KEY=your-claude-key-here

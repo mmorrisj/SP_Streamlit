@@ -148,7 +148,7 @@ docker run -d `
     -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD `
     -e POSTGRES_DB=$POSTGRES_DB `
     -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@softpower_db:5432/${POSTGRES_DB}" `
-    -e BACKEND_API_URL=http://softpower_api:8000 `
+    -e API_URL=http://softpower_api:8000 `
     -v "${PWD}/services/dashboard:/app/services/dashboard:ro" `
     -v "${PWD}/shared:/app/shared:ro" `
     -p 8501:8501 `

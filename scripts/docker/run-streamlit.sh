@@ -43,7 +43,6 @@ docker run -d \
     -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
     -e POSTGRES_DB=$POSTGRES_DB \
     -e DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@softpower_db:5432/${POSTGRES_DB} \
-    -e BACKEND_API_URL=http://softpower_api:8000 \
     -e API_URL=http://softpower_api:8000 \
     -e REDIS_URL=redis://softpower_redis:6379 \
     -v "$(pwd)/services/dashboard:/app/services/dashboard:ro" \

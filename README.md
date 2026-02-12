@@ -532,7 +532,7 @@ uvicorn backend.api:app --host 0.0.0.0 --port 8000 --reload
 
 #### AI Queries
 - `POST /query` - Query GPT model
-- `POST /material_query` - Material-specific queries
+- `POST /proxy_query` - LLM proxy queries (environment-routed: LiteLLM > Azure > OpenAI)
 
 For detailed API documentation, see: `backend/FASTAPI_S3_SETUP.md`
 
