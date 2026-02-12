@@ -38,19 +38,19 @@ interface InfluencerEvent {
 }
 
 const fetchInfluencerOverview = async (country: string): Promise<InfluencerOverview> => {
-  const response = await fetch(`http://localhost:8000/api/influencer/${country}/overview`)
+  const response = await fetch(`/api/influencer/${country}/overview`)
   if (!response.ok) throw new Error('Failed to fetch overview')
   return response.json()
 }
 
 const fetchRecentActivities = async (country: string): Promise<RecentActivity> => {
-  const response = await fetch(`http://localhost:8000/api/influencer/${country}/recent-activities?limit=10`)
+  const response = await fetch(`/api/influencer/${country}/recent-activities?limit=10`)
   if (!response.ok) throw new Error('Failed to fetch activities')
   return response.json()
 }
 
 const fetchInfluencerEvents = async (country: string): Promise<{ events: InfluencerEvent[] }> => {
-  const response = await fetch(`http://localhost:8000/api/influencer/${country}/events?limit=8`)
+  const response = await fetch(`/api/influencer/${country}/events?limit=8`)
   if (!response.ok) throw new Error('Failed to fetch events')
   return response.json()
 }

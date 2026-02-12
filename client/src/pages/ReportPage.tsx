@@ -88,7 +88,6 @@ export default function ReportPage() {
     progressPct,
     startGeneration,
     cancelGeneration,
-    clearReport,
     dismissError,
   } = useReportGeneration()
 
