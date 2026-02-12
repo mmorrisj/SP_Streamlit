@@ -3,8 +3,8 @@
 # Single container running FastAPI + Streamlit
 # via supervisord process manager
 # ============================================
-# Base images: node (React build) + python (runtime)
-# Both available in air-gapped registry
+# Stripped-down image: no pipeline/ingestion/clustering
+# Only serves the web UI, API, RAG chat, and dashboard
 # ============================================
 
 # ============================================
@@ -31,24 +31,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-# - build-essential: needed to compile hdbscan, umap-learn, etc.
+# Install system dependencies (no build-essential — no C packages to compile)
 # - curl: health checks
 # - postgresql-client: database utilities (pg_isready, psql)
 # - supervisor: process manager for running both services
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
         curl \
         postgresql-client \
         supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple
-
-# Download NLTK data (needed at runtime, no internet on target)
-RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True); nltk.download('stopwords', quiet=True)"
+# Install Python dependencies (trimmed for serving only)
+COPY requirements-airgap.txt ./
+RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://pypi.org/simple
 
 # Pre-download the sentence-transformers model for RAG/chat
 # This model is loaded by services/chat/rag_service.py at runtime
@@ -59,12 +54,11 @@ model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
 print('Embedding model cached successfully')" \
     && chmod -R 755 /app/.cache/huggingface
 
-# Copy application code
+# Copy application code (no pipeline — not needed on air-gapped system)
 COPY shared/ ./shared/
 COPY server/ ./server/
 COPY services/chat/ ./services/chat/
 COPY services/dashboard/ ./services/dashboard/
-COPY services/pipeline/ ./services/pipeline/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 

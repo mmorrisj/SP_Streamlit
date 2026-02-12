@@ -4,7 +4,7 @@ import json
 from botocore.exceptions import ClientError
 from shared.utils.utils import cfg  # Import the already-loaded config
 from typing import List, Dict, Any, Optional
-from services.api.main import get_s3_api_client
+from shared.utils.s3_api_client import get_s3_api_client
 
 session = boto3.Session()
 # Create an S3 client

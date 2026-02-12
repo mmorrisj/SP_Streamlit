@@ -38,7 +38,7 @@ from services.pipeline.embeddings.embedding_vectorstore import (
 )
 
 # API Client for S3 operations (runs outside Docker)
-from services.api.api_client import get_s3_api_client
+from shared.utils.s3_api_client import get_s3_api_client
 
 # S3 configuration from config.yaml
 from services.pipeline.embeddings.s3 import get_bucket_name, get_s3_prefix

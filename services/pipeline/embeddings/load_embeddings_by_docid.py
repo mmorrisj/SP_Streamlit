@@ -46,7 +46,7 @@ from services.pipeline.embeddings.embedding_vectorstore import (
 )
 
 # API Client for S3 operations
-from services.api.api_client import get_s3_api_client
+from shared.utils.s3_api_client import get_s3_api_client
 
 
 class EmbeddingLoader:
