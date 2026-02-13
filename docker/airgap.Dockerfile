@@ -41,7 +41,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies (trimmed for serving only)
+# Install CPU-only PyTorch first (skips ~600MB of CUDA libraries)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining Python dependencies (trimmed for serving only)
 COPY requirements-airgap.txt ./
 RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://pypi.org/simple
 
