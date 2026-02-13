@@ -8,7 +8,7 @@
 .idea/
 .pycharm/
 *.iml
-
+*.dump
 # Node / React
 node_modules/
 client/dist/           # Built React files (build during deployment)
