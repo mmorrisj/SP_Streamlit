@@ -2,15 +2,22 @@
 # ============================================
 # Air-Gapped Package Builder
 # Run this on an INTERNET-CONNECTED machine
-# Produces a self-contained tar.gz for transfer
+# Produces a self-contained package for transfer
 # to the air-gapped CentOS 7 target
 # ============================================
-# Output: softpower-airgap-YYYYMMDD.tar.gz
+# Output (default): softpower-airgap-YYYYMMDD.tar.gz
+# Output (--pack):  softpower-airgap-YYYYMMDD/  (all files safe for transfer)
 #   Contains:
 #   - 2 Docker image tar files (db + app)
+#   - HuggingFace model directory
 #   - Deployment script
 #   - Database backup (if available)
 #   - .env.example
+# ============================================
+# Usage:
+#   ./airgap-build.sh                  # standard tar.gz output
+#   ./airgap-build.sh --pack           # transfer-safe directory (base64 encoded binaries)
+#   ./airgap-build.sh --pack 20260217  # with version tag
 # ============================================
 
 set -e
@@ -22,10 +29,26 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-VERSION="${1:-$(date +%Y%m%d)}"
+# Parse flags
+PACK_MODE=false
+VERSION=""
+for arg in "$@"; do
+    case "$arg" in
+        --pack) PACK_MODE=true ;;
+        *)      VERSION="$arg" ;;
+    esac
+done
+VERSION="${VERSION:-$(date +%Y%m%d)}"
+
 PACKAGE_DIR="softpower-airgap-${VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+if [ "$PACK_MODE" = true ]; then
+    OUTPUT_DESC="${PACKAGE_DIR}/  (transfer-safe, all .txt)"
+else
+    OUTPUT_DESC="${PACKAGE_DIR}.tar.gz"
+fi
 
 echo ""
 echo "=============================================="
@@ -33,7 +56,7 @@ echo "SoftPower Analytics - Air-Gap Package Builder"
 echo "=============================================="
 echo "Version:      $VERSION"
 echo "Project root: $PROJECT_ROOT"
-echo "Output:       ${PACKAGE_DIR}.tar.gz"
+echo "Output:       $OUTPUT_DESC"
 echo "=============================================="
 echo ""
 
@@ -72,9 +95,32 @@ echo -e "  ${GREEN}Application image built${NC}"
 echo ""
 
 # ============================================
-# Step 2: Export images as tar files
+# Step 2: Download HuggingFace model
 # ============================================
-echo -e "${BLUE}[2/6]${NC} Exporting Docker images to tar files..."
+echo -e "${BLUE}[2/7]${NC} Downloading sentence-transformers model..."
+echo ""
+
+MODEL_DIR="$PACKAGE_DIR/hf_model"
+mkdir -p "$MODEL_DIR"
+
+# Download the model into a local directory using the same image
+# so the cached format matches exactly what the container expects
+docker run --rm \
+    -v "$(pwd)/$MODEL_DIR:/export" \
+    -e HF_HOME=/export \
+    softpower-app-airgap:latest \
+    python -c "\
+from sentence_transformers import SentenceTransformer; \
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
+print('Model downloaded to /export')"
+
+echo -e "  ${GREEN}Model downloaded${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
+echo ""
+
+# ============================================
+# Step 3: Export images as tar files
+# ============================================
+echo -e "${BLUE}[3/7]${NC} Exporting Docker images to tar files..."
 echo ""
 
 mkdir -p "$PACKAGE_DIR/images"
@@ -89,7 +135,7 @@ echo ""
 # ============================================
 # Step 3: Database backup (if running)
 # ============================================
-echo -e "${BLUE}[3/6]${NC} Checking for database backup..."
+echo -e "${BLUE}[4/7]${NC} Checking for database backup..."
 echo ""
 
 if docker ps --format '{{.Names}}' | grep -q '^softpower_db$'; then
@@ -111,7 +157,7 @@ echo ""
 # ============================================
 # Step 4: Copy deployment files
 # ============================================
-echo -e "${BLUE}[4/6]${NC} Copying deployment files..."
+echo -e "${BLUE}[5/7]${NC} Copying deployment files..."
 echo ""
 
 # Deployment script
@@ -136,7 +182,7 @@ echo ""
 # ============================================
 # Step 5: Create documentation
 # ============================================
-echo -e "${BLUE}[5/6]${NC} Creating documentation..."
+echo -e "${BLUE}[6/7]${NC} Creating documentation..."
 echo ""
 
 cat > "$PACKAGE_DIR/README.txt" << 'DOCEOF'
@@ -151,8 +197,10 @@ Architecture:
 
 Contents:
   images/
-    pgvector-pg16.tar   PostgreSQL 16 + pgvector (official)
+    pgvector-pg16.tar           PostgreSQL 16 + pgvector (official)
     softpower-app-airgap.tar    FastAPI + Streamlit (single container)
+  hf_model/                     Pre-downloaded sentence-transformers model
+                                (~90MB, mounted as volume at runtime)
   airgap-deploy.sh              Deployment management script
   .env.example                  Environment variable template
   softpower-backup.dump         Database backup (if included)
@@ -171,24 +219,28 @@ QUICK START
 
 1. Transfer this directory to the air-gapped system
 
-2. Load Docker images:
+2. If packed for transfer (contains .b64.txt files):
+     cd softpower-airgap-XXXXXXXX
+     python3 unpack-airgap.py --apply
+
+3. Load Docker images:
      cd softpower-airgap-XXXXXXXX
      ./airgap-deploy.sh load ./images
 
-3. Create environment file:
+4. Create environment file:
      cp .env.example .env
      # Edit .env with your credentials
 
-4. Start services:
+5. Start services:
      ./airgap-deploy.sh start
 
-5. Run database migrations:
+6. Run database migrations:
      ./airgap-deploy.sh migrate
 
-6. (Optional) Restore database backup:
+7. (Optional) Restore database backup:
      ./airgap-deploy.sh restore softpower-backup.dump
 
-7. Access the application:
+8. Access the application:
      Web App:    http://<hostname>:8000
      Streamlit:  http://<hostname>:8501
      API Docs:   http://<hostname>:8000/docs
@@ -256,35 +308,40 @@ Pre-Installation:
 [ ] Package transferred to target system
 [ ] SELinux set to permissive (or configured for Docker)
 
-Step 1 - Load Images:
+Step 1 - Unpack (if transferred via pack):
 [ ] cd to package directory
+[ ] Run: python3 unpack-airgap.py --apply
+    (Skip if package was NOT packed for transfer)
+
+Step 2 - Load Images:
 [ ] Run: ./airgap-deploy.sh load ./images
 [ ] Verify: docker images | grep -E "softpower|pgvector"
     - pgvector/pgvector:0.8.0-pg16
     - softpower-app-airgap:latest
+[ ] Verify hf_model/ directory is present (sentence-transformers model)
 
-Step 2 - Configure:
+Step 3 - Configure:
 [ ] cp .env.example .env
 [ ] Edit .env with production credentials
     - POSTGRES_USER, POSTGRES_PASSWORD
     - POSTGRES_DB
 
-Step 3 - Start Services:
+Step 4 - Start Services:
 [ ] Run: ./airgap-deploy.sh start
 [ ] Verify: ./airgap-deploy.sh status
     - softpower_db is running
     - softpower_app is running
 
-Step 4 - Initialize Database:
+Step 5 - Initialize Database:
 [ ] Run: ./airgap-deploy.sh migrate
 [ ] (If backup available) Run: ./airgap-deploy.sh restore softpower-backup.dump
 
-Step 5 - Verify:
+Step 6 - Verify:
 [ ] curl http://localhost:8000/api/health
 [ ] Open browser to http://<hostname>:8000
 [ ] Open browser to http://<hostname>:8501
 
-Step 6 - Production Hardening:
+Step 7 - Production Hardening:
 [ ] Configure firewall rules (ports 8000, 8501)
 [ ] Set up systemd service for auto-restart on boot
 [ ] Schedule regular database backups
@@ -295,44 +352,81 @@ echo -e "  ${GREEN}Documentation created${NC}"
 echo ""
 
 # ============================================
-# Step 6: Create final archive
+# Step 7: Package for transfer
 # ============================================
-echo -e "${BLUE}[6/6]${NC} Creating final archive..."
+echo -e "${BLUE}[7/7]${NC} Packaging for transfer..."
 echo ""
 
-tar czf "${PACKAGE_DIR}.tar.gz" "$PACKAGE_DIR"
+if [ "$PACK_MODE" = true ]; then
+    # --pack mode: base64 encode binaries, rename blocked extensions
+    # Result is a directory of transfer-safe .txt files
 
-echo ""
-echo "=============================================="
-echo -e "${GREEN}Air-Gapped Package Created Successfully${NC}"
-echo "=============================================="
-echo ""
-echo "Package:  ${PACKAGE_DIR}.tar.gz"
-echo "Size:     $(du -sh "${PACKAGE_DIR}.tar.gz" | cut -f1)"
-echo ""
-echo "Contents:"
-echo "  images/pgvector-pg16.tar ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
-echo "  images/softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
-if [ -f "$PACKAGE_DIR/softpower-backup.dump" ]; then
-    echo "  softpower-backup.dump            ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"
+    # Copy unpack script into the package
+    cp "$SCRIPT_DIR/unpack-airgap.py" "$PACKAGE_DIR/"
+    echo -e "  ${GREEN}Copied unpack-airgap.py into package${NC}"
+
+    # Run pack-airgap.py
+    echo ""
+    echo "  Encoding binaries and renaming blocked files..."
+    echo ""
+    python3 "$SCRIPT_DIR/pack-airgap.py" "$PACKAGE_DIR" --apply
+
+    echo ""
+    echo "=============================================="
+    echo -e "${GREEN}Transfer-Safe Package Created${NC}"
+    echo "=============================================="
+    echo ""
+    echo "Directory:  ${PACKAGE_DIR}/"
+    echo "Size:       $(du -sh "$PACKAGE_DIR" | cut -f1)"
+    echo ""
+    echo "All files are .txt — safe for transfer systems that block"
+    echo "executables and binary files."
+    echo ""
+    echo "Transfer the '${PACKAGE_DIR}/' directory, then on the target:"
+    echo "  cd ${PACKAGE_DIR}"
+    echo "  python3 unpack-airgap.py --apply"
+    echo "  ./airgap-deploy.sh load ./images"
+    echo "  ./airgap-deploy.sh start"
+    echo "  ./airgap-deploy.sh migrate"
+    echo ""
+else
+    # Standard mode: tar.gz archive
+    echo "Contents:"
+    echo "  images/pgvector-pg16.tar         ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
+    echo "  images/softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+    echo "  hf_model/                        ($(du -sh "$PACKAGE_DIR/hf_model" | cut -f1) - sentence-transformers)"
+    if [ -f "$PACKAGE_DIR/softpower-backup.dump" ]; then
+        echo "  softpower-backup.dump            ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"
+    fi
+    echo "  airgap-deploy.sh                 (deployment script)"
+    echo "  .env.example                     (config template)"
+    echo "  README.txt                       (instructions)"
+    echo "  INSTALL_CHECKLIST.txt            (checklist)"
+    echo ""
+
+    tar czf "${PACKAGE_DIR}.tar.gz" "$PACKAGE_DIR"
+
+    echo ""
+    echo "=============================================="
+    echo -e "${GREEN}Air-Gapped Package Created Successfully${NC}"
+    echo "=============================================="
+    echo ""
+    echo "Package:  ${PACKAGE_DIR}.tar.gz"
+    echo "Size:     $(du -sh "${PACKAGE_DIR}.tar.gz" | cut -f1)"
+    echo ""
+    echo "Transfer to air-gapped system:"
+    echo "  scp ${PACKAGE_DIR}.tar.gz user@target:/opt/"
+    echo ""
+    echo "On the target system:"
+    echo "  cd /opt && tar xzf ${PACKAGE_DIR}.tar.gz"
+    echo "  cd ${PACKAGE_DIR}"
+    echo "  ./airgap-deploy.sh load ./images"
+    echo "  ./airgap-deploy.sh start"
+    echo "  ./airgap-deploy.sh migrate"
+    echo ""
+
+    # Cleanup staging directory (keep the tar.gz)
+    rm -rf "$PACKAGE_DIR"
+    echo "Staging directory cleaned up. Package ready: ${PACKAGE_DIR}.tar.gz"
+    echo ""
 fi
-echo "  airgap-deploy.sh                 (deployment script)"
-echo "  .env.example                     (config template)"
-echo "  README.txt                       (instructions)"
-echo "  INSTALL_CHECKLIST.txt            (checklist)"
-echo ""
-echo "Transfer to air-gapped system:"
-echo "  scp ${PACKAGE_DIR}.tar.gz user@target:/opt/"
-echo ""
-echo "On the target system:"
-echo "  cd /opt && tar xzf ${PACKAGE_DIR}.tar.gz"
-echo "  cd ${PACKAGE_DIR}"
-echo "  ./airgap-deploy.sh load ./images"
-echo "  ./airgap-deploy.sh start"
-echo "  ./airgap-deploy.sh migrate"
-echo ""
-
-# Cleanup staging directory (keep the tar.gz)
-rm -rf "$PACKAGE_DIR"
-echo "Staging directory cleaned up. Package ready: ${PACKAGE_DIR}.tar.gz"
-echo ""

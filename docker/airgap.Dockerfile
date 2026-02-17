@@ -48,14 +48,10 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 COPY requirements-airgap.txt ./
 RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://pypi.org/simple
 
-# Pre-download the sentence-transformers model for RAG/chat
-# This model is loaded by services/chat/rag_service.py at runtime
+# HuggingFace model is mounted as a volume at runtime (not baked into image).
+# This keeps the image ~90MB smaller for transfer.
+# The model directory is exported separately by airgap-build.sh.
 ENV HF_HOME=/app/.cache/huggingface
-RUN python -c "\
-from sentence_transformers import SentenceTransformer; \
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
-print('Embedding model cached successfully')" \
-    && chmod -R 755 /app/.cache/huggingface
 
 # Copy application code (no pipeline — not needed on air-gapped system)
 COPY shared/ ./shared/
