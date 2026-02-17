@@ -72,9 +72,32 @@ echo -e "  ${GREEN}Application image built${NC}"
 echo ""
 
 # ============================================
-# Step 2: Export images as tar files
+# Step 2: Download HuggingFace model
 # ============================================
-echo -e "${BLUE}[2/6]${NC} Exporting Docker images to tar files..."
+echo -e "${BLUE}[2/7]${NC} Downloading sentence-transformers model..."
+echo ""
+
+MODEL_DIR="$PACKAGE_DIR/hf_model"
+mkdir -p "$MODEL_DIR"
+
+# Download the model into a local directory using the same image
+# so the cached format matches exactly what the container expects
+docker run --rm \
+    -v "$(pwd)/$MODEL_DIR:/export" \
+    -e HF_HOME=/export \
+    softpower-app-airgap:latest \
+    python -c "\
+from sentence_transformers import SentenceTransformer; \
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
+print('Model downloaded to /export')"
+
+echo -e "  ${GREEN}Model downloaded${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
+echo ""
+
+# ============================================
+# Step 3: Export images as tar files
+# ============================================
+echo -e "${BLUE}[3/7]${NC} Exporting Docker images to tar files..."
 echo ""
 
 mkdir -p "$PACKAGE_DIR/images"
@@ -89,7 +112,7 @@ echo ""
 # ============================================
 # Step 3: Database backup (if running)
 # ============================================
-echo -e "${BLUE}[3/6]${NC} Checking for database backup..."
+echo -e "${BLUE}[4/7]${NC} Checking for database backup..."
 echo ""
 
 if docker ps --format '{{.Names}}' | grep -q '^softpower_db$'; then
@@ -111,7 +134,7 @@ echo ""
 # ============================================
 # Step 4: Copy deployment files
 # ============================================
-echo -e "${BLUE}[4/6]${NC} Copying deployment files..."
+echo -e "${BLUE}[5/7]${NC} Copying deployment files..."
 echo ""
 
 # Deployment script
@@ -136,7 +159,7 @@ echo ""
 # ============================================
 # Step 5: Create documentation
 # ============================================
-echo -e "${BLUE}[5/6]${NC} Creating documentation..."
+echo -e "${BLUE}[6/7]${NC} Creating documentation..."
 echo ""
 
 cat > "$PACKAGE_DIR/README.txt" << 'DOCEOF'
@@ -151,8 +174,10 @@ Architecture:
 
 Contents:
   images/
-    pgvector-pg16.tar   PostgreSQL 16 + pgvector (official)
+    pgvector-pg16.tar           PostgreSQL 16 + pgvector (official)
     softpower-app-airgap.tar    FastAPI + Streamlit (single container)
+  hf_model/                     Pre-downloaded sentence-transformers model
+                                (~90MB, mounted as volume at runtime)
   airgap-deploy.sh              Deployment management script
   .env.example                  Environment variable template
   softpower-backup.dump         Database backup (if included)
@@ -262,6 +287,7 @@ Step 1 - Load Images:
 [ ] Verify: docker images | grep -E "softpower|pgvector"
     - pgvector/pgvector:0.8.0-pg16
     - softpower-app-airgap:latest
+[ ] Verify hf_model/ directory is present (sentence-transformers model)
 
 Step 2 - Configure:
 [ ] cp .env.example .env
@@ -297,7 +323,7 @@ echo ""
 # ============================================
 # Step 6: Create final archive
 # ============================================
-echo -e "${BLUE}[6/6]${NC} Creating final archive..."
+echo -e "${BLUE}[7/7]${NC} Creating final archive..."
 echo ""
 
 tar czf "${PACKAGE_DIR}.tar.gz" "$PACKAGE_DIR"
@@ -311,8 +337,9 @@ echo "Package:  ${PACKAGE_DIR}.tar.gz"
 echo "Size:     $(du -sh "${PACKAGE_DIR}.tar.gz" | cut -f1)"
 echo ""
 echo "Contents:"
-echo "  images/pgvector-pg16.tar ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
+echo "  images/pgvector-pg16.tar         ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
 echo "  images/softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+echo "  hf_model/                        ($(du -sh "$PACKAGE_DIR/hf_model" | cut -f1) - sentence-transformers)"
 if [ -f "$PACKAGE_DIR/softpower-backup.dump" ]; then
     echo "  softpower-backup.dump            ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"
 fi

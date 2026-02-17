@@ -63,6 +63,11 @@ else
     APP_IMAGE="softpower-app-airgap:latest"
 fi
 
+# HuggingFace model directory (sentence-transformers, mounted as volume)
+# Default: hf_model/ next to this script (produced by airgap-build.sh)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODEL_DIR="${MODEL_DIR:-${SCRIPT_DIR}/hf_model}"
+
 # Container names
 DB_CONTAINER="softpower_db"
 APP_CONTAINER="softpower_app"
@@ -249,11 +254,21 @@ cmd_start() {
             log_info "LLM/S3 proxy: disabled (container calls APIs directly)"
         fi
 
+        # Verify HuggingFace model directory
+        if [ ! -d "$MODEL_DIR" ]; then
+            log_error "HuggingFace model directory not found: $MODEL_DIR"
+            log_info "The model is packaged in hf_model/ by airgap-build.sh"
+            log_info "Set MODEL_DIR=/path/to/hf_model to override"
+            exit 1
+        fi
+        log_ok "Model dir: $MODEL_DIR"
+
         log_info "Starting application (FastAPI + Streamlit)..."
         docker run -d \
             --name "$APP_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
+            -v "$(cd "$MODEL_DIR" && pwd)":/app/.cache/huggingface:ro \
             $PROXY_HOST_FLAG \
             -e DOCKER_ENV=true \
             -e NODE_ENV=production \
@@ -289,6 +304,7 @@ cmd_start() {
     echo ""
     echo "Deploy mode:  $DEPLOY_MODE"
     echo "HF offline:   TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE, HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
+    echo "Model dir:    $MODEL_DIR"
     echo "App image:    $APP_IMAGE"
     if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
         echo "LLM proxy:    host.docker.internal:${LLM_PROXY_PORT}"
@@ -404,6 +420,7 @@ cmd_status() {
 
     echo ""
     log_info "Deploy mode: $DEPLOY_MODE (TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE)"
+    log_info "Model dir:   $MODEL_DIR"
     log_info "App image:   $APP_IMAGE"
 
     echo ""
@@ -545,6 +562,7 @@ case "${1:-help}" in
         echo "  DEPLOY_MODE=airgap      HuggingFace fully offline (default)"
         echo "  DEPLOY_MODE=standard    HuggingFace can reach network"
         echo "  AIRGAP_REGISTRY=...     Use registry-prefixed image name"
+        echo "  MODEL_DIR=./hf_model    Path to HuggingFace model directory"
         echo "  LLM_PROXY_PORT=7001     Host-side LLM/S3 proxy port (default: 7001)"
         echo "  LLM_PROXY_PORT=0        Disable proxy (container calls APIs directly)"
         echo ""
