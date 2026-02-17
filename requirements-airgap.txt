@@ -9,7 +9,6 @@ pandas
 numpy
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
-openpyxl
 python-docx
 pyyaml
 requests
@@ -20,10 +19,8 @@ alembic==1.12.1
 pgvector==0.2.4
 
 # Embeddings (required for RAG query embedding)
+# langchain-huggingface pulls langchain-core as a dependency
 sentence-transformers
-langchain
-langchain-community
-langchain-openai
 langchain-huggingface
 
 # AI/LLM
@@ -52,6 +49,4 @@ streamlit-chat
 pyvis
 
 # Utilities
-click
-tabulate
 pyarrow
