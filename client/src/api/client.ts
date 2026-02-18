@@ -152,6 +152,191 @@ export const fetchRecipientMetrics = async (country: string): Promise<RecipientM
   return data
 }
 
+// ============================================================
+// Influencer Page Types and API functions
+// ============================================================
+
+export interface InfluencerOverview {
+  country: string
+  total_documents: number
+  total_recipients: number
+  total_events: number
+  total_entities: number
+  avg_material_score: number | null
+  top_categories: { category: string; count: number }[]
+  recent_activity_trend: { week: string; count: number }[]
+  top_recipients: { country: string; count: number }[]
+  source_breakdown: { source: string; count: number }[]
+}
+
+export interface InfluencerEvent {
+  id: string
+  event_name: string
+  description: string | null
+  initiating_country: string
+  first_mention_date: string | null
+  last_mention_date: string | null
+  total_articles: number
+  total_mention_days: number
+  story_phase: string | null
+  material_score: number | null
+  material_justification: string | null
+  peak_mention_date: string | null
+  peak_daily_article_count: number
+  source_count: number
+  primary_categories: Record<string, number>
+  primary_recipients: Record<string, number>
+}
+
+export interface InfluencerEventsResponse {
+  events: InfluencerEvent[]
+  total: number
+}
+
+export interface InfluencerEntity {
+  id: string
+  canonical_name: string
+  entity_type: string | null
+  primary_role: string | null
+  entity_description: string | null
+  total_documents: number
+  total_mention_days: number
+  first_mention_date: string | null
+  last_mention_date: string | null
+  primary_categories: Record<string, number>
+  primary_recipients: Record<string, number>
+}
+
+export interface InfluencerEntitiesResponse {
+  entities: InfluencerEntity[]
+  total: number
+}
+
+export interface BilateralSummary {
+  recipient_country: string
+  total_documents: number
+  total_daily_events: number
+  first_interaction_date: string | null
+  last_interaction_date: string | null
+  count_by_category: Record<string, number>
+  overview: string
+  key_themes: string[]
+  current_status: string
+  material_score_avg: number | null
+}
+
+export interface InfluencerBilateralSummariesResponse {
+  summaries: BilateralSummary[]
+}
+
+export const fetchInfluencerOverview = async (country: string): Promise<InfluencerOverview> => {
+  const { data } = await api.get(`/influencer/${country}/overview`)
+  return data
+}
+
+export const fetchInfluencerEvents = async (
+  country: string,
+  params?: { limit?: number; offset?: number; sort_by?: string }
+): Promise<InfluencerEventsResponse> => {
+  const { data } = await api.get(`/influencer/${country}/events`, { params })
+  return data
+}
+
+export const fetchInfluencerEntities = async (
+  country: string,
+  params?: { limit?: number; offset?: number; entity_type?: string; sort_by?: string }
+): Promise<InfluencerEntitiesResponse> => {
+  const { data } = await api.get(`/influencer/${country}/entities`, { params })
+  return data
+}
+
+export const fetchInfluencerBilateralSummaries = async (
+  country: string
+): Promise<InfluencerBilateralSummariesResponse> => {
+  const { data } = await api.get(`/influencer/${country}/bilateral-summaries`)
+  return data
+}
+
+// ============================================================
+// Influencer Page - Phase 2 (Category, Sources, Timeline)
+// ============================================================
+
+export interface CategoryStrategySummary {
+  category: string
+  total_documents: number
+  total_daily_events: number
+  count_by_recipient: Record<string, number>
+  count_by_subcategory: Record<string, number>
+  activity_by_month: Record<string, number>
+  overview: string
+  key_strategies: string[]
+  trend_analysis: string
+  top_recipients: { country: string; focus_areas: string; intensity: string }[]
+  major_initiatives: { name: string; description: string; timeframe: string }[]
+  material_score_avg: number | null
+}
+
+export interface InfluencerCategorySummariesResponse {
+  summaries: CategoryStrategySummary[]
+}
+
+export interface SourceDetail {
+  source_name: string
+  doc_count: number
+  first_date: string | null
+  last_date: string | null
+}
+
+export interface InfluencerSourcesResponse {
+  sources: SourceDetail[]
+  total_sources: number
+  top_geofocus: { geofocus: string; count: number }[]
+  top_medium: { medium: string; count: number }[]
+}
+
+export interface TimelineItem {
+  date: string | null
+  event_name: string
+  headline: string | null
+  summary: string | null
+  article_count: number
+  news_intensity: string | null
+  mention_context: string | null
+  story_phase: string | null
+  material_score: number | null
+  source_count: number
+  categories: string[]
+  recipients: string[]
+}
+
+export interface InfluencerTimelineResponse {
+  items: TimelineItem[]
+  total: number
+}
+
+export const fetchInfluencerCategorySummaries = async (
+  country: string
+): Promise<InfluencerCategorySummariesResponse> => {
+  const { data } = await api.get(`/influencer/${country}/category-summaries`)
+  return data
+}
+
+export const fetchInfluencerSources = async (
+  country: string,
+  params?: { limit?: number }
+): Promise<InfluencerSourcesResponse> => {
+  const { data } = await api.get(`/influencer/${country}/sources`, { params })
+  return data
+}
+
+export const fetchInfluencerTimeline = async (
+  country: string,
+  params?: { limit?: number; offset?: number }
+): Promise<InfluencerTimelineResponse> => {
+  const { data } = await api.get(`/influencer/${country}/timeline`, { params })
+  return data
+}
+
 export interface BilateralMapData {
   influencer: string
   recipients: {
