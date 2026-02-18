@@ -159,6 +159,13 @@ cmd_setup() {
         exit 1
     fi
 
+    # Locate requirements file (packages to install from wheels)
+    local req_file="${SCRIPT_DIR}/requirements-airgap-heavy.txt"
+    if [ ! -f "$req_file" ]; then
+        log_warn "requirements-airgap-heavy.txt not found, using built-in package list"
+        req_file=""
+    fi
+
     # Verify the slim image is loaded
     if ! docker image inspect "$APP_IMAGE" &>/dev/null; then
         log_error "App image not found: $APP_IMAGE"
@@ -170,6 +177,16 @@ cmd_setup() {
     log_info "Installing into $APP_IMAGE (this may take a minute)..."
     echo ""
 
+    # Build the pip install command.
+    # Prefer requirements-airgap-heavy.txt (versioned, matches what build downloaded)
+    # with a hard-coded fallback for backwards compatibility.
+    local pip_cmd="pip install --no-cache-dir --no-index --find-links /wheels"
+    if [ -n "$req_file" ]; then
+        pip_cmd="$pip_cmd -r /requirements-airgap-heavy.txt"
+    else
+        pip_cmd="$pip_cmd torch sentence-transformers langchain-huggingface"
+    fi
+
     # Create temp container, copy wheels in, pip install, then commit.
     # Uses docker cp instead of volume mounts for cross-platform compatibility.
     local setup_container="softpower_setup_$$"
@@ -177,10 +194,12 @@ cmd_setup() {
 
     docker create --name "$setup_container" \
         "$APP_IMAGE" \
-        pip install --no-cache-dir --no-index --find-links /wheels \
-            torch sentence-transformers langchain-huggingface
+        bash -c "$pip_cmd"
 
     docker cp "$wheels_dir" "$setup_container":/wheels
+    if [ -n "$req_file" ]; then
+        docker cp "$req_file" "$setup_container":/requirements-airgap-heavy.txt
+    fi
     docker start -a "$setup_container"
 
     # Commit the container as the updated image
@@ -190,6 +209,21 @@ cmd_setup() {
     echo ""
     log_ok "ML packages installed into $APP_IMAGE"
     log_info "Image size: $(docker images "$APP_IMAGE" --format '{{.Size}}')"
+
+    # Verify ML packages are importable in the committed image
+    echo ""
+    log_info "Verifying ML package installation..."
+    if docker run --rm "$APP_IMAGE" python3 -c \
+        "import torch; import sentence_transformers; import langchain_huggingface; print('OK')" \
+        2>/dev/null | grep -q "OK"; then
+        log_ok "ML packages verified: torch, sentence-transformers, langchain-huggingface"
+    else
+        log_error "ML package verification FAILED — imports did not succeed"
+        log_info "Check the pip install output above for errors"
+        log_info "You may need to re-run: ./airgap-deploy.sh setup"
+        exit 1
+    fi
+
     echo ""
     echo "Next steps:"
     echo "  ./airgap-deploy.sh start"
@@ -317,14 +351,29 @@ cmd_start() {
             log_info "LLM/S3 proxy: disabled (container calls APIs directly)"
         fi
 
-        # Verify HuggingFace model directory
+        # Verify HuggingFace model directory exists and contains model files
         if [ ! -d "$MODEL_DIR" ]; then
             log_error "HuggingFace model directory not found: $MODEL_DIR"
             log_info "The model is packaged in hf_model/ by airgap-build.sh"
             log_info "Set MODEL_DIR=/path/to/hf_model to override"
             exit 1
         fi
-        log_ok "Model dir: $MODEL_DIR"
+        # Check for the model marker file (modules.json from model.save())
+        if [ ! -f "$MODEL_DIR/models/all-MiniLM-L6-v2/modules.json" ]; then
+            log_error "Model files missing: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
+            log_info "The hf_model/ directory exists but appears empty or incomplete"
+            log_info "Re-run airgap-build.sh to regenerate the model export"
+            exit 1
+        fi
+        log_ok "Model dir: $MODEL_DIR (verified)"
+
+        # Pre-flight: verify ML packages were installed (./airgap-deploy.sh setup)
+        if ! docker run --rm "$APP_IMAGE" python3 -c "import sentence_transformers" 2>/dev/null; then
+            log_error "ML packages not installed in $APP_IMAGE"
+            log_info "Run './airgap-deploy.sh setup' first to install torch + sentence-transformers"
+            exit 1
+        fi
+        log_ok "ML packages: installed"
 
         log_info "Starting application (FastAPI + Streamlit)..."
         docker run -d \
