@@ -52,8 +52,12 @@ RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://py
 # HuggingFace model is mounted as a volume at runtime (not baked into image).
 # This keeps the image ~90MB smaller for transfer.
 # The model directory is exported separately by airgap-build.sh.
+#
+# HF_HOME is the root for the HuggingFace Hub cache.  The hub library stores
+# models under $HF_HOME/hub/models--<org>--<name>/.  Do NOT also set
+# SENTENCE_TRANSFORMERS_HOME — it bypasses the hub/ layer and causes a path
+# mismatch (the model is stored with hub/ but looked up without it).
 ENV HF_HOME=/app/.cache/huggingface
-ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface
 
 # Copy application code (no pipeline — not needed on air-gapped system)
 COPY shared/ ./shared/

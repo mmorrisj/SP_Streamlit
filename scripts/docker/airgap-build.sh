@@ -141,8 +141,15 @@ echo ""
 MODEL_DIR="$PACKAGE_DIR/hf_model"
 mkdir -p "$MODEL_DIR"
 
-# Install heavy packages in a temp container, then download model.
+# Install heavy packages in a temp container, then download and save model.
 # Uses docker create + docker cp instead of volume mounts for Windows compatibility.
+#
+# The model is saved two ways:
+#   1. /export/models/all-MiniLM-L6-v2/  — clean model.save() copy (no symlinks,
+#      portable across docker cp, tar, pack/unpack transfers). This is the
+#      preferred path used by shared/utils/model_cache.py at runtime.
+#   2. /export/hub/models--sentence-transformers--all-MiniLM-L6-v2/  — standard
+#      HF Hub cache layout (kept as fallback for compatibility).
 MODEL_CONTAINER="airgap_build_model_$$"
 docker rm -f "$MODEL_CONTAINER" 2>/dev/null || true
 
@@ -151,10 +158,35 @@ docker create --name "$MODEL_CONTAINER" \
     softpower-app-airgap:latest \
     bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
         torch sentence-transformers langchain-huggingface 2>/dev/null && \
-    python -c '\
-from sentence_transformers import SentenceTransformer; \
-model = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\"); \
-print(\"Model downloaded to /export\")'"
+    python3 -c '
+import os, shutil
+from sentence_transformers import SentenceTransformer
+
+# Download model into HF Hub cache (/export/hub/...)
+model = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\")
+
+# Save a clean, symlink-free copy for air-gapped portability
+direct_path = \"/export/models/all-MiniLM-L6-v2\"
+os.makedirs(direct_path, exist_ok=True)
+model.save(direct_path)
+print(f\"Direct model saved to {direct_path}\")
+print(f\"  Contents: {os.listdir(direct_path)}\")
+
+# Also resolve symlinks in the HF Hub cache so it survives transfers
+hub_dir = \"/export/hub\"
+if os.path.isdir(hub_dir):
+    for root, dirs, files in os.walk(hub_dir):
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            if os.path.islink(fpath):
+                target = os.path.realpath(fpath)
+                if os.path.isfile(target):
+                    os.unlink(fpath)
+                    shutil.copy2(target, fpath)
+    print(\"HF Hub cache symlinks resolved to real files\")
+
+print(\"Model export complete\")
+'"
 
 # Copy wheel files into the container, then run install + model download
 docker cp "$WHEELS_DIR" "$MODEL_CONTAINER":/wheels

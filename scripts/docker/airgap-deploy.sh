@@ -350,7 +350,6 @@ cmd_start() {
             -e API_URL="$PROXY_API_URL" \
             -e TRANSFORMERS_OFFLINE="$TRANSFORMERS_OFFLINE" \
             -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
-            -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface" \
             -e HF_HOME="/app/.cache/huggingface" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
             -p "${API_PORT}:8000" \
