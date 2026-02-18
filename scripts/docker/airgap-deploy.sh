@@ -170,14 +170,18 @@ cmd_setup() {
     log_info "Installing into $APP_IMAGE (this may take a minute)..."
     echo ""
 
-    # Run a temp container, mount wheels, pip install, then commit
+    # Create temp container, copy wheels in, pip install, then commit.
+    # Uses docker cp instead of volume mounts for cross-platform compatibility.
     local setup_container="softpower_setup_$$"
+    docker rm -f "$setup_container" 2>/dev/null || true
 
-    docker run --name "$setup_container" \
-        -v "$(cd "$wheels_dir" && pwd)":/wheels:ro \
+    docker create --name "$setup_container" \
         "$APP_IMAGE" \
         pip install --no-cache-dir --no-index --find-links /wheels \
             torch sentence-transformers langchain-huggingface
+
+    docker cp "$wheels_dir" "$setup_container":/wheels
+    docker start -a "$setup_container"
 
     # Commit the container as the updated image
     docker commit "$setup_container" "$APP_IMAGE"
