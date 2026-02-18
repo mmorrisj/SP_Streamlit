@@ -31,11 +31,11 @@ from shared.models.models import Document
 
 # LangChain imports
 from langchain_community.vectorstores.pgvector import PGVector
-from langchain_huggingface import HuggingFaceEmbeddings
 from services.pipeline.embeddings.embedding_vectorstore import (
     build_connection_string,
     stores
 )
+from shared.utils.model_cache import get_hf_embeddings
 
 # API Client for S3 operations (runs outside Docker)
 from shared.utils.s3_api_client import get_s3_api_client
@@ -93,9 +93,7 @@ class S3ToPgVectorMigrator:
             self.vector_store = stores[collection_name]
         else:
             # Create custom store if not predefined
-            embedding_function = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2"
-            )
+            embedding_function = get_hf_embeddings()
             self.vector_store = PGVector(
                 collection_name=collection_name,
                 connection_string=build_connection_string(),

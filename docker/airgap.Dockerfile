@@ -54,10 +54,16 @@ RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://py
 # The model directory is exported separately by airgap-build.sh.
 #
 # HF_HOME is the root for the HuggingFace Hub cache.  The hub library stores
-# models under $HF_HOME/hub/models--<org>--<name>/.  Do NOT also set
-# SENTENCE_TRANSFORMERS_HOME — it bypasses the hub/ layer and causes a path
-# mismatch (the model is stored with hub/ but looked up without it).
+# models under $HF_HOME/hub/models--<org>--<name>/.
+#
+# SENTENCE_TRANSFORMERS_HOME must point to $HF_HOME/hub so that the
+# sentence-transformers library can find cached models directly (it looks
+# under $SENTENCE_TRANSFORMERS_HOME/models--<org>--<name>/ without adding
+# a hub/ prefix).  This is essential for any code that calls
+# SentenceTransformer(model_name) directly instead of going through
+# shared/utils/model_cache.py.
 ENV HF_HOME=/app/.cache/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/hub
 
 # Copy application code (no pipeline — not needed on air-gapped system)
 COPY shared/ ./shared/
