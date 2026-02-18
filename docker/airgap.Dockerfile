@@ -41,11 +41,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-# Install CPU-only PyTorch first (skips ~600MB of CUDA libraries)
-# Pinned to prevent image bloat across rebuilds
-RUN pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-
-# Install remaining Python dependencies (trimmed for serving only)
+# Install lightweight Python dependencies only.
+# Heavy ML packages (torch, sentence-transformers, langchain-huggingface)
+# are shipped as wheels and installed on the target via:
+#   ./airgap-deploy.sh setup
+# This keeps the image ~1.5GB smaller for transfer.
 COPY requirements-airgap.txt ./
 RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://pypi.org/simple
 

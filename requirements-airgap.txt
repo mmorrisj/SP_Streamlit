@@ -1,7 +1,8 @@
 # ============================================
-# Air-Gapped Runtime Requirements
-# Stripped-down deps for serving only (no pipeline/ingestion)
-# Pin heavyweight packages to prevent image bloat across rebuilds
+# Air-Gapped Runtime Requirements (SLIM)
+# Lightweight packages baked into the Docker image.
+# Heavy ML packages (torch, sentence-transformers, langchain-huggingface)
+# are installed separately from wheels — see requirements-airgap-heavy.txt
 # ============================================
 
 # Core
@@ -18,11 +19,6 @@ matplotlib==3.8.3
 # Database & Migrations
 alembic==1.12.1
 pgvector==0.2.4
-
-# Embeddings (required for RAG query embedding)
-# langchain-huggingface pulls langchain-core as a dependency
-sentence-transformers==3.3.1
-langchain-huggingface==0.1.2
 
 # AI/LLM
 openai>=2.14.0

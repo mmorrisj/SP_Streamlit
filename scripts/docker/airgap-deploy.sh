@@ -135,6 +135,65 @@ container_exists() {
 }
 
 # ============================================
+# Setup: Install heavy ML packages from wheels
+# ============================================
+cmd_setup() {
+    echo ""
+    echo "=============================================="
+    echo "Installing ML packages from local wheels"
+    echo "=============================================="
+    echo ""
+
+    # Locate wheels directory (next to this script)
+    local wheels_dir="${SCRIPT_DIR}/wheels"
+    if [ ! -d "$wheels_dir" ]; then
+        log_error "Wheels directory not found: $wheels_dir"
+        log_info "Expected: wheels/ directory produced by airgap-build.sh"
+        exit 1
+    fi
+
+    local wheel_count
+    wheel_count=$(ls -1 "$wheels_dir"/*.whl 2>/dev/null | wc -l)
+    if [ "$wheel_count" -eq 0 ]; then
+        log_error "No .whl files found in $wheels_dir"
+        exit 1
+    fi
+
+    # Verify the slim image is loaded
+    if ! docker image inspect "$APP_IMAGE" &>/dev/null; then
+        log_error "App image not found: $APP_IMAGE"
+        log_info "Run './airgap-deploy.sh load ./images' first"
+        exit 1
+    fi
+
+    log_info "Found $wheel_count wheel files in $wheels_dir"
+    log_info "Installing into $APP_IMAGE (this may take a minute)..."
+    echo ""
+
+    # Run a temp container, mount wheels, pip install, then commit
+    local setup_container="softpower_setup_$$"
+
+    docker run --name "$setup_container" \
+        -v "$(cd "$wheels_dir" && pwd)":/wheels:ro \
+        "$APP_IMAGE" \
+        pip install --no-cache-dir --no-index --find-links /wheels \
+            torch sentence-transformers langchain-huggingface
+
+    # Commit the container as the updated image
+    docker commit "$setup_container" "$APP_IMAGE"
+    docker rm "$setup_container"
+
+    echo ""
+    log_ok "ML packages installed into $APP_IMAGE"
+    log_info "Image size: $(docker images "$APP_IMAGE" --format '{{.Size}}')"
+    echo ""
+    echo "Next steps:"
+    echo "  ./airgap-deploy.sh start"
+    echo "  ./airgap-deploy.sh migrate"
+    echo ""
+}
+
+# ============================================
 # Load Images from tar files
 # ============================================
 cmd_load() {
@@ -502,6 +561,9 @@ cmd_restore() {
 # Main
 # ============================================
 case "${1:-help}" in
+    setup)
+        cmd_setup
+        ;;
     start)
         cmd_start
         ;;
@@ -540,6 +602,7 @@ case "${1:-help}" in
         echo ""
         echo "Commands:"
         echo "  load [dir]          Load Docker images from tar files in [dir] (default: current dir)"
+        echo "  setup               Install ML packages from wheels into app image (one-time)"
         echo "  start               Start all services (database + application)"
         echo "  stop                Stop all services (preserves data)"
         echo "  restart             Stop then start all services"
@@ -551,9 +614,10 @@ case "${1:-help}" in
         echo ""
         echo "First-time deployment:"
         echo "  1. $0 load ./images     # Load pre-built Docker images"
-        echo "  2. $0 start             # Start database + application"
-        echo "  3. $0 migrate           # Initialize database schema"
-        echo "  4. $0 restore backup.dump  # Restore data (if you have a backup)"
+        echo "  2. $0 setup             # Install ML packages from wheels"
+        echo "  3. $0 start             # Start database + application"
+        echo "  4. $0 migrate           # Initialize database schema"
+        echo "  5. $0 restore backup.dump  # Restore data (if you have a backup)"
         echo ""
         echo "Environment:"
         echo "  Create a .env file to override defaults (see .env.example)"
