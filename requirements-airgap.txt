@@ -1,27 +1,24 @@
 # ============================================
-# Air-Gapped Runtime Requirements
-# Stripped-down deps for serving only (no pipeline/ingestion)
+# Air-Gapped Runtime Requirements (SLIM)
+# Lightweight packages baked into the Docker image.
+# Heavy ML packages (torch, sentence-transformers, langchain-huggingface)
+# are installed separately from wheels — see requirements-airgap-heavy.txt
 # ============================================
 
 # Core
 python-dotenv
-pandas
-numpy
+pandas==2.1.4
+numpy==1.26.4
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
 python-docx
 pyyaml
 requests
-matplotlib
+matplotlib==3.8.3
 
 # Database & Migrations
 alembic==1.12.1
 pgvector==0.2.4
-
-# Embeddings (required for RAG query embedding)
-# langchain-huggingface pulls langchain-core as a dependency
-sentence-transformers
-langchain-huggingface
 
 # AI/LLM
 openai>=2.14.0
@@ -39,14 +36,10 @@ PyJWT>=2.8.0
 bcrypt>=4.0.0
 
 # Dashboard (Streamlit)
-streamlit
-plotly
-altair
-streamlit-option-menu
-streamlit-aggrid
-streamlit-plotly-events
-streamlit-chat
+streamlit==1.40.2
+plotly==5.18.0
+altair==5.2.0
 pyvis
 
 # Utilities
-pyarrow
+pyarrow==14.0.2

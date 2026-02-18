@@ -8,7 +8,8 @@
 # Output (default): softpower-airgap-YYYYMMDD.tar.gz
 # Output (--pack):  softpower-airgap-YYYYMMDD/  (all files safe for transfer)
 #   Contains:
-#   - 2 Docker image tar files (db + app)
+#   - 2 Docker image tar files (db + app, slim — no ML packages)
+#   - wheels/ directory with heavy ML packages (torch, sentence-transformers)
 #   - HuggingFace model directory
 #   - Deployment script
 #   - Database backup (if available)
@@ -63,9 +64,9 @@ echo ""
 cd "$PROJECT_ROOT"
 
 # ============================================
-# Step 1: Build Docker images
+# Step 1: Build slim Docker image
 # ============================================
-echo -e "${BLUE}[1/6]${NC} Preparing Docker images..."
+echo -e "${BLUE}[1/8]${NC} Preparing Docker images..."
 echo ""
 
 # Database: Use official pgvector image (PostgreSQL 16 + pgvector extension)
@@ -86,41 +87,81 @@ else
 fi
 
 echo ""
-echo "  Building application image (FastAPI + Streamlit)..."
+echo "  Building slim application image (no ML packages)..."
 docker build \
     -f docker/airgap.Dockerfile \
     -t softpower-app-airgap:latest \
     .
-echo -e "  ${GREEN}Application image built${NC}"
+echo -e "  ${GREEN}Slim application image built${NC}"
 echo ""
 
 # ============================================
-# Step 2: Download HuggingFace model
+# Step 2: Download heavy ML package wheels
 # ============================================
-echo -e "${BLUE}[2/7]${NC} Downloading sentence-transformers model..."
+echo -e "${BLUE}[2/8]${NC} Downloading ML package wheels..."
+echo ""
+
+WHEELS_DIR="$PACKAGE_DIR/wheels"
+mkdir -p "$WHEELS_DIR"
+
+# Download wheels inside the slim image so they're platform-compatible
+# PyTorch CPU from pytorch index, everything else from PyPI
+echo "  Downloading PyTorch CPU wheel..."
+docker run --rm \
+    -v "$(pwd)/$WHEELS_DIR:/wheels" \
+    softpower-app-airgap:latest \
+    pip download --no-cache-dir \
+        --dest /wheels \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.5.1
+
+echo ""
+echo "  Downloading sentence-transformers + langchain-huggingface wheels..."
+docker run --rm \
+    -v "$(pwd)/$WHEELS_DIR:/wheels" \
+    softpower-app-airgap:latest \
+    pip download --no-cache-dir \
+        --dest /wheels \
+        --index-url https://pypi.org/simple \
+        sentence-transformers==3.3.1 \
+        langchain-huggingface==0.1.2
+
+WHEEL_COUNT=$(ls -1 "$WHEELS_DIR"/*.whl 2>/dev/null | wc -l)
+WHEEL_SIZE=$(du -sh "$WHEELS_DIR" | cut -f1)
+echo ""
+echo -e "  ${GREEN}Downloaded ${WHEEL_COUNT} wheel files${NC} (${WHEEL_SIZE})"
+echo ""
+
+# ============================================
+# Step 3: Download HuggingFace model
+# ============================================
+echo -e "${BLUE}[3/8]${NC} Downloading sentence-transformers model..."
 echo ""
 
 MODEL_DIR="$PACKAGE_DIR/hf_model"
 mkdir -p "$MODEL_DIR"
 
-# Download the model into a local directory using the same image
-# so the cached format matches exactly what the container expects
+# Install heavy packages in a temp container, then download model
 docker run --rm \
+    -v "$(pwd)/$WHEELS_DIR:/wheels" \
     -v "$(pwd)/$MODEL_DIR:/export" \
     -e HF_HOME=/export \
     softpower-app-airgap:latest \
-    python -c "\
+    bash -c "\
+pip install --no-cache-dir --no-index --find-links /wheels \
+    torch sentence-transformers langchain-huggingface 2>/dev/null && \
+python -c '\
 from sentence_transformers import SentenceTransformer; \
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
-print('Model downloaded to /export')"
+model = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\"); \
+print(\"Model downloaded to /export\")'"
 
 echo -e "  ${GREEN}Model downloaded${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
 echo ""
 
 # ============================================
-# Step 3: Export images as tar files
+# Step 4: Export images as tar files
 # ============================================
-echo -e "${BLUE}[3/7]${NC} Exporting Docker images to tar files..."
+echo -e "${BLUE}[4/8]${NC} Exporting Docker images to tar files..."
 echo ""
 
 mkdir -p "$PACKAGE_DIR/images"
@@ -133,9 +174,9 @@ echo -e "  ${GREEN}softpower-app-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/s
 echo ""
 
 # ============================================
-# Step 3: Database backup (if running)
+# Step 5: Database backup (if running)
 # ============================================
-echo -e "${BLUE}[4/7]${NC} Checking for database backup..."
+echo -e "${BLUE}[5/8]${NC} Checking for database backup..."
 echo ""
 
 if docker ps --format '{{.Names}}' | grep -q '^softpower_db$'; then
@@ -155,14 +196,17 @@ fi
 echo ""
 
 # ============================================
-# Step 4: Copy deployment files
+# Step 6: Copy deployment files
 # ============================================
-echo -e "${BLUE}[5/7]${NC} Copying deployment files..."
+echo -e "${BLUE}[6/8]${NC} Copying deployment files..."
 echo ""
 
 # Deployment script
 cp scripts/docker/airgap-deploy.sh "$PACKAGE_DIR/"
 chmod +x "$PACKAGE_DIR/airgap-deploy.sh"
+
+# Heavy requirements file (needed by deploy setup command)
+cp requirements-airgap-heavy.txt "$PACKAGE_DIR/"
 
 # Environment template
 if [ -f .env.example ]; then
@@ -180,9 +224,9 @@ echo -e "  ${GREEN}Deployment files copied${NC}"
 echo ""
 
 # ============================================
-# Step 5: Create documentation
+# Step 7: Create documentation
 # ============================================
-echo -e "${BLUE}[6/7]${NC} Creating documentation..."
+echo -e "${BLUE}[7/8]${NC} Creating documentation..."
 echo ""
 
 cat > "$PACKAGE_DIR/README.txt" << 'DOCEOF'
@@ -198,9 +242,13 @@ Architecture:
 Contents:
   images/
     pgvector-pg16.tar           PostgreSQL 16 + pgvector (official)
-    softpower-app-airgap.tar    FastAPI + Streamlit (single container)
+    softpower-app-airgap.tar    FastAPI + Streamlit (slim — no ML packages)
+  wheels/                       Pre-downloaded Python wheels (~1.5GB)
+                                (torch, sentence-transformers, langchain-huggingface)
+                                Installed on target via: ./airgap-deploy.sh setup
   hf_model/                     Pre-downloaded sentence-transformers model
                                 (~90MB, mounted as volume at runtime)
+  requirements-airgap-heavy.txt List of heavy packages to install from wheels
   airgap-deploy.sh              Deployment management script
   .env.example                  Environment variable template
   softpower-backup.dump         Database backup (if included)
@@ -224,23 +272,26 @@ QUICK START
      python3 unpack-airgap.py --apply
 
 3. Load Docker images:
-     cd softpower-airgap-XXXXXXXX
      ./airgap-deploy.sh load ./images
 
-4. Create environment file:
+4. Install ML packages from wheels (one-time setup):
+     ./airgap-deploy.sh setup
+     (installs torch, sentence-transformers into the app image)
+
+5. Create environment file:
      cp .env.example .env
      # Edit .env with your credentials
 
-5. Start services:
+6. Start services:
      ./airgap-deploy.sh start
 
-6. Run database migrations:
+7. Run database migrations:
      ./airgap-deploy.sh migrate
 
-7. (Optional) Restore database backup:
+8. (Optional) Restore database backup:
      ./airgap-deploy.sh restore softpower-backup.dump
 
-8. Access the application:
+9. Access the application:
      Web App:    http://<hostname>:8000
      Streamlit:  http://<hostname>:8501
      API Docs:   http://<hostname>:8000/docs
@@ -249,14 +300,15 @@ QUICK START
 MANAGEMENT COMMANDS
 ========================================================
 
-  ./airgap-deploy.sh start            Start all services
-  ./airgap-deploy.sh stop             Stop all services
-  ./airgap-deploy.sh restart          Restart all services
-  ./airgap-deploy.sh status           Show service status
-  ./airgap-deploy.sh migrate          Run database migrations
-  ./airgap-deploy.sh backup           Create database backup
-  ./airgap-deploy.sh restore <file>   Restore from backup
-  ./airgap-deploy.sh logs [container] View logs
+  ./airgap-deploy.sh setup              Install ML wheels into app image (one-time)
+  ./airgap-deploy.sh start              Start all services
+  ./airgap-deploy.sh stop               Stop all services
+  ./airgap-deploy.sh restart            Restart all services
+  ./airgap-deploy.sh status             Show service status
+  ./airgap-deploy.sh migrate            Run database migrations
+  ./airgap-deploy.sh backup             Create database backup
+  ./airgap-deploy.sh restore <file>     Restore from backup
+  ./airgap-deploy.sh logs [container]   View logs
 
 ========================================================
 TROUBLESHOOTING (CentOS 7)
@@ -320,28 +372,34 @@ Step 2 - Load Images:
     - softpower-app-airgap:latest
 [ ] Verify hf_model/ directory is present (sentence-transformers model)
 
-Step 3 - Configure:
+Step 3 - Install ML Packages:
+[ ] Run: ./airgap-deploy.sh setup
+    (Installs torch, sentence-transformers from local wheels)
+[ ] Verify: docker images | grep softpower-app-airgap
+    Size should increase from ~700MB to ~2GB after setup
+
+Step 4 - Configure:
 [ ] cp .env.example .env
 [ ] Edit .env with production credentials
     - POSTGRES_USER, POSTGRES_PASSWORD
     - POSTGRES_DB
 
-Step 4 - Start Services:
+Step 5 - Start Services:
 [ ] Run: ./airgap-deploy.sh start
 [ ] Verify: ./airgap-deploy.sh status
     - softpower_db is running
     - softpower_app is running
 
-Step 5 - Initialize Database:
+Step 6 - Initialize Database:
 [ ] Run: ./airgap-deploy.sh migrate
 [ ] (If backup available) Run: ./airgap-deploy.sh restore softpower-backup.dump
 
-Step 6 - Verify:
+Step 7 - Verify:
 [ ] curl http://localhost:8000/api/health
 [ ] Open browser to http://<hostname>:8000
 [ ] Open browser to http://<hostname>:8501
 
-Step 7 - Production Hardening:
+Step 8 - Production Hardening:
 [ ] Configure firewall rules (ports 8000, 8501)
 [ ] Set up systemd service for auto-restart on boot
 [ ] Schedule regular database backups
@@ -352,9 +410,9 @@ echo -e "  ${GREEN}Documentation created${NC}"
 echo ""
 
 # ============================================
-# Step 7: Package for transfer
+# Step 8: Package for transfer
 # ============================================
-echo -e "${BLUE}[7/7]${NC} Packaging for transfer..."
+echo -e "${BLUE}[8/8]${NC} Packaging for transfer..."
 echo ""
 
 if [ "$PACK_MODE" = true ]; then
@@ -386,6 +444,7 @@ if [ "$PACK_MODE" = true ]; then
     echo "  cd ${PACKAGE_DIR}"
     echo "  python3 unpack-airgap.py --apply"
     echo "  ./airgap-deploy.sh load ./images"
+    echo "  ./airgap-deploy.sh setup"
     echo "  ./airgap-deploy.sh start"
     echo "  ./airgap-deploy.sh migrate"
     echo ""
@@ -394,6 +453,7 @@ else
     echo "Contents:"
     echo "  images/pgvector-pg16.tar         ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
     echo "  images/softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+    echo "  wheels/                          ($(du -sh "$PACKAGE_DIR/wheels" | cut -f1) - ML package wheels)"
     echo "  hf_model/                        ($(du -sh "$PACKAGE_DIR/hf_model" | cut -f1) - sentence-transformers)"
     if [ -f "$PACKAGE_DIR/softpower-backup.dump" ]; then
         echo "  softpower-backup.dump            ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"
@@ -421,6 +481,7 @@ else
     echo "  cd /opt && tar xzf ${PACKAGE_DIR}.tar.gz"
     echo "  cd ${PACKAGE_DIR}"
     echo "  ./airgap-deploy.sh load ./images"
+    echo "  ./airgap-deploy.sh setup"
     echo "  ./airgap-deploy.sh start"
     echo "  ./airgap-deploy.sh migrate"
     echo ""

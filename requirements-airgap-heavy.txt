@@ -1,0 +1,19 @@
+# ============================================
+# Heavy ML packages — installed from wheels on the target system
+# NOT baked into the Docker image (keeps image ~1.5GB smaller)
+#
+# These are downloaded as .whl files by airgap-build.sh and
+# installed via airgap-deploy.sh setup on the air-gapped target.
+# ============================================
+
+# PyTorch CPU-only (~500MB)
+# Installed from pytorch CPU index, not PyPI
+torch==2.5.1
+
+# Sentence-transformers + transitive deps (~300MB)
+# Pulls: transformers, scipy, scikit-learn, tokenizers, safetensors, nltk, Pillow
+sentence-transformers==3.3.1
+
+# LangChain HuggingFace wrapper (for RAG embedding)
+# Pulls: langchain-core
+langchain-huggingface==0.1.2
