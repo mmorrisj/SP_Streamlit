@@ -29,7 +29,8 @@ sudo docker build -f docker/airgap.Dockerfile -t softpower-analytics:latest .
 
 **What happens during the build:**
 - Stage 1: `node:20-slim` installs npm deps and runs `npm run build` (compiles React to static files)
-- Stage 2: `python:3.11-slim` installs system packages, pip dependencies, NLTK data, and the HuggingFace embedding model
+- Stage 2: `python:3.11-slim` installs system packages and **lightweight** pip dependencies only
+- Heavy ML packages (torch, sentence-transformers, langchain-huggingface) are **not** included — they are shipped as wheels and installed on the target via `./airgap-deploy.sh setup`
 - The built React files are copied from Stage 1 into Stage 2
 - Node.js is **not** present in the final image — React runs as pre-built static files
 
@@ -84,7 +85,10 @@ If the package was created with `airgap-build.sh`:
 tar xzf softpower-airgap-YYYYMMDD.tar.gz
 cd softpower-airgap-YYYYMMDD
 ./airgap-deploy.sh load ./images
+./airgap-deploy.sh setup              # Install ML packages from wheels (~1.5GB)
 ```
+
+The `setup` command installs torch, sentence-transformers, and langchain-huggingface from pre-downloaded wheel files into the app image via `docker commit`. This is a one-time operation.
 
 ## 2. Run the Container
 
@@ -326,10 +330,12 @@ This builds the image, exports both tars, and creates a self-contained deploymen
 
 | File | Purpose |
 |------|---------|
-| `docker/airgap.Dockerfile` | Multi-stage Dockerfile (Node build + Python runtime) |
+| `docker/airgap.Dockerfile` | Multi-stage Dockerfile (Node build + slim Python runtime) |
 | `docker/supervisord.conf` | Process manager config (runs FastAPI + Streamlit) |
+| `requirements-airgap.txt` | Lightweight Python deps baked into Docker image |
+| `requirements-airgap-heavy.txt` | Heavy ML deps installed from wheels on target |
 | `.env` | Environment variables (DB creds, API keys, etc.) |
-| `scripts/docker/airgap-build.sh` | Automated build + package creation |
-| `scripts/docker/airgap-deploy.sh` | Deployment management on target system |
+| `scripts/docker/airgap-build.sh` | Automated build + wheel download + package creation |
+| `scripts/docker/airgap-deploy.sh` | Deployment management on target system (includes `setup` command) |
 | `scripts/llm_proxy.py` | Lightweight LLM+S3 proxy (only needs fastapi+uvicorn+openai+boto3) |
 | `scripts/docker/push-to-registry.sh` | Push images to a container registry |
