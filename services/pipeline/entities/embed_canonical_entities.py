@@ -164,8 +164,8 @@ def embed_entities_for_country(
     if verbose:
         print("  Loading sentence transformer model (all-MiniLM-L6-v2)...")
 
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    from shared.utils.model_cache import load_embedding_model
+    model = load_embedding_model()
 
     if verbose:
         print(f"  Model loaded. Generating embeddings in batches of {batch_size}...")

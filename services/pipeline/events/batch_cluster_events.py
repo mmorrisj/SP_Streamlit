@@ -98,7 +98,8 @@ class EventBatchClusterer:
         self.batch_size = batch_size
         self.eps = eps
         self.recipient_countries = recipient_countries or []
-        self.embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        from shared.utils.model_cache import load_embedding_model
+        self.embedding_model = load_embedding_model()
 
     def normalize_event_name(self, name: str) -> str:
         """
