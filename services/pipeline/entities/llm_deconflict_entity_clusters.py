@@ -73,7 +73,8 @@ class LLMEntityDeconfliction:
         if self.embedding_model is None:
             if self.verbose:
                 print("  Loading sentence transformer model...")
-            self.embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+            from shared.utils.model_cache import load_embedding_model
+            self.embedding_model = load_embedding_model()
         return self.embedding_model
 
     def load_config(self, config_path: str = 'shared/config/config.yaml') -> dict:

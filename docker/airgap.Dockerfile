@@ -53,6 +53,7 @@ RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://py
 # This keeps the image ~90MB smaller for transfer.
 # The model directory is exported separately by airgap-build.sh.
 ENV HF_HOME=/app/.cache/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface
 
 # Copy application code (no pipeline — not needed on air-gapped system)
 COPY shared/ ./shared/

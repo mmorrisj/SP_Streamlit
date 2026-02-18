@@ -331,7 +331,7 @@ cmd_start() {
             --name "$APP_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
-            -v "$(cd "$MODEL_DIR" && pwd)":/app/.cache/huggingface:ro \
+            -v "$(cd "$MODEL_DIR" && pwd)":/app/.cache/huggingface \
             $PROXY_HOST_FLAG \
             -e DOCKER_ENV=true \
             -e NODE_ENV=production \
@@ -350,6 +350,8 @@ cmd_start() {
             -e API_URL="$PROXY_API_URL" \
             -e TRANSFORMERS_OFFLINE="$TRANSFORMERS_OFFLINE" \
             -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
+            -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface" \
+            -e HF_HOME="/app/.cache/huggingface" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
             -p "${API_PORT}:8000" \
             -p "${STREAMLIT_PORT}:8501" \

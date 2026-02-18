@@ -12,11 +12,11 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
 from openai import AzureOpenAI, OpenAI
-from langchain_huggingface import HuggingFaceEmbeddings
 from sqlalchemy import text
 import torch
 
 from shared.database.database import get_engine
+from shared.utils.model_cache import get_hf_embeddings
 
 # Load RAG configuration from config.yaml
 CONFIG_PATH = Path(__file__).parent.parent.parent / "shared" / "config" / "config.yaml"
@@ -671,9 +671,6 @@ def apply_query_intelligence(
     return influencer, recipient, category, start_date, end_date, intent.confidence_notes
 
 
-# Auto-detect device for embeddings
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
 # Lazy-loaded embedding function
 _embedding_function = None
 
@@ -681,10 +678,7 @@ def get_embedding_function():
     """Get or create the embedding function (lazy loading)."""
     global _embedding_function
     if _embedding_function is None:
-        _embedding_function = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={"device": device}
-        )
+        _embedding_function = get_hf_embeddings()
     return _embedding_function
 
 
