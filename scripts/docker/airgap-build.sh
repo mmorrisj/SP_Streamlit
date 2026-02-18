@@ -155,6 +155,8 @@ docker rm -f "$MODEL_CONTAINER" 2>/dev/null || true
 
 docker create --name "$MODEL_CONTAINER" \
     -e HF_HOME=/export \
+    -e TRANSFORMERS_OFFLINE=0 \
+    -e HF_HUB_OFFLINE=0 \
     softpower-app-airgap:latest \
     bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
         torch sentence-transformers langchain-huggingface && \
