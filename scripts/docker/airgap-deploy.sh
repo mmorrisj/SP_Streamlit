@@ -351,6 +351,7 @@ cmd_start() {
             -e TRANSFORMERS_OFFLINE="$TRANSFORMERS_OFFLINE" \
             -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
             -e HF_HOME="/app/.cache/huggingface" \
+            -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface/hub" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
             -p "${API_PORT}:8000" \
             -p "${STREAMLIT_PORT}:8501" \

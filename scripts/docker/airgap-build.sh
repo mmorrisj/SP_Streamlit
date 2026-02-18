@@ -157,7 +157,7 @@ docker create --name "$MODEL_CONTAINER" \
     -e HF_HOME=/export \
     softpower-app-airgap:latest \
     bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
-        torch sentence-transformers langchain-huggingface 2>/dev/null && \
+        torch sentence-transformers langchain-huggingface && \
     python3 -c '
 import os, shutil
 from sentence_transformers import SentenceTransformer
@@ -185,6 +185,10 @@ if os.path.isdir(hub_dir):
                     shutil.copy2(target, fpath)
     print(\"HF Hub cache symlinks resolved to real files\")
 
+# Verify the model files are present
+assert os.path.isfile(os.path.join(direct_path, \"modules.json\")), \
+    f\"FATAL: modules.json not found in {direct_path}\"
+print(\"Verification passed: modules.json present\")
 print(\"Model export complete\")
 '"
 
@@ -194,7 +198,16 @@ docker start -a "$MODEL_CONTAINER"
 docker cp "$MODEL_CONTAINER":/export/. "$MODEL_DIR/"
 docker rm "$MODEL_CONTAINER"
 
-echo -e "  ${GREEN}Model downloaded${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
+# Verify model files were extracted
+if [ ! -f "$MODEL_DIR/models/all-MiniLM-L6-v2/modules.json" ]; then
+    echo -e "  ${RED}ERROR: Model export failed - modules.json not found${NC}"
+    echo "  Expected: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
+    echo "  Directory contents:"
+    find "$MODEL_DIR" -maxdepth 3 -type f | head -20
+    exit 1
+fi
+
+echo -e "  ${GREEN}Model downloaded and verified${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
 echo ""
 
 # ============================================
