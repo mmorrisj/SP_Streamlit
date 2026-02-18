@@ -745,40 +745,60 @@ def load_unprocessed_canonical_events(
     from sqlalchemy import text
     from collections import defaultdict
 
+    # Include both master events and their children in each group
+    # so that a master with 1 child correctly forms a group of 2
     query = """
         SELECT
             ce.id,
             ce.canonical_name,
             ce.initiating_country,
-            ce.master_event_id,
+            ce.group_id,
             COALESCE(SUM(dem.article_count), 0) as total_articles,
             COUNT(DISTINCT dem.mention_date) as days_mentioned
-        FROM canonical_events ce
-        LEFT JOIN daily_event_mentions dem ON ce.id = dem.canonical_event_id
-        WHERE ce.master_event_id IS NOT NULL
-          AND ce.master_event_id IN (
-              SELECT id FROM canonical_events
-              WHERE master_event_id IS NULL
+        FROM (
+            -- Children: events assigned to a master
+            SELECT id, canonical_name, initiating_country,
+                   master_event_id as group_id
+            FROM canonical_events
+            WHERE master_event_id IS NOT NULL
+              AND master_event_id IN (
+                  SELECT id FROM canonical_events
+                  WHERE master_event_id IS NULL
+                  AND (llm_validated = FALSE OR llm_validated IS NULL)
+              )
+
+            UNION ALL
+
+            -- Masters: events that have at least one child
+            SELECT id, canonical_name, initiating_country,
+                   id as group_id
+            FROM canonical_events
+            WHERE master_event_id IS NULL
               AND (llm_validated = FALSE OR llm_validated IS NULL)
-          )
+              AND id IN (
+                  SELECT DISTINCT master_event_id FROM canonical_events
+                  WHERE master_event_id IS NOT NULL
+              )
+        ) ce
+        LEFT JOIN daily_event_mentions dem ON ce.id = dem.canonical_event_id
     """
 
     params = {}
     if country:
-        query += " AND ce.initiating_country = :country"
+        query += " WHERE ce.initiating_country = :country"
         params['country'] = country
 
     query += """
-        GROUP BY ce.id, ce.canonical_name, ce.initiating_country, ce.master_event_id
-        ORDER BY ce.master_event_id, total_articles DESC
+        GROUP BY ce.id, ce.canonical_name, ce.initiating_country, ce.group_id
+        ORDER BY ce.group_id, total_articles DESC
     """
 
     result = session.execute(text(query), params).fetchall()
 
     groups = defaultdict(list)
     for row in result:
-        master_id = str(row[3])
-        groups[master_id].append({
+        group_id = str(row[3])
+        groups[group_id].append({
             'id': row[0],
             'canonical_name': row[1],
             'initiating_country': row[2],
@@ -787,7 +807,7 @@ def load_unprocessed_canonical_events(
             'days_mentioned': row[5]
         })
 
-    # Filter groups with 2+ events
+    # Filter groups with 2+ events (master + at least 1 child)
     filtered_groups = {k: v for k, v in groups.items() if len(v) > 1}
 
     return filtered_groups
