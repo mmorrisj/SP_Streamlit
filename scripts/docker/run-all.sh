@@ -6,6 +6,8 @@
 
 set -e
 
+API_PORT="${API_PORT:-8000}"
+
 echo ""
 echo "=============================================="
 echo "Soft Power Analytics - Full Deployment"
@@ -92,8 +94,8 @@ echo "✅ Full Stack Deployed Successfully!"
 echo "=============================================="
 echo ""
 echo "🌐 Access Points:"
-echo "  • React Web App:    http://localhost:8000"
-echo "  • API Docs:         http://localhost:8000/docs"
+echo "  • React Web App:    http://localhost:${API_PORT}"
+echo "  • API Docs:         http://localhost:${API_PORT}/docs"
 echo "  • Streamlit:        http://localhost:8501"
 echo "  • PostgreSQL:       localhost:5432"
 echo "  • Redis:            localhost:6379"

@@ -6,6 +6,8 @@
 
 set -e  # Exit on error
 
+API_PORT="${API_PORT:-8000}"
+
 echo ""
 echo "=========================================="
 echo "Web App Deployment (Existing Database)"
@@ -69,7 +71,7 @@ echo ""
 MAX_RETRIES=30
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -f http://localhost:8000/api/health > /dev/null 2>&1; then
+    if curl -f http://localhost:${API_PORT}/api/health > /dev/null 2>&1; then
         echo "✅ API is healthy"
         break
     fi
@@ -92,9 +94,9 @@ echo "✅ Web App Deployed Successfully!"
 echo "=========================================="
 echo ""
 echo "Access points:"
-echo "  • Web App:       http://localhost:8000"
-echo "  • API Docs:      http://localhost:8000/docs"
-echo "  • API Health:    http://localhost:8000/api/health"
+echo "  • Web App:       http://localhost:${API_PORT}"
+echo "  • API Docs:      http://localhost:${API_PORT}/docs"
+echo "  • API Health:    http://localhost:${API_PORT}/api/health"
 echo ""
 echo "Database:"
 echo "  • Container:     softpower_db (existing)"

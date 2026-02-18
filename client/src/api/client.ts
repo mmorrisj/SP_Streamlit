@@ -337,6 +337,162 @@ export const fetchInfluencerTimeline = async (
   return data
 }
 
+// ============================================================
+// Bilateral Detail Page Types and API functions
+// ============================================================
+
+export interface BilateralEnhancedOverview {
+  influencer: string
+  recipient: string
+  total_documents: number
+  total_events: number
+  total_entities: number
+  avg_material_score: number | null
+  first_interaction_date: string | null
+  last_interaction_date: string | null
+  weekly_average: number
+  top_categories: { category: string; count: number }[]
+  activity_trend: { week: string; count: number }[]
+  source_breakdown: { source: string; count: number }[]
+}
+
+export interface BilateralRelationshipProfile {
+  overview: string
+  key_themes: string[]
+  major_initiatives: { name: string; description: string; timeframe: string }[]
+  trend_analysis: string
+  current_status: string
+  notable_developments: string[]
+  material_assessment: { score: number; justification: string } | null
+  count_by_category: Record<string, number>
+  count_by_subcategory: Record<string, number>
+  activity_by_month: Record<string, number>
+  material_score_histogram: Record<string, number> | null
+  material_score_avg: number | null
+  material_score_median: number | null
+}
+
+export interface BilateralCatSummary {
+  category: string
+  total_documents: number
+  total_daily_events: number
+  first_interaction_date: string | null
+  last_interaction_date: string | null
+  count_by_subcategory: Record<string, number>
+  count_by_source: Record<string, number>
+  activity_by_month: Record<string, number>
+  overview: string
+  key_focus_areas: string[]
+  major_initiatives: { name: string; description: string; timeframe: string }[]
+  interaction_patterns: string
+  trend_analysis: string
+  impact_assessment: string
+  material_assessment: { score: number; justification: string } | null
+  material_score_avg: number | null
+}
+
+export interface BilateralCategorySummariesResp {
+  summaries: BilateralCatSummary[]
+}
+
+export interface BilateralEvent {
+  id: string
+  event_name: string
+  description: string | null
+  initiating_country: string
+  first_mention_date: string | null
+  last_mention_date: string | null
+  total_articles: number
+  total_mention_days: number
+  story_phase: string | null
+  material_score: number | null
+  material_justification: string | null
+  peak_mention_date: string | null
+  peak_daily_article_count: number
+  source_count: number
+  primary_categories: Record<string, number>
+  primary_recipients: Record<string, number>
+}
+
+export interface BilateralEventsResp {
+  events: BilateralEvent[]
+  total: number
+}
+
+export interface BilateralEntity {
+  id: string
+  canonical_name: string
+  entity_type: string | null
+  primary_role: string | null
+  entity_description: string | null
+  total_documents: number
+  total_mention_days: number
+  first_mention_date: string | null
+  last_mention_date: string | null
+  primary_categories: Record<string, number>
+  primary_recipients: Record<string, number>
+}
+
+export interface BilateralEntitiesResp {
+  entities: BilateralEntity[]
+  total: number
+}
+
+export interface BilateralSourcesResp {
+  sources: { source: string; count: number }[]
+  total_sources: number
+}
+
+export const fetchBilateralEnhancedOverview = async (
+  influencer: string,
+  recipient: string
+): Promise<BilateralEnhancedOverview> => {
+  const { data } = await api.get(`/bilateral/${influencer}/${recipient}/enhanced-overview`)
+  return data
+}
+
+export const fetchBilateralRelationshipProfile = async (
+  influencer: string,
+  recipient: string
+): Promise<BilateralRelationshipProfile> => {
+  const { data } = await api.get(`/bilateral/${influencer}/${recipient}/relationship-profile`)
+  return data
+}
+
+export const fetchBilateralCategorySummaries = async (
+  influencer: string,
+  recipient: string
+): Promise<BilateralCategorySummariesResp> => {
+  const { data } = await api.get(`/bilateral/${influencer}/${recipient}/category-summaries`)
+  return data
+}
+
+export const fetchBilateralEvents = async (
+  influencer: string,
+  recipient: string,
+  params?: { limit?: number; offset?: number; sort_by?: string }
+): Promise<BilateralEventsResp> => {
+  const { data } = await api.get(`/bilateral/${influencer}/${recipient}/events`, { params })
+  return data
+}
+
+export const fetchBilateralEntities = async (
+  influencer: string,
+  recipient: string,
+  params?: { limit?: number; offset?: number; entity_type?: string; sort_by?: string }
+): Promise<BilateralEntitiesResp> => {
+  const { data } = await api.get(`/bilateral/${influencer}/${recipient}/entities`, { params })
+  return data
+}
+
+export const fetchBilateralSources = async (
+  influencer: string,
+  recipient: string
+): Promise<BilateralSourcesResp> => {
+  const { data } = await api.get(`/bilateral/${influencer}/${recipient}/sources`)
+  return data
+}
+
 export interface BilateralMapData {
   influencer: string
   recipients: {

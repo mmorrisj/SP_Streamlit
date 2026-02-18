@@ -158,15 +158,16 @@ function Build-Client {
 
 # Function to start production FastAPI (serves React + API)
 function Start-Prod {
-    Write-Host "[→] Starting FastAPI in production mode (port 8000)..." -ForegroundColor Blue
+    $ProdPort = if ($env:API_PORT) { $env:API_PORT } else { "8000" }
+    Write-Host "[→] Starting FastAPI in production mode (port $ProdPort)..." -ForegroundColor Blue
 
     # Start in new window
     Start-Process powershell -ArgumentList "-NoExit", "-Command",
-        "cd '$ProjectRoot'; & '$ProjectRoot\venv\Scripts\Activate.ps1'; uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload" `
+        "cd '$ProjectRoot'; & '$ProjectRoot\venv\Scripts\Activate.ps1'; uvicorn server.main:app --host 0.0.0.0 --port $ProdPort --reload" `
         -WindowStyle Normal
 
     Start-Sleep -Seconds 2
-    Write-Host "[✓] FastAPI production server started on http://localhost:8000" -ForegroundColor Green
+    Write-Host "[✓] FastAPI production server started on http://localhost:$ProdPort" -ForegroundColor Green
 }
 
 # Start requested services
@@ -205,8 +206,9 @@ Write-Host "========================================" -ForegroundColor Green
 
 switch ($Service) {
     "prod" {
-        Write-Host "React App:  http://localhost:8000 (production build)" -ForegroundColor Cyan
-        Write-Host "API:        http://localhost:8000/api/* (same server)" -ForegroundColor Cyan
+        $ProdPort = if ($env:API_PORT) { $env:API_PORT } else { "8000" }
+        Write-Host "React App:  http://localhost:$ProdPort (production build)" -ForegroundColor Cyan
+        Write-Host "API:        http://localhost:$ProdPort/api/* (same server)" -ForegroundColor Cyan
         Write-Host "Dashboard:  http://localhost:$StreamlitPort" -ForegroundColor Cyan
     }
     "all" {

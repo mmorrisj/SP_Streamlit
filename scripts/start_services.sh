@@ -94,9 +94,9 @@ build_client() {
 
 # Function to start production FastAPI (serves React + API)
 start_prod() {
-    echo -e "${BLUE}→${NC} Starting FastAPI in production mode (port 8000)..."
+    echo -e "${BLUE}→${NC} Starting FastAPI in production mode (port ${API_PORT:-8000})..."
     cd "$PROJECT_ROOT"
-    uvicorn server.main:app --host ${API_HOST:-0.0.0.0} --port 8000 --reload &
+    uvicorn server.main:app --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8000} --reload &
     API_PID=$!
     echo -e "${GREEN}✓${NC} FastAPI production server started (PID: $API_PID)"
     echo $API_PID > "$PROJECT_ROOT/.api.pid"
@@ -178,8 +178,8 @@ echo -e "${GREEN}========================================${NC}"
 
 case "${1:-all}" in
     prod)
-        echo -e "React App:  http://localhost:8000 ${BLUE}(production build)${NC}"
-        echo -e "API:        http://localhost:8000/api/* ${BLUE}(same server)${NC}"
+        echo -e "React App:  http://localhost:${API_PORT:-8000} ${BLUE}(production build)${NC}"
+        echo -e "API:        http://localhost:${API_PORT:-8000}/api/* ${BLUE}(same server)${NC}"
         echo -e "Dashboard:  http://localhost:${STREAMLIT_PORT:-8501}"
         ;;
     all)
