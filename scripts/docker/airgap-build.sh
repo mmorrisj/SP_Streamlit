@@ -72,12 +72,12 @@ echo ""
 # Database: Use official pgvector image (PostgreSQL 16 + pgvector extension)
 # Source: https://hub.docker.com/r/pgvector/pgvector
 DB_IMAGE="pgvector/pgvector:0.8.0-pg16"
-if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "pgvector/pgvector"; then
+if docker image inspect "$DB_IMAGE" >/dev/null 2>&1; then
     echo -e "  ${GREEN}Database image found: ${DB_IMAGE}${NC}"
 else
     echo -e "  ${YELLOW}Database image not found locally: ${DB_IMAGE}${NC}"
-    echo "  Attempting to pull from registry..."
-    if docker pull "$DB_IMAGE" 2>/dev/null; then
+    echo "  Pulling from registry..."
+    if docker pull "$DB_IMAGE"; then
         echo -e "  ${GREEN}Database image pulled${NC}"
     else
         echo -e "  ${RED}Cannot pull ${DB_IMAGE}. Please load it manually:${NC}"
