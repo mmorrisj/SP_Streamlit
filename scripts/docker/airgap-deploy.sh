@@ -243,16 +243,40 @@ cmd_load() {
 
     local image_dir="${1:-.}"
 
-    # Load all tar files (softpower app images + bitnami pgvector)
+    if [ ! -d "$image_dir" ]; then
+        log_error "Image directory not found: $image_dir"
+        log_info "Usage: $0 load ./images"
+        exit 1
+    fi
+
+    # Load all tar files (softpower app images + pgvector)
+    local loaded=0
     for tarfile in "$image_dir"/*.tar; do
         if [ -f "$tarfile" ]; then
-            log_info "Loading $(basename $tarfile)..."
+            log_info "Loading $(basename "$tarfile")..."
             docker load -i "$tarfile"
-            log_ok "Loaded $(basename $tarfile)"
+            log_ok "Loaded $(basename "$tarfile")"
+            loaded=$((loaded + 1))
         fi
     done
 
+    if [ "$loaded" -eq 0 ]; then
+        log_error "No .tar files found in $image_dir"
+        # Check for packed (base64-encoded) images that need unpacking first
+        local b64_count
+        b64_count=$(ls -1 "$image_dir"/*.b64.txt 2>/dev/null | wc -l)
+        if [ "$b64_count" -gt 0 ]; then
+            log_info "Found $b64_count .b64.txt file(s) — images are still packed for transfer"
+            log_info "Run 'python3 unpack-airgap.py --apply' first to decode them"
+        else
+            log_info "Expected: pgvector-pg16.tar and softpower-app-airgap.tar"
+            log_info "Re-run airgap-build.sh to regenerate the package"
+        fi
+        exit 1
+    fi
+
     echo ""
+    log_ok "Loaded $loaded image(s)"
     log_info "Current images:"
     docker images | grep -E "softpower|pgvector|REPOSITORY" || true
     echo ""

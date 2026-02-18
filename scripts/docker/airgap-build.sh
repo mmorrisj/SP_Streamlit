@@ -225,6 +225,16 @@ echo -e "  ${GREEN}pgvector-pg16.tar${NC} ($(du -h "$PACKAGE_DIR/images/pgvector
 
 docker save softpower-app-airgap:latest -o "$PACKAGE_DIR/images/softpower-app-airgap.tar"
 echo -e "  ${GREEN}softpower-app-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+
+# Verify both image tars are non-empty
+for img_tar in "$PACKAGE_DIR/images/pgvector-pg16.tar" "$PACKAGE_DIR/images/softpower-app-airgap.tar"; do
+    if [ ! -s "$img_tar" ]; then
+        echo -e "  ${RED}ERROR: $(basename "$img_tar") is empty or missing${NC}"
+        echo "  docker save may have failed. Check disk space and Docker daemon."
+        exit 1
+    fi
+done
+echo -e "  ${GREEN}Both image exports verified${NC}"
 echo ""
 
 # ============================================
