@@ -587,14 +587,12 @@ cmd_backup() {
     fi
 
     log_info "Creating database backup..."
+    # Use stdout redirection instead of pg_dump -f / docker cp.
+    # Avoids MSYS2 path translation on Windows (Git Bash translates /tmp/ to C:\...\Temp\).
     docker exec "$DB_CONTAINER" pg_dump \
         -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" \
-        -F c \
-        -f /tmp/backup.dump
-
-    docker cp "$DB_CONTAINER":/tmp/backup.dump "$backup_file"
-    docker exec "$DB_CONTAINER" rm /tmp/backup.dump
+        -F c > "$backup_file"
 
     log_ok "Backup saved to: $backup_file ($(du -h "$backup_file" | cut -f1))"
     echo ""
@@ -622,15 +620,12 @@ cmd_restore() {
     fi
 
     log_info "Restoring database from: $backup_file"
-    docker cp "$backup_file" "$DB_CONTAINER":/tmp/backup.dump
-
-    docker exec "$DB_CONTAINER" pg_restore \
+    # Use stdin redirection instead of docker cp / pg_restore <file>.
+    # Avoids MSYS2 path translation on Windows (Git Bash translates /tmp/ to C:\...\Temp\).
+    docker exec -i "$DB_CONTAINER" pg_restore \
         -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" \
-        --clean --if-exists \
-        /tmp/backup.dump || true
-
-    docker exec "$DB_CONTAINER" rm /tmp/backup.dump
+        --clean --if-exists < "$backup_file" || true
 
     log_ok "Database restored from $backup_file"
     echo ""

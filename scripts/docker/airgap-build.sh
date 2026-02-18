@@ -251,13 +251,14 @@ echo ""
 
 if docker ps --format '{{.Names}}' | grep -q '^softpower_db$'; then
     echo "  Active database found, creating backup..."
+    # Use stdout redirection (>) instead of pg_dump -f flag.
+    # pg_dump -f passes the path to docker exec, which on Windows (Git Bash / MSYS2)
+    # translates /tmp/ to C:/Users/.../AppData/Local/Temp/ — breaking the container path.
+    # Stdout redirection lets bash handle file creation on the host filesystem.
     docker exec softpower_db pg_dump \
         -U "${POSTGRES_USER:-matthew50}" \
         -d "${POSTGRES_DB:-softpower-db}" \
-        -F c \
-        -f /tmp/backup.dump
-    docker cp softpower_db:/tmp/backup.dump "$PACKAGE_DIR/softpower-backup.dump"
-    docker exec softpower_db rm /tmp/backup.dump
+        -F c > "$PACKAGE_DIR/softpower-backup.dump"
     echo -e "  ${GREEN}Database backup created${NC} ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"
 else
     echo -e "  ${YELLOW}No running database found, skipping backup${NC}"
