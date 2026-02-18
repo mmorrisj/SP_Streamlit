@@ -53,7 +53,7 @@ class TestDocumentModel:
         doc = create_test_document(
             doc_id="TEST003",
             title="Test Doc",
-            salience=7
+            salience="7"
         )
 
         doc_dict = doc.to_dict()
@@ -239,17 +239,13 @@ class TestRawEventModel:
 
         event = RawEvent(
             doc_id=doc.doc_id,
-            event_name="China announces infrastructure project",
-            event_date=date(2024, 8, 1),
-            lat_long="0.0,0.0",
-            location="Nairobi",
-            countries="China,Kenya"
+            event_name="China announces infrastructure project"
         )
         db_session.add(event)
         db_session.commit()
 
         assert event.event_name == "China announces infrastructure project"
-        assert event.event_date == date(2024, 8, 1)
+        assert event.doc_id == doc.doc_id
 
     def test_raw_event_document_relationship(self, db_session, create_test_document):
         """Test raw event to document relationship."""
@@ -284,10 +280,11 @@ class TestEventSummaryModel:
 
         event = EventSummary(
             event_name="China-Kenya Infrastructure Summit",
-            event_summary="Test summary",
             period_type=PeriodType.DAILY,
-            start_date=date(2024, 8, 1),
-            end_date=date(2024, 8, 1),
+            period_start=date(2024, 8, 1),
+            period_end=date(2024, 8, 1),
+            first_observed_date=date(2024, 8, 1),
+            last_observed_date=date(2024, 8, 1),
             initiating_country="China",
             count_by_category={"Economic": 5, "Political": 2},
             count_by_recipient={"Kenya": 7},
@@ -306,10 +303,12 @@ class TestEventSummaryModel:
         from shared.models.models import EventSummary, PeriodType, EventStatus
 
         event = EventSummary(
-            event_name="Test Event",
+            event_name="Test Event JSONB",
             period_type=PeriodType.WEEKLY,
-            start_date=date(2024, 8, 1),
-            end_date=date(2024, 8, 7),
+            period_start=date(2024, 8, 1),
+            period_end=date(2024, 8, 7),
+            first_observed_date=date(2024, 8, 1),
+            last_observed_date=date(2024, 8, 7),
             initiating_country="China",
             count_by_category={"Economic": 10, "Cultural": 5},
             count_by_subcategory={"Infrastructure": 8, "Education": 2},
@@ -326,27 +325,29 @@ class TestEventSummaryModel:
         assert event.count_by_category["Cultural"] == 5
         assert event.count_by_recipient["Kenya"] == 15
 
-    def test_event_summary_with_embeddings(self, db_session):
-        """Test event summary with embedding vector."""
+    def test_event_summary_properties(self, db_session):
+        """Test EventSummary convenience properties."""
         from shared.models.models import EventSummary, PeriodType, EventStatus
 
-        embedding = [0.1] * 384  # 384-dimensional vector
-
         event = EventSummary(
-            event_name="Test Event with Embedding",
+            event_name="Test Event Properties",
             period_type=PeriodType.DAILY,
-            start_date=date(2024, 8, 1),
-            end_date=date(2024, 8, 1),
+            period_start=date(2024, 8, 1),
+            period_end=date(2024, 8, 1),
+            first_observed_date=date(2024, 8, 1),
+            last_observed_date=date(2024, 8, 1),
             initiating_country="China",
-            embedding=embedding,
+            count_by_category={"Economic": 5, "Cultural": 3},
+            count_by_recipient={"Kenya": 8},
             status=EventStatus.ACTIVE
         )
         db_session.add(event)
         db_session.commit()
 
-        db_session.refresh(event)
-        assert event.embedding is not None
-        assert len(event.embedding) == 384
+        assert "Economic" in event.categories_list
+        assert "Cultural" in event.categories_list
+        assert "Kenya" in event.recipients_list
+        assert event.is_active is True
 
 
 @pytest.mark.unit
@@ -363,10 +364,12 @@ class TestEventSourceLinkModel:
         doc = create_test_document(doc_id="ESL001")
 
         event = EventSummary(
-            event_name="Test Event",
+            event_name="Test Event Link",
             period_type=PeriodType.DAILY,
-            start_date=date(2024, 8, 1),
-            end_date=date(2024, 8, 1),
+            period_start=date(2024, 8, 1),
+            period_end=date(2024, 8, 1),
+            first_observed_date=date(2024, 8, 1),
+            last_observed_date=date(2024, 8, 1),
             initiating_country="China",
             status=EventStatus.ACTIVE
         )
@@ -375,8 +378,7 @@ class TestEventSourceLinkModel:
 
         link = EventSourceLink(
             event_summary_id=event.id,
-            doc_id=doc.doc_id,
-            mention_date=date(2024, 8, 1)
+            doc_id=doc.doc_id
         )
         db_session.add(link)
         db_session.commit()
@@ -393,10 +395,12 @@ class TestEventSourceLinkModel:
         doc = create_test_document(doc_id="ESL002")
 
         event = EventSummary(
-            event_name="Test Event",
+            event_name="Test Event Relationships",
             period_type=PeriodType.DAILY,
-            start_date=date(2024, 8, 1),
-            end_date=date(2024, 8, 1),
+            period_start=date(2024, 8, 1),
+            period_end=date(2024, 8, 1),
+            first_observed_date=date(2024, 8, 1),
+            last_observed_date=date(2024, 8, 1),
             initiating_country="China",
             status=EventStatus.ACTIVE
         )
@@ -405,20 +409,19 @@ class TestEventSourceLinkModel:
 
         link = EventSourceLink(
             event_summary_id=event.id,
-            doc_id=doc.doc_id,
-            mention_date=date(2024, 8, 1)
+            doc_id=doc.doc_id
         )
         db_session.add(link)
         db_session.commit()
 
         # Access event through link
-        assert link.event_summary.event_name == "Test Event"
+        assert link.event_summary.event_name == "Test Event Relationships"
 
         # Access document through link
         assert link.document.doc_id == "ESL002"
 
-        # Access links through event
-        assert len(list(event.source_links.all())) == 1
+        # Access links through event (source_links is a regular list, not dynamic)
+        assert len(event.source_links) == 1
 
-        # Access links through document
+        # Access links through document (event_source_links is lazy="dynamic")
         assert len(list(doc.event_source_links.all())) == 1

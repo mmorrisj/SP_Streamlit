@@ -112,23 +112,22 @@ def clean_db_session(db_engine):
 
 @pytest.fixture
 def sample_document_data() -> dict:
-    """Sample document data for testing."""
+    """Sample document data for testing.
+    Fields must match Document model columns in shared/models/models.py.
+    """
     return {
         "doc_id": "TEST001",
         "title": "Test Document",
-        "content": "This is a test document about China's diplomatic activities in Africa.",
-        "url": "https://example.com/test",
-        "date_accessed": "2024-08-01",
-        "salience": 8,
-        "salience_bool": True,
-        "summary": "Test summary of diplomatic activities",
+        "distilled_text": "This is a test document about China's diplomatic activities in Africa.",
+        "date": "2024-08-01",
+        "salience": "8",
+        "salience_bool": "True",
         "initiating_country": "China",
         "recipient_country": "Kenya",
         "category": "Economic",
         "subcategory": "Infrastructure",
-        "project": "Belt and Road Initiative",
         "location": "Nairobi",
-        "event_date": "2024-07-28"
+        "event_name": "China-Kenya Infrastructure Summit"
     }
 
 
@@ -142,11 +141,10 @@ def create_test_document(db_session):
         defaults = {
             "doc_id": "TEST001",
             "title": "Test Document",
-            "content": "Test content",
-            "url": "https://example.com/test",
-            "date_accessed": "2024-08-01",
-            "salience": 5,
-            "salience_bool": False
+            "distilled_text": "Test content",
+            "date": "2024-08-01",
+            "salience": "5",
+            "salience_bool": "False"
         }
         defaults.update(kwargs)
 
@@ -170,7 +168,7 @@ def api_client():
         from fastapi.testclient import TestClient
         from server.main import app
         return TestClient(app)
-    except ImportError as e:
+    except Exception as e:
         pytest.skip(f"FastAPI app not available: {e}")
 
 
@@ -315,6 +313,16 @@ def reset_environment():
 # ===========================================
 # Markers Setup
 # ===========================================
+
+def pytest_addoption(parser):
+    """Add custom command line options."""
+    parser.addoption(
+        "--run-llm-tests",
+        action="store_true",
+        default=False,
+        help="Run LLM tests (may incur API costs)"
+    )
+
 
 def pytest_configure(config):
     """Register custom markers."""

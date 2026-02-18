@@ -138,16 +138,20 @@ class TestEventsEndpoints:
         event1 = EventSummary(
             event_name="Test Event 1",
             period_type=PeriodType.DAILY,
-            start_date=date(2024, 8, 1),
-            end_date=date(2024, 8, 1),
+            period_start=date(2024, 8, 1),
+            period_end=date(2024, 8, 1),
+            first_observed_date=date(2024, 8, 1),
+            last_observed_date=date(2024, 8, 1),
             initiating_country="China",
             status=EventStatus.ACTIVE
         )
         event2 = EventSummary(
             event_name="Test Event 2",
             period_type=PeriodType.DAILY,
-            start_date=date(2024, 8, 2),
-            end_date=date(2024, 8, 2),
+            period_start=date(2024, 8, 2),
+            period_end=date(2024, 8, 2),
+            first_observed_date=date(2024, 8, 2),
+            last_observed_date=date(2024, 8, 2),
             initiating_country="Russia",
             status=EventStatus.ACTIVE
         )
@@ -167,8 +171,10 @@ class TestEventsEndpoints:
         event = EventSummary(
             event_name="China Event",
             period_type=PeriodType.DAILY,
-            start_date=date(2024, 8, 1),
-            end_date=date(2024, 8, 1),
+            period_start=date(2024, 8, 1),
+            period_end=date(2024, 8, 1),
+            first_observed_date=date(2024, 8, 1),
+            last_observed_date=date(2024, 8, 1),
             initiating_country="China",
             status=EventStatus.ACTIVE
         )

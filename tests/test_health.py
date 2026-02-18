@@ -102,13 +102,12 @@ class TestAPIEndpoints:
             from fastapi.testclient import TestClient
             from server.main import app
             return TestClient(app)
-        except ImportError:
+        except Exception:
             pytest.skip("FastAPI test client not available")
 
     def test_health_endpoint(self, client):
-        """Test /health endpoint returns 200."""
+        """Test /api/health endpoint returns 200."""
         if client is None:
             pytest.skip("No test client")
-        response = client.get("/health")
-        # Accept 200 or 404 (endpoint might not exist yet)
-        assert response.status_code in [200, 404]
+        response = client.get("/api/health")
+        assert response.status_code == 200

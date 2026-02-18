@@ -372,11 +372,3 @@ class TestS3Operations:
         pd.testing.assert_frame_equal(df_original, df_downloaded)
 
 
-def pytest_addoption(parser):
-    """Add custom command line options."""
-    parser.addoption(
-        "--run-llm-tests",
-        action="store_true",
-        default=False,
-        help="Run LLM tests (may incur API costs)"
-    )
