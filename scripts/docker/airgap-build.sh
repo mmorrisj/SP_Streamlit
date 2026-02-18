@@ -19,6 +19,7 @@
 #   ./airgap-build.sh                  # standard tar.gz output
 #   ./airgap-build.sh --pack           # transfer-safe directory (base64 encoded binaries)
 #   ./airgap-build.sh --pack 20260217  # with version tag
+#   ./airgap-build.sh --clean          # force fresh downloads (ignore cache)
 # ============================================
 
 set -e
@@ -32,11 +33,13 @@ NC='\033[0m'
 
 # Parse flags
 PACK_MODE=false
+CLEAN_MODE=false
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
-        --pack) PACK_MODE=true ;;
-        *)      VERSION="$arg" ;;
+        --pack)  PACK_MODE=true ;;
+        --clean) CLEAN_MODE=true ;;
+        *)       VERSION="$arg" ;;
     esac
 done
 VERSION="${VERSION:-$(date +%Y%m%d)}"
@@ -62,6 +65,16 @@ echo "=============================================="
 echo ""
 
 cd "$PROJECT_ROOT"
+
+# Persistent cache for wheels/model/images across builds.
+# Survives version tag changes (e.g. running today vs tomorrow).
+# Use --clean to force fresh downloads.
+CACHE_DIR="$PROJECT_ROOT/.airgap-cache"
+if [ "$CLEAN_MODE" = true ]; then
+    echo -e "${YELLOW}--clean: removing cache${NC} ($CACHE_DIR)"
+    rm -rf "$CACHE_DIR"
+fi
+mkdir -p "$CACHE_DIR"
 
 # ============================================
 # Step 1: Build slim Docker image
@@ -98,69 +111,106 @@ echo ""
 # ============================================
 # Step 2: Download heavy ML package wheels
 # ============================================
-echo -e "${BLUE}[2/8]${NC} Downloading ML package wheels..."
+echo -e "${BLUE}[2/8]${NC} ML package wheels..."
 echo ""
 
 WHEELS_DIR="$PACKAGE_DIR/wheels"
+WHEELS_CACHE="$CACHE_DIR/wheels"
 mkdir -p "$WHEELS_DIR"
 
-# Download wheels inside the slim image so they're platform-compatible.
-# Uses docker create + docker cp instead of volume mounts for Windows compatibility.
-# PyTorch CPU from pytorch index, everything else from PyPI.
-WHEELS_CONTAINER="airgap_build_wheels_$$"
-docker rm -f "$WHEELS_CONTAINER" 2>/dev/null || true
+# Check if wheels already present (from a previous run with same version tag)
+EXISTING_WHEEL_COUNT=$(ls -1 "$WHEELS_DIR"/*.whl 2>/dev/null | wc -l)
 
-echo "  Downloading PyTorch CPU + sentence-transformers + langchain-huggingface wheels..."
-docker create --name "$WHEELS_CONTAINER" \
-    softpower-app-airgap:latest \
-    bash -c "mkdir -p /wheels && \
-        pip download --no-cache-dir --dest /wheels \
-            --index-url https://download.pytorch.org/whl/cpu \
-            torch==2.5.1 && \
-        pip download --no-cache-dir --dest /wheels \
-            --index-url https://pypi.org/simple \
-            sentence-transformers==3.3.1 \
-            langchain-huggingface==0.1.2"
+if [ "$EXISTING_WHEEL_COUNT" -gt 0 ]; then
+    echo -e "  ${GREEN}Wheels already in package dir${NC} ($EXISTING_WHEEL_COUNT files, $(du -sh "$WHEELS_DIR" | cut -f1))"
+    echo "  Skipping download (use --clean to force)"
 
-docker start -a "$WHEELS_CONTAINER"
-docker cp "$WHEELS_CONTAINER":/wheels/. "$WHEELS_DIR/"
-docker rm "$WHEELS_CONTAINER"
+# Check persistent cache
+elif [ -d "$WHEELS_CACHE" ] && [ "$(ls -1 "$WHEELS_CACHE"/*.whl 2>/dev/null | wc -l)" -gt 0 ]; then
+    CACHED_COUNT=$(ls -1 "$WHEELS_CACHE"/*.whl 2>/dev/null | wc -l)
+    echo -e "  ${GREEN}Copying from cache${NC} ($CACHED_COUNT wheel files, $(du -sh "$WHEELS_CACHE" | cut -f1))"
+    cp "$WHEELS_CACHE"/*.whl "$WHEELS_DIR/"
+    # Also copy any non-whl files (e.g. torch index metadata)
+    for f in "$WHEELS_CACHE"/*; do
+        [ -f "$f" ] && cp -n "$f" "$WHEELS_DIR/" 2>/dev/null || true
+    done
+    echo "  Use --clean to force re-download"
+
+else
+    # Download wheels inside the slim image so they're platform-compatible.
+    # Uses docker create + docker cp instead of volume mounts for Windows compatibility.
+    # PyTorch CPU from pytorch index, everything else from PyPI.
+    WHEELS_CONTAINER="airgap_build_wheels_$$"
+    docker rm -f "$WHEELS_CONTAINER" 2>/dev/null || true
+
+    echo "  Downloading PyTorch CPU + sentence-transformers + langchain-huggingface wheels..."
+    docker create --name "$WHEELS_CONTAINER" \
+        softpower-app-airgap:latest \
+        bash -c "mkdir -p /wheels && \
+            pip download --no-cache-dir --dest /wheels \
+                --index-url https://download.pytorch.org/whl/cpu \
+                torch==2.5.1 && \
+            pip download --no-cache-dir --dest /wheels \
+                --index-url https://pypi.org/simple \
+                sentence-transformers==3.3.1 \
+                langchain-huggingface==0.1.2"
+
+    docker start -a "$WHEELS_CONTAINER"
+    docker cp "$WHEELS_CONTAINER":/wheels/. "$WHEELS_DIR/"
+    docker rm "$WHEELS_CONTAINER"
+
+    # Populate cache for next run
+    mkdir -p "$WHEELS_CACHE"
+    cp "$WHEELS_DIR"/* "$WHEELS_CACHE/" 2>/dev/null || true
+    echo -e "  ${GREEN}Cached wheels for future builds${NC}"
+fi
 
 WHEEL_COUNT=$(ls -1 "$WHEELS_DIR"/*.whl 2>/dev/null | wc -l)
 WHEEL_SIZE=$(du -sh "$WHEELS_DIR" | cut -f1)
-echo ""
-echo -e "  ${GREEN}Downloaded ${WHEEL_COUNT} wheel files${NC} (${WHEEL_SIZE})"
+echo -e "  ${GREEN}${WHEEL_COUNT} wheel files ready${NC} (${WHEEL_SIZE})"
 echo ""
 
 # ============================================
 # Step 3: Download HuggingFace model
 # ============================================
-echo -e "${BLUE}[3/8]${NC} Downloading sentence-transformers model..."
+echo -e "${BLUE}[3/8]${NC} Sentence-transformers model..."
 echo ""
 
 MODEL_DIR="$PACKAGE_DIR/hf_model"
+MODEL_CACHE="$CACHE_DIR/hf_model"
+MODEL_MARKER="models/all-MiniLM-L6-v2/modules.json"
 mkdir -p "$MODEL_DIR"
 
-# Install heavy packages in a temp container, then download and save model.
-# Uses docker create + docker cp instead of volume mounts for Windows compatibility.
-#
-# The model is saved two ways:
-#   1. /export/models/all-MiniLM-L6-v2/  — clean model.save() copy (no symlinks,
-#      portable across docker cp, tar, pack/unpack transfers). This is the
-#      preferred path used by shared/utils/model_cache.py at runtime.
-#   2. /export/hub/models--sentence-transformers--all-MiniLM-L6-v2/  — standard
-#      HF Hub cache layout (kept as fallback for compatibility).
-MODEL_CONTAINER="airgap_build_model_$$"
-docker rm -f "$MODEL_CONTAINER" 2>/dev/null || true
+if [ -f "$MODEL_DIR/$MODEL_MARKER" ]; then
+    echo -e "  ${GREEN}Model already in package dir${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
+    echo "  Skipping download (use --clean to force)"
 
-docker create --name "$MODEL_CONTAINER" \
-    -e HF_HOME=/export \
-    -e TRANSFORMERS_OFFLINE=0 \
-    -e HF_HUB_OFFLINE=0 \
-    softpower-app-airgap:latest \
-    bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
-        torch sentence-transformers langchain-huggingface && \
-    python3 -c '
+elif [ -f "$MODEL_CACHE/$MODEL_MARKER" ]; then
+    echo -e "  ${GREEN}Copying from cache${NC} ($(du -sh "$MODEL_CACHE" | cut -f1))"
+    cp -r "$MODEL_CACHE"/. "$MODEL_DIR/"
+    echo "  Use --clean to force re-download"
+
+else
+    # Install heavy packages in a temp container, then download and save model.
+    # Uses docker create + docker cp instead of volume mounts for Windows compatibility.
+    #
+    # The model is saved two ways:
+    #   1. /export/models/all-MiniLM-L6-v2/  — clean model.save() copy (no symlinks,
+    #      portable across docker cp, tar, pack/unpack transfers). This is the
+    #      preferred path used by shared/utils/model_cache.py at runtime.
+    #   2. /export/hub/models--sentence-transformers--all-MiniLM-L6-v2/  — standard
+    #      HF Hub cache layout (kept as fallback for compatibility).
+    MODEL_CONTAINER="airgap_build_model_$$"
+    docker rm -f "$MODEL_CONTAINER" 2>/dev/null || true
+
+    docker create --name "$MODEL_CONTAINER" \
+        -e HF_HOME=/export \
+        -e TRANSFORMERS_OFFLINE=0 \
+        -e HF_HUB_OFFLINE=0 \
+        softpower-app-airgap:latest \
+        bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
+            torch sentence-transformers langchain-huggingface && \
+        python3 -c '
 import os, shutil
 from sentence_transformers import SentenceTransformer
 
@@ -194,22 +244,28 @@ print(\"Verification passed: modules.json present\")
 print(\"Model export complete\")
 '"
 
-# Copy wheel files into the container, then run install + model download
-docker cp "$WHEELS_DIR" "$MODEL_CONTAINER":/wheels
-docker start -a "$MODEL_CONTAINER"
-docker cp "$MODEL_CONTAINER":/export/. "$MODEL_DIR/"
-docker rm "$MODEL_CONTAINER"
+    # Copy wheel files into the container, then run install + model download
+    docker cp "$WHEELS_DIR" "$MODEL_CONTAINER":/wheels
+    docker start -a "$MODEL_CONTAINER"
+    docker cp "$MODEL_CONTAINER":/export/. "$MODEL_DIR/"
+    docker rm "$MODEL_CONTAINER"
 
-# Verify model files were extracted
-if [ ! -f "$MODEL_DIR/models/all-MiniLM-L6-v2/modules.json" ]; then
+    # Populate cache for next run
+    mkdir -p "$MODEL_CACHE"
+    cp -r "$MODEL_DIR"/. "$MODEL_CACHE/"
+    echo -e "  ${GREEN}Cached model for future builds${NC}"
+fi
+
+# Verify model files are present (regardless of source)
+if [ ! -f "$MODEL_DIR/$MODEL_MARKER" ]; then
     echo -e "  ${RED}ERROR: Model export failed - modules.json not found${NC}"
-    echo "  Expected: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
+    echo "  Expected: $MODEL_DIR/$MODEL_MARKER"
     echo "  Directory contents:"
     find "$MODEL_DIR" -maxdepth 3 -type f | head -20
     exit 1
 fi
 
-echo -e "  ${GREEN}Model downloaded and verified${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
+echo -e "  ${GREEN}Model verified${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
 echo ""
 
 # ============================================
@@ -220,17 +276,25 @@ echo ""
 
 mkdir -p "$PACKAGE_DIR/images"
 
-# Use stdout redirection (>) instead of -o flag.
-# docker save -o passes the path to the Docker daemon, which can fail
-# to resolve it on Windows (Docker Desktop path translation issue).
-# Stdout redirection lets bash handle file creation on the host filesystem.
-echo "  Saving $DB_IMAGE..."
-docker save "$DB_IMAGE" > "$PACKAGE_DIR/images/pgvector-pg16.tar"
-echo -e "  ${GREEN}pgvector-pg16.tar${NC} ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
+# Check if both image tars already exist and are non-empty
+if [ -s "$PACKAGE_DIR/images/pgvector-pg16.tar" ] && [ -s "$PACKAGE_DIR/images/softpower-app-airgap.tar" ]; then
+    echo -e "  ${GREEN}Image tars already in package dir${NC}"
+    echo "  pgvector-pg16.tar         ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
+    echo "  softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+    echo "  Skipping export (use --clean to force)"
+else
+    # Use stdout redirection (>) instead of -o flag.
+    # docker save -o passes the path to the Docker daemon, which can fail
+    # to resolve it on Windows (Docker Desktop path translation issue).
+    # Stdout redirection lets bash handle file creation on the host filesystem.
+    echo "  Saving $DB_IMAGE..."
+    docker save "$DB_IMAGE" > "$PACKAGE_DIR/images/pgvector-pg16.tar"
+    echo -e "  ${GREEN}pgvector-pg16.tar${NC} ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
 
-echo "  Saving softpower-app-airgap:latest..."
-docker save softpower-app-airgap:latest > "$PACKAGE_DIR/images/softpower-app-airgap.tar"
-echo -e "  ${GREEN}softpower-app-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+    echo "  Saving softpower-app-airgap:latest..."
+    docker save softpower-app-airgap:latest > "$PACKAGE_DIR/images/softpower-app-airgap.tar"
+    echo -e "  ${GREEN}softpower-app-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+fi
 
 # Verify both image tars are non-empty
 for img_tar in "$PACKAGE_DIR/images/pgvector-pg16.tar" "$PACKAGE_DIR/images/softpower-app-airgap.tar"; do

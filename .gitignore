@@ -78,6 +78,10 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
+# Air-gap build cache (wheels, model, etc.)
+.airgap-cache/
+softpower-airgap-*/
+
 # Local data
 data/processed_embeddings/
 material_exports/
