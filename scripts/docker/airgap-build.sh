@@ -104,27 +104,27 @@ echo ""
 WHEELS_DIR="$PACKAGE_DIR/wheels"
 mkdir -p "$WHEELS_DIR"
 
-# Download wheels inside the slim image so they're platform-compatible
-# PyTorch CPU from pytorch index, everything else from PyPI
-echo "  Downloading PyTorch CPU wheel..."
-docker run --rm \
-    -v "$(pwd)/$WHEELS_DIR:/wheels" \
-    softpower-app-airgap:latest \
-    pip download --no-cache-dir \
-        --dest /wheels \
-        --index-url https://download.pytorch.org/whl/cpu \
-        torch==2.5.1
+# Download wheels inside the slim image so they're platform-compatible.
+# Uses docker create + docker cp instead of volume mounts for Windows compatibility.
+# PyTorch CPU from pytorch index, everything else from PyPI.
+WHEELS_CONTAINER="airgap_build_wheels_$$"
+docker rm -f "$WHEELS_CONTAINER" 2>/dev/null || true
 
-echo ""
-echo "  Downloading sentence-transformers + langchain-huggingface wheels..."
-docker run --rm \
-    -v "$(pwd)/$WHEELS_DIR:/wheels" \
+echo "  Downloading PyTorch CPU + sentence-transformers + langchain-huggingface wheels..."
+docker create --name "$WHEELS_CONTAINER" \
     softpower-app-airgap:latest \
-    pip download --no-cache-dir \
-        --dest /wheels \
-        --index-url https://pypi.org/simple \
-        sentence-transformers==3.3.1 \
-        langchain-huggingface==0.1.2
+    bash -c "mkdir -p /wheels && \
+        pip download --no-cache-dir --dest /wheels \
+            --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.5.1 && \
+        pip download --no-cache-dir --dest /wheels \
+            --index-url https://pypi.org/simple \
+            sentence-transformers==3.3.1 \
+            langchain-huggingface==0.1.2"
+
+docker start -a "$WHEELS_CONTAINER"
+docker cp "$WHEELS_CONTAINER":/wheels/. "$WHEELS_DIR/"
+docker rm "$WHEELS_CONTAINER"
 
 WHEEL_COUNT=$(ls -1 "$WHEELS_DIR"/*.whl 2>/dev/null | wc -l)
 WHEEL_SIZE=$(du -sh "$WHEELS_DIR" | cut -f1)
@@ -141,19 +141,26 @@ echo ""
 MODEL_DIR="$PACKAGE_DIR/hf_model"
 mkdir -p "$MODEL_DIR"
 
-# Install heavy packages in a temp container, then download model
-docker run --rm \
-    -v "$(pwd)/$WHEELS_DIR:/wheels" \
-    -v "$(pwd)/$MODEL_DIR:/export" \
+# Install heavy packages in a temp container, then download model.
+# Uses docker create + docker cp instead of volume mounts for Windows compatibility.
+MODEL_CONTAINER="airgap_build_model_$$"
+docker rm -f "$MODEL_CONTAINER" 2>/dev/null || true
+
+docker create --name "$MODEL_CONTAINER" \
     -e HF_HOME=/export \
     softpower-app-airgap:latest \
-    bash -c "\
-pip install --no-cache-dir --no-index --find-links /wheels \
-    torch sentence-transformers langchain-huggingface 2>/dev/null && \
-python -c '\
+    bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
+        torch sentence-transformers langchain-huggingface 2>/dev/null && \
+    python -c '\
 from sentence_transformers import SentenceTransformer; \
 model = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\"); \
 print(\"Model downloaded to /export\")'"
+
+# Copy wheel files into the container, then run install + model download
+docker cp "$WHEELS_DIR" "$MODEL_CONTAINER":/wheels
+docker start -a "$MODEL_CONTAINER"
+docker cp "$MODEL_CONTAINER":/export/. "$MODEL_DIR/"
+docker rm "$MODEL_CONTAINER"
 
 echo -e "  ${GREEN}Model downloaded${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
 echo ""
