@@ -39,6 +39,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import argparse
+import json
 import yaml
 from collections import defaultdict
 from itertools import combinations
@@ -277,9 +278,9 @@ def build_cooccurrence_for_country(
                 co_occurrence_count, first_co_occurrence, last_co_occurrence,
                 primary_categories, source_doc_ids, created_at
             ) VALUES (
-                gen_random_uuid(), :from_id::uuid, :to_id::uuid, 'co_occurrence',
+                gen_random_uuid(), CAST(:from_id AS uuid), CAST(:to_id AS uuid), 'co_occurrence',
                 :count, :first_date, :last_date,
-                :categories::jsonb, :doc_ids, NOW()
+                CAST(:categories AS jsonb), :doc_ids, NOW()
             )
             ON CONFLICT ON CONSTRAINT uq_entity_relationship
             DO UPDATE SET
@@ -295,7 +296,7 @@ def build_cooccurrence_for_country(
             'count': data['count'],
             'first_date': first_date,
             'last_date': last_date,
-            'categories': str(dict(cat_counts)).replace("'", '"') if cat_counts else '{}',
+            'categories': json.dumps(dict(cat_counts)) if cat_counts else '{}',
             'doc_ids': shared_doc_ids
         })
 

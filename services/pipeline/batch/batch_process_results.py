@@ -41,6 +41,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
     JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+    JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -1644,6 +1645,85 @@ def process_summary_materiality_result(
     except Exception as e:
         if verbose:
             print(f"  Error scoring summary {summary_id}: {e}")
+        stats['errors'] += 1
+        raise
+
+
+def process_entity_description_result(
+    session,
+    entity_id: str,
+    llm_response: Dict[str, Any],
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process entity description generation result.
+
+    Updates canonical_entities.entity_description and key_activities.
+
+    Args:
+        session: Database session
+        entity_id: Canonical entity UUID
+        llm_response: Parsed LLM response with 'entity_description' and 'key_activities'
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'entities_described': 0,
+        'errors': 0
+    }
+
+    try:
+        description = llm_response.get('entity_description', '')
+        key_activities = llm_response.get('key_activities', {})
+
+        if not description:
+            if verbose:
+                print(f"  Warning: Entity {entity_id}: Empty entity_description in response")
+            stats['errors'] += 1
+            return stats
+
+        # Check entity exists and isn't already described
+        existing = session.execute(text("""
+            SELECT entity_description FROM canonical_entities
+            WHERE id = CAST(:entity_id AS uuid)
+              AND master_entity_id IS NULL
+        """), {'entity_id': entity_id}).fetchone()
+
+        if not existing:
+            if verbose:
+                print(f"  Warning: Entity {entity_id} not found or is a child entity, skipping")
+            stats['errors'] += 1
+            return stats
+
+        if existing[0] is not None and existing[0] != '':
+            if verbose:
+                print(f"  Entity {entity_id}: Already has description, skipping")
+            return stats
+
+        # Update entity with description and key_activities
+        session.execute(text("""
+            UPDATE canonical_entities
+            SET entity_description = :description,
+                key_activities = :key_activities,
+                updated_at = NOW()
+            WHERE id = CAST(:entity_id AS uuid)
+        """), {
+            'entity_id': entity_id,
+            'description': description,
+            'key_activities': json.dumps(key_activities) if key_activities else None
+        })
+
+        if verbose:
+            print(f"  Entity {entity_id}: description={len(description)} chars")
+
+        stats['entities_described'] += 1
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing entity {entity_id}: {e}")
         stats['errors'] += 1
         raise
 

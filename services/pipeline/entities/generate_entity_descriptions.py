@@ -254,7 +254,7 @@ def generate_descriptions_for_country(
                 SET entity_description = :description,
                     key_activities = :key_activities,
                     updated_at = NOW()
-                WHERE id = :entity_id::uuid
+                WHERE id = CAST(:entity_id AS uuid)
             '''), {
                 'description': description,
                 'key_activities': json.dumps(key_activities) if key_activities else None,
