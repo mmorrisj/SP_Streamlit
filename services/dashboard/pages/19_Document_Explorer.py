@@ -54,17 +54,12 @@ def get_date_range():
     query = text("""
         SELECT MIN(d.date) AS min_date, MAX(d.date) AS max_date
         FROM documents d
+        JOIN initiating_countries ic ON ic.doc_id = d.doc_id
+        JOIN recipient_countries rc ON rc.doc_id = d.doc_id
         WHERE d.date IS NOT NULL
-          AND EXISTS (
-              SELECT 1 FROM initiating_countries ic
-              WHERE ic.doc_id = d.doc_id
-                AND ic.initiating_country = ANY(:influencers)
-          )
-          AND EXISTS (
-              SELECT 1 FROM recipient_countries rc
-              WHERE rc.doc_id = d.doc_id
-                AND rc.recipient_country = ANY(:recipients)
-          )
+          AND ic.initiating_country = ANY(:influencers)
+          AND rc.recipient_country = ANY(:recipients)
+          AND ic.initiating_country != rc.recipient_country
     """)
     with get_engine().connect() as conn:
         row = conn.execute(query, {
@@ -139,6 +134,7 @@ def query_documents(
         JOIN initiating_countries ic ON ic.doc_id = d.doc_id
         JOIN recipient_countries rc ON rc.doc_id = d.doc_id
         WHERE d.date IS NOT NULL
+          AND ic.initiating_country != rc.recipient_country
           AND {where_sql}
     """)
 
@@ -166,6 +162,7 @@ def query_documents(
         JOIN initiating_countries ic ON ic.doc_id = d.doc_id
         JOIN recipient_countries rc ON rc.doc_id = d.doc_id
         WHERE d.date IS NOT NULL
+          AND ic.initiating_country != rc.recipient_country
           AND {where_sql}
         ORDER BY d.date DESC, d.title ASC
         LIMIT :limit OFFSET :offset

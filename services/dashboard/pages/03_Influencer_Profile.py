@@ -75,7 +75,7 @@ st.caption("Comprehensive country profile across documents, events, entities, bi
 # =========================================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_overview_metrics(country: str, start: str, end: str):
+def fetch_overview_metrics(country: str, start: str, end: str, recipients: list):
     """Return KPI counts for the overview tab."""
     engine = get_engine()
     query = text("""
@@ -83,7 +83,10 @@ def fetch_overview_metrics(country: str, start: str, end: str):
             (SELECT COUNT(DISTINCT d.doc_id)
              FROM documents d
              JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+             JOIN recipient_countries rc ON d.doc_id = rc.doc_id
              WHERE ic.initiating_country = :country
+               AND rc.recipient_country IN :recipients
+               AND ic.initiating_country != rc.recipient_country
                AND d.date BETWEEN :start AND :end
             ) AS total_documents,
 
@@ -108,6 +111,8 @@ def fetch_overview_metrics(country: str, start: str, end: str):
              JOIN initiating_countries ic ON d.doc_id = ic.doc_id
              JOIN recipient_countries rc ON d.doc_id = rc.doc_id
              WHERE ic.initiating_country = :country
+               AND rc.recipient_country IN :recipients
+               AND ic.initiating_country != rc.recipient_country
                AND d.date BETWEEN :start AND :end
             ) AS total_recipients,
 
@@ -121,7 +126,7 @@ def fetch_overview_metrics(country: str, start: str, end: str):
             ) AS avg_materiality
     """)
     with engine.connect() as conn:
-        row = conn.execute(query, {"country": country, "start": start, "end": end}).fetchone()
+        row = conn.execute(query, {"country": country, "start": start, "end": end, "recipients": tuple(recipients)}).fetchone()
     return row
 
 
@@ -186,7 +191,7 @@ def fetch_top_entities(country: str, start: str, end: str, entity_type_filter: s
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_bilateral_summaries(country: str):
+def fetch_bilateral_summaries(country: str, recipients: list):
     """Bilateral relationship summaries for this country."""
     engine = get_engine()
     query = text("""
@@ -199,11 +204,13 @@ def fetch_bilateral_summaries(country: str):
             last_interaction_date
         FROM bilateral_relationship_summaries
         WHERE initiating_country = :country
+          AND recipient_country IN :recipients
+          AND initiating_country != recipient_country
           AND is_deleted = false
         ORDER BY total_documents DESC
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"country": country})
+        df = pd.read_sql(query, conn, params={"country": country, "recipients": tuple(recipients)})
     return df
 
 
@@ -233,7 +240,7 @@ def fetch_category_summaries(country: str):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_top_sources(country: str, start: str, end: str, limit: int = 30):
+def fetch_top_sources(country: str, start: str, end: str, recipients: list, limit: int = 30):
     """Top sources by document count."""
     engine = get_engine()
     query = text("""
@@ -242,7 +249,10 @@ def fetch_top_sources(country: str, start: str, end: str, limit: int = 30):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country = :country
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start AND :end
           AND d.source_name IS NOT NULL
         GROUP BY d.source_name
@@ -250,12 +260,12 @@ def fetch_top_sources(country: str, start: str, end: str, limit: int = 30):
         LIMIT :limit
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"country": country, "start": start, "end": end, "limit": limit})
+        df = pd.read_sql(query, conn, params={"country": country, "start": start, "end": end, "recipients": tuple(recipients), "limit": limit})
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_source_medium_breakdown(country: str, start: str, end: str):
+def fetch_source_medium_breakdown(country: str, start: str, end: str, recipients: list):
     """Source medium breakdown for a bar chart."""
     engine = get_engine()
     query = text("""
@@ -264,19 +274,22 @@ def fetch_source_medium_breakdown(country: str, start: str, end: str):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country = :country
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start AND :end
           AND d.source_medium IS NOT NULL
         GROUP BY d.source_medium
         ORDER BY doc_count DESC
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"country": country, "start": start, "end": end})
+        df = pd.read_sql(query, conn, params={"country": country, "start": start, "end": end, "recipients": tuple(recipients)})
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_monthly_timeline(country: str, start: str, end: str):
+def fetch_monthly_timeline(country: str, start: str, end: str, recipients: list):
     """Monthly document count trend."""
     engine = get_engine()
     query = text("""
@@ -285,13 +298,16 @@ def fetch_monthly_timeline(country: str, start: str, end: str):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country = :country
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start AND :end
         GROUP BY date_trunc('month', d.date)
         ORDER BY month
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"country": country, "start": start, "end": end})
+        df = pd.read_sql(query, conn, params={"country": country, "start": start, "end": end, "recipients": tuple(recipients)})
     return df
 
 
@@ -315,7 +331,7 @@ tab_overview, tab_events, tab_entities, tab_bilateral, tab_categories, tab_sourc
 with tab_overview:
     st.header("Overview")
 
-    metrics = fetch_overview_metrics(selected_country, start_str, end_str)
+    metrics = fetch_overview_metrics(selected_country, start_str, end_str, cfg.recipients)
 
     if metrics:
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -418,7 +434,7 @@ with tab_bilateral:
     st.header("Bilateral Relationships")
     st.markdown("AI-generated relationship summaries between this country and its recipients.")
 
-    bilateral_df = fetch_bilateral_summaries(selected_country)
+    bilateral_df = fetch_bilateral_summaries(selected_country, cfg.recipients)
 
     if not bilateral_df.empty:
         st.metric("Bilateral Relationships", len(bilateral_df))
@@ -518,7 +534,7 @@ with tab_sources:
     st.header("Sources")
     st.markdown("News sources covering this country's soft power activities.")
 
-    sources_df = fetch_top_sources(selected_country, start_str, end_str, limit=30)
+    sources_df = fetch_top_sources(selected_country, start_str, end_str, cfg.recipients, limit=30)
 
     if not sources_df.empty:
         st.subheader("Top Sources by Document Count")
@@ -529,7 +545,7 @@ with tab_sources:
         # Source medium breakdown
         st.markdown("---")
         st.subheader("Source Medium Breakdown")
-        medium_df = fetch_source_medium_breakdown(selected_country, start_str, end_str)
+        medium_df = fetch_source_medium_breakdown(selected_country, start_str, end_str, cfg.recipients)
 
         if not medium_df.empty:
             medium_df.columns = ["Medium", "Documents"]
@@ -557,7 +573,7 @@ with tab_timeline:
     st.header("Timeline")
     st.markdown("Monthly document volume trend.")
 
-    timeline_df = fetch_monthly_timeline(selected_country, start_str, end_str)
+    timeline_df = fetch_monthly_timeline(selected_country, start_str, end_str, cfg.recipients)
 
     if not timeline_df.empty:
         timeline_df["month"] = pd.to_datetime(timeline_df["month"])

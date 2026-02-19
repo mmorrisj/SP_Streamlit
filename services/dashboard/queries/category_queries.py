@@ -6,6 +6,9 @@ from typing import List, Dict, Optional
 from sqlalchemy import text
 from shared.database.database import get_session
 from shared.models.models import CountryCategorySummary, BilateralCategorySummary
+from shared.utils.utils import Config
+
+cfg = Config.from_yaml()
 
 
 # ============================================================================
@@ -16,7 +19,8 @@ def get_all_country_category_summaries() -> List[Dict]:
     """Get all country category summaries."""
     with get_session() as session:
         summaries = session.query(CountryCategorySummary).filter(
-            CountryCategorySummary.is_deleted == False
+            CountryCategorySummary.is_deleted == False,
+            CountryCategorySummary.initiating_country.in_(cfg.influencers),
         ).all()
 
         return [country_category_to_dict(s) for s in summaries]
@@ -63,6 +67,7 @@ def get_category_by_countries(category: str) -> List[Dict]:
     with get_session() as session:
         summaries = session.query(CountryCategorySummary).filter(
             CountryCategorySummary.category == category,
+            CountryCategorySummary.initiating_country.in_(cfg.influencers),
             CountryCategorySummary.is_deleted == False
         ).order_by(
             CountryCategorySummary.total_documents.desc()
@@ -75,7 +80,8 @@ def get_top_country_categories_by_documents(limit: int = 20) -> List[Dict]:
     """Get top country-category combinations by document count."""
     with get_session() as session:
         summaries = session.query(CountryCategorySummary).filter(
-            CountryCategorySummary.is_deleted == False
+            CountryCategorySummary.is_deleted == False,
+            CountryCategorySummary.initiating_country.in_(cfg.influencers)
         ).order_by(
             CountryCategorySummary.total_documents.desc()
         ).limit(limit).all()
@@ -97,7 +103,8 @@ def get_country_category_statistics() -> Dict:
                 MIN(material_score_avg) as min_material_score
             FROM country_category_summaries
             WHERE is_deleted = FALSE
-        """)).fetchone()
+              AND initiating_country = ANY(:influencers)
+        """), {"influencers": cfg.influencers}).fetchone()
 
         return {
             'total_summaries': result[0],
@@ -118,7 +125,10 @@ def get_all_bilateral_category_summaries() -> List[Dict]:
     """Get all bilateral category summaries."""
     with get_session() as session:
         summaries = session.query(BilateralCategorySummary).filter(
-            BilateralCategorySummary.is_deleted == False
+            BilateralCategorySummary.is_deleted == False,
+            BilateralCategorySummary.initiating_country.in_(cfg.influencers),
+            BilateralCategorySummary.recipient_country.in_(cfg.recipients),
+            BilateralCategorySummary.initiating_country != BilateralCategorySummary.recipient_country,
         ).all()
 
         return [bilateral_category_to_dict(s) for s in summaries]
@@ -174,7 +184,10 @@ def get_top_bilateral_categories_by_documents(limit: int = 20) -> List[Dict]:
     """Get top bilateral-category combinations by document count."""
     with get_session() as session:
         summaries = session.query(BilateralCategorySummary).filter(
-            BilateralCategorySummary.is_deleted == False
+            BilateralCategorySummary.is_deleted == False,
+            BilateralCategorySummary.initiating_country.in_(cfg.influencers),
+            BilateralCategorySummary.recipient_country.in_(cfg.recipients),
+            BilateralCategorySummary.initiating_country != BilateralCategorySummary.recipient_country
         ).order_by(
             BilateralCategorySummary.total_documents.desc()
         ).limit(limit).all()
@@ -195,7 +208,10 @@ def get_bilateral_category_statistics() -> Dict:
                 AVG(material_score_avg) as avg_material_score
             FROM bilateral_category_summaries
             WHERE is_deleted = FALSE
-        """)).fetchone()
+              AND initiating_country = ANY(:influencers)
+              AND recipient_country = ANY(:recipients)
+              AND initiating_country != recipient_country
+        """), {"influencers": cfg.influencers, "recipients": cfg.recipients}).fetchone()
 
         return {
             'total_summaries': result[0],

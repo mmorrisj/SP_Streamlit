@@ -25,17 +25,20 @@ st.caption("System-wide view of documents, events, entities, and bilateral relat
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_total_documents(influencers):
+def get_total_documents(influencers, recipients):
     """Total document count across selected influencers."""
     engine = get_engine()
     query = text("""
         SELECT COUNT(DISTINCT d.doc_id) AS total
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
     """)
     with engine.connect() as conn:
-        row = conn.execute(query, {"influencers": tuple(influencers)}).fetchone()
+        row = conn.execute(query, {"influencers": tuple(influencers), "recipients": tuple(recipients)}).fetchone()
     return row[0] if row else 0
 
 
@@ -79,6 +82,7 @@ def get_total_bilateral_pairs(influencers, recipients):
         WHERE is_deleted = FALSE
           AND initiating_country IN :influencers
           AND recipient_country IN :recipients
+          AND initiating_country != recipient_country
     """)
     with engine.connect() as conn:
         row = conn.execute(
@@ -88,7 +92,7 @@ def get_total_bilateral_pairs(influencers, recipients):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_monthly_doc_trend(influencers):
+def get_monthly_doc_trend(influencers, recipients):
     """Monthly documents across all selected influencers."""
     engine = get_engine()
     query = text("""
@@ -97,18 +101,21 @@ def get_monthly_doc_trend(influencers):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date IS NOT NULL
         GROUP BY DATE_TRUNC('month', d.date)
         ORDER BY month
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers)})
+        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers), "recipients": tuple(recipients)})
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_category_distribution(influencers):
+def get_category_distribution(influencers, recipients):
     """Category distribution across all documents."""
     engine = get_engine()
     query = text("""
@@ -117,18 +124,21 @@ def get_category_distribution(influencers):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         JOIN categories c ON d.doc_id = c.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
         GROUP BY c.category
         ORDER BY doc_count DESC
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers)})
+        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers), "recipients": tuple(recipients)})
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_influencer_doc_counts(influencers):
+def get_influencer_doc_counts(influencers, recipients):
     """Document counts per influencer."""
     engine = get_engine()
     query = text("""
@@ -137,17 +147,20 @@ def get_influencer_doc_counts(influencers):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
         GROUP BY ic.initiating_country
         ORDER BY doc_count DESC
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers)})
+        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers), "recipients": tuple(recipients)})
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_stacked_category_by_influencer(influencers):
+def get_stacked_category_by_influencer(influencers, recipients):
     """Category counts per influencer for stacked bar chart."""
     engine = get_engine()
     query = text("""
@@ -157,18 +170,21 @@ def get_stacked_category_by_influencer(influencers):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         JOIN categories c ON d.doc_id = c.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
         GROUP BY ic.initiating_country, c.category
         ORDER BY ic.initiating_country, doc_count DESC
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers)})
+        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers), "recipients": tuple(recipients)})
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_subcategory_breakdown(influencers):
+def get_subcategory_breakdown(influencers, recipients):
     """Subcategory counts across all influencers."""
     engine = get_engine()
     query = text("""
@@ -177,34 +193,40 @@ def get_subcategory_breakdown(influencers):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         JOIN subcategories sc ON d.doc_id = sc.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
         GROUP BY sc.subcategory
         ORDER BY doc_count DESC
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers)})
+        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers), "recipients": tuple(recipients)})
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_date_range(influencers):
+def get_date_range(influencers, recipients):
     """Earliest and latest document dates."""
     engine = get_engine()
     query = text("""
         SELECT MIN(d.date) AS min_date, MAX(d.date) AS max_date
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date IS NOT NULL
     """)
     with engine.connect() as conn:
-        row = conn.execute(query, {"influencers": tuple(influencers)}).fetchone()
+        row = conn.execute(query, {"influencers": tuple(influencers), "recipients": tuple(recipients)}).fetchone()
     return row if row else (None, None)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_monthly_doc_trend_by_country(influencers):
+def get_monthly_doc_trend_by_country(influencers, recipients):
     """Monthly document counts split by influencer."""
     engine = get_engine()
     query = text("""
@@ -214,13 +236,16 @@ def get_monthly_doc_trend_by_country(influencers):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date IS NOT NULL
         GROUP BY DATE_TRUNC('month', d.date), ic.initiating_country
         ORDER BY month
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers)})
+        df = pd.read_sql(query, conn, params={"influencers": tuple(influencers), "recipients": tuple(recipients)})
     return df
 
 
@@ -230,11 +255,11 @@ def get_monthly_doc_trend_by_country(influencers):
 influencers = cfg.influencers
 recipients = cfg.recipients
 
-total_docs = get_total_documents(influencers)
+total_docs = get_total_documents(influencers, recipients)
 total_events = get_total_events(influencers)
 total_entities = get_total_entities(influencers)
 total_bilateral = get_total_bilateral_pairs(influencers, recipients)
-date_range = get_date_range(influencers)
+date_range = get_date_range(influencers, recipients)
 
 # ---------------------------------------------------------------------------
 # KPI Row
@@ -259,7 +284,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.header("Monthly Document Trend")
 
-monthly_df = get_monthly_doc_trend(influencers)
+monthly_df = get_monthly_doc_trend(influencers, recipients)
 
 if monthly_df.empty:
     st.info("No monthly trend data available.")
@@ -292,7 +317,7 @@ else:
 # Monthly trend by country
 st.subheader("Monthly Trend by Country")
 
-monthly_country_df = get_monthly_doc_trend_by_country(influencers)
+monthly_country_df = get_monthly_doc_trend_by_country(influencers, recipients)
 
 if monthly_country_df.empty:
     st.info("No country-level monthly trend data available.")
@@ -321,7 +346,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.header("Category Distribution")
 
-cat_df = get_category_distribution(influencers)
+cat_df = get_category_distribution(influencers, recipients)
 
 if cat_df.empty:
     st.info("No category data available.")
@@ -362,7 +387,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.header("Influencer Comparison")
 
-inf_df = get_influencer_doc_counts(influencers)
+inf_df = get_influencer_doc_counts(influencers, recipients)
 
 if inf_df.empty:
     st.info("No influencer data available.")
@@ -394,7 +419,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.header("Category Mix by Influencer")
 
-stacked_df = get_stacked_category_by_influencer(influencers)
+stacked_df = get_stacked_category_by_influencer(influencers, recipients)
 
 if stacked_df.empty:
     st.info("No stacked category data available.")
@@ -442,7 +467,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.header("Subcategory Breakdown")
 
-subcat_df = get_subcategory_breakdown(influencers)
+subcat_df = get_subcategory_breakdown(influencers, recipients)
 
 if subcat_df.empty:
     st.info("No subcategory data available.")

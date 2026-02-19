@@ -83,9 +83,13 @@ def get_event_details(event_id):
             source_count
         FROM canonical_events
         WHERE id = :event_id
+          AND initiating_country = ANY(:influencers)
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"event_id": event_id})
+        df = pd.read_sql(query, conn, params={
+            "event_id": event_id,
+            "influencers": list(cfg.influencers),
+        })
     return df
 
 

@@ -33,7 +33,10 @@ def get_top_sources(countries, start_date, end_date, limit=30):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
           AND d.source_name IS NOT NULL
         GROUP BY d.source_name
@@ -45,6 +48,7 @@ def get_top_sources(countries, start_date, end_date, limit=30):
             query, conn,
             params={
                 "countries": tuple(countries),
+                "recipients": tuple(cfg.recipients),
                 "start_date": start_date,
                 "end_date": end_date,
                 "lim": limit,
@@ -64,7 +68,10 @@ def get_top_sources_by_country(countries, start_date, end_date, limit=10):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
           AND d.source_name IS NOT NULL
         GROUP BY ic.initiating_country, d.source_name
@@ -75,6 +82,7 @@ def get_top_sources_by_country(countries, start_date, end_date, limit=10):
             query, conn,
             params={
                 "countries": tuple(countries),
+                "recipients": tuple(cfg.recipients),
                 "start_date": start_date,
                 "end_date": end_date,
             },
@@ -94,7 +102,10 @@ def get_medium_breakdown(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY COALESCE(d.source_medium, 'Unknown')
         ORDER BY doc_count DESC
@@ -102,7 +113,7 @@ def get_medium_breakdown(countries, start_date, end_date):
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(cfg.recipients), "start_date": start_date, "end_date": end_date},
         )
     return df
 
@@ -118,7 +129,10 @@ def get_medium_by_country(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY ic.initiating_country, COALESCE(d.source_medium, 'Unknown')
         ORDER BY ic.initiating_country, doc_count DESC
@@ -126,7 +140,7 @@ def get_medium_by_country(countries, start_date, end_date):
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(cfg.recipients), "start_date": start_date, "end_date": end_date},
         )
     return df
 
@@ -142,7 +156,10 @@ def get_source_diversity(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS total_docs
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
           AND d.source_name IS NOT NULL
         GROUP BY ic.initiating_country
@@ -151,7 +168,7 @@ def get_source_diversity(countries, start_date, end_date):
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(cfg.recipients), "start_date": start_date, "end_date": end_date},
         )
     return df
 
@@ -166,7 +183,10 @@ def get_source_geofocus_breakdown(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY COALESCE(d.source_geofocus, 'Unknown')
         ORDER BY doc_count DESC
@@ -175,7 +195,7 @@ def get_source_geofocus_breakdown(countries, start_date, end_date):
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(cfg.recipients), "start_date": start_date, "end_date": end_date},
         )
     return df
 
@@ -191,7 +211,10 @@ def get_monthly_source_trend(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS total_docs
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
           AND d.source_name IS NOT NULL
         GROUP BY DATE_TRUNC('month', d.date)
@@ -200,7 +223,7 @@ def get_monthly_source_trend(countries, start_date, end_date):
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(cfg.recipients), "start_date": start_date, "end_date": end_date},
         )
     return df
 

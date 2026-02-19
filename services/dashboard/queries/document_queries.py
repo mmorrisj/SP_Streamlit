@@ -93,7 +93,8 @@ filtered_docs = (
     .where(
         InitiatingCountry.initiating_country.in_(cfg.influencers),
         RecipientCountry.recipient_country   .in_(cfg.recipients),
-        Document.date >= cfg.start_date,  # if you have a default end_date
+        InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+        Document.date >= cfg.start_date,
     )
     ).cte("filtered_docs")
 
@@ -174,11 +175,10 @@ def get_document_counts_per_week(
         .join(RecipientCountry,  Document.doc_id == RecipientCountry.doc_id)
         .join(Category,           Document.doc_id == Category.doc_id)
         .where(
-            # use the function argument, not cfg.start_date
             Document.date >= start_date,
-            # later you can add filters on country_list, category, subcategory
             InitiatingCountry.initiating_country.in_(cfg.influencers),
             RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
         )
         .group_by('week_start')
         .order_by('week_start')
@@ -227,6 +227,7 @@ def get_top_influencers_by_document_count(country_list='ALL', category='ALL', su
         .where(
             InitiatingCountry.initiating_country.in_(cfg.influencers),
             RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
             Document.date >= start_date,
         )
     )
@@ -282,6 +283,7 @@ def get_category_distribution_by_document_count(country_list='ALL', category='AL
         .where(
             InitiatingCountry.initiating_country.in_(cfg.influencers),
             RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
             Category.category.in_(cfg.categories),
             Document.date >= start_date,
         )
@@ -316,6 +318,7 @@ def get_category_distribution_by_document_count_by_country(country_list='ALL', c
         .where(
             InitiatingCountry.initiating_country.in_(cfg.influencers),
             RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
             Category.category.in_(cfg.categories),
             Document.date >= start_date,
         )
@@ -354,6 +357,7 @@ def get_category_count_over_time(country_list='ALL',category='ALL',subcategory='
     .join(InitiatingCountry,Document.doc_id==InitiatingCountry.doc_id)
     .where(InitiatingCountry.initiating_country.in_(cfg.influencers),
     RecipientCountry.recipient_country.in_(cfg.recipients),
+    InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
     Category.category.in_(cfg.categories),
     Document.date >=cfg.start_date)
     )
@@ -370,7 +374,18 @@ def get_category_count_over_time(country_list='ALL',category='ALL',subcategory='
 #get Category df
 @st.cache_data(ttl=300)
 def get_category_df():
-    stmt = select(Category).order_by(Category.category)
+    stmt = (
+        select(Category)
+        .join(Document, Category.doc_id == Document.doc_id)
+        .join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+        .join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+        .where(
+            InitiatingCountry.initiating_country.in_(cfg.influencers),
+            RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+        )
+        .order_by(Category.category)
+    )
     with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
     return df
@@ -378,7 +393,18 @@ def get_category_df():
 #get Subcategory df
 @st.cache_data(ttl=300)
 def get_subcategory_df():
-    stmt = select(Subcategory).order_by(Subcategory.subcategory)
+    stmt = (
+        select(Subcategory)
+        .join(Document, Subcategory.doc_id == Document.doc_id)
+        .join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+        .join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+        .where(
+            InitiatingCountry.initiating_country.in_(cfg.influencers),
+            RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+        )
+        .order_by(Subcategory.subcategory)
+    )
     with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
     return df
@@ -394,6 +420,7 @@ def get_document_dates(country_list=None,start_date=None,end_date=None):
     stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
     stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers),
                        RecipientCountry.recipient_country.in_(cfg.recipients),
+                       InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
                        Document.date >= start_date)
     if country_list and country_list != "ALL":
         stmt = stmt.filter(InitiatingCountry.initiating_country.in_(country_list))
@@ -415,7 +442,8 @@ def get_last_week_of_documents(country_list=None,end_date=None):
     stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
     stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
     stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers),
-                       RecipientCountry.recipient_country.in_(cfg.recipients))
+                       RecipientCountry.recipient_country.in_(cfg.recipients),
+                       InitiatingCountry.initiating_country != RecipientCountry.recipient_country)
     if country_list and country_list != "ALL":
         stmt = stmt.filter(InitiatingCountry.initiating_country.in_(country_list))
     with get_engine().connect() as conn:
@@ -428,14 +456,15 @@ def get_last_week_of_documents(country_list=None,end_date=None):
 @st.cache_data(ttl=300)
 def get_date_documents(date,country=None,category=None):
     stmt = select(Document).where(Document.date == date).order_by(Document.date.desc())
+    stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+    stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+    stmt = stmt.filter(
+        InitiatingCountry.initiating_country.in_(cfg.influencers),
+        RecipientCountry.recipient_country.in_(cfg.recipients),
+        InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+    )
     if country and country != "ALL":
-        stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
         stmt = stmt.filter(InitiatingCountry.initiating_country == country)
-    else:
-        stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
-        stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers))
-        stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
-        stmt = stmt.filter(RecipientCountry.recipient_country.in_(cfg.recipients))
     if category and category != "ALL":
         stmt = stmt.join(Category, Document.doc_id == Category.doc_id)
         stmt = stmt.filter(Category.category == category)
@@ -471,7 +500,8 @@ def get_category(category=None,country=None):
     stmt = stmt.join(InitiatingCountry, Category.doc_id == InitiatingCountry.doc_id)
     stmt = stmt.join(RecipientCountry, Category.doc_id == RecipientCountry.doc_id)
     stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers),
-                       RecipientCountry.recipient_country.in_(cfg.recipients))
+                       RecipientCountry.recipient_country.in_(cfg.recipients),
+                       InitiatingCountry.initiating_country != RecipientCountry.recipient_country)
     if category and category != "ALL":
         stmt = stmt.filter(Category.category == category)
     if country and country != "ALL":

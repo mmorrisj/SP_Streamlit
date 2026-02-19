@@ -67,17 +67,21 @@ def get_daily_doc_counts(country, category, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         JOIN categories c ON d.doc_id = c.doc_id
         WHERE d.date IS NOT NULL
           AND d.date >= :start_date
           AND d.date <= :end_date
           AND ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           {where_extra}
         GROUP BY d.date
         ORDER BY d.date
     """)
 
     params["influencers"] = tuple(cfg.influencers)
+    params["recipients"] = tuple(cfg.recipients)
 
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params=params)
@@ -94,7 +98,7 @@ def get_events_on_date(target_date, country):
     engine = get_engine()
 
     country_filter = ""
-    params = {"target_date": target_date}
+    params = {"target_date": target_date, "influencers": list(cfg.influencers)}
 
     if country != "ALL":
         country_filter = "AND initiating_country = :country"
@@ -113,6 +117,7 @@ def get_events_on_date(target_date, country):
         WHERE master_event_id IS NULL
           AND first_mention_date <= :target_date
           AND last_mention_date >= :target_date
+          AND initiating_country = ANY(:influencers)
           {country_filter}
         ORDER BY total_articles DESC
         LIMIT 20
@@ -132,11 +137,17 @@ def get_available_categories():
         SELECT DISTINCT c.category
         FROM categories c
         JOIN initiating_countries ic ON c.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON c.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :influencers
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
         ORDER BY c.category
     """)
     with engine.connect() as conn:
-        rows = conn.execute(query, {"influencers": tuple(cfg.influencers)}).fetchall()
+        rows = conn.execute(query, {
+            "influencers": tuple(cfg.influencers),
+            "recipients": tuple(cfg.recipients),
+        }).fetchall()
     return [r[0] for r in rows]
 
 

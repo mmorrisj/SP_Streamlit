@@ -24,7 +24,7 @@ st.caption("Compare influencer countries across document volume, events, materia
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_country_kpis(countries, start_date, end_date):
+def get_country_kpis(countries, start_date, end_date, recipients):
     """Total docs, canonical events, and avg materiality per influencer."""
     engine = get_engine()
     query = text("""
@@ -33,7 +33,10 @@ def get_country_kpis(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS total_docs
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY ic.initiating_country
         ORDER BY total_docs DESC
@@ -41,7 +44,7 @@ def get_country_kpis(countries, start_date, end_date):
     with engine.connect() as conn:
         docs_df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(recipients), "start_date": start_date, "end_date": end_date},
         )
 
     event_query = text("""
@@ -80,6 +83,7 @@ def get_shared_recipients(countries, start_date, end_date, recipients):
         JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
           AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY rc.recipient_country, ic.initiating_country
         ORDER BY rc.recipient_country, doc_count DESC
@@ -98,7 +102,7 @@ def get_shared_recipients(countries, start_date, end_date, recipients):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_category_comparison(countries, start_date, end_date):
+def get_category_comparison(countries, start_date, end_date, recipients):
     """Category counts per influencer."""
     engine = get_engine()
     query = text("""
@@ -108,8 +112,11 @@ def get_category_comparison(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         JOIN categories c ON d.doc_id = c.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY ic.initiating_country, c.category
         ORDER BY ic.initiating_country, doc_count DESC
@@ -117,13 +124,13 @@ def get_category_comparison(countries, start_date, end_date):
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(recipients), "start_date": start_date, "end_date": end_date},
         )
     return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_monthly_comparison(countries, start_date, end_date):
+def get_monthly_comparison(countries, start_date, end_date, recipients):
     """Monthly document trend per influencer."""
     engine = get_engine()
     query = text("""
@@ -133,7 +140,10 @@ def get_monthly_comparison(countries, start_date, end_date):
             COUNT(DISTINCT d.doc_id) AS doc_count
         FROM documents d
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+        JOIN recipient_countries rc ON d.doc_id = rc.doc_id
         WHERE ic.initiating_country IN :countries
+          AND rc.recipient_country IN :recipients
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY DATE_TRUNC('month', d.date), ic.initiating_country
         ORDER BY month
@@ -141,7 +151,7 @@ def get_monthly_comparison(countries, start_date, end_date):
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"countries": tuple(countries), "start_date": start_date, "end_date": end_date},
+            params={"countries": tuple(countries), "recipients": tuple(recipients), "start_date": start_date, "end_date": end_date},
         )
     return df
 
@@ -173,7 +183,7 @@ if not selected_countries or len(selected_countries) < 1:
 # ---------------------------------------------------------------------------
 st.header("Key Metrics by Country")
 
-kpi_df = get_country_kpis(selected_countries, start_date, end_date)
+kpi_df = get_country_kpis(selected_countries, start_date, end_date, cfg.recipients)
 
 if kpi_df.empty:
     st.warning("No data found for the selected countries and date range.")
@@ -303,7 +313,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.header("Category Mix Comparison")
 
-cat_df = get_category_comparison(selected_countries, start_date, end_date)
+cat_df = get_category_comparison(selected_countries, start_date, end_date, cfg.recipients)
 
 if cat_df.empty:
     st.info("No category data found.")
@@ -350,7 +360,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.header("Monthly Activity Trends")
 
-monthly_df = get_monthly_comparison(selected_countries, start_date, end_date)
+monthly_df = get_monthly_comparison(selected_countries, start_date, end_date, cfg.recipients)
 
 if monthly_df.empty:
     st.info("No monthly trend data available.")

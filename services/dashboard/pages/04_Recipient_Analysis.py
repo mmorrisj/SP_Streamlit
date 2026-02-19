@@ -34,6 +34,7 @@ def get_docs_by_influencer(recipient, start_date, end_date, influencers):
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
         WHERE rc.recipient_country = :recipient
           AND ic.initiating_country IN :influencers
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY ic.initiating_country
         ORDER BY doc_count DESC
@@ -63,6 +64,7 @@ def get_category_breakdown(recipient, start_date, end_date, influencers):
         JOIN categories c ON d.doc_id = c.doc_id
         WHERE rc.recipient_country = :recipient
           AND ic.initiating_country IN :influencers
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY c.category
         ORDER BY doc_count DESC
@@ -81,7 +83,7 @@ def get_category_breakdown(recipient, start_date, end_date, influencers):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_recent_events(recipient, limit=30):
+def get_recent_events(recipient, influencers, limit=30):
     """Recent canonical events mentioning this recipient via primary_recipients JSONB."""
     engine = get_engine()
     query = text("""
@@ -97,13 +99,14 @@ def get_recent_events(recipient, limit=30):
         FROM canonical_events
         WHERE primary_recipients ? :recipient
           AND master_event_id IS NULL
+          AND initiating_country = ANY(:influencers)
         ORDER BY last_mention_date DESC
         LIMIT :lim
     """)
     with engine.connect() as conn:
         df = pd.read_sql(
             query, conn,
-            params={"recipient": recipient, "lim": limit},
+            params={"recipient": recipient, "influencers": list(influencers), "lim": limit},
         )
     return df
 
@@ -121,6 +124,7 @@ def get_monthly_trend(recipient, start_date, end_date, influencers):
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
         WHERE rc.recipient_country = :recipient
           AND ic.initiating_country IN :influencers
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY DATE_TRUNC('month', d.date)
         ORDER BY month
@@ -150,6 +154,7 @@ def get_influencer_category_matrix(recipient, start_date, end_date, influencers)
         JOIN categories c ON d.doc_id = c.doc_id
         WHERE rc.recipient_country = :recipient
           AND ic.initiating_country IN :influencers
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
         GROUP BY ic.initiating_country, c.category
         ORDER BY ic.initiating_country, doc_count DESC
@@ -178,6 +183,7 @@ def get_total_doc_count(recipient, start_date, end_date, influencers):
         JOIN initiating_countries ic ON d.doc_id = ic.doc_id
         WHERE rc.recipient_country = :recipient
           AND ic.initiating_country IN :influencers
+          AND ic.initiating_country != rc.recipient_country
           AND d.date BETWEEN :start_date AND :end_date
     """)
     with engine.connect() as conn:
@@ -224,7 +230,7 @@ if not selected_influencers:
 total_docs = get_total_doc_count(selected_recipient, start_date, end_date, selected_influencers)
 influencer_df = get_docs_by_influencer(selected_recipient, start_date, end_date, selected_influencers)
 category_df = get_category_breakdown(selected_recipient, start_date, end_date, selected_influencers)
-events_df = get_recent_events(selected_recipient)
+events_df = get_recent_events(selected_recipient, selected_influencers)
 
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 with kpi1:

@@ -544,9 +544,10 @@ def get_master_event_details(master_event_name, country=None):
         FROM canonical_events m
         WHERE m.master_event_id IS NULL
           AND m.canonical_name = :event_name
+          AND m.initiating_country = ANY(:influencers)
     """)
 
-    params = {'event_name': master_event_name}
+    params = {'event_name': master_event_name, 'influencers': cfg.influencers}
 
     if country:
         master_query = text(str(master_query) + " AND m.initiating_country = :country")
@@ -596,11 +597,12 @@ def get_master_event_timeline(master_event_name):
         JOIN daily_event_mentions dem ON dem.canonical_event_id = c.id
         WHERE m.master_event_id IS NULL
           AND m.canonical_name = :event_name
+          AND m.initiating_country = ANY(:influencers)
         ORDER BY dem.mention_date, dem.article_count DESC
     """)
 
     with get_engine().connect() as conn:
-        df = pd.read_sql(query, conn, params={'event_name': master_event_name})
+        df = pd.read_sql(query, conn, params={'event_name': master_event_name, 'influencers': cfg.influencers})
 
     df['date'] = pd.to_datetime(df['date'])
     return df

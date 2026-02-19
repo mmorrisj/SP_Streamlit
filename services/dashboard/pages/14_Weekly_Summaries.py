@@ -43,6 +43,7 @@ def get_weekly_summaries_by_date_range(
             last_observed_date
         FROM event_summaries
         WHERE initiating_country = :country
+          AND initiating_country IN :influencers
           AND period_type = 'WEEKLY'
           AND period_start >= :start_date
           AND period_start <= :end_date
@@ -58,6 +59,7 @@ def get_weekly_summaries_by_date_range(
     with engine.connect() as conn:
         result = conn.execute(query, {
             'country': country,
+            'influencers': tuple(cfg.influencers),
             'start_date': start_date,
             'end_date': end_date
         })
@@ -93,6 +95,7 @@ def search_weekly_summaries(
 
     where_clauses = [
         "initiating_country = :country",
+        "initiating_country IN :influencers",
         "period_type = 'WEEKLY'",
         "is_deleted = false",
         "(LOWER(event_name) LIKE LOWER(:search_term) OR "
@@ -103,6 +106,7 @@ def search_weekly_summaries(
 
     params = {
         'country': country,
+        'influencers': tuple(cfg.influencers),
         'search_term': f'%{search_term}%'
     }
 
@@ -173,6 +177,7 @@ def get_top_weekly_events(
             MAX(period_start) as last_date
         FROM event_summaries
         WHERE initiating_country = :country
+          AND initiating_country IN :influencers
           AND period_type = 'WEEKLY'
           AND period_start >= :start_date
           AND period_start <= :end_date
@@ -185,6 +190,7 @@ def get_top_weekly_events(
     with engine.connect() as conn:
         result = conn.execute(query, {
             'country': country,
+            'influencers': tuple(cfg.influencers),
             'start_date': start_date,
             'end_date': end_date,
             'limit': limit
