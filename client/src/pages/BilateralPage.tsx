@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   LineChart,
@@ -102,12 +102,13 @@ const SECTIONS = [
 // ─── Sub-components ───────────────────────────────────────────────
 
 function EventCard({ event }: { event: BilateralEvent }) {
+  const navigate = useNavigate()
   const topCategory = event.primary_categories
     ? Object.entries(event.primary_categories).sort((a, b) => b[1] - a[1])[0]?.[0]
     : null
 
   return (
-    <div className="bl-event-card">
+    <div className="bl-event-card" style={{ cursor: 'pointer' }} onClick={() => navigate(`/events/${event.id}`)}>
       <div className="bl-event-card-header">
         <h4>{event.event_name}</h4>
         {event.story_phase && (
@@ -121,6 +122,11 @@ function EventCard({ event }: { event: BilateralEvent }) {
       </div>
       {event.description && (
         <p className="bl-event-description">{event.description}</p>
+      )}
+      {event.narrative_outcomes && (
+        <p style={{ color: '#475569', fontSize: '0.85rem', lineHeight: 1.5, margin: '0.25rem 0 0.5rem', fontStyle: 'italic' }}>
+          {event.narrative_outcomes.slice(0, 200)}{event.narrative_outcomes.length > 200 ? '...' : ''}
+        </p>
       )}
       <div className="bl-event-meta">
         {event.first_mention_date && (
@@ -149,6 +155,17 @@ function EventCard({ event }: { event: BilateralEvent }) {
           >
             {topCategory}
           </span>
+        )}
+        {event.source_link && (
+          <a
+            href={event.source_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{ color: '#3b82f6', fontSize: '0.8rem', textDecoration: 'none', marginLeft: 'auto' }}
+          >
+            View Sources
+          </a>
         )}
       </div>
     </div>

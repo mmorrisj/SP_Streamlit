@@ -36,6 +36,14 @@ export interface Summary {
   period_end: string
   content: string
   country: string
+  overview: string | null
+  outcomes: string | null
+  source_link: string | null
+  source_count: number | null
+  citations: string[]
+  count_by_category: Record<string, number>
+  count_by_recipient: Record<string, number>
+  material_score: number | null
 }
 
 export interface FilterOptions {
@@ -186,6 +194,9 @@ export interface InfluencerEvent {
   source_count: number
   primary_categories: Record<string, number>
   primary_recipients: Record<string, number>
+  narrative_overview: string | null
+  narrative_outcomes: string | null
+  source_link: string | null
 }
 
 export interface InfluencerEventsResponse {
@@ -307,6 +318,7 @@ export interface TimelineItem {
   source_count: number
   categories: string[]
   recipients: string[]
+  source_link: string | null
 }
 
 export interface InfluencerTimelineResponse {
@@ -412,6 +424,9 @@ export interface BilateralEvent {
   source_count: number
   primary_categories: Record<string, number>
   primary_recipients: Record<string, number>
+  narrative_overview: string | null
+  narrative_outcomes: string | null
+  source_link: string | null
 }
 
 export interface BilateralEventsResp {
@@ -507,6 +522,47 @@ export const fetchBilateralMapData = async (influencer?: string): Promise<Bilate
   const { data } = await api.get('/bilateral-map-data', {
     params: { influencer: influencer || 'ALL' }
   })
+  return data
+}
+
+export interface EventDetailMention {
+  date: string | null
+  headline: string | null
+  summary: string | null
+  article_count: number
+  news_intensity: string | null
+  mention_context: string | null
+  source_names: string[]
+}
+
+export interface EventDetail {
+  id: string
+  event_name: string
+  description: string | null
+  initiating_country: string
+  first_mention_date: string | null
+  last_mention_date: string | null
+  total_articles: number
+  total_mention_days: number
+  story_phase: string | null
+  material_score: number | null
+  material_justification: string | null
+  peak_mention_date: string | null
+  peak_daily_article_count: number
+  source_count: number
+  primary_categories: Record<string, number>
+  primary_recipients: Record<string, number>
+  alternative_names: string[]
+  narrative_overview: string | null
+  narrative_outcomes: string | null
+  source_link: string | null
+  source_count_from_summary: number | null
+  citations: string[]
+  daily_mentions: EventDetailMention[]
+}
+
+export const fetchEventDetail = async (eventId: string): Promise<EventDetail> => {
+  const { data } = await api.get(`/events/${eventId}`)
   return data
 }
 

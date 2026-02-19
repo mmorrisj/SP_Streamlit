@@ -683,6 +683,7 @@ export default function InfluencerPage() {
 // ---- Sub-components ----
 
 function EventCard({ event }: { event: InfluencerEvent }) {
+  const navigate = useNavigate()
   const topRecipients = Object.entries(event.primary_recipients || {})
     .sort(([, a], [, b]) => b - a)
     .slice(0, 3)
@@ -692,7 +693,7 @@ function EventCard({ event }: { event: InfluencerEvent }) {
     .slice(0, 3)
 
   return (
-    <div className="event-card-rich">
+    <div className="event-card-rich" style={{ cursor: 'pointer' }} onClick={() => navigate(`/events/${event.id}`)}>
       <div className="event-card-header">
         <h4>{event.event_name}</h4>
         {event.story_phase && (
@@ -706,7 +707,13 @@ function EventCard({ event }: { event: InfluencerEvent }) {
       </div>
 
       {event.description && (
-        <p className="event-description">{event.description.slice(0, 250)}{event.description.length > 250 ? '...' : ''}</p>
+        <p className="event-description">{event.description.slice(0, 300)}{event.description.length > 300 ? '...' : ''}</p>
+      )}
+
+      {event.narrative_outcomes && (
+        <p style={{ color: '#475569', fontSize: '0.85rem', lineHeight: 1.5, margin: '0.25rem 0 0.5rem', fontStyle: 'italic' }}>
+          {event.narrative_outcomes.slice(0, 200)}{event.narrative_outcomes.length > 200 ? '...' : ''}
+        </p>
       )}
 
       <div className="event-metrics-row">
@@ -734,6 +741,17 @@ function EventCard({ event }: { event: InfluencerEvent }) {
         {event.first_mention_date} — {event.last_mention_date}
         {event.peak_mention_date && (
           <span className="event-peak"> (peak: {event.peak_mention_date})</span>
+        )}
+        {event.source_link && (
+          <a
+            href={event.source_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{ marginLeft: '0.75rem', color: '#3b82f6', fontSize: '0.8rem', textDecoration: 'none' }}
+          >
+            View Sources
+          </a>
         )}
       </div>
 
@@ -1055,6 +1073,16 @@ function TimelineCard({ item }: { item: TimelineItem }) {
           <span className="timeline-meta">{item.source_count} sources</span>
           {item.material_score !== null && (
             <span className="timeline-meta">materiality: {item.material_score}</span>
+          )}
+          {item.source_link && (
+            <a
+              href={item.source_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#3b82f6', fontSize: '0.8rem', textDecoration: 'none' }}
+            >
+              View Sources
+            </a>
           )}
         </div>
 
