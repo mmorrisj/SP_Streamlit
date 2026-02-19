@@ -64,13 +64,14 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
     JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+    JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
 from services.pipeline.batch.utils.custom_id import generate_custom_id
-from services.pipeline.batch.utils.jsonl_utils import write_jsonl
+from services.pipeline.batch.utils.jsonl_utils import write_jsonl, split_jsonl_by_file_size, count_jsonl_lines
 from services.pipeline.batch.utils.cost_estimator import calculate_message_tokens
 
 
@@ -1740,6 +1741,145 @@ def build_monthly_summary_prompt(event_data: Dict) -> Dict[str, List[Dict[str, s
     }
 
 
+def load_summaries_for_materiality_scoring(
+    session,
+    country: str,
+    start_date: DateType,
+    end_date: DateType,
+    period_type: Optional[str] = None,
+    rescore: bool = False
+) -> List[Dict]:
+    """
+    Load event summaries that need materiality scoring.
+
+    Args:
+        session: Database session
+        country: Initiating country
+        start_date: Start date
+        end_date: End date
+        period_type: Optional filter (DAILY, WEEKLY, MONTHLY). None = all.
+        rescore: If True, rescore all summaries. If False, only unscored.
+
+    Returns:
+        List of summary dictionaries
+    """
+    score_filter = "" if rescore else "AND es.material_score IS NULL"
+    period_filter = "AND es.period_type = :period_type" if period_type else ""
+
+    query = text(f"""
+        SELECT
+            es.id,
+            es.event_name,
+            es.initiating_country,
+            es.period_type,
+            es.period_start,
+            es.period_end,
+            es.narrative_summary,
+            es.count_by_category,
+            es.count_by_recipient,
+            es.total_documents_across_sources
+        FROM event_summaries es
+        WHERE es.initiating_country = :country
+          AND es.period_start >= :start_date
+          AND es.period_end <= :end_date
+          AND es.is_deleted = false
+          {score_filter}
+          {period_filter}
+        ORDER BY es.period_start DESC, es.event_name
+    """)
+
+    params = {
+        'country': country,
+        'start_date': start_date,
+        'end_date': end_date
+    }
+    if period_type:
+        params['period_type'] = period_type
+
+    result = session.execute(query, params).fetchall()
+
+    summaries = []
+    for row in result:
+        summaries.append({
+            'id': str(row[0]),
+            'event_name': row[1],
+            'initiating_country': row[2],
+            'period_type': row[3],
+            'period_start': row[4],
+            'period_end': row[5],
+            'narrative_summary': row[6] or {},
+            'count_by_category': row[7] or {},
+            'count_by_recipient': row[8] or {},
+            'total_documents': row[9] or 0
+        })
+
+    return summaries
+
+
+def build_summary_materiality_prompt(summary: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for materiality scoring of event summaries.
+
+    Uses the MATERIALITY_SCORE_PROMPT from summary_prompts.py.
+
+    Args:
+        summary: Event summary dictionary from load_summaries_for_materiality_scoring
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    from services.pipeline.summaries.summary_prompts import MATERIALITY_SCORE_PROMPT
+
+    narrative = summary['narrative_summary']
+
+    # Extract narrative text based on period type
+    if summary['period_type'] == 'DAILY':
+        summary_text = f"{narrative.get('overview', '')}\n\n{narrative.get('outcomes', '')}"
+    elif summary['period_type'] == 'WEEKLY':
+        summary_text = f"{narrative.get('overview', '')}\n\n{narrative.get('outcomes', '')}\n\n{narrative.get('progression', '')}"
+    else:  # MONTHLY
+        summary_text = f"{narrative.get('monthly_overview', '')}\n\n{narrative.get('key_outcomes', '')}\n\n{narrative.get('strategic_significance', '')}"
+
+    # Format categories and recipients
+    categories = summary['count_by_category']
+    if isinstance(categories, dict) and categories:
+        categories_str = ', '.join(list(categories.keys())[:5])
+    else:
+        categories_str = 'None'
+
+    recipients = summary['count_by_recipient']
+    if isinstance(recipients, dict) and recipients:
+        recipients_str = ', '.join(list(recipients.keys())[:5])
+    else:
+        recipients_str = 'None'
+
+    period_start = summary['period_start']
+    period_end = summary['period_end']
+    period_start_str = period_start.strftime('%Y-%m-%d') if hasattr(period_start, 'strftime') else str(period_start)
+    period_end_str = period_end.strftime('%Y-%m-%d') if hasattr(period_end, 'strftime') else str(period_end)
+
+    prompt = MATERIALITY_SCORE_PROMPT.format(
+        country=summary['initiating_country'],
+        event_name=summary['event_name'],
+        period_type=summary['period_type'],
+        period_start=period_start_str,
+        period_end=period_end_str,
+        event_summary=summary_text.strip(),
+        categories=categories_str,
+        recipients=recipients_str,
+        total_documents=summary['total_documents']
+    )
+
+    sys_prompt = "You are an expert analyst assessing the materiality of soft power events. You assign scores from 1-10 measuring concrete/substantive nature versus symbolic/rhetorical gestures."
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+
 def build_daily_entity_extract_prompt(doc: Dict) -> Dict[str, List[Dict[str, str]]]:
     """
     Build prompt for extracting entities from a document.
@@ -2146,6 +2286,24 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:
+        # records is a list of event summaries needing materiality scoring
+        for summary in records:
+            custom_id = generate_custom_id(job_type, summary['id'])
+            prompt_data = build_summary_materiality_prompt(summary)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
 
 
@@ -2192,7 +2350,8 @@ def main():
                                JOB_TYPE_ENTITY_EXTRACT, JOB_TYPE_SCORE_MATERIALITY,
                                JOB_TYPE_DAILY_ENTITY_EXTRACT, JOB_TYPE_ENTITY_DECONFLICT,
                                JOB_TYPE_CANONICAL_ENTITY_DECONFLICT, JOB_TYPE_GENERATE_DAILY_SUMMARY,
-                               JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY],
+                               JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+                               JOB_TYPE_SCORE_SUMMARY_MATERIALITY],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -2215,6 +2374,11 @@ def main():
                        help='Minimum days for materiality scoring (default: 1)')
     parser.add_argument('--rescore', action='store_true',
                        help='Rescore events even if already scored')
+
+    # Summary materiality scoring specific
+    parser.add_argument('--period-type', type=str, default=None,
+                       choices=['DAILY', 'WEEKLY', 'MONTHLY'],
+                       help='Period type filter for summary materiality scoring (default: all)')
 
     # Output configuration
     parser.add_argument('--output', type=str, help='Output JSONL file path (optional, auto-generated if not provided)')
@@ -2344,6 +2508,24 @@ def main():
             )
             print(f"Found {len(records)} (event, month) pairs needing monthly summaries")
 
+        elif args.job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:
+            if not args.country:
+                print("Error: --country is required for score_summary_materiality")
+                return
+            if not start_date or not end_date:
+                print("Error: --start-date and --end-date are required for score_summary_materiality")
+                return
+            records = load_summaries_for_materiality_scoring(
+                session,
+                args.country,
+                start_date,
+                end_date,
+                period_type=args.period_type,
+                rescore=args.rescore
+            )
+            period_label = args.period_type or "ALL"
+            print(f"Found {len(records)} event summaries needing materiality scoring ({period_label})")
+
         else:
             print(f"Error: Unsupported job type: {args.job_type}")
             return
@@ -2420,33 +2602,52 @@ def main():
             # Write JSONL file
             print(f"Writing JSONL file to: {output_file}")
             write_jsonl(output_file, batch_requests)
-            print(f"✓ Wrote {len(batch_requests)} requests to {output_file}")
 
-            # Create batch_job record
-            print("Creating batch_job database record...")
-            with BatchJobTracker(session) as tracker:
-                batch_job = tracker.create_batch_job(
-                    job_type=args.job_type,
-                    batch_size=len(batch_requests),
-                    initiating_country=args.country,
-                    date_range_start=start_date,
-                    date_range_end=end_date,
-                    input_file_path=output_file,
-                    estimated_cost=cost_estimate['total_cost'],
-                    created_by='batch_prepare.py'
-                )
+            import os as _os
+            file_size_mb = _os.path.getsize(output_file) / (1024 * 1024)
+            print(f"  Wrote {len(batch_requests)} requests to {output_file} ({file_size_mb:.2f} MB)")
 
-                print(f"✓ Created batch_job record: {batch_job.id}")
-                print(f"  Status: {batch_job.status}")
-                print(f"  Batch size: {batch_job.batch_size}")
-                print(f"  Estimated cost: ${batch_job.estimated_cost:.4f}")
+            # Auto-split if file exceeds upload size limit
+            from services.pipeline.batch.batch_config import MAX_UPLOAD_FILE_SIZE_MB
+            split_files = split_jsonl_by_file_size(output_file, max_size_mb=MAX_UPLOAD_FILE_SIZE_MB)
 
-                created_batch_jobs.append({
-                    'id': batch_job.id,
-                    'file': output_file,
-                    'size': len(batch_requests),
-                    'cost': cost_estimate['total_cost']
-                })
+            if len(split_files) > 1:
+                print(f"  File exceeded {MAX_UPLOAD_FILE_SIZE_MB} MB limit, split into {len(split_files)} parts")
+
+            # Create batch_job record for each file (usually 1, more if split)
+            for split_file in split_files:
+                split_size = count_jsonl_lines(split_file)
+                split_file_mb = _os.path.getsize(split_file) / (1024 * 1024)
+                # Pro-rate cost estimate based on split size
+                split_cost = cost_estimate['total_cost'] * (split_size / len(batch_requests)) if batch_requests else 0
+
+                if len(split_files) > 1:
+                    print(f"\n  Split file: {_os.path.basename(split_file)} ({split_size} requests, {split_file_mb:.2f} MB)")
+
+                print("Creating batch_job database record...")
+                with BatchJobTracker(session) as tracker:
+                    batch_job = tracker.create_batch_job(
+                        job_type=args.job_type,
+                        batch_size=split_size,
+                        initiating_country=args.country,
+                        date_range_start=start_date,
+                        date_range_end=end_date,
+                        input_file_path=split_file,
+                        estimated_cost=split_cost,
+                        created_by='batch_prepare.py'
+                    )
+
+                    print(f"  Created batch_job record: {batch_job.id}")
+                    print(f"  Status: {batch_job.status}")
+                    print(f"  Batch size: {batch_job.batch_size}")
+                    print(f"  Estimated cost: ${batch_job.estimated_cost:.4f}")
+
+                    created_batch_jobs.append({
+                        'id': batch_job.id,
+                        'file': split_file,
+                        'size': split_size,
+                        'cost': split_cost
+                    })
 
         # Print summary
         print()

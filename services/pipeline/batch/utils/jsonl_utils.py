@@ -202,6 +202,62 @@ def split_jsonl_file(input_file: str, output_prefix: str, chunk_size: int) -> Li
     return output_files
 
 
+def split_jsonl_by_file_size(
+    input_file: str,
+    max_size_mb: float = 3.0
+) -> List[str]:
+    """
+    Split a JSONL file into smaller files that stay under a max file size.
+
+    Useful when network/SSL inspection limits prevent uploading large files.
+    If the file is already under the limit, returns the original path unchanged.
+
+    Args:
+        input_file: Path to input JSONL file
+        max_size_mb: Maximum file size in MB per output file
+
+    Returns:
+        List of file paths (may be just [input_file] if no split needed)
+    """
+    import os
+
+    file_size_mb = os.path.getsize(input_file) / (1024 * 1024)
+    if file_size_mb <= max_size_mb:
+        return [input_file]
+
+    max_size_bytes = int(max_size_mb * 1024 * 1024)
+    base_path = input_file.replace('.jsonl', '')
+    output_files = []
+    chunk_num = 1
+    current_size = 0
+    current_records = []
+
+    for record in read_jsonl(input_file):
+        line_bytes = len(json.dumps(record, ensure_ascii=False).encode('utf-8')) + 1  # +1 for newline
+        if current_size + line_bytes > max_size_bytes and current_records:
+            # Write current chunk
+            output_path = f"{base_path}_split{chunk_num}.jsonl"
+            write_jsonl(output_path, current_records)
+            output_files.append(output_path)
+            chunk_num += 1
+            current_records = []
+            current_size = 0
+
+        current_records.append(record)
+        current_size += line_bytes
+
+    # Write remaining records
+    if current_records:
+        output_path = f"{base_path}_split{chunk_num}.jsonl"
+        write_jsonl(output_path, current_records)
+        output_files.append(output_path)
+
+    # Remove original oversized file
+    os.unlink(input_file)
+
+    return output_files
+
+
 def filter_jsonl_by_custom_id(input_file: str, output_file: str, custom_ids: List[str]) -> int:
     """
     Filter JSONL file to only include records with specific custom_ids.

@@ -1556,6 +1556,98 @@ def process_monthly_summary_result(
         raise
 
 
+def process_summary_materiality_result(
+    session,
+    summary_id: str,
+    llm_response: Dict[str, Any],
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process materiality scoring result for an event summary.
+
+    Updates event_summaries.material_score and material_justification.
+
+    Args:
+        session: Database session
+        summary_id: Event summary UUID
+        llm_response: Parsed LLM response with 'material_score' and 'justification'
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'summaries_scored': 0,
+        'errors': 0
+    }
+
+    try:
+        # Validate score from LLM response
+        score = llm_response.get('material_score') or llm_response.get('materiality_score')
+        justification = llm_response.get('justification', '')
+
+        if score is None:
+            if verbose:
+                print(f"  Warning: Summary {summary_id}: No material_score in response")
+            stats['errors'] += 1
+            return stats
+
+        try:
+            score = float(score)
+            if not (1.0 <= score <= 10.0):
+                if verbose:
+                    print(f"  Warning: Summary {summary_id}: Score {score} out of range [1.0, 10.0]")
+                stats['errors'] += 1
+                return stats
+        except (ValueError, TypeError):
+            if verbose:
+                print(f"  Warning: Summary {summary_id}: Invalid score format: {score}")
+            stats['errors'] += 1
+            return stats
+
+        # Check if summary exists and isn't already scored
+        existing = session.execute(text("""
+            SELECT material_score FROM event_summaries
+            WHERE id = :summary_id AND is_deleted = false
+        """), {'summary_id': summary_id}).fetchone()
+
+        if not existing:
+            if verbose:
+                print(f"  Warning: Summary {summary_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        if existing[0] is not None:
+            if verbose:
+                print(f"  Summary {summary_id}: Already scored ({float(existing[0]):.1f}), skipping")
+            return stats
+
+        # Update summary with materiality score
+        session.execute(text("""
+            UPDATE event_summaries
+            SET material_score = :material_score,
+                material_justification = :justification,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :summary_id
+        """), {
+            'summary_id': summary_id,
+            'material_score': score,
+            'justification': justification
+        })
+
+        if verbose:
+            print(f"  Summary {summary_id}: Scored {score:.1f}/10.0")
+
+        stats['summaries_scored'] += 1
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error scoring summary {summary_id}: {e}")
+        stats['errors'] += 1
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Stage 4: Process batch results and update database",

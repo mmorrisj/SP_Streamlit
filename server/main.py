@@ -691,7 +691,7 @@ def get_events(
 
         return EventsResponse(events=event_list, total=total)
 
-@app.get("/api/events/{event_id}")
+@app.get("/api/events/{event_id:uuid}")
 def get_event_detail(event_id: str):
     """Get full detail for a single event, combining CanonicalEvent + EventSummary data."""
     with get_session() as session:
@@ -878,7 +878,7 @@ def get_dashboard_intelligence():
 
 # ===== CROSS-PERIOD EVENT VIEW =====
 
-@app.get("/api/events/{event_id}/across-periods")
+@app.get("/api/events/{event_id:uuid}/across-periods")
 def get_event_across_periods(event_id: str):
     """Show how a single event's narrative evolves across daily/weekly/monthly/yearly summaries."""
     with get_session() as session:
@@ -971,7 +971,7 @@ def get_event_comparison(
                    AVG(CASE WHEN material_score IS NOT NULL THEN material_score END) as avg_materiality
             FROM event_summaries
             WHERE is_deleted = false
-              AND period_type = 'daily'
+              AND period_type = 'DAILY'
             GROUP BY event_name
             HAVING COUNT(DISTINCT initiating_country) >= 2
             ORDER BY country_count DESC, latest_date DESC
@@ -1029,7 +1029,7 @@ def get_materiality_heatmap():
                    SUM(total_documents_across_categories) as total_docs
             FROM event_summaries
             WHERE is_deleted = false
-              AND period_type = 'daily'
+              AND period_type = 'DAILY'
               AND period_start >= CURRENT_DATE - INTERVAL '365 days'
             GROUP BY initiating_country, period_start
             ORDER BY initiating_country, period_start
@@ -1058,7 +1058,7 @@ def get_materiality_heatmap():
                    SUM(total_documents_across_categories) as total_docs
             FROM event_summaries
             WHERE is_deleted = false
-              AND period_type = 'monthly'
+              AND period_type = 'MONTHLY'
             GROUP BY initiating_country, TO_CHAR(period_start, 'YYYY-MM')
             ORDER BY month, initiating_country
         """)).fetchall()
@@ -3733,40 +3733,63 @@ def proxy_gai_query(input: QueryInput):
 @app.post("/batch/upload_file")
 async def upload_batch_file(file: UploadFile = File(...)):
     """Proxy endpoint to upload JSONL file to OpenAI for batch processing."""
-    from openai import OpenAI
+    from openai import OpenAI, APIError, AuthenticationError, RateLimitError, APIConnectionError
     import httpx
 
     api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
     if not api_key:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
 
+    content = await file.read()
+    file_size_mb = len(content) / (1024 * 1024)
+    print(f"[BATCH UPLOAD] Received file: {file.filename}, size: {file_size_mb:.2f} MB")
+
+    if file_size_mb > 100:
+        raise HTTPException(status_code=413, detail=f"File too large: {file_size_mb:.2f} MB (max 100 MB)")
+
+    # Validate JSONL content
+    line_count = content.count(b'\n')
+    if line_count == 0:
+        raise HTTPException(status_code=400, detail="File appears empty or not valid JSONL")
+    print(f"[BATCH UPLOAD] JSONL lines: ~{line_count}")
+
+    tmp_path = None
     try:
-        content = await file.read()
-        file_size_mb = len(content) / (1024 * 1024)
-
-        if file_size_mb > 100:
-            raise HTTPException(status_code=413, detail=f"File too large: {file_size_mb:.2f} MB (max 100 MB)")
-
         with tempfile.NamedTemporaryFile(mode='wb', suffix='.jsonl', delete=False) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
 
-        try:
-            client = OpenAI(api_key=api_key, timeout=httpx.Timeout(600.0, connect=60.0), max_retries=2)
-            with open(tmp_path, 'rb') as f:
-                batch_file = client.files.create(file=f, purpose="batch")
+        client = OpenAI(api_key=api_key, timeout=httpx.Timeout(600.0, connect=60.0), max_retries=2)
+        with open(tmp_path, 'rb') as f:
+            batch_file = client.files.create(file=f, purpose="batch")
 
-            return {
-                "file_id": batch_file.id,
-                "filename": batch_file.filename,
-                "bytes": batch_file.bytes,
-                "created_at": batch_file.created_at,
-                "status": batch_file.status
-            }
-        finally:
-            os.unlink(tmp_path)
+        print(f"[BATCH UPLOAD] Success: file_id={batch_file.id}")
+        return {
+            "file_id": batch_file.id,
+            "filename": batch_file.filename,
+            "bytes": batch_file.bytes,
+            "created_at": batch_file.created_at,
+            "status": batch_file.status
+        }
+
+    except AuthenticationError as e:
+        print(f"[BATCH UPLOAD] Authentication failed: {e}")
+        raise HTTPException(status_code=401, detail=f"OpenAI authentication failed: {str(e)}")
+    except RateLimitError as e:
+        print(f"[BATCH UPLOAD] Rate limit hit: {e}")
+        raise HTTPException(status_code=429, detail=f"OpenAI rate limit exceeded: {str(e)}")
+    except APIConnectionError as e:
+        print(f"[BATCH UPLOAD] Connection error: {e}")
+        raise HTTPException(status_code=502, detail=f"Cannot connect to OpenAI API: {str(e)}")
+    except APIError as e:
+        print(f"[BATCH UPLOAD] OpenAI API error (status={e.status_code}): {e.message}")
+        raise HTTPException(status_code=e.status_code or 500, detail=f"OpenAI API error: {e.message}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+        print(f"[BATCH UPLOAD] Unexpected error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"File upload failed: {type(e).__name__}: {str(e)}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 @app.post("/batch/create")
 async def create_batch(request: BatchCreateRequest):
