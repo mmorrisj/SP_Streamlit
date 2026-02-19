@@ -39,6 +39,8 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_ENTITY_DECONFLICT,
     JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
+    JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
+    JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -1146,6 +1148,410 @@ def process_daily_summary_result(
     except Exception as e:
         if verbose:
             print(f"  Error processing daily summary {master_event_id} on {date_str}: {e}")
+        stats['errors'] += 1
+        raise
+
+
+def process_weekly_summary_result(
+    session,
+    canonical_event_id: str,
+    llm_response: Dict[str, Any],
+    week_str: str,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process weekly summary generation result from batch API.
+
+    Re-queries daily summaries for this event+week, collects source doc_ids,
+    and creates EventSummary and EventSourceLink records.
+
+    Adapted from generate_weekly_summaries.py:generate_weekly_summary()
+
+    Args:
+        session: Database session
+        canonical_event_id: Master canonical event UUID
+        llm_response: Parsed LLM response with 'overview', 'outcomes', 'progression'
+        week_str: Week string from custom_id suffix (e.g., "2024-09-02_2024-09-08")
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'summaries_created': 0,
+        'source_links_created': 0,
+        'errors': 0
+    }
+
+    try:
+        # Parse week_start and week_end from suffix
+        # Suffix format: "2024-09-02_2024-09-08" → 2 date strings when split by _
+        week_parts = week_str.split('_')
+        if len(week_parts) != 2:
+            if verbose:
+                print(f"  Warning: Invalid week suffix format: {week_str}")
+            stats['errors'] += 1
+            return stats
+
+        week_start_str = week_parts[0]
+        week_end_str = week_parts[1]
+        week_start = datetime.strptime(week_start_str, '%Y-%m-%d').date()
+        week_end = datetime.strptime(week_end_str, '%Y-%m-%d').date()
+
+        # Load master event
+        master_event = session.get(CanonicalEvent, canonical_event_id)
+        if not master_event:
+            if verbose:
+                print(f"  Warning: Master event {canonical_event_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        country = master_event.initiating_country
+        canonical_name = master_event.canonical_name
+
+        # Check if weekly summary already exists
+        existing = session.execute(text("""
+            SELECT 1 FROM event_summaries
+            WHERE period_type = :period_type
+              AND period_start = :period_start
+              AND period_end = :period_end
+              AND initiating_country = :country
+              AND event_name = :event_name
+            LIMIT 1
+        """), {
+            'period_type': 'WEEKLY',
+            'period_start': week_start,
+            'period_end': week_end,
+            'country': country,
+            'event_name': canonical_name
+        }).fetchone()
+
+        if existing:
+            if verbose:
+                print(f"  Weekly summary already exists for {canonical_name} ({week_start_str} to {week_end_str}), skipping")
+            return stats
+
+        # Validate LLM response
+        overview = llm_response.get('overview')
+        outcomes = llm_response.get('outcomes')
+        progression = llm_response.get('progression')
+        if not overview or not outcomes or not progression:
+            if verbose:
+                print(f"  Warning: Missing overview/outcomes/progression in response for {canonical_event_id}")
+            stats['errors'] += 1
+            return stats
+
+        # Get daily summaries for this event+week to find date range and source docs
+        daily_result = session.execute(text('''
+            SELECT
+                es.id as summary_id,
+                es.period_start,
+                es.period_end
+            FROM event_summaries es
+            JOIN canonical_events ce ON es.event_name = ce.canonical_name
+            WHERE es.initiating_country = :country
+              AND es.period_type = 'DAILY'
+              AND es.period_start >= :week_start
+              AND es.period_end <= :week_end
+              AND ce.master_event_id IS NULL
+              AND ce.id = :canonical_event_id
+              AND es.status = 'ACTIVE'
+            ORDER BY es.period_start
+        '''), {
+            'country': country,
+            'week_start': week_start,
+            'week_end': week_end,
+            'canonical_event_id': canonical_event_id
+        }).fetchall()
+
+        if not daily_result:
+            if verbose:
+                print(f"  Warning: No daily summaries found for {canonical_name} week {week_start_str}")
+            stats['errors'] += 1
+            return stats
+
+        # Get first/last observed dates from daily summaries
+        first_observed = min(row[1] for row in daily_result)
+        last_observed = max(row[2] for row in daily_result)
+
+        # Collect all doc_ids from constituent daily summaries via event_source_links
+        daily_summary_ids = [str(row[0]) for row in daily_result]
+        doc_ids = set()
+        for sid in daily_summary_ids:
+            links = session.execute(text('''
+                SELECT doc_id FROM event_source_links
+                WHERE event_summary_id = :summary_id
+            '''), {'summary_id': sid}).fetchall()
+            doc_ids.update(row[0] for row in links)
+
+        valid_doc_ids = [d for d in doc_ids if d is not None]
+
+        # Create EventSummary via raw SQL INSERT (same pattern as daily)
+        import uuid as _uuid
+        summary_id = str(_uuid.uuid4())
+        narrative = json.dumps({
+            'overview': overview,
+            'outcomes': outcomes,
+            'progression': progression
+        })
+
+        session.execute(text("""
+            INSERT INTO event_summaries (
+                id, period_type, period_start, period_end,
+                event_name, initiating_country,
+                first_observed_date, last_observed_date,
+                status, created_at, updated_at, is_deleted,
+                category_count, subcategory_count, recipient_count, source_count,
+                total_documents_across_categories, total_documents_across_subcategories,
+                total_documents_across_recipients, total_documents_across_sources,
+                count_by_category, count_by_subcategory, count_by_recipient, count_by_source,
+                narrative_summary
+            ) VALUES (
+                :id, :period_type, :period_start, :period_end,
+                :event_name, :country,
+                :first_observed, :last_observed,
+                'ACTIVE', NOW(), NOW(), false,
+                0, 0, 0, 0,
+                0, 0,
+                0, :total_docs,
+                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+                CAST(:narrative AS jsonb)
+            )
+        """), {
+            'id': summary_id,
+            'period_type': 'WEEKLY',
+            'period_start': week_start,
+            'period_end': week_end,
+            'event_name': canonical_name,
+            'country': country,
+            'first_observed': first_observed,
+            'last_observed': last_observed,
+            'narrative': narrative,
+            'total_docs': len(valid_doc_ids)
+        })
+
+        stats['summaries_created'] += 1
+
+        # Create EventSourceLink records
+        for doc_id in valid_doc_ids:
+            link = EventSourceLink(
+                event_summary_id=summary_id,
+                doc_id=doc_id
+            )
+            session.add(link)
+            stats['source_links_created'] += 1
+
+        if verbose:
+            print(f"  Created weekly summary for {canonical_name} ({week_start_str} to {week_end_str}) "
+                  f"({len(valid_doc_ids)} docs, {stats['source_links_created']} links)")
+
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing weekly summary {canonical_event_id} for {week_str}: {e}")
+        stats['errors'] += 1
+        raise
+
+
+def process_monthly_summary_result(
+    session,
+    canonical_event_id: str,
+    llm_response: Dict[str, Any],
+    month_str: str,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process monthly summary generation result from batch API.
+
+    Re-queries weekly summaries for this event+month, collects source doc_ids,
+    and creates EventSummary and EventSourceLink records.
+
+    Adapted from generate_monthly_summaries.py:generate_monthly_summary()
+
+    Args:
+        session: Database session
+        canonical_event_id: Master canonical event UUID
+        llm_response: Parsed LLM response with 'monthly_overview', 'key_outcomes', 'strategic_significance'
+        month_str: Month string from custom_id suffix (e.g., "2024-09-01_2024-09-30")
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'summaries_created': 0,
+        'source_links_created': 0,
+        'errors': 0
+    }
+
+    try:
+        # Parse month_start and month_end from suffix
+        # Suffix format: "2024-09-01_2024-09-30" → 2 date strings when split by _
+        month_parts = month_str.split('_')
+        if len(month_parts) != 2:
+            if verbose:
+                print(f"  Warning: Invalid month suffix format: {month_str}")
+            stats['errors'] += 1
+            return stats
+
+        month_start_str = month_parts[0]
+        month_end_str = month_parts[1]
+        month_start = datetime.strptime(month_start_str, '%Y-%m-%d').date()
+        month_end = datetime.strptime(month_end_str, '%Y-%m-%d').date()
+
+        # Load master event
+        master_event = session.get(CanonicalEvent, canonical_event_id)
+        if not master_event:
+            if verbose:
+                print(f"  Warning: Master event {canonical_event_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        country = master_event.initiating_country
+        canonical_name = master_event.canonical_name
+
+        # Check if monthly summary already exists
+        existing = session.execute(text("""
+            SELECT 1 FROM event_summaries
+            WHERE period_type = :period_type
+              AND period_start = :period_start
+              AND period_end = :period_end
+              AND initiating_country = :country
+              AND event_name = :event_name
+            LIMIT 1
+        """), {
+            'period_type': 'MONTHLY',
+            'period_start': month_start,
+            'period_end': month_end,
+            'country': country,
+            'event_name': canonical_name
+        }).fetchone()
+
+        if existing:
+            if verbose:
+                print(f"  Monthly summary already exists for {canonical_name} ({month_start_str} to {month_end_str}), skipping")
+            return stats
+
+        # Validate LLM response
+        monthly_overview = llm_response.get('monthly_overview')
+        key_outcomes = llm_response.get('key_outcomes')
+        strategic_significance = llm_response.get('strategic_significance')
+        if not monthly_overview or not key_outcomes or not strategic_significance:
+            if verbose:
+                print(f"  Warning: Missing required fields in response for {canonical_event_id}")
+            stats['errors'] += 1
+            return stats
+
+        # Get weekly summaries for this event+month to find date range and source docs
+        weekly_result = session.execute(text('''
+            SELECT
+                es.id as summary_id,
+                es.period_start,
+                es.period_end
+            FROM event_summaries es
+            JOIN canonical_events ce ON es.event_name = ce.canonical_name
+            WHERE es.initiating_country = :country
+              AND es.period_type = 'WEEKLY'
+              AND es.period_start >= :month_start
+              AND es.period_end <= :month_end
+              AND ce.master_event_id IS NULL
+              AND ce.id = :canonical_event_id
+              AND es.status = 'ACTIVE'
+            ORDER BY es.period_start
+        '''), {
+            'country': country,
+            'month_start': month_start,
+            'month_end': month_end,
+            'canonical_event_id': canonical_event_id
+        }).fetchall()
+
+        if not weekly_result:
+            if verbose:
+                print(f"  Warning: No weekly summaries found for {canonical_name} month {month_start_str}")
+            stats['errors'] += 1
+            return stats
+
+        # Get first/last observed dates from weekly summaries
+        first_observed = min(row[1] for row in weekly_result)
+        last_observed = max(row[2] for row in weekly_result)
+
+        # Collect all doc_ids from constituent weekly summaries via event_source_links
+        weekly_summary_ids = [str(row[0]) for row in weekly_result]
+        doc_ids = set()
+        for sid in weekly_summary_ids:
+            links = session.execute(text('''
+                SELECT doc_id FROM event_source_links
+                WHERE event_summary_id = :summary_id
+            '''), {'summary_id': sid}).fetchall()
+            doc_ids.update(row[0] for row in links)
+
+        valid_doc_ids = [d for d in doc_ids if d is not None]
+
+        # Create EventSummary via raw SQL INSERT
+        import uuid as _uuid
+        summary_id = str(_uuid.uuid4())
+        narrative = json.dumps({
+            'monthly_overview': monthly_overview,
+            'key_outcomes': key_outcomes,
+            'strategic_significance': strategic_significance
+        })
+
+        session.execute(text("""
+            INSERT INTO event_summaries (
+                id, period_type, period_start, period_end,
+                event_name, initiating_country,
+                first_observed_date, last_observed_date,
+                status, created_at, updated_at, is_deleted,
+                category_count, subcategory_count, recipient_count, source_count,
+                total_documents_across_categories, total_documents_across_subcategories,
+                total_documents_across_recipients, total_documents_across_sources,
+                count_by_category, count_by_subcategory, count_by_recipient, count_by_source,
+                narrative_summary
+            ) VALUES (
+                :id, :period_type, :period_start, :period_end,
+                :event_name, :country,
+                :first_observed, :last_observed,
+                'ACTIVE', NOW(), NOW(), false,
+                0, 0, 0, 0,
+                0, 0,
+                0, :total_docs,
+                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+                CAST(:narrative AS jsonb)
+            )
+        """), {
+            'id': summary_id,
+            'period_type': 'MONTHLY',
+            'period_start': month_start,
+            'period_end': month_end,
+            'event_name': canonical_name,
+            'country': country,
+            'first_observed': first_observed,
+            'last_observed': last_observed,
+            'narrative': narrative,
+            'total_docs': len(valid_doc_ids)
+        })
+
+        stats['summaries_created'] += 1
+
+        # Create EventSourceLink records
+        for doc_id in valid_doc_ids:
+            link = EventSourceLink(
+                event_summary_id=summary_id,
+                doc_id=doc_id
+            )
+            session.add(link)
+            stats['source_links_created'] += 1
+
+        if verbose:
+            print(f"  Created monthly summary for {canonical_name} ({month_start_str} to {month_end_str}) "
+                  f"({len(valid_doc_ids)} docs, {stats['source_links_created']} links)")
+
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing monthly summary {canonical_event_id} for {month_str}: {e}")
         stats['errors'] += 1
         raise
 

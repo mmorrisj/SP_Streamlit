@@ -43,6 +43,8 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_ENTITY_DECONFLICT,
     JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
+    JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
+    JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -56,7 +58,9 @@ from services.pipeline.batch.batch_process_results import (
     process_daily_entity_extract_result,
     process_entity_deconflict_result,
     process_canonical_entity_deconflict_result,
-    process_daily_summary_result
+    process_daily_summary_result,
+    process_weekly_summary_result,
+    process_monthly_summary_result
 )
 from services.pipeline.events.llm_deconflict_clusters import LLMClusterDeconfliction
 
@@ -258,6 +262,20 @@ def _route_result(
             session, record_id, llm_response,
             date_str=suffix, verbose=verbose
         )
+    elif job_type == JOB_TYPE_GENERATE_WEEKLY_SUMMARY:
+        if not suffix:
+            raise ValueError("generate_weekly_summary requires week suffix in custom_id")
+        return process_weekly_summary_result(
+            session, record_id, llm_response,
+            week_str=suffix, verbose=verbose
+        )
+    elif job_type == JOB_TYPE_GENERATE_MONTHLY_SUMMARY:
+        if not suffix:
+            raise ValueError("generate_monthly_summary requires month suffix in custom_id")
+        return process_monthly_summary_result(
+            session, record_id, llm_response,
+            month_str=suffix, verbose=verbose
+        )
     else:
         return {'errors': 1}
 
@@ -288,7 +306,7 @@ def _merge_stats(overall: Dict, stats: Dict, job_type: str):
         overall['validated'] += stats.get('validated', 0)
         overall['renamed'] += stats.get('renamed', 0)
         overall['split'] += stats.get('split', 0)
-    elif job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
+    elif job_type in (JOB_TYPE_GENERATE_DAILY_SUMMARY, JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY):
         overall['summaries_created'] += stats.get('summaries_created', 0)
         overall['source_links_created'] += stats.get('source_links_created', 0)
 

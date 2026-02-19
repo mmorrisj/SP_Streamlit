@@ -20,17 +20,33 @@ export interface DocumentStats {
 }
 
 export interface Event {
-  id: number
+  id: string
   event_name: string
   event_date: string | null
   initiating_country: string | null
   recipient_country: string | null
   category: string | null
   description?: string | null
+  last_mention_date?: string | null
+  total_articles?: number
+  total_mention_days?: number
+  story_phase?: string | null
+  material_score?: number | null
+  source_count?: number
+  primary_categories?: Record<string, number>
+  primary_recipients?: Record<string, number>
+  narrative_overview?: string | null
+  narrative_outcomes?: string | null
+  source_link?: string | null
+}
+
+export interface EventsListResponse {
+  events: Event[]
+  total: number
 }
 
 export interface Summary {
-  id: number
+  id: string
   summary_type: string
   period_start: string
   period_end: string
@@ -38,12 +54,124 @@ export interface Summary {
   country: string
   overview: string | null
   outcomes: string | null
+  progression: string | null
+  strategic: string | null
   source_link: string | null
   source_count: number | null
   citations: string[]
   count_by_category: Record<string, number>
+  count_by_subcategory: Record<string, number>
   count_by_recipient: Record<string, number>
+  count_by_source: Record<string, number>
   material_score: number | null
+  material_justification: string | null
+  canonical_event_id: string | null
+  first_observed_date: string | null
+  last_observed_date: string | null
+  total_documents: number
+}
+
+export interface SummariesListResponse {
+  summaries: Summary[]
+  total: number
+}
+
+// Dashboard Intelligence
+export interface DashboardIntelligenceItem {
+  id: string
+  event_name: string
+  country: string
+  period_start: string | null
+  period_end: string | null
+  overview: string
+  material_score: number | null
+  count_by_category: Record<string, number>
+  count_by_recipient: Record<string, number>
+  canonical_event_id: string | null
+}
+
+export interface DashboardIntelligence {
+  weekly: DashboardIntelligenceItem[]
+  monthly: DashboardIntelligenceItem[]
+  period_stats: { country: string; period_type: string; event_count: number; avg_materiality: number | null }[]
+}
+
+// Cross-Period Event View
+export interface CrossPeriodEntry {
+  id: string
+  period_start: string | null
+  period_end: string | null
+  overview: string
+  outcomes: string
+  progression: string
+  strategic: string
+  material_score: number | null
+  count_by_category: Record<string, number>
+  count_by_recipient: Record<string, number>
+  source_link: string | null
+  source_count: number | null
+  citations: string[]
+}
+
+export interface CrossPeriodData {
+  event_id: string
+  event_name: string
+  initiating_country: string
+  story_phase: string | null
+  material_score: number | null
+  total_articles: number
+  first_mention_date: string | null
+  last_mention_date: string | null
+  periods: {
+    daily: CrossPeriodEntry[]
+    weekly: CrossPeriodEntry[]
+    monthly: CrossPeriodEntry[]
+    yearly: CrossPeriodEntry[]
+  }
+}
+
+// Country Comparison
+export interface CountryNarrative {
+  overview: string
+  outcomes: string
+  material_score: number | null
+  count_by_category: Record<string, number>
+  period_start: string | null
+}
+
+export interface EventComparison {
+  event_name: string
+  countries: string[]
+  country_count: number
+  latest_date: string | null
+  avg_materiality: number | null
+  country_narratives: Record<string, CountryNarrative>
+}
+
+export interface EventComparisonResponse {
+  comparisons: EventComparison[]
+}
+
+// Materiality Heatmap
+export interface HeatmapDay {
+  date: string
+  event_count: number
+  avg_materiality: number | null
+  max_materiality: number | null
+  total_docs: number
+}
+
+export interface MonthlyMatrixEntry {
+  country: string
+  month: string
+  event_count: number
+  avg_materiality: number | null
+  total_docs: number
+}
+
+export interface MaterialityHeatmapData {
+  daily_heatmap: Record<string, HeatmapDay[]>
+  monthly_matrix: MonthlyMatrixEntry[]
 }
 
 export interface FilterOptions {
@@ -130,9 +258,50 @@ export const fetchEvents = async (filters?: Record<string, unknown>): Promise<Ev
   return data.events || []
 }
 
+export const fetchEventsRich = async (params?: {
+  country?: string
+  story_phase?: string
+  sort_by?: string
+  limit?: number
+  offset?: number
+}): Promise<EventsListResponse> => {
+  const { data } = await api.get('/events', { params })
+  return { events: data.events || [], total: data.total || 0 }
+}
+
 export const fetchSummaries = async (type?: string): Promise<Summary[]> => {
   const { data} = await api.get('/summaries', { params: { type } })
   return data.summaries || []
+}
+
+export const fetchSummariesRich = async (params?: {
+  type?: string
+  country?: string
+  limit?: number
+  offset?: number
+}): Promise<SummariesListResponse> => {
+  const { data } = await api.get('/summaries', { params })
+  return { summaries: data.summaries || [], total: data.total || 0 }
+}
+
+export const fetchDashboardIntelligence = async (): Promise<DashboardIntelligence> => {
+  const { data } = await api.get('/dashboard/intelligence')
+  return data
+}
+
+export const fetchEventAcrossPeriods = async (eventId: string): Promise<CrossPeriodData> => {
+  const { data } = await api.get(`/events/${eventId}/across-periods`)
+  return data
+}
+
+export const fetchEventComparison = async (limit?: number): Promise<EventComparisonResponse> => {
+  const { data } = await api.get('/events/comparison', { params: { limit } })
+  return data
+}
+
+export const fetchMaterialityHeatmap = async (): Promise<MaterialityHeatmapData> => {
+  const { data } = await api.get('/events/materiality-heatmap')
+  return data
 }
 
 export const fetchFilterOptions = async (): Promise<FilterOptions> => {

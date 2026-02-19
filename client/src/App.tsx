@@ -27,6 +27,9 @@ import BilateralSummaryDetailPage from './pages/BilateralSummaryDetailPage'
 import TimelineComparison from './pages/TimelineComparison'
 import ReportPage from './pages/ReportPage'
 import EventDetailPage from './pages/EventDetailPage'
+import CrossPeriodView from './pages/CrossPeriodView'
+import CountryComparison from './pages/CountryComparison'
+import MaterialityHeatmap from './pages/MaterialityHeatmap'
 import ChatPage from './pages/ChatPage'
 
 const queryClient = new QueryClient()
@@ -72,6 +75,9 @@ function App() {
               <Route path="metrics/influencer/:country" element={<InfluencerMetricsPage />} />
               <Route path="metrics/recipient/:country" element={<RecipientMetricsPage />} />
               <Route path="events/:eventId" element={<EventDetailPage />} />
+              <Route path="events/:eventId/across-periods" element={<CrossPeriodView />} />
+              <Route path="events/comparison" element={<CountryComparison />} />
+              <Route path="events/materiality" element={<MaterialityHeatmap />} />
               <Route path="timeline" element={<TimelineComparison />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="report" element={<ReportPage />} />

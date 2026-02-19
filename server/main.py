@@ -159,9 +159,11 @@ class DocumentResponse(BaseModel):
 
 class EventsResponse(BaseModel):
     events: list
+    total: Optional[int] = None
 
 class SummariesResponse(BaseModel):
     summaries: list
+    total: Optional[int] = None
 
 class BilateralResponse(BaseModel):
     relationships: list
@@ -625,37 +627,69 @@ def get_documents(
 def get_events(
     country: Optional[str] = None,
     category: Optional[str] = None,
-    limit: int = Query(50, ge=1, le=200)
+    story_phase: Optional[str] = None,
+    sort_by: str = Query(default="recency", regex="^(recency|articles|materiality)$"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0)
 ):
     with get_session() as session:
-        query = session.query(
-            CanonicalEvent.id,
-            CanonicalEvent.canonical_name,
-            CanonicalEvent.first_mention_date,
-            CanonicalEvent.initiating_country,
-            CanonicalEvent.story_phase,
-            CanonicalEvent.consolidated_description
+        query = session.query(CanonicalEvent).filter(
+            CanonicalEvent.master_event_id.is_(None)
         )
 
         if country and country != 'ALL':
             query = query.filter(CanonicalEvent.initiating_country == country)
 
-        events = query.order_by(CanonicalEvent.first_mention_date.desc()).limit(limit).all()
+        if story_phase and story_phase != 'ALL':
+            query = query.filter(CanonicalEvent.story_phase == story_phase)
 
-        return EventsResponse(
-            events=[
-                {
-                    "id": str(event.id),
-                    "event_name": event.canonical_name or "",
-                    "event_date": str(event.first_mention_date) if event.first_mention_date else None,
-                    "initiating_country": event.initiating_country or "",
-                    "recipient_country": "",
-                    "category": event.story_phase or "",
-                    "description": event.consolidated_description or "",
-                }
-                for event in events
-            ]
-        )
+        total = query.count()
+
+        if sort_by == "articles":
+            query = query.order_by(CanonicalEvent.total_articles.desc())
+        elif sort_by == "materiality":
+            query = query.order_by(CanonicalEvent.material_score.desc().nullslast())
+        else:
+            query = query.order_by(CanonicalEvent.last_mention_date.desc())
+
+        events = query.offset(offset).limit(limit).all()
+
+        # Batch load narrative enrichment
+        event_names = [e.canonical_name for e in events if e.canonical_name]
+        countries_set = set(e.initiating_country for e in events if e.initiating_country)
+        narratives = {}
+        for c in countries_set:
+            names_for_c = [e.canonical_name for e in events if e.initiating_country == c]
+            narratives.update({f"{c}::{n}": v for n, v in _get_narrative_for_events(session, names_for_c, c).items()})
+
+        event_list = []
+        for event in events:
+            narr = narratives.get(f"{event.initiating_country}::{event.canonical_name}", {})
+            top_cats = event.primary_categories or {}
+            top_recips = event.primary_recipients or {}
+            top_cat = max(top_cats, key=top_cats.get) if top_cats else None
+            event_list.append({
+                "id": str(event.id),
+                "event_name": event.canonical_name or "",
+                "event_date": str(event.first_mention_date) if event.first_mention_date else None,
+                "initiating_country": event.initiating_country or "",
+                "recipient_country": ", ".join(list(top_recips.keys())[:3]) if top_recips else "",
+                "category": top_cat or "",
+                "description": event.consolidated_description or "",
+                "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
+                "total_articles": event.total_articles or 0,
+                "total_mention_days": event.total_mention_days or 0,
+                "story_phase": event.story_phase,
+                "material_score": float(event.material_score) if event.material_score else None,
+                "source_count": event.source_count or 0,
+                "primary_categories": top_cats,
+                "primary_recipients": top_recips,
+                "narrative_overview": narr.get("overview"),
+                "narrative_outcomes": narr.get("outcomes"),
+                "source_link": narr.get("source_link"),
+            })
+
+        return EventsResponse(events=event_list, total=total)
 
 @app.get("/api/events/{event_id}")
 def get_event_detail(event_id: str):
@@ -718,13 +752,19 @@ def get_event_detail(event_id: str):
 
 @app.get("/api/summaries", response_model=SummariesResponse)
 def get_summaries(
-    type: str = Query("daily", description="Summary type: daily, weekly, or monthly"),
+    type: str = Query("daily", description="Summary type: daily, weekly, monthly, or yearly"),
     country: Optional[str] = None,
-    limit: int = Query(50, ge=1, le=200)
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0)
 ):
     with get_session() as session:
         # Map type string to PeriodType enum
-        period_map = {"daily": PeriodType.DAILY, "weekly": PeriodType.WEEKLY, "monthly": PeriodType.MONTHLY}
+        period_map = {
+            "daily": PeriodType.DAILY,
+            "weekly": PeriodType.WEEKLY,
+            "monthly": PeriodType.MONTHLY,
+            "yearly": PeriodType.YEARLY,
+        }
         period_type = period_map.get(type, PeriodType.DAILY)
 
         query = session.query(EventSummary).filter(
@@ -735,11 +775,23 @@ def get_summaries(
         if country and country != 'ALL':
             query = query.filter(EventSummary.initiating_country == country)
 
-        summaries = query.order_by(EventSummary.period_start.desc()).limit(limit).all()
+        total = query.count()
+        summaries = query.order_by(EventSummary.period_start.desc()).offset(offset).limit(limit).all()
 
         ns_list = []
         for s in summaries:
             ns = s.narrative_summary or {}
+
+            # Normalize narrative keys across period types
+            # Daily: overview, outcomes, citations, source_link, source_count
+            # Weekly: overview, outcomes, progression
+            # Monthly: monthly_overview, key_outcomes, strategic_significance
+            # Yearly: yearly_overview, major_developments, annual_outcomes, strategic_assessment
+            overview = ns.get("overview") or ns.get("monthly_overview") or ns.get("yearly_overview") or ""
+            outcomes = ns.get("outcomes") or ns.get("key_outcomes") or ns.get("annual_outcomes") or ""
+            progression = ns.get("progression") or ns.get("major_developments") or ""
+            strategic = ns.get("strategic_significance") or ns.get("strategic_assessment") or ""
+
             ns_list.append({
                 "id": str(s.id),
                 "summary_type": s.period_type.value if s.period_type else type,
@@ -747,17 +799,282 @@ def get_summaries(
                 "period_end": str(s.period_end) if s.period_end else None,
                 "content": s.event_name or "",
                 "country": s.initiating_country or "",
-                "overview": ns.get("overview"),
-                "outcomes": ns.get("outcomes"),
+                "overview": overview,
+                "outcomes": outcomes,
+                "progression": progression,
+                "strategic": strategic,
                 "source_link": ns.get("source_link"),
                 "source_count": ns.get("source_count"),
                 "citations": ns.get("citations", []),
                 "count_by_category": s.count_by_category or {},
+                "count_by_subcategory": s.count_by_subcategory or {},
                 "count_by_recipient": s.count_by_recipient or {},
+                "count_by_source": s.count_by_source or {},
                 "material_score": float(s.material_score) if s.material_score else None,
+                "material_justification": s.material_justification,
+                "canonical_event_id": str(s.canonical_event_id) if s.canonical_event_id else None,
+                "first_observed_date": str(s.first_observed_date) if s.first_observed_date else None,
+                "last_observed_date": str(s.last_observed_date) if s.last_observed_date else None,
+                "total_documents": s.total_documents_across_categories or 0,
             })
 
-        return SummariesResponse(summaries=ns_list)
+        return SummariesResponse(summaries=ns_list, total=total)
+
+
+# ===== DASHBOARD INTELLIGENCE ENDPOINT =====
+
+@app.get("/api/dashboard/intelligence")
+def get_dashboard_intelligence():
+    """Get recent weekly/monthly event summaries for the dashboard intelligence section."""
+    with get_session() as session:
+        result = {"weekly": [], "monthly": []}
+
+        for period_type, key in [(PeriodType.WEEKLY, "weekly"), (PeriodType.MONTHLY, "monthly")]:
+            summaries = session.query(EventSummary).filter(
+                EventSummary.period_type == period_type,
+                EventSummary.is_deleted == False
+            ).order_by(EventSummary.period_start.desc()).limit(10).all()
+
+            for s in summaries:
+                ns = s.narrative_summary or {}
+                overview = ns.get("overview") or ns.get("monthly_overview") or ""
+                result[key].append({
+                    "id": str(s.id),
+                    "event_name": s.event_name,
+                    "country": s.initiating_country,
+                    "period_start": str(s.period_start) if s.period_start else None,
+                    "period_end": str(s.period_end) if s.period_end else None,
+                    "overview": overview,
+                    "material_score": float(s.material_score) if s.material_score else None,
+                    "count_by_category": s.count_by_category or {},
+                    "count_by_recipient": s.count_by_recipient or {},
+                    "canonical_event_id": str(s.canonical_event_id) if s.canonical_event_id else None,
+                })
+
+        # Period-over-period comparison: count events by period
+        from sqlalchemy import text as sql_text
+        period_counts = session.execute(sql_text("""
+            SELECT initiating_country, period_type::text,
+                   COUNT(*) as event_count,
+                   AVG(CASE WHEN material_score IS NOT NULL THEN material_score END) as avg_materiality
+            FROM event_summaries
+            WHERE is_deleted = false
+            GROUP BY initiating_country, period_type
+            ORDER BY initiating_country, period_type
+        """)).fetchall()
+
+        result["period_stats"] = [
+            {
+                "country": row.initiating_country,
+                "period_type": row.period_type,
+                "event_count": row.event_count,
+                "avg_materiality": round(float(row.avg_materiality), 2) if row.avg_materiality else None,
+            }
+            for row in period_counts
+        ]
+
+        return result
+
+
+# ===== CROSS-PERIOD EVENT VIEW =====
+
+@app.get("/api/events/{event_id}/across-periods")
+def get_event_across_periods(event_id: str):
+    """Show how a single event's narrative evolves across daily/weekly/monthly/yearly summaries."""
+    with get_session() as session:
+        # Get the canonical event
+        event = session.query(CanonicalEvent).filter(
+            CanonicalEvent.id == event_id
+        ).first()
+
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Find all EventSummary records that reference this canonical event
+        summaries = session.query(EventSummary).filter(
+            EventSummary.canonical_event_id == event.id,
+            EventSummary.is_deleted == False
+        ).order_by(EventSummary.period_type, EventSummary.period_start.desc()).all()
+
+        # Also search by event name for summaries that might not have canonical_event_id set
+        name_summaries = session.query(EventSummary).filter(
+            EventSummary.event_name == event.canonical_name,
+            EventSummary.initiating_country == event.initiating_country,
+            EventSummary.is_deleted == False,
+            EventSummary.canonical_event_id.is_(None)
+        ).order_by(EventSummary.period_type, EventSummary.period_start.desc()).all()
+
+        # Combine and deduplicate
+        seen_ids = set(str(s.id) for s in summaries)
+        all_summaries = list(summaries)
+        for s in name_summaries:
+            if str(s.id) not in seen_ids:
+                all_summaries.append(s)
+
+        # Group by period type
+        periods = {"daily": [], "weekly": [], "monthly": [], "yearly": []}
+        for s in all_summaries:
+            ns = s.narrative_summary or {}
+            overview = ns.get("overview") or ns.get("monthly_overview") or ns.get("yearly_overview") or ""
+            outcomes = ns.get("outcomes") or ns.get("key_outcomes") or ns.get("annual_outcomes") or ""
+            progression = ns.get("progression") or ns.get("major_developments") or ""
+            strategic = ns.get("strategic_significance") or ns.get("strategic_assessment") or ""
+
+            entry = {
+                "id": str(s.id),
+                "period_start": str(s.period_start) if s.period_start else None,
+                "period_end": str(s.period_end) if s.period_end else None,
+                "overview": overview,
+                "outcomes": outcomes,
+                "progression": progression,
+                "strategic": strategic,
+                "material_score": float(s.material_score) if s.material_score else None,
+                "count_by_category": s.count_by_category or {},
+                "count_by_recipient": s.count_by_recipient or {},
+                "source_link": ns.get("source_link"),
+                "source_count": ns.get("source_count"),
+                "citations": ns.get("citations", []),
+            }
+            period_key = s.period_type.value if s.period_type else "daily"
+            if period_key in periods:
+                periods[period_key].append(entry)
+
+        return {
+            "event_id": str(event.id),
+            "event_name": event.canonical_name,
+            "initiating_country": event.initiating_country,
+            "story_phase": event.story_phase,
+            "material_score": float(event.material_score) if event.material_score else None,
+            "total_articles": event.total_articles,
+            "first_mention_date": str(event.first_mention_date) if event.first_mention_date else None,
+            "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
+            "periods": periods,
+        }
+
+
+# ===== COUNTRY COMPARISON =====
+
+@app.get("/api/events/comparison")
+def get_event_comparison(
+    limit: int = Query(20, ge=1, le=100)
+):
+    """Find events tracked across multiple countries for comparison."""
+    with get_session() as session:
+        from sqlalchemy import text as sql_text
+
+        # Find event names that appear under multiple initiating countries
+        rows = session.execute(sql_text("""
+            SELECT event_name,
+                   array_agg(DISTINCT initiating_country) as countries,
+                   COUNT(DISTINCT initiating_country) as country_count,
+                   MAX(period_start) as latest_date,
+                   AVG(CASE WHEN material_score IS NOT NULL THEN material_score END) as avg_materiality
+            FROM event_summaries
+            WHERE is_deleted = false
+              AND period_type = 'daily'
+            GROUP BY event_name
+            HAVING COUNT(DISTINCT initiating_country) >= 2
+            ORDER BY country_count DESC, latest_date DESC
+            LIMIT :limit
+        """), {"limit": limit}).fetchall()
+
+        comparisons = []
+        for row in rows:
+            # Get the narrative from each country
+            country_narratives = {}
+            for country in row.countries:
+                summary = session.query(EventSummary).filter(
+                    EventSummary.event_name == row.event_name,
+                    EventSummary.initiating_country == country,
+                    EventSummary.is_deleted == False
+                ).order_by(EventSummary.period_start.desc()).first()
+
+                if summary:
+                    ns = summary.narrative_summary or {}
+                    country_narratives[country] = {
+                        "overview": ns.get("overview") or ns.get("monthly_overview") or "",
+                        "outcomes": ns.get("outcomes") or ns.get("key_outcomes") or "",
+                        "material_score": float(summary.material_score) if summary.material_score else None,
+                        "count_by_category": summary.count_by_category or {},
+                        "period_start": str(summary.period_start) if summary.period_start else None,
+                    }
+
+            comparisons.append({
+                "event_name": row.event_name,
+                "countries": row.countries,
+                "country_count": row.country_count,
+                "latest_date": str(row.latest_date) if row.latest_date else None,
+                "avg_materiality": round(float(row.avg_materiality), 2) if row.avg_materiality else None,
+                "country_narratives": country_narratives,
+            })
+
+        return {"comparisons": comparisons}
+
+
+# ===== MATERIALITY HEATMAP =====
+
+@app.get("/api/events/materiality-heatmap")
+def get_materiality_heatmap():
+    """Get materiality data for calendar heatmap visualization."""
+    with get_session() as session:
+        from sqlalchemy import text as sql_text
+
+        # Get daily materiality by country
+        rows = session.execute(sql_text("""
+            SELECT initiating_country,
+                   period_start as date,
+                   COUNT(*) as event_count,
+                   AVG(CASE WHEN material_score IS NOT NULL THEN material_score END) as avg_materiality,
+                   MAX(material_score) as max_materiality,
+                   SUM(total_documents_across_categories) as total_docs
+            FROM event_summaries
+            WHERE is_deleted = false
+              AND period_type = 'daily'
+              AND period_start >= CURRENT_DATE - INTERVAL '365 days'
+            GROUP BY initiating_country, period_start
+            ORDER BY initiating_country, period_start
+        """)).fetchall()
+
+        # Group by country
+        heatmap = {}
+        for row in rows:
+            country = row.initiating_country
+            if country not in heatmap:
+                heatmap[country] = []
+            heatmap[country].append({
+                "date": str(row.date),
+                "event_count": row.event_count,
+                "avg_materiality": round(float(row.avg_materiality), 2) if row.avg_materiality else None,
+                "max_materiality": round(float(row.max_materiality), 2) if row.max_materiality else None,
+                "total_docs": row.total_docs or 0,
+            })
+
+        # Also get monthly aggregated data for the matrix view
+        monthly_rows = session.execute(sql_text("""
+            SELECT initiating_country,
+                   TO_CHAR(period_start, 'YYYY-MM') as month,
+                   COUNT(*) as event_count,
+                   AVG(CASE WHEN material_score IS NOT NULL THEN material_score END) as avg_materiality,
+                   SUM(total_documents_across_categories) as total_docs
+            FROM event_summaries
+            WHERE is_deleted = false
+              AND period_type = 'monthly'
+            GROUP BY initiating_country, TO_CHAR(period_start, 'YYYY-MM')
+            ORDER BY month, initiating_country
+        """)).fetchall()
+
+        monthly = []
+        for row in monthly_rows:
+            monthly.append({
+                "country": row.initiating_country,
+                "month": row.month,
+                "event_count": row.event_count,
+                "avg_materiality": round(float(row.avg_materiality), 2) if row.avg_materiality else None,
+                "total_docs": row.total_docs or 0,
+            })
+
+        return {"daily_heatmap": heatmap, "monthly_matrix": monthly}
+
 
 @app.get("/api/bilateral", response_model=BilateralResponse)
 def get_bilateral_relationships():
