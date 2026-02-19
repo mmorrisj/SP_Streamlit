@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, LogOut, Shield, X, Loader2 } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, LogOut, Shield, X, Loader2, Zap, TrendingUp, Flame } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
 import './Layout.css'
@@ -7,9 +7,16 @@ import './Layout.css'
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/documents', label: 'Documents', icon: FileText },
+  { path: '/events', label: 'Events', icon: Zap },
+  { path: '/summaries', label: 'Summaries', icon: TrendingUp },
   { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/chat', label: 'Research', icon: MessageSquare },
   { path: '/report', label: 'Publication', icon: FileBarChart },
+]
+
+const intelligenceItems = [
+  { path: '/events/comparison', label: 'Country Comparison', icon: Globe },
+  { path: '/events/materiality', label: 'Materiality Map', icon: Flame },
 ]
 
 const influencers = [
@@ -56,6 +63,22 @@ export default function Layout() {
                 className={({ isActive }) => `nav-item nav-sub-item ${isActive ? 'active' : ''}`}
               >
                 <span>{country}</span>
+              </NavLink>
+            ))}
+          </div>
+
+          <div className="nav-section">
+            <div className="nav-section-title">
+              <Zap size={16} />
+              <span>Intelligence</span>
+            </div>
+            {intelligenceItems.map(({ path, label }) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) => `nav-item nav-sub-item ${isActive ? 'active' : ''}`}
+              >
+                <span>{label}</span>
               </NavLink>
             ))}
           </div>

@@ -73,11 +73,23 @@ class BatchAPIClient:
         """
         url = f"{self.base_url}/batch/upload_file"
 
+        file_size_mb = Path(file_path).stat().st_size / (1024 * 1024)
+        print(f"[BATCH API] Uploading {Path(file_path).name} ({file_size_mb:.2f} MB) to {url}")
+
         with open(file_path, 'rb') as f:
             files = {'file': (Path(file_path).name, f, 'application/jsonl')}
-            response = requests.post(url, files=files, timeout=300)
+            response = requests.post(url, files=files, timeout=600)
 
-        response.raise_for_status()
+        if response.status_code != 200:
+            # Extract detailed error from proxy response
+            try:
+                error_detail = response.json().get('detail', response.text)
+            except Exception:
+                error_detail = response.text
+            raise Exception(
+                f"Upload failed (HTTP {response.status_code}): {error_detail}"
+            )
+
         return response.json()
 
     def create_batch(

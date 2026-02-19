@@ -18,6 +18,9 @@ JOB_TYPE_DAILY_ENTITY_EXTRACT = "daily_entity_extract"
 JOB_TYPE_ENTITY_DECONFLICT = "entity_deconflict"
 JOB_TYPE_CANONICAL_ENTITY_DECONFLICT = "canonical_entity_deconflict"
 JOB_TYPE_GENERATE_DAILY_SUMMARY = "generate_daily_summary"
+JOB_TYPE_GENERATE_WEEKLY_SUMMARY = "generate_weekly_summary"
+JOB_TYPE_GENERATE_MONTHLY_SUMMARY = "generate_monthly_summary"
+JOB_TYPE_SCORE_SUMMARY_MATERIALITY = "score_summary_materiality"
 
 # Supported job types
 SUPPORTED_JOB_TYPES = [
@@ -29,6 +32,9 @@ SUPPORTED_JOB_TYPES = [
     JOB_TYPE_ENTITY_DECONFLICT,
     JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
+    JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
+    JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+    JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
 ]
 
 # OpenAI API configuration
@@ -46,6 +52,9 @@ DEFAULT_MODELS = {
     JOB_TYPE_ENTITY_DECONFLICT: "gpt-4o-mini",
     JOB_TYPE_CANONICAL_ENTITY_DECONFLICT: "gpt-4o-mini",
     JOB_TYPE_GENERATE_DAILY_SUMMARY: "gpt-4o-mini",
+    JOB_TYPE_GENERATE_WEEKLY_SUMMARY: "gpt-4o-mini",
+    JOB_TYPE_GENERATE_MONTHLY_SUMMARY: "gpt-4o-mini",
+    JOB_TYPE_SCORE_SUMMARY_MATERIALITY: "gpt-4o-mini",
 }
 
 # Model temperature settings
@@ -54,6 +63,7 @@ DEFAULT_TEMPERATURE = 0.1
 # Batch processing limits
 MAX_BATCH_SIZE = 50000  # OpenAI API limit per batch
 RECOMMENDED_BATCH_SIZE = 4000  # Conservative batch size for reliable uploads
+MAX_UPLOAD_FILE_SIZE_MB = 2  # Max JSONL file size for upload (network/SSL inspection safe)
 DEFAULT_CHECKPOINT_FREQUENCY = 100  # Commit every N processed results
 
 # File paths

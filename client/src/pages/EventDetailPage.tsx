@@ -5,7 +5,7 @@ import {
   Clock, Tag, Globe, Zap, Newspaper
 } from 'lucide-react'
 import { fetchEventDetail } from '../api/client'
-import type { EventDetail, EventDetailMention } from '../api/client'
+import type { EventDetailMention } from '../api/client'
 import './Pages.css'
 
 const PHASE_COLORS: Record<string, string> = {

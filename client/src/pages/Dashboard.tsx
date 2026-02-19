@@ -1,7 +1,10 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from 'recharts'
-import { fetchDocumentStats, fetchFilterOptions } from '../api/client'
+import { Calendar, Zap, Tag, Globe } from 'lucide-react'
+import { fetchDocumentStats, fetchFilterOptions, fetchDashboardIntelligence } from '../api/client'
+import type { DashboardIntelligenceItem } from '../api/client'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a5c4e0', '#c4d9ed', '#e0ebf5']
@@ -37,7 +40,67 @@ const RECIPIENT_COLORS: Record<string, string> = {
   'Senegal': '#48c9b0'
 }
 
+const CATEGORY_COLORS: Record<string, string> = {
+  Economic: '#10b981',
+  Diplomacy: '#06b6d4',
+  Military: '#ef4444',
+  Social: '#8b5cf6',
+}
+
+function IntelCard({ item, onClick }: { item: DashboardIntelligenceItem; onClick: () => void }) {
+  const topCats = Object.entries(item.count_by_category || {}).sort(([,a],[,b]) => b - a).slice(0, 2)
+  const topRecs = Object.entries(item.count_by_recipient || {}).sort(([,a],[,b]) => b - a).slice(0, 2)
+
+  return (
+    <div className="intel-card" onClick={onClick} style={{ cursor: 'pointer' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+          <Calendar size={12} style={{ color: '#64748b' }} />
+          <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+            {item.period_start}{item.period_end && item.period_end !== item.period_start ? ` — ${item.period_end}` : ''}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: '0.25rem' }}>
+          <span className="ev-country-badge">{item.country}</span>
+          {item.material_score != null && (
+            <span style={{
+              fontSize: '0.68rem', padding: '1px 6px', borderRadius: '3px',
+              backgroundColor: item.material_score >= 3 ? '#dcfce7' : '#f1f5f9',
+              color: item.material_score >= 3 ? '#166534' : '#475569',
+            }}>
+              <Zap size={9} style={{ marginRight: 1 }} />{item.material_score.toFixed(1)}
+            </span>
+          )}
+        </div>
+      </div>
+      <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.88rem', lineHeight: 1.3, color: '#1e293b' }}>
+        {item.event_name}
+      </h4>
+      {item.overview && (
+        <p style={{ margin: '0 0 0.375rem', fontSize: '0.8rem', color: '#475569', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {item.overview}
+        </p>
+      )}
+      {(topCats.length > 0 || topRecs.length > 0) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem' }}>
+          {topCats.map(([cat]) => (
+            <span key={cat} style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '3px', backgroundColor: `${CATEGORY_COLORS[cat] || '#94a3b8'}18`, color: CATEGORY_COLORS[cat] || '#475569' }}>
+              <Tag size={8} style={{ marginRight: 2 }} />{cat}
+            </span>
+          ))}
+          {topRecs.map(([rec]) => (
+            <span key={rec} style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '3px', backgroundColor: '#eff6ff', color: '#1e40af' }}>
+              <Globe size={8} style={{ marginRight: 2 }} />{rec}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [selectedInfluencers, setSelectedInfluencers] = useState<Record<string, boolean>>({
     'China': true,
     'Russia': true,
@@ -62,6 +125,11 @@ export default function Dashboard() {
       influencer_country: filterInfluencer !== 'ALL' ? filterInfluencer : undefined,
       recipient_country: filterRecipient !== 'ALL' ? filterRecipient : undefined
     }),
+  })
+
+  const { data: intelligence } = useQuery({
+    queryKey: ['dashboard-intelligence'],
+    queryFn: fetchDashboardIntelligence,
   })
 
   // Merge weekly data for influencers and recipients (filtered client-side)
@@ -309,6 +377,48 @@ export default function Dashboard() {
           <p className="stat-value">{data?.total_events?.toLocaleString() || 0}</p>
         </div>
       </div>
+
+      {/* Recent Intelligence Section */}
+      {intelligence && ((intelligence.weekly?.length || 0) > 0 || (intelligence.monthly?.length || 0) > 0) && (
+        <div style={{ marginBottom: '2rem' }}>
+          <h2 style={{ fontSize: '1.25rem', color: '#1a365d', marginBottom: '1rem' }}>
+            <Zap size={20} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Recent Intelligence
+          </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+            {/* Weekly column */}
+            {intelligence.weekly && intelligence.weekly.length > 0 && (
+              <div>
+                <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Weekly</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {intelligence.weekly.slice(0, 5).map(item => (
+                    <IntelCard
+                      key={item.id}
+                      item={item}
+                      onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Monthly column */}
+            {intelligence.monthly && intelligence.monthly.length > 0 && (
+              <div>
+                <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Monthly</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {intelligence.monthly.slice(0, 5).map(item => (
+                    <IntelCard
+                      key={item.id}
+                      item={item}
+                      onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="charts-grid">
 

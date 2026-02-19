@@ -62,13 +62,16 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_ENTITY_DECONFLICT,
     JOB_TYPE_CANONICAL_ENTITY_DECONFLICT,
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
+    JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
+    JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+    JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
 from services.pipeline.batch.utils.custom_id import generate_custom_id
-from services.pipeline.batch.utils.jsonl_utils import write_jsonl
+from services.pipeline.batch.utils.jsonl_utils import write_jsonl, split_jsonl_by_file_size, count_jsonl_lines
 from services.pipeline.batch.utils.cost_estimator import calculate_message_tokens
 
 
@@ -1400,6 +1403,483 @@ def build_daily_summary_prompt(event_data: Dict) -> Dict[str, List[Dict[str, str
     }
 
 
+def load_events_needing_weekly_summaries(
+    session,
+    country: str,
+    start_date: DateType,
+    end_date: DateType
+) -> List[Dict]:
+    """
+    Load events that need weekly summaries across a date range.
+
+    Splits the date range into Monday-Sunday weeks, loads daily summaries
+    for each week grouped by event, and returns events with ≥2 daily
+    summaries that don't already have a weekly summary.
+
+    Args:
+        session: Database session
+        country: Initiating country (required)
+        start_date: Start date (inclusive)
+        end_date: End date (inclusive)
+
+    Returns:
+        List of dicts, each representing one (event, week) pair ready for
+        prompt generation.
+    """
+    from datetime import timedelta
+
+    def get_week_ranges(sd, ed):
+        """Split date range into Monday-Sunday weekly periods."""
+        ranges = []
+        current = sd - timedelta(days=sd.weekday())  # Align to Monday
+        while current <= ed:
+            week_end = min(current + timedelta(days=6), ed)
+            if week_end >= sd:
+                ranges.append((max(current, sd), week_end))
+            current += timedelta(days=7)
+        return ranges
+
+    events_to_process = []
+    week_ranges = get_week_ranges(start_date, end_date)
+
+    for week_start, week_end in week_ranges:
+        # Load daily summaries grouped by event_name (same SQL as generate_weekly_summaries.py)
+        result = session.execute(text('''
+            SELECT
+                es.id,
+                es.event_name,
+                es.period_start,
+                es.period_end,
+                es.narrative_summary,
+                ce.id as canonical_event_id
+            FROM event_summaries es
+            JOIN canonical_events ce ON es.event_name = ce.canonical_name
+            WHERE es.initiating_country = :country
+              AND es.period_type = 'DAILY'
+              AND es.period_start >= :week_start
+              AND es.period_end <= :week_end
+              AND ce.master_event_id IS NULL
+              AND es.status = 'ACTIVE'
+            ORDER BY es.event_name, es.period_start
+        '''), {
+            'country': country,
+            'week_start': week_start,
+            'week_end': week_end
+        }).fetchall()
+
+        # Group by event_name
+        events_map = {}
+        for row in result:
+            event_name = row[1]
+            if event_name not in events_map:
+                events_map[event_name] = {
+                    'canonical_event_id': str(row[5]),
+                    'summaries': []
+                }
+            events_map[event_name]['summaries'].append({
+                'summary_id': row[0],
+                'period_start': row[2],
+                'period_end': row[3],
+                'narrative_summary': row[4]
+            })
+
+        for event_name, event_data in events_map.items():
+            daily_summaries = event_data['summaries']
+
+            # Skip events with < 2 daily summaries
+            if len(daily_summaries) < 2:
+                continue
+
+            # Check if weekly summary already exists
+            existing = session.execute(text('''
+                SELECT 1 FROM event_summaries
+                WHERE period_type = 'WEEKLY'
+                  AND period_start = :week_start
+                  AND period_end = :week_end
+                  AND initiating_country = :country
+                  AND event_name = :event_name
+                LIMIT 1
+            '''), {
+                'week_start': week_start,
+                'week_end': week_end,
+                'country': country,
+                'event_name': event_name
+            }).fetchone()
+
+            if existing:
+                continue
+
+            # Format daily summaries for the prompt
+            daily_text_parts = []
+            daily_summary_ids = []
+            for i, summary in enumerate(daily_summaries, 1):
+                date_str = summary['period_start'].strftime('%Y-%m-%d')
+                narrative = summary['narrative_summary']
+                daily_text_parts.append(
+                    f"**Day {i} ({date_str}):**\n"
+                    f"Overview: {narrative.get('overview', 'N/A')}\n"
+                    f"Outcomes: {narrative.get('outcomes', 'N/A')}"
+                )
+                daily_summary_ids.append(str(summary['summary_id']))
+
+            events_to_process.append({
+                'canonical_event_id': event_data['canonical_event_id'],
+                'event_name': event_name,
+                'country': country,
+                'week_start_str': week_start.strftime('%Y-%m-%d'),
+                'week_end_str': week_end.strftime('%Y-%m-%d'),
+                'daily_summaries_formatted': "\n\n".join(daily_text_parts),
+                'daily_summary_ids': daily_summary_ids,
+                'num_daily_summaries': len(daily_summaries)
+            })
+
+    return events_to_process
+
+
+def build_weekly_summary_prompt(event_data: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for weekly summary generation.
+
+    Uses the WEEKLY_SUMMARY_PROMPT template from summary_prompts.py.
+
+    Args:
+        event_data: Dict with event_name, country, week_start_str,
+                    week_end_str, daily_summaries_formatted
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    from services.pipeline.summaries.summary_prompts import WEEKLY_SUMMARY_PROMPT
+
+    prompt = WEEKLY_SUMMARY_PROMPT.format(
+        country=event_data['country'],
+        week_start=event_data['week_start_str'],
+        week_end=event_data['week_end_str'],
+        event_name=event_data['event_name'],
+        daily_summaries=event_data['daily_summaries_formatted']
+    )
+
+    sys_prompt = "You are an experienced journalist writing in Associated Press (AP) style. Synthesize daily summaries into weekly narratives."
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+
+def load_events_needing_monthly_summaries(
+    session,
+    country: str,
+    start_date: DateType,
+    end_date: DateType
+) -> List[Dict]:
+    """
+    Load events that need monthly summaries across a date range.
+
+    Splits the date range into calendar months, loads weekly summaries
+    for each month grouped by event, and returns events with ≥2 weekly
+    summaries that don't already have a monthly summary.
+
+    Args:
+        session: Database session
+        country: Initiating country (required)
+        start_date: Start date (inclusive)
+        end_date: End date (inclusive)
+
+    Returns:
+        List of dicts, each representing one (event, month) pair ready for
+        prompt generation.
+    """
+    from datetime import timedelta
+
+    def get_month_ranges(sd, ed):
+        """Split date range into calendar month periods."""
+        ranges = []
+        current = sd.replace(day=1)
+        while current <= ed:
+            if current.month == 12:
+                next_month = current.replace(year=current.year + 1, month=1, day=1)
+            else:
+                next_month = current.replace(month=current.month + 1, day=1)
+            month_end = min(next_month - timedelta(days=1), ed)
+            if month_end >= sd:
+                ranges.append((max(current, sd), month_end))
+            current = next_month
+        return ranges
+
+    events_to_process = []
+    month_ranges = get_month_ranges(start_date, end_date)
+
+    for month_start, month_end in month_ranges:
+        # Load weekly summaries grouped by event_name (same SQL as generate_monthly_summaries.py)
+        result = session.execute(text('''
+            SELECT
+                es.id,
+                es.event_name,
+                es.period_start,
+                es.period_end,
+                es.narrative_summary,
+                ce.id as canonical_event_id
+            FROM event_summaries es
+            JOIN canonical_events ce ON es.event_name = ce.canonical_name
+            WHERE es.initiating_country = :country
+              AND es.period_type = 'WEEKLY'
+              AND es.period_start >= :month_start
+              AND es.period_end <= :month_end
+              AND ce.master_event_id IS NULL
+              AND es.status = 'ACTIVE'
+            ORDER BY es.event_name, es.period_start
+        '''), {
+            'country': country,
+            'month_start': month_start,
+            'month_end': month_end
+        }).fetchall()
+
+        # Group by event_name
+        events_map = {}
+        for row in result:
+            event_name = row[1]
+            if event_name not in events_map:
+                events_map[event_name] = {
+                    'canonical_event_id': str(row[5]),
+                    'summaries': []
+                }
+            events_map[event_name]['summaries'].append({
+                'summary_id': row[0],
+                'period_start': row[2],
+                'period_end': row[3],
+                'narrative_summary': row[4]
+            })
+
+        for event_name, event_data in events_map.items():
+            weekly_summaries = event_data['summaries']
+
+            # Skip events with < 2 weekly summaries
+            if len(weekly_summaries) < 2:
+                continue
+
+            # Check if monthly summary already exists
+            existing = session.execute(text('''
+                SELECT 1 FROM event_summaries
+                WHERE period_type = 'MONTHLY'
+                  AND period_start = :month_start
+                  AND period_end = :month_end
+                  AND initiating_country = :country
+                  AND event_name = :event_name
+                LIMIT 1
+            '''), {
+                'month_start': month_start,
+                'month_end': month_end,
+                'country': country,
+                'event_name': event_name
+            }).fetchone()
+
+            if existing:
+                continue
+
+            # Format weekly summaries for the prompt
+            weekly_text_parts = []
+            weekly_summary_ids = []
+            for i, summary in enumerate(weekly_summaries, 1):
+                week_str = (f"{summary['period_start'].strftime('%Y-%m-%d')} to "
+                            f"{summary['period_end'].strftime('%Y-%m-%d')}")
+                narrative = summary['narrative_summary']
+                weekly_text_parts.append(
+                    f"**Week {i} ({week_str}):**\n"
+                    f"Overview: {narrative.get('overview', 'N/A')}\n"
+                    f"Outcomes: {narrative.get('outcomes', 'N/A')}\n"
+                    f"Progression: {narrative.get('progression', 'N/A')}"
+                )
+                weekly_summary_ids.append(str(summary['summary_id']))
+
+            events_to_process.append({
+                'canonical_event_id': event_data['canonical_event_id'],
+                'event_name': event_name,
+                'country': country,
+                'month_start_str': month_start.strftime('%Y-%m-%d'),
+                'month_end_str': month_end.strftime('%Y-%m-%d'),
+                'month_year': month_start.strftime('%B %Y'),
+                'weekly_summaries_formatted': "\n\n".join(weekly_text_parts),
+                'weekly_summary_ids': weekly_summary_ids,
+                'num_weekly_summaries': len(weekly_summaries)
+            })
+
+    return events_to_process
+
+
+def build_monthly_summary_prompt(event_data: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for monthly summary generation.
+
+    Uses the MONTHLY_SUMMARY_PROMPT template from summary_prompts.py.
+
+    Args:
+        event_data: Dict with event_name, country, month_year,
+                    weekly_summaries_formatted
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    from services.pipeline.summaries.summary_prompts import MONTHLY_SUMMARY_PROMPT
+
+    prompt = MONTHLY_SUMMARY_PROMPT.format(
+        country=event_data['country'],
+        month_year=event_data['month_year'],
+        event_name=event_data['event_name'],
+        weekly_summaries=event_data['weekly_summaries_formatted']
+    )
+
+    sys_prompt = "You are an experienced journalist writing in Associated Press (AP) style. Synthesize weekly summaries into monthly narratives."
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+
+def load_summaries_for_materiality_scoring(
+    session,
+    country: str,
+    start_date: DateType,
+    end_date: DateType,
+    period_type: Optional[str] = None,
+    rescore: bool = False
+) -> List[Dict]:
+    """
+    Load event summaries that need materiality scoring.
+
+    Args:
+        session: Database session
+        country: Initiating country
+        start_date: Start date
+        end_date: End date
+        period_type: Optional filter (DAILY, WEEKLY, MONTHLY). None = all.
+        rescore: If True, rescore all summaries. If False, only unscored.
+
+    Returns:
+        List of summary dictionaries
+    """
+    score_filter = "" if rescore else "AND es.material_score IS NULL"
+    period_filter = "AND es.period_type = :period_type" if period_type else ""
+
+    query = text(f"""
+        SELECT
+            es.id,
+            es.event_name,
+            es.initiating_country,
+            es.period_type,
+            es.period_start,
+            es.period_end,
+            es.narrative_summary,
+            es.count_by_category,
+            es.count_by_recipient,
+            es.total_documents_across_sources
+        FROM event_summaries es
+        WHERE es.initiating_country = :country
+          AND es.period_start >= :start_date
+          AND es.period_end <= :end_date
+          AND es.is_deleted = false
+          {score_filter}
+          {period_filter}
+        ORDER BY es.period_start DESC, es.event_name
+    """)
+
+    params = {
+        'country': country,
+        'start_date': start_date,
+        'end_date': end_date
+    }
+    if period_type:
+        params['period_type'] = period_type
+
+    result = session.execute(query, params).fetchall()
+
+    summaries = []
+    for row in result:
+        summaries.append({
+            'id': str(row[0]),
+            'event_name': row[1],
+            'initiating_country': row[2],
+            'period_type': row[3],
+            'period_start': row[4],
+            'period_end': row[5],
+            'narrative_summary': row[6] or {},
+            'count_by_category': row[7] or {},
+            'count_by_recipient': row[8] or {},
+            'total_documents': row[9] or 0
+        })
+
+    return summaries
+
+
+def build_summary_materiality_prompt(summary: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for materiality scoring of event summaries.
+
+    Uses the MATERIALITY_SCORE_PROMPT from summary_prompts.py.
+
+    Args:
+        summary: Event summary dictionary from load_summaries_for_materiality_scoring
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    from services.pipeline.summaries.summary_prompts import MATERIALITY_SCORE_PROMPT
+
+    narrative = summary['narrative_summary']
+
+    # Extract narrative text based on period type
+    if summary['period_type'] == 'DAILY':
+        summary_text = f"{narrative.get('overview', '')}\n\n{narrative.get('outcomes', '')}"
+    elif summary['period_type'] == 'WEEKLY':
+        summary_text = f"{narrative.get('overview', '')}\n\n{narrative.get('outcomes', '')}\n\n{narrative.get('progression', '')}"
+    else:  # MONTHLY
+        summary_text = f"{narrative.get('monthly_overview', '')}\n\n{narrative.get('key_outcomes', '')}\n\n{narrative.get('strategic_significance', '')}"
+
+    # Format categories and recipients
+    categories = summary['count_by_category']
+    if isinstance(categories, dict) and categories:
+        categories_str = ', '.join(list(categories.keys())[:5])
+    else:
+        categories_str = 'None'
+
+    recipients = summary['count_by_recipient']
+    if isinstance(recipients, dict) and recipients:
+        recipients_str = ', '.join(list(recipients.keys())[:5])
+    else:
+        recipients_str = 'None'
+
+    period_start = summary['period_start']
+    period_end = summary['period_end']
+    period_start_str = period_start.strftime('%Y-%m-%d') if hasattr(period_start, 'strftime') else str(period_start)
+    period_end_str = period_end.strftime('%Y-%m-%d') if hasattr(period_end, 'strftime') else str(period_end)
+
+    prompt = MATERIALITY_SCORE_PROMPT.format(
+        country=summary['initiating_country'],
+        event_name=summary['event_name'],
+        period_type=summary['period_type'],
+        period_start=period_start_str,
+        period_end=period_end_str,
+        event_summary=summary_text.strip(),
+        categories=categories_str,
+        recipients=recipients_str,
+        total_documents=summary['total_documents']
+    )
+
+    sys_prompt = "You are an expert analyst assessing the materiality of soft power events. You assign scores from 1-10 measuring concrete/substantive nature versus symbolic/rhetorical gestures."
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+
 def build_daily_entity_extract_prompt(doc: Dict) -> Dict[str, List[Dict[str, str]]]:
     """
     Build prompt for extracting entities from a document.
@@ -1764,6 +2244,66 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_GENERATE_WEEKLY_SUMMARY:
+        # records is a list of (event, week) dicts needing weekly summaries
+        for event_data in records:
+            custom_id = generate_custom_id(
+                job_type, event_data['canonical_event_id'],
+                suffix=f"{event_data['week_start_str']}_{event_data['week_end_str']}"
+            )
+            prompt_data = build_weekly_summary_prompt(event_data)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
+    elif job_type == JOB_TYPE_GENERATE_MONTHLY_SUMMARY:
+        # records is a list of (event, month) dicts needing monthly summaries
+        for event_data in records:
+            custom_id = generate_custom_id(
+                job_type, event_data['canonical_event_id'],
+                suffix=f"{event_data['month_start_str']}_{event_data['month_end_str']}"
+            )
+            prompt_data = build_monthly_summary_prompt(event_data)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
+    elif job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:
+        # records is a list of event summaries needing materiality scoring
+        for summary in records:
+            custom_id = generate_custom_id(job_type, summary['id'])
+            prompt_data = build_summary_materiality_prompt(summary)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
 
 
@@ -1809,7 +2349,9 @@ def main():
                        choices=[JOB_TYPE_CLUSTER_DECONFLICT, JOB_TYPE_CANONICAL_DECONFLICT,
                                JOB_TYPE_ENTITY_EXTRACT, JOB_TYPE_SCORE_MATERIALITY,
                                JOB_TYPE_DAILY_ENTITY_EXTRACT, JOB_TYPE_ENTITY_DECONFLICT,
-                               JOB_TYPE_CANONICAL_ENTITY_DECONFLICT, JOB_TYPE_GENERATE_DAILY_SUMMARY],
+                               JOB_TYPE_CANONICAL_ENTITY_DECONFLICT, JOB_TYPE_GENERATE_DAILY_SUMMARY,
+                               JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+                               JOB_TYPE_SCORE_SUMMARY_MATERIALITY],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -1832,6 +2374,11 @@ def main():
                        help='Minimum days for materiality scoring (default: 1)')
     parser.add_argument('--rescore', action='store_true',
                        help='Rescore events even if already scored')
+
+    # Summary materiality scoring specific
+    parser.add_argument('--period-type', type=str, default=None,
+                       choices=['DAILY', 'WEEKLY', 'MONTHLY'],
+                       help='Period type filter for summary materiality scoring (default: all)')
 
     # Output configuration
     parser.add_argument('--output', type=str, help='Output JSONL file path (optional, auto-generated if not provided)')
@@ -1931,6 +2478,54 @@ def main():
             )
             print(f"Found {len(records)} (event, date) pairs needing daily summaries")
 
+        elif args.job_type == JOB_TYPE_GENERATE_WEEKLY_SUMMARY:
+            if not args.country:
+                print("Error: --country is required for generate_weekly_summary")
+                return
+            if not start_date or not end_date:
+                print("Error: --start-date and --end-date are required for generate_weekly_summary")
+                return
+            records = load_events_needing_weekly_summaries(
+                session,
+                args.country,
+                start_date,
+                end_date
+            )
+            print(f"Found {len(records)} (event, week) pairs needing weekly summaries")
+
+        elif args.job_type == JOB_TYPE_GENERATE_MONTHLY_SUMMARY:
+            if not args.country:
+                print("Error: --country is required for generate_monthly_summary")
+                return
+            if not start_date or not end_date:
+                print("Error: --start-date and --end-date are required for generate_monthly_summary")
+                return
+            records = load_events_needing_monthly_summaries(
+                session,
+                args.country,
+                start_date,
+                end_date
+            )
+            print(f"Found {len(records)} (event, month) pairs needing monthly summaries")
+
+        elif args.job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:
+            if not args.country:
+                print("Error: --country is required for score_summary_materiality")
+                return
+            if not start_date or not end_date:
+                print("Error: --start-date and --end-date are required for score_summary_materiality")
+                return
+            records = load_summaries_for_materiality_scoring(
+                session,
+                args.country,
+                start_date,
+                end_date,
+                period_type=args.period_type,
+                rescore=args.rescore
+            )
+            period_label = args.period_type or "ALL"
+            print(f"Found {len(records)} event summaries needing materiality scoring ({period_label})")
+
         else:
             print(f"Error: Unsupported job type: {args.job_type}")
             return
@@ -2007,33 +2602,52 @@ def main():
             # Write JSONL file
             print(f"Writing JSONL file to: {output_file}")
             write_jsonl(output_file, batch_requests)
-            print(f"✓ Wrote {len(batch_requests)} requests to {output_file}")
 
-            # Create batch_job record
-            print("Creating batch_job database record...")
-            with BatchJobTracker(session) as tracker:
-                batch_job = tracker.create_batch_job(
-                    job_type=args.job_type,
-                    batch_size=len(batch_requests),
-                    initiating_country=args.country,
-                    date_range_start=start_date,
-                    date_range_end=end_date,
-                    input_file_path=output_file,
-                    estimated_cost=cost_estimate['total_cost'],
-                    created_by='batch_prepare.py'
-                )
+            import os as _os
+            file_size_mb = _os.path.getsize(output_file) / (1024 * 1024)
+            print(f"  Wrote {len(batch_requests)} requests to {output_file} ({file_size_mb:.2f} MB)")
 
-                print(f"✓ Created batch_job record: {batch_job.id}")
-                print(f"  Status: {batch_job.status}")
-                print(f"  Batch size: {batch_job.batch_size}")
-                print(f"  Estimated cost: ${batch_job.estimated_cost:.4f}")
+            # Auto-split if file exceeds upload size limit
+            from services.pipeline.batch.batch_config import MAX_UPLOAD_FILE_SIZE_MB
+            split_files = split_jsonl_by_file_size(output_file, max_size_mb=MAX_UPLOAD_FILE_SIZE_MB)
 
-                created_batch_jobs.append({
-                    'id': batch_job.id,
-                    'file': output_file,
-                    'size': len(batch_requests),
-                    'cost': cost_estimate['total_cost']
-                })
+            if len(split_files) > 1:
+                print(f"  File exceeded {MAX_UPLOAD_FILE_SIZE_MB} MB limit, split into {len(split_files)} parts")
+
+            # Create batch_job record for each file (usually 1, more if split)
+            for split_file in split_files:
+                split_size = count_jsonl_lines(split_file)
+                split_file_mb = _os.path.getsize(split_file) / (1024 * 1024)
+                # Pro-rate cost estimate based on split size
+                split_cost = cost_estimate['total_cost'] * (split_size / len(batch_requests)) if batch_requests else 0
+
+                if len(split_files) > 1:
+                    print(f"\n  Split file: {_os.path.basename(split_file)} ({split_size} requests, {split_file_mb:.2f} MB)")
+
+                print("Creating batch_job database record...")
+                with BatchJobTracker(session) as tracker:
+                    batch_job = tracker.create_batch_job(
+                        job_type=args.job_type,
+                        batch_size=split_size,
+                        initiating_country=args.country,
+                        date_range_start=start_date,
+                        date_range_end=end_date,
+                        input_file_path=split_file,
+                        estimated_cost=split_cost,
+                        created_by='batch_prepare.py'
+                    )
+
+                    print(f"  Created batch_job record: {batch_job.id}")
+                    print(f"  Status: {batch_job.status}")
+                    print(f"  Batch size: {batch_job.batch_size}")
+                    print(f"  Estimated cost: ${batch_job.estimated_cost:.4f}")
+
+                    created_batch_jobs.append({
+                        'id': batch_job.id,
+                        'file': split_file,
+                        'size': split_size,
+                        'cost': split_cost
+                    })
 
         # Print summary
         print()
