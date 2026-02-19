@@ -4398,8 +4398,9 @@ def delete_user(
 # IMPORTANT: This must come AFTER all @app.get() API route definitions
 # so that API routes take precedence over the catch-all
 if STATIC_DIR.exists():
-    # Mount static assets directory
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+    # Mount static assets directory (only if it exists, e.g., after npm run build)
+    if (STATIC_DIR / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
     # Serve index.html for root path
     @app.get("/", include_in_schema=False)
