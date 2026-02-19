@@ -65,6 +65,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
     JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
+    JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
@@ -2080,6 +2081,183 @@ def load_documents_for_entity_extraction(
     return result
 
 
+# ---- Entity Description Generation ----
+
+ENTITY_DESCRIPTION_SYS_PROMPT = (
+    "You are an expert analyst specializing in international relations and soft power. "
+    "Generate concise, factual entity profiles based on the provided data. "
+    "Use AP (Associated Press) style. Be specific and concrete, avoid generic characterizations. "
+    "Focus on what this entity actually does based on the document evidence provided."
+)
+
+
+def load_entities_for_description_generation(
+    session, country: str, min_docs: int = 3, force: bool = False
+) -> List[Dict]:
+    """
+    Load canonical entities needing LLM description generation.
+
+    Args:
+        session: Database session
+        country: Initiating country
+        min_docs: Minimum total_documents threshold
+        force: If True, include entities that already have descriptions
+
+    Returns:
+        List of entity dicts with pre-loaded event names
+    """
+    filter_clause = ""
+    if not force:
+        filter_clause = "AND ce.entity_description IS NULL"
+
+    rows = session.execute(text(f"""
+        SELECT
+            ce.id::text,
+            ce.canonical_name,
+            ce.entity_type,
+            ce.primary_role,
+            ce.initiating_country,
+            ce.country_affiliations,
+            ce.alternative_names,
+            ce.primary_categories,
+            ce.primary_recipients,
+            ce.total_documents,
+            ce.total_mention_days,
+            ce.first_mention_date::text,
+            ce.last_mention_date::text,
+            ce.associated_events
+        FROM canonical_entities ce
+        WHERE ce.initiating_country = :country
+          AND ce.master_entity_id IS NULL
+          AND ce.total_documents >= :min_docs
+          {filter_clause}
+        ORDER BY ce.total_documents DESC
+    """), {'country': country, 'min_docs': min_docs}).fetchall()
+
+    if not rows:
+        return []
+
+    # Collect all event IDs to batch-load event names
+    all_event_ids = set()
+    for row in rows:
+        if row[13]:  # associated_events
+            for eid in row[13][:5]:
+                all_event_ids.add(str(eid))
+
+    # Batch-load event names
+    event_name_map = {}
+    if all_event_ids:
+        event_rows = session.execute(text("""
+            SELECT id::text, canonical_name FROM canonical_events
+            WHERE id::text = ANY(:event_ids)
+              AND master_event_id IS NULL
+        """), {'event_ids': list(all_event_ids)}).fetchall()
+        event_name_map = {r[0]: r[1] for r in event_rows}
+
+    result = []
+    for row in rows:
+        event_names = []
+        if row[13]:
+            event_names = [event_name_map.get(str(eid), '') for eid in row[13][:5]]
+            event_names = [n for n in event_names if n]
+
+        result.append({
+            'id': row[0],
+            'canonical_name': row[1],
+            'entity_type': str(row[2]) if row[2] else 'unknown',
+            'primary_role': str(row[3]) if row[3] else None,
+            'initiating_country': row[4],
+            'country_affiliations': row[5] or [],
+            'alternative_names': row[6] or [],
+            'primary_categories': row[7],
+            'primary_recipients': row[8],
+            'total_documents': row[9],
+            'total_mention_days': row[10],
+            'first_mention_date': row[11],
+            'last_mention_date': row[12],
+            'event_names': event_names
+        })
+
+    return result
+
+
+def build_entity_description_prompt(entity: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt for entity description generation.
+
+    Mirrors the prompt logic from generate_entity_descriptions.py.
+
+    Args:
+        entity: Entity dict from load_entities_for_description_generation
+
+    Returns:
+        Dict with 'messages' key containing system + user messages
+    """
+    import json as _json
+
+    # Format categories
+    categories_str = "N/A"
+    cats = entity.get('primary_categories')
+    if cats:
+        if isinstance(cats, str):
+            try:
+                cats = _json.loads(cats)
+            except (ValueError, TypeError):
+                cats = {}
+        if isinstance(cats, dict) and cats:
+            sorted_cats = sorted(cats.items(), key=lambda x: x[1], reverse=True)[:5]
+            categories_str = ", ".join(f"{k} ({v})" for k, v in sorted_cats)
+
+    # Format recipients
+    recipients_str = "N/A"
+    recips = entity.get('primary_recipients')
+    if recips:
+        if isinstance(recips, str):
+            try:
+                recips = _json.loads(recips)
+            except (ValueError, TypeError):
+                recips = {}
+        if isinstance(recips, dict) and recips:
+            sorted_recips = sorted(recips.items(), key=lambda x: x[1], reverse=True)[:5]
+            recipients_str = ", ".join(f"{k} ({v})" for k, v in sorted_recips)
+
+    alt_names_str = ", ".join(entity.get('alternative_names', [])[:5]) or "None"
+    affiliations_str = ", ".join(entity.get('country_affiliations', [])[:5]) or "None"
+    events_str = ", ".join(entity.get('event_names', [])[:5]) or "None linked"
+
+    user_prompt = f"""Generate a profile for this entity based on its activity in diplomatic/soft power documents.
+
+Entity: {entity['canonical_name']}
+Type: {entity['entity_type']}
+Role: {entity.get('primary_role') or 'Unknown'}
+Country context: {entity['initiating_country']}
+Country affiliations: {affiliations_str}
+Also known as: {alt_names_str}
+Active period: {entity['first_mention_date']} to {entity['last_mention_date']} ({entity.get('total_mention_days', 0)} days)
+Total documents: {entity['total_documents']}
+Top categories: {categories_str}
+Top recipient countries: {recipients_str}
+Associated events: {events_str}
+
+Return ONLY a JSON object with no additional text:
+{{
+    "entity_description": "2-3 sentence profile describing who/what this entity is and their role in soft power activities. Be specific about their actions and significance based on the data above.",
+    "key_activities": {{
+        "primary_function": "One sentence on primary function/role",
+        "notable_actions": ["action1", "action2", "action3"],
+        "key_relationships": ["relationship1", "relationship2"],
+        "geographic_focus": ["country1", "country2"]
+    }}
+}}"""
+
+    return {
+        "messages": [
+            {"role": "system", "content": ENTITY_DESCRIPTION_SYS_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
 def generate_batch_requests(
     job_type: str,
     records: List[Any],
@@ -2304,6 +2482,23 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS:
+        for entity in records:
+            custom_id = generate_custom_id(job_type, entity['id'])
+            prompt_data = build_entity_description_prompt(entity)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
 
 
@@ -2351,7 +2546,8 @@ def main():
                                JOB_TYPE_DAILY_ENTITY_EXTRACT, JOB_TYPE_ENTITY_DECONFLICT,
                                JOB_TYPE_CANONICAL_ENTITY_DECONFLICT, JOB_TYPE_GENERATE_DAILY_SUMMARY,
                                JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
-                               JOB_TYPE_SCORE_SUMMARY_MATERIALITY],
+                               JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
+                               JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -2525,6 +2721,19 @@ def main():
             )
             period_label = args.period_type or "ALL"
             print(f"Found {len(records)} event summaries needing materiality scoring ({period_label})")
+
+        elif args.job_type == JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS:
+            if not args.country:
+                print("Error: --country is required for generate_entity_descriptions")
+                return
+            records = load_entities_for_description_generation(
+                session,
+                args.country,
+                min_docs=args.min_articles,
+                force=args.force
+            )
+            mode = "all (force)" if args.force else "missing only"
+            print(f"Found {len(records)} entities needing descriptions ({mode})")
 
         else:
             print(f"Error: Unsupported job type: {args.job_type}")
