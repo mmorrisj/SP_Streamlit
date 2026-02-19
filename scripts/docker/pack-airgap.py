@@ -36,6 +36,7 @@ from pathlib import Path
 BINARY_EXTENSIONS = {
     ".tar", ".gz", ".tgz", ".zip", ".bz2", ".xz", ".zst",
     ".dump",
+    ".whl",
     ".bin", ".safetensors", ".onnx", ".pkl", ".npy", ".npz",
     ".h5", ".pt", ".pth", ".model", ".msgpack",
     ".png", ".jpg", ".jpeg", ".gif", ".ico",
@@ -86,15 +87,24 @@ def classify_file(filepath: Path) -> str:
 
 
 def encode_b64(src: Path, dst: Path):
-    """Stream base64 encode src → dst (memory efficient for large files)."""
+    """Stream base64 encode src → dst (memory efficient for large files).
+
+    Writes standard 76-character lines (RFC 2045) so the output is
+    compatible with transfer systems that impose line-length limits
+    and is human-inspectable in a text editor.
+    """
     # Read in multiples of 3 bytes for clean base64 boundary alignment
     CHUNK = 3 * 1024 * 1024  # 3MB raw → 4MB base64
+    LINE_LEN = 76
     with open(src, "rb") as fin, open(dst, "w") as fout:
         while True:
             raw = fin.read(CHUNK)
             if not raw:
                 break
-            fout.write(base64.b64encode(raw).decode("ascii"))
+            encoded = base64.b64encode(raw).decode("ascii")
+            for i in range(0, len(encoded), LINE_LEN):
+                fout.write(encoded[i:i + LINE_LEN])
+                fout.write("\n")
 
 
 def get_perms(path: Path) -> int:

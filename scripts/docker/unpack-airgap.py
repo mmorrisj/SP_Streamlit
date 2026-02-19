@@ -26,15 +26,29 @@ MANIFEST_NAME = "pack_manifest.json"
 
 
 def decode_b64(src: Path, dst: Path):
-    """Stream base64 decode src → dst (memory efficient for large files)."""
-    # Read in multiples of 4 chars for clean base64 boundary alignment
-    CHUNK = 4 * 1024 * 1024  # 4MB base64 → 3MB raw
+    """Stream base64 decode src → dst (memory efficient for large files).
+
+    Handles both line-broken base64 (76-char lines, RFC 2045) and
+    continuous base64 (no line breaks, legacy format).  Also tolerant of
+    stray whitespace that transfer systems may have inserted.
+    """
+    CHUNK = 4 * 1024 * 1024  # ~4MB read at a time
+    remainder = ""
     with open(src, "r") as fin, open(dst, "wb") as fout:
         while True:
-            encoded = fin.read(CHUNK)
-            if not encoded:
+            raw = fin.read(CHUNK)
+            if not raw:
                 break
-            fout.write(base64.b64decode(encoded))
+            # Strip whitespace (newlines, spaces, CR) for transfer tolerance
+            clean = remainder + raw.replace("\n", "").replace("\r", "").replace(" ", "")
+            # Decode in multiples of 4 chars (base64 group boundary)
+            cut = (len(clean) // 4) * 4
+            if cut > 0:
+                fout.write(base64.b64decode(clean[:cut]))
+            remainder = clean[cut:]
+        # Final remainder (with padding)
+        if remainder:
+            fout.write(base64.b64decode(remainder))
 
 
 def unpack(pkg_dir: Path, dry_run: bool = True):
