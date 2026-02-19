@@ -6,6 +6,8 @@
 
 set -e  # Exit on error
 
+API_PORT="${API_PORT:-8000}"
+
 echo ""
 echo "=============================================="
 echo "Soft Power Analytics - Full Stack Deployment"
@@ -89,7 +91,7 @@ echo ""
 # Wait for API
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -f http://localhost:8000/api/health > /dev/null 2>&1; then
+    if curl -f http://localhost:${API_PORT}/api/health > /dev/null 2>&1; then
         echo "✅ Web API is healthy"
         break
     fi
@@ -124,8 +126,8 @@ echo "✅ Full Stack Deployed Successfully!"
 echo "=============================================="
 echo ""
 echo "🌐 Access Points:"
-echo "  • React Web App:    http://localhost:8000"
-echo "  • API Docs:         http://localhost:8000/docs"
+echo "  • React Web App:    http://localhost:${API_PORT}"
+echo "  • API Docs:         http://localhost:${API_PORT}/docs"
 echo "  • Streamlit:        http://localhost:8501"
 echo "  • PostgreSQL:       localhost:5432"
 echo "  • Redis:            localhost:6379"
@@ -157,7 +159,7 @@ echo "  • Stop all:         docker-compose -f docker-compose.full.yml down"
 echo "  • Restart service:  docker-compose -f docker-compose.full.yml restart [service-name]"
 echo ""
 echo "📈 Next Steps:"
-echo "  1. Access web app: http://localhost:8000"
+echo "  1. Access web app: http://localhost:${API_PORT}"
 echo "  2. Run pipeline to populate data (see commands above)"
 echo "  3. View analytics in Streamlit: http://localhost:8501"
 echo ""

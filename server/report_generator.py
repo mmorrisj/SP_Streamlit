@@ -1370,24 +1370,58 @@ def generate_report(
 
     print(f"[Report] Total citations: {len(all_sources)}")
 
-    # Step 5: Generate event narratives
+    # Step 5: Generate event narratives (use cached EventSummary when available)
+    # Pre-load cached narratives from EventSummary table
+    cached_narratives = {}
+    try:
+        from shared.models.models import EventSummary as ES, PeriodType as PT
+        all_event_names = [e['event_name'] for evts in events_by_category.values() for e in evts]
+        if all_event_names:
+            cached_rows = session.execute(text("""
+                SELECT DISTINCT ON (event_name)
+                    event_name, narrative_summary
+                FROM event_summaries
+                WHERE initiating_country = :country
+                  AND event_name = ANY(:names)
+                  AND is_deleted = false
+                  AND narrative_summary IS NOT NULL
+                ORDER BY event_name, period_start DESC
+            """), {"country": country, "names": all_event_names}).fetchall()
+            for row in cached_rows:
+                ns = row.narrative_summary or {}
+                if ns.get("overview"):
+                    cached_narratives[row.event_name] = ns
+            print(f"[Report] Found {len(cached_narratives)}/{len(all_event_names)} cached EventSummary narratives")
+    except Exception as e:
+        print(f"[Report] Could not load cached narratives: {e}")
+
     if llm_available:
         print("[Report] Generating event narratives...")
         for category, events in events_by_category.items():
             for event in events:
-                event_docs = documents_by_event.get(event['id'], [])
-                narrative = generate_event_narrative(
-                    event, config, source_docs=event_docs, source_map=source_map,
-                    model=model
-                )
-                event['overview'] = narrative.get('overview', '')
-                event['outcomes'] = narrative.get('outcomes', '')
+                cached = cached_narratives.get(event['event_name'])
+                if cached:
+                    event['overview'] = cached.get('overview', '')
+                    event['outcomes'] = cached.get('outcomes', '')
+                else:
+                    event_docs = documents_by_event.get(event['id'], [])
+                    narrative = generate_event_narrative(
+                        event, config, source_docs=event_docs, source_map=source_map,
+                        model=model
+                    )
+                    event['overview'] = narrative.get('overview', '')
+                    event['outcomes'] = narrative.get('outcomes', '')
     else:
         print("[Report] Skipping event narratives (LLM unavailable)")
         for category, events in events_by_category.items():
             for event in events:
-                event['overview'] = event.get('description') or f"Event: {event['event_name']}"
-                event['outcomes'] = "Analysis pending — LLM service unavailable."
+                cached = cached_narratives.get(event['event_name'])
+                if cached:
+                    event['overview'] = cached.get('overview', '')
+                    event['outcomes'] = cached.get('outcomes', '')
+                else:
+                    event['overview'] = event.get('description') or f"Event: {event['event_name']}"
+                    event['outcomes'] = "Analysis pending — LLM service unavailable."
 
     # Step 6: Generate category narratives
     category_summaries = {}
@@ -1854,13 +1888,40 @@ def generate_report_stream(
 
     # --- LLM generation (Steps 5-8) ---
 
-    # Step 5: Event narratives
+    # Pre-load cached narratives from EventSummary table
+    stream_cached_narratives = {}
+    try:
+        all_evt_names = [e['event_name'] for evts in events_by_category.values() for e in evts]
+        if all_evt_names:
+            cached_rows = session.execute(text("""
+                SELECT DISTINCT ON (event_name)
+                    event_name, narrative_summary
+                FROM event_summaries
+                WHERE initiating_country = :country
+                  AND event_name = ANY(:names)
+                  AND is_deleted = false
+                  AND narrative_summary IS NOT NULL
+                ORDER BY event_name, period_start DESC
+            """), {"country": country, "names": all_evt_names}).fetchall()
+            for row in cached_rows:
+                ns = row.narrative_summary or {}
+                if ns.get("overview"):
+                    stream_cached_narratives[row.event_name] = ns
+            print(f"[Report SSE] Found {len(stream_cached_narratives)}/{len(all_evt_names)} cached narratives")
+    except Exception as e:
+        print(f"[Report SSE] Could not load cached narratives: {e}")
+
+    # Step 5: Event narratives (use cache first, LLM as fallback)
     print("[Report SSE] Generating event narratives...")
     for cat_data in categories_output:
         category = cat_data['category']
         events = events_by_category.get(category, [])
         for evt_idx, event in enumerate(events):
-            if llm_available:
+            cached = stream_cached_narratives.get(event['event_name'])
+            if cached:
+                overview = cached.get('overview', '')
+                outcomes = cached.get('outcomes', '')
+            elif llm_available:
                 event_docs = documents_by_event.get(event['id'], [])
                 narrative = generate_event_narrative(
                     event, config, source_docs=event_docs, source_map=source_map,

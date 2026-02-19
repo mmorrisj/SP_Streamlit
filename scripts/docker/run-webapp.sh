@@ -15,6 +15,7 @@ fi
 POSTGRES_USER=${POSTGRES_USER:-matthew50}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-softpower}
 POSTGRES_DB=${POSTGRES_DB:-softpower-db}
+API_PORT="${API_PORT:-8000}"
 
 echo ""
 echo "=============================================="
@@ -50,7 +51,7 @@ docker run -d \
     -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
     -v "$(pwd)/shared/config/config.yaml:/app/shared/config/config.yaml:ro" \
     -v "$(pwd)/_data:/app/_data" \
-    -p 8000:8000 \
+    -p ${API_PORT}:8000 \
     --add-host=host.docker.internal:host-gateway \
     softpower-api:latest
 
@@ -59,7 +60,7 @@ echo ""
 
 echo "⏳ Waiting for API to be healthy..."
 for i in {1..30}; do
-    if curl -f http://localhost:8000/api/health > /dev/null 2>&1; then
+    if curl -f http://localhost:${API_PORT}/api/health > /dev/null 2>&1; then
         echo "✅ API is healthy"
         break
     fi
@@ -73,9 +74,9 @@ echo "✅ Web Application Running"
 echo "=============================================="
 echo ""
 echo "Access:"
-echo "  • Web App:     http://localhost:8000"
-echo "  • API Docs:    http://localhost:8000/docs"
-echo "  • Health:      http://localhost:8000/api/health"
+echo "  • Web App:     http://localhost:${API_PORT}"
+echo "  • API Docs:    http://localhost:${API_PORT}/docs"
+echo "  • Health:      http://localhost:${API_PORT}/api/health"
 echo ""
 echo "Useful commands:"
 echo "  docker logs -f softpower_api      # View logs"

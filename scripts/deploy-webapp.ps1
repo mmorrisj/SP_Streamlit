@@ -5,6 +5,8 @@
 
 $ErrorActionPreference = "Stop"
 
+$ApiPort = if ($env:API_PORT) { $env:API_PORT } else { "8000" }
+
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "Web App Deployment (Existing Database)" -ForegroundColor Green
@@ -73,7 +75,7 @@ $maxRetries = 30
 $retryCount = 0
 while ($retryCount -lt $maxRetries) {
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:8000/api/health" -UseBasicParsing -TimeoutSec 2 2>$null
+        $response = Invoke-WebRequest -Uri "http://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2 2>$null
         if ($response.StatusCode -eq 200) {
             Write-Host "✅ API is healthy" -ForegroundColor Green
             break
@@ -100,9 +102,9 @@ Write-Host "✅ Web App Deployed Successfully!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Access points:" -ForegroundColor Cyan
-Write-Host "  • Web App:       http://localhost:8000"
-Write-Host "  • API Docs:      http://localhost:8000/docs"
-Write-Host "  • API Health:    http://localhost:8000/api/health"
+Write-Host "  • Web App:       http://localhost:$ApiPort"
+Write-Host "  • API Docs:      http://localhost:$ApiPort/docs"
+Write-Host "  • API Health:    http://localhost:$ApiPort/api/health"
 Write-Host ""
 Write-Host "Database:" -ForegroundColor Cyan
 Write-Host "  • Container:     softpower_db (existing)"

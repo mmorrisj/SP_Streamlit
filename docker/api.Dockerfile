@@ -56,4 +56,4 @@ EXPOSE 8000
 ENV PYTHONPATH=/app
 
 # Use server that serves React UI + API endpoints
-CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD uvicorn server.main:app --host 0.0.0.0 --port ${API_PORT:-8000}

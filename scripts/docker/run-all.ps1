@@ -42,6 +42,7 @@ Get-Content .env | ForEach-Object {
     }
 }
 
+$ApiPort = if ($env:API_PORT) { $env:API_PORT } else { "8000" }
 $POSTGRES_USER = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "matthew50" }
 $POSTGRES_PASSWORD = if ($env:POSTGRES_PASSWORD) { $env:POSTGRES_PASSWORD } else { "softpower" }
 $POSTGRES_DB = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "softpower-db" }
@@ -129,7 +130,7 @@ docker run -d `
     -e CLAUDE_KEY=$env:CLAUDE_KEY `
     -v "${PWD}/shared/config/config.yaml:/app/shared/config/config.yaml:ro" `
     -v "${PWD}/_data:/app/_data" `
-    -p 8000:8000 `
+    -p ${ApiPort}:8000 `
     softpower-api:latest
 
 Write-Host "✅ Web app started" -ForegroundColor Green
@@ -185,8 +186,8 @@ Write-Host "✅ Full Stack Deployed Successfully!" -ForegroundColor Green
 Write-Host "==============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "🌐 Access Points:" -ForegroundColor Cyan
-Write-Host "  • React Web App:    http://localhost:8000"
-Write-Host "  • API Docs:         http://localhost:8000/docs"
+Write-Host "  • React Web App:    http://localhost:$ApiPort"
+Write-Host "  • API Docs:         http://localhost:$ApiPort/docs"
 Write-Host "  • Streamlit:        http://localhost:8501"
 Write-Host "  • PostgreSQL:       localhost:5432"
 Write-Host "  • Redis:            localhost:6379"

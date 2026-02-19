@@ -5,6 +5,8 @@
 
 $ErrorActionPreference = "Stop"
 
+$ApiPort = if ($env:API_PORT) { $env:API_PORT } else { "8000" }
+
 Write-Host ""
 Write-Host "==============================================" -ForegroundColor Green
 Write-Host "Soft Power Analytics - Full Stack Deployment" -ForegroundColor Green
@@ -90,7 +92,7 @@ Write-Host ""
 $retryCount = 0
 while ($retryCount -lt $maxRetries) {
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:8000/api/health" -UseBasicParsing -TimeoutSec 2 2>$null
+        $response = Invoke-WebRequest -Uri "http://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2 2>$null
         if ($response.StatusCode -eq 200) {
             Write-Host "✅ Web API is healthy" -ForegroundColor Green
             break
@@ -134,8 +136,8 @@ Write-Host "✅ Full Stack Deployed Successfully!" -ForegroundColor Green
 Write-Host "==============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "🌐 Access Points:" -ForegroundColor Cyan
-Write-Host "  • React Web App:    http://localhost:8000"
-Write-Host "  • API Docs:         http://localhost:8000/docs"
+Write-Host "  • React Web App:    http://localhost:$ApiPort"
+Write-Host "  • API Docs:         http://localhost:$ApiPort/docs"
 Write-Host "  • Streamlit:        http://localhost:8501"
 Write-Host "  • PostgreSQL:       localhost:5432"
 Write-Host "  • Redis:            localhost:6379"
@@ -167,7 +169,7 @@ Write-Host "  • Stop all:         docker-compose -f docker-compose.full.yml do
 Write-Host "  • Restart service:  docker-compose -f docker-compose.full.yml restart [service-name]"
 Write-Host ""
 Write-Host "📈 Next Steps:" -ForegroundColor Yellow
-Write-Host "  1. Access web app: http://localhost:8000"
+Write-Host "  1. Access web app: http://localhost:$ApiPort"
 Write-Host "  2. Run pipeline to populate data (see commands above)"
 Write-Host "  3. View analytics in Streamlit: http://localhost:8501"
 Write-Host ""

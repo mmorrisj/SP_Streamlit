@@ -28,7 +28,7 @@ from shared.database.database import get_session
 from shared.models.models import (
     Document, EventSummary, CanonicalEvent, DailyEventMention,
     Category, Subcategory, InitiatingCountry, RecipientCountry,
-    User, UserRole,
+    User, UserRole, PeriodType, EventSourceLink,
     CanonicalEntity, BilateralRelationshipSummary, CountryCategorySummary
 )
 from server.auth import (
@@ -104,6 +104,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def _get_narrative_for_events(session, event_names: list, country: str) -> dict:
+    """
+    Batch-load the most recent EventSummary narrative for each event name.
+    Returns {event_name: {overview, outcomes, source_link, source_count, citations}}.
+    """
+    if not event_names:
+        return {}
+
+    from sqlalchemy import text as sql_text
+    rows = session.execute(sql_text("""
+        SELECT DISTINCT ON (event_name)
+            event_name,
+            narrative_summary,
+            material_score,
+            material_justification
+        FROM event_summaries
+        WHERE initiating_country = :country
+          AND event_name = ANY(:names)
+          AND is_deleted = false
+        ORDER BY event_name, period_start DESC
+    """), {"country": country, "names": event_names}).fetchall()
+
+    result = {}
+    for row in rows:
+        ns = row.narrative_summary or {}
+        result[row.event_name] = {
+            "overview": ns.get("overview"),
+            "outcomes": ns.get("outcomes"),
+            "source_link": ns.get("source_link"),
+            "source_count": ns.get("source_count"),
+            "citations": ns.get("citations", []),
+        }
+    return result
+
 
 class DocumentStats(BaseModel):
     total_documents: int
@@ -622,6 +657,65 @@ def get_events(
             ]
         )
 
+@app.get("/api/events/{event_id}")
+def get_event_detail(event_id: str):
+    """Get full detail for a single event, combining CanonicalEvent + EventSummary data."""
+    with get_session() as session:
+        event = session.query(CanonicalEvent).filter(
+            CanonicalEvent.id == event_id
+        ).first()
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Get narrative from EventSummary
+        narr = _get_narrative_for_events(
+            session, [event.canonical_name], event.initiating_country
+        ).get(event.canonical_name, {})
+
+        # Get daily mentions timeline
+        mentions = session.query(DailyEventMention).filter(
+            DailyEventMention.canonical_event_id == event.id
+        ).order_by(DailyEventMention.mention_date.desc()).all()
+
+        mention_list = []
+        for m in mentions:
+            mention_list.append({
+                "date": str(m.mention_date) if m.mention_date else None,
+                "headline": m.consolidated_headline,
+                "summary": m.daily_summary,
+                "article_count": m.article_count,
+                "news_intensity": m.news_intensity,
+                "mention_context": m.mention_context,
+                "source_names": m.source_names or [],
+            })
+
+        return {
+            "id": str(event.id),
+            "event_name": event.canonical_name,
+            "description": event.consolidated_description,
+            "initiating_country": event.initiating_country,
+            "first_mention_date": str(event.first_mention_date) if event.first_mention_date else None,
+            "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
+            "total_articles": event.total_articles,
+            "total_mention_days": event.total_mention_days,
+            "story_phase": event.story_phase,
+            "material_score": float(event.material_score) if event.material_score else None,
+            "material_justification": event.material_justification,
+            "peak_mention_date": str(event.peak_mention_date) if event.peak_mention_date else None,
+            "peak_daily_article_count": event.peak_daily_article_count,
+            "source_count": event.source_count,
+            "primary_categories": event.primary_categories or {},
+            "primary_recipients": event.primary_recipients or {},
+            "alternative_names": event.alternative_names or [],
+            "narrative_overview": narr.get("overview"),
+            "narrative_outcomes": narr.get("outcomes"),
+            "source_link": narr.get("source_link"),
+            "source_count_from_summary": narr.get("source_count"),
+            "citations": narr.get("citations", []),
+            "daily_mentions": mention_list,
+        }
+
+
 @app.get("/api/summaries", response_model=SummariesResponse)
 def get_summaries(
     type: str = Query("daily", description="Summary type: daily, weekly, or monthly"),
@@ -629,13 +723,13 @@ def get_summaries(
     limit: int = Query(50, ge=1, le=200)
 ):
     with get_session() as session:
-        query = session.query(
-            EventSummary.id,
-            EventSummary.period_type,
-            EventSummary.period_start,
-            EventSummary.period_end,
-            EventSummary.event_name,
-            EventSummary.initiating_country
+        # Map type string to PeriodType enum
+        period_map = {"daily": PeriodType.DAILY, "weekly": PeriodType.WEEKLY, "monthly": PeriodType.MONTHLY}
+        period_type = period_map.get(type, PeriodType.DAILY)
+
+        query = session.query(EventSummary).filter(
+            EventSummary.period_type == period_type,
+            EventSummary.is_deleted == False
         )
 
         if country and country != 'ALL':
@@ -643,19 +737,27 @@ def get_summaries(
 
         summaries = query.order_by(EventSummary.period_start.desc()).limit(limit).all()
 
-        return SummariesResponse(
-            summaries=[
-                {
-                    "id": str(summary.id),
-                    "summary_type": summary.period_type.value if summary.period_type else type,
-                    "period_start": str(summary.period_start) if summary.period_start else None,
-                    "period_end": str(summary.period_end) if summary.period_end else None,
-                    "content": summary.event_name or "",
-                    "country": summary.initiating_country or "",
-                }
-                for summary in summaries
-            ]
-        )
+        ns_list = []
+        for s in summaries:
+            ns = s.narrative_summary or {}
+            ns_list.append({
+                "id": str(s.id),
+                "summary_type": s.period_type.value if s.period_type else type,
+                "period_start": str(s.period_start) if s.period_start else None,
+                "period_end": str(s.period_end) if s.period_end else None,
+                "content": s.event_name or "",
+                "country": s.initiating_country or "",
+                "overview": ns.get("overview"),
+                "outcomes": ns.get("outcomes"),
+                "source_link": ns.get("source_link"),
+                "source_count": ns.get("source_count"),
+                "citations": ns.get("citations", []),
+                "count_by_category": s.count_by_category or {},
+                "count_by_recipient": s.count_by_recipient or {},
+                "material_score": float(s.material_score) if s.material_score else None,
+            })
+
+        return SummariesResponse(summaries=ns_list)
 
 @app.get("/api/bilateral", response_model=BilateralResponse)
 def get_bilateral_relationships():
@@ -1115,12 +1217,17 @@ def get_influencer_events(
 
         events = base_query.offset(offset).limit(limit).all()
 
+        # Batch-load EventSummary narratives for these events
+        event_names = [e.canonical_name for e in events if e.canonical_name]
+        narratives = _get_narrative_for_events(session, event_names, country)
+
         event_list = []
         for event in events:
+            narr = narratives.get(event.canonical_name, {})
             event_list.append({
                 "id": str(event.id),
                 "event_name": event.canonical_name,
-                "description": event.consolidated_description,
+                "description": narr.get("overview") or event.consolidated_description,
                 "initiating_country": event.initiating_country,
                 "first_mention_date": str(event.first_mention_date) if event.first_mention_date else None,
                 "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
@@ -1134,6 +1241,9 @@ def get_influencer_events(
                 "source_count": event.source_count,
                 "primary_categories": event.primary_categories or {},
                 "primary_recipients": event.primary_recipients or {},
+                "narrative_overview": narr.get("overview"),
+                "narrative_outcomes": narr.get("outcomes"),
+                "source_link": narr.get("source_link"),
             })
 
         return InfluencerEventsResponse(events=event_list, total=total)
@@ -1380,6 +1490,10 @@ def get_influencer_timeline(
         total = mentions.count()
         results = mentions.offset(offset).limit(limit).all()
 
+        # Batch-load daily EventSummary narratives for these timeline items
+        event_names = list(set(m.canonical_name for m in results if m.canonical_name))
+        narratives = _get_narrative_for_events(session, event_names, country)
+
         items = []
         for m in results:
             top_cats = []
@@ -1392,11 +1506,15 @@ def get_influencer_timeline(
                 top_recs = sorted(m.primary_recipients.items(), key=lambda x: x[1], reverse=True)[:2]
                 top_recs = [r[0] for r in top_recs]
 
+            narr = narratives.get(m.canonical_name, {})
+            # Prefer EventSummary narrative over raw daily_summary
+            summary_text = narr.get("overview") or m.daily_summary
+
             items.append({
                 "date": str(m.mention_date) if m.mention_date else None,
                 "event_name": m.canonical_name,
                 "headline": m.consolidated_headline,
-                "summary": m.daily_summary,
+                "summary": summary_text,
                 "article_count": m.article_count,
                 "news_intensity": m.news_intensity,
                 "mention_context": m.mention_context,
@@ -1405,6 +1523,7 @@ def get_influencer_timeline(
                 "source_count": len(m.source_names) if m.source_names else 0,
                 "categories": top_cats,
                 "recipients": top_recs,
+                "source_link": narr.get("source_link"),
             })
 
         return InfluencerTimelineResponse(items=items, total=total)
@@ -1973,6 +2092,412 @@ def get_recipient_metrics(country: str):
         )
 
 # ===== BILATERAL RELATIONSHIP ENDPOINTS =====
+
+# --- Pydantic models for bilateral page ---
+
+class BilateralEnhancedOverviewResponse(BaseModel):
+    influencer: str
+    recipient: str
+    total_documents: int
+    total_events: int
+    total_entities: int
+    avg_material_score: Optional[float]
+    first_interaction_date: Optional[str]
+    last_interaction_date: Optional[str]
+    weekly_average: float
+    top_categories: list
+    activity_trend: list
+    source_breakdown: list
+
+class BilateralRelationshipProfileResponse(BaseModel):
+    overview: str
+    key_themes: list
+    major_initiatives: list
+    trend_analysis: str
+    current_status: str
+    notable_developments: list
+    material_assessment: Optional[dict]
+    count_by_category: dict
+    count_by_subcategory: dict
+    activity_by_month: dict
+    material_score_histogram: Optional[dict]
+    material_score_avg: Optional[float]
+    material_score_median: Optional[float]
+
+class BilateralCategorySummariesResponse(BaseModel):
+    summaries: list
+
+class BilateralEventsResponse(BaseModel):
+    events: list
+    total: int
+
+class BilateralEntitiesResponse(BaseModel):
+    entities: list
+    total: int
+
+class BilateralSourcesResponse(BaseModel):
+    sources: list
+    total_sources: int
+
+
+# --- Bilateral sub-endpoints (must be before the catch-all /{influencer}/{recipient}) ---
+
+@app.get("/api/bilateral/{influencer}/{recipient}/enhanced-overview", response_model=BilateralEnhancedOverviewResponse)
+def get_bilateral_enhanced_overview(influencer: str, recipient: str):
+    """Enhanced overview with richer KPIs for bilateral page."""
+    with get_session() as session:
+        if influencer not in INFLUENCERS:
+            raise HTTPException(status_code=404, detail=f"{influencer} is not a recognized influencer")
+        if recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        # Total documents
+        total_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient
+        ).scalar() or 0
+
+        # Get bilateral doc IDs for event/entity queries
+        bilateral_doc_ids = [row[0] for row in session.query(Document.doc_id).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient
+        ).all()]
+
+        # Total events relevant to this bilateral pair
+        total_events = 0
+        if bilateral_doc_ids:
+            total_events = session.query(func.count(func.distinct(CanonicalEvent.id))).join(
+                DailyEventMention, DailyEventMention.canonical_event_id == CanonicalEvent.id
+            ).filter(
+                DailyEventMention.doc_ids.op('&&')(bilateral_doc_ids),
+                CanonicalEvent.master_event_id.is_(None)
+            ).scalar() or 0
+
+        # Total entities (those whose primary_recipients include this recipient)
+        total_entities = session.query(func.count(CanonicalEntity.id)).filter(
+            CanonicalEntity.initiating_country == influencer,
+            CanonicalEntity.master_entity_id.is_(None),
+            func.cast(CanonicalEntity.primary_recipients, Text).contains(recipient)
+        ).scalar() or 0
+
+        # Avg material score from BilateralRelationshipSummary
+        bilat_summary = session.query(BilateralRelationshipSummary).filter(
+            BilateralRelationshipSummary.initiating_country == influencer,
+            BilateralRelationshipSummary.recipient_country == recipient
+        ).first()
+
+        avg_material = float(bilat_summary.material_score_avg) if bilat_summary and bilat_summary.material_score_avg else None
+        first_date = str(bilat_summary.first_interaction_date) if bilat_summary and bilat_summary.first_interaction_date else None
+        last_date = str(bilat_summary.last_interaction_date) if bilat_summary and bilat_summary.last_interaction_date else None
+
+        # Top categories
+        top_categories = session.query(
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(InitiatingCountry, InitiatingCountry.doc_id == Category.doc_id).join(
+            RecipientCountry, RecipientCountry.doc_id == Category.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient
+        ).group_by(Category.category).order_by(func.count(func.distinct(Category.doc_id)).desc()).limit(10).all()
+
+        # Activity trend (last 12 weeks)
+        activity_trend = session.query(
+            func.date_trunc('week', Document.date).label('week'),
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient,
+            Document.date.isnot(None)
+        ).group_by(func.date_trunc('week', Document.date)).order_by(
+            func.date_trunc('week', Document.date).desc()
+        ).limit(12).all()
+
+        weekly_avg = sum(c for _, c in activity_trend) / max(len(activity_trend), 1)
+
+        # Source breakdown (top 15)
+        source_breakdown = session.query(
+            Document.source_name,
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient,
+            Document.source_name.isnot(None)
+        ).group_by(Document.source_name).order_by(
+            func.count(func.distinct(Document.doc_id)).desc()
+        ).limit(15).all()
+
+        return BilateralEnhancedOverviewResponse(
+            influencer=influencer,
+            recipient=recipient,
+            total_documents=total_docs,
+            total_events=total_events,
+            total_entities=total_entities,
+            avg_material_score=avg_material,
+            first_interaction_date=first_date,
+            last_interaction_date=last_date,
+            weekly_average=round(weekly_avg, 1),
+            top_categories=[{"category": cat, "count": count} for cat, count in top_categories],
+            activity_trend=[{"week": str(week.date()) if week else None, "count": count} for week, count in reversed(activity_trend)],
+            source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown],
+        )
+
+
+@app.get("/api/bilateral/{influencer}/{recipient}/relationship-profile", response_model=BilateralRelationshipProfileResponse)
+def get_bilateral_relationship_profile(influencer: str, recipient: str):
+    """Get AI-generated relationship profile from BilateralRelationshipSummary."""
+    with get_session() as session:
+        if influencer not in INFLUENCERS:
+            raise HTTPException(status_code=404, detail=f"{influencer} is not a recognized influencer")
+        if recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        summary = session.query(BilateralRelationshipSummary).filter(
+            BilateralRelationshipSummary.initiating_country == influencer,
+            BilateralRelationshipSummary.recipient_country == recipient
+        ).first()
+
+        if not summary:
+            raise HTTPException(status_code=404, detail=f"No relationship summary found for {influencer} → {recipient}")
+
+        rel = summary.relationship_summary or {}
+
+        return BilateralRelationshipProfileResponse(
+            overview=rel.get("overview", ""),
+            key_themes=rel.get("key_themes", []),
+            major_initiatives=rel.get("major_initiatives", []),
+            trend_analysis=rel.get("trend_analysis", ""),
+            current_status=rel.get("current_status", ""),
+            notable_developments=rel.get("notable_developments", []),
+            material_assessment=rel.get("material_assessment"),
+            count_by_category=summary.count_by_category or {},
+            count_by_subcategory=summary.count_by_subcategory or {},
+            activity_by_month=summary.activity_by_month or {},
+            material_score_histogram=summary.material_score_histogram,
+            material_score_avg=float(summary.material_score_avg) if summary.material_score_avg else None,
+            material_score_median=float(summary.material_score_median) if summary.material_score_median else None,
+        )
+
+
+@app.get("/api/bilateral/{influencer}/{recipient}/category-summaries", response_model=BilateralCategorySummariesResponse)
+def get_bilateral_category_summaries(influencer: str, recipient: str):
+    """Get per-category deep-dive analysis for this bilateral pair."""
+    from shared.models.models import BilateralCategorySummary as BCS
+    with get_session() as session:
+        if influencer not in INFLUENCERS:
+            raise HTTPException(status_code=404, detail=f"{influencer} is not a recognized influencer")
+        if recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        summaries = session.query(BCS).filter(
+            BCS.initiating_country == influencer,
+            BCS.recipient_country == recipient
+        ).order_by(BCS.total_documents.desc()).all()
+
+        summary_list = []
+        for s in summaries:
+            cat_summary = s.category_summary or {}
+            summary_list.append({
+                "category": s.category,
+                "total_documents": s.total_documents,
+                "total_daily_events": s.total_daily_events,
+                "first_interaction_date": str(s.first_interaction_date) if s.first_interaction_date else None,
+                "last_interaction_date": str(s.last_interaction_date) if s.last_interaction_date else None,
+                "count_by_subcategory": s.count_by_subcategory or {},
+                "count_by_source": s.count_by_source or {},
+                "activity_by_month": s.activity_by_month or {},
+                "overview": cat_summary.get("overview", ""),
+                "key_focus_areas": cat_summary.get("key_focus_areas", []),
+                "major_initiatives": cat_summary.get("major_initiatives", []),
+                "interaction_patterns": cat_summary.get("interaction_patterns", ""),
+                "trend_analysis": cat_summary.get("trend_analysis", ""),
+                "impact_assessment": cat_summary.get("impact_assessment", ""),
+                "material_assessment": cat_summary.get("material_assessment"),
+                "material_score_avg": float(s.material_score_avg) if s.material_score_avg else None,
+            })
+
+        return BilateralCategorySummariesResponse(summaries=summary_list)
+
+
+@app.get("/api/bilateral/{influencer}/{recipient}/events", response_model=BilateralEventsResponse)
+def get_bilateral_events(
+    influencer: str,
+    recipient: str,
+    limit: int = Query(default=10, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    sort_by: str = Query(default="recency", regex="^(recency|articles|materiality)$")
+):
+    """Get rich event data relevant to this bilateral pair."""
+    with get_session() as session:
+        if influencer not in INFLUENCERS:
+            raise HTTPException(status_code=404, detail=f"{influencer} is not a recognized influencer")
+        if recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        # Get bilateral doc IDs
+        bilateral_doc_ids = [row[0] for row in session.query(Document.doc_id).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient
+        ).all()]
+
+        if not bilateral_doc_ids:
+            return BilateralEventsResponse(events=[], total=0)
+
+        # Get master event IDs that have mentions in bilateral docs
+        event_ids_subq = session.query(func.distinct(CanonicalEvent.id)).join(
+            DailyEventMention, DailyEventMention.canonical_event_id == CanonicalEvent.id
+        ).filter(
+            DailyEventMention.doc_ids.op('&&')(bilateral_doc_ids),
+            CanonicalEvent.master_event_id.is_(None)
+        ).subquery()
+
+        base_query = session.query(CanonicalEvent).filter(
+            CanonicalEvent.id.in_(session.query(event_ids_subq))
+        )
+
+        total = base_query.count()
+
+        # Sort
+        if sort_by == "articles":
+            base_query = base_query.order_by(CanonicalEvent.total_articles.desc())
+        elif sort_by == "materiality":
+            base_query = base_query.order_by(CanonicalEvent.material_score.desc().nullslast())
+        else:
+            base_query = base_query.order_by(CanonicalEvent.last_mention_date.desc())
+
+        events = base_query.offset(offset).limit(limit).all()
+
+        # Batch-load EventSummary narratives for these events
+        event_names = [e.canonical_name for e in events if e.canonical_name]
+        narratives = _get_narrative_for_events(session, event_names, influencer)
+
+        event_list = []
+        for event in events:
+            narr = narratives.get(event.canonical_name, {})
+            event_list.append({
+                "id": str(event.id),
+                "event_name": event.canonical_name,
+                "description": narr.get("overview") or event.consolidated_description,
+                "initiating_country": event.initiating_country,
+                "first_mention_date": str(event.first_mention_date) if event.first_mention_date else None,
+                "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
+                "total_articles": event.total_articles,
+                "total_mention_days": event.total_mention_days,
+                "story_phase": event.story_phase,
+                "material_score": float(event.material_score) if event.material_score else None,
+                "material_justification": event.material_justification,
+                "peak_mention_date": str(event.peak_mention_date) if event.peak_mention_date else None,
+                "peak_daily_article_count": event.peak_daily_article_count,
+                "source_count": event.source_count,
+                "primary_categories": event.primary_categories or {},
+                "primary_recipients": event.primary_recipients or {},
+                "narrative_overview": narr.get("overview"),
+                "narrative_outcomes": narr.get("outcomes"),
+                "source_link": narr.get("source_link"),
+            })
+
+        return BilateralEventsResponse(events=event_list, total=total)
+
+
+@app.get("/api/bilateral/{influencer}/{recipient}/entities", response_model=BilateralEntitiesResponse)
+def get_bilateral_entities(
+    influencer: str,
+    recipient: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    entity_type: Optional[str] = Query(default=None),
+    sort_by: str = Query(default="documents", regex="^(documents|recency)$")
+):
+    """Get key actors/entities relevant to this bilateral pair."""
+    with get_session() as session:
+        if influencer not in INFLUENCERS:
+            raise HTTPException(status_code=404, detail=f"{influencer} is not a recognized influencer")
+        if recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        # Filter entities for this influencer whose primary_recipients includes this recipient
+        base_query = session.query(CanonicalEntity).filter(
+            CanonicalEntity.initiating_country == influencer,
+            CanonicalEntity.master_entity_id.is_(None),
+            func.cast(CanonicalEntity.primary_recipients, Text).contains(recipient)
+        )
+
+        if entity_type:
+            base_query = base_query.filter(CanonicalEntity.entity_type == entity_type)
+
+        total = base_query.count()
+
+        if sort_by == "recency":
+            base_query = base_query.order_by(CanonicalEntity.last_mention_date.desc())
+        else:
+            base_query = base_query.order_by(CanonicalEntity.total_documents.desc())
+
+        entities = base_query.offset(offset).limit(limit).all()
+
+        entity_list = []
+        for entity in entities:
+            entity_list.append({
+                "id": str(entity.id),
+                "canonical_name": entity.canonical_name,
+                "entity_type": entity.entity_type.value if entity.entity_type else None,
+                "primary_role": entity.primary_role.value if entity.primary_role else None,
+                "entity_description": entity.entity_description,
+                "total_documents": entity.total_documents,
+                "total_mention_days": entity.total_mention_days,
+                "first_mention_date": str(entity.first_mention_date) if entity.first_mention_date else None,
+                "last_mention_date": str(entity.last_mention_date) if entity.last_mention_date else None,
+                "primary_categories": entity.primary_categories or {},
+                "primary_recipients": entity.primary_recipients or {},
+            })
+
+        return BilateralEntitiesResponse(entities=entity_list, total=total)
+
+
+@app.get("/api/bilateral/{influencer}/{recipient}/sources", response_model=BilateralSourcesResponse)
+def get_bilateral_sources(influencer: str, recipient: str):
+    """Get source intelligence for this bilateral pair."""
+    with get_session() as session:
+        if influencer not in INFLUENCERS:
+            raise HTTPException(status_code=404, detail=f"{influencer} is not a recognized influencer")
+        if recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        sources = session.query(
+            Document.source_name,
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient,
+            Document.source_name.isnot(None)
+        ).group_by(Document.source_name).order_by(
+            func.count(func.distinct(Document.doc_id)).desc()
+        ).all()
+
+        return BilateralSourcesResponse(
+            sources=[{"source": name, "count": count} for name, count in sources],
+            total_sources=len(sources),
+        )
+
+
+# --- Legacy bilateral overview (keep for backward compatibility) ---
 
 class BilateralOverview(BaseModel):
     influencer: str
@@ -3561,4 +4086,5 @@ if STATIC_DIR.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="localhost", port=8000)
+    port = int(os.environ.get("API_PORT", "8000"))
+    uvicorn.run(app, host="localhost", port=port)

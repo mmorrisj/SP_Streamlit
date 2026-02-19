@@ -97,7 +97,7 @@ EXPOSE 8000 8501
 
 # Health check targets the FastAPI service
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+    CMD curl -f http://localhost:${API_PORT:-8000}/api/health || exit 1
 
 # Start both services via supervisord
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/softpower.conf"]

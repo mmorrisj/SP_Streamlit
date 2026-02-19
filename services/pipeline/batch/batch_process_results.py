@@ -1092,14 +1092,22 @@ def process_daily_summary_result(
                 id, period_type, period_start, period_end,
                 event_name, initiating_country,
                 first_observed_date, last_observed_date,
-                narrative_summary, count_by_category, count_by_recipient,
-                total_documents_across_sources
+                status, created_at, updated_at, is_deleted,
+                category_count, subcategory_count, recipient_count, source_count,
+                total_documents_across_categories, total_documents_across_subcategories,
+                total_documents_across_recipients, total_documents_across_sources,
+                count_by_category, count_by_subcategory, count_by_recipient, count_by_source,
+                narrative_summary
             ) VALUES (
                 :id, :period_type, :period_start, :period_end,
                 :event_name, :country,
                 :first_observed, :last_observed,
-                CAST(:narrative AS jsonb), CAST(:categories AS jsonb), CAST(:recipients AS jsonb),
-                :total_docs
+                'ACTIVE', NOW(), NOW(), false,
+                0, 0, 0, 0,
+                0, 0,
+                0, :total_docs,
+                CAST(:categories AS jsonb), '{}'::jsonb, CAST(:recipients AS jsonb), '{}'::jsonb,
+                CAST(:narrative AS jsonb)
             )
         """), {
             'id': summary_id,

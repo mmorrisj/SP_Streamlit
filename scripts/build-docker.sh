@@ -6,6 +6,8 @@
 
 set -e  # Exit on error
 
+API_PORT="${API_PORT:-8000}"
+
 echo ""
 echo "=========================================="
 echo "Soft Power Analytics - Docker Build"
@@ -68,8 +70,8 @@ echo "✅ Deployment Complete!"
 echo "=========================================="
 echo ""
 echo "Access points:"
-echo "  • Web App:       http://localhost:8000"
-echo "  • API Docs:      http://localhost:8000/docs"
+echo "  • Web App:       http://localhost:${API_PORT}"
+echo "  • API Docs:      http://localhost:${API_PORT}/docs"
 echo "  • Streamlit:     http://localhost:8501"
 echo "  • PostgreSQL:    localhost:5432"
 echo ""
@@ -79,6 +81,6 @@ echo "  • Stop all:      docker-compose -f docker-compose.build.yml down"
 echo "  • Rebuild:       docker-compose -f docker-compose.build.yml up -d --build"
 echo ""
 echo "Next steps:"
-echo "  1. Check health: curl http://localhost:8000/api/health"
+echo "  1. Check health: curl http://localhost:${API_PORT}/api/health"
 echo "  2. Populate data: See client/README.md 'Data Population Pipeline'"
 echo ""
