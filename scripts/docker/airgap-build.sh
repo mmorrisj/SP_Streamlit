@@ -17,8 +17,9 @@
 # ============================================
 # Usage:
 #   ./airgap-build.sh                  # standard tar.gz output
-#   ./airgap-build.sh --pack           # transfer-safe directory (base64 encoded binaries)
+#   ./airgap-build.sh --pack           # transfer-safe directory (base64 encoded, chunked)
 #   ./airgap-build.sh --pack 20260217  # with version tag
+#   ./airgap-build.sh --pack --chunk-mb=200  # smaller chunks for restrictive transfer systems
 #   ./airgap-build.sh --clean          # force fresh downloads (ignore cache)
 # ============================================
 
@@ -34,11 +35,13 @@ NC='\033[0m'
 # Parse flags
 PACK_MODE=false
 CLEAN_MODE=false
+CHUNK_MB=500
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --pack)  PACK_MODE=true ;;
         --clean) CLEAN_MODE=true ;;
+        --chunk-mb=*) CHUNK_MB="${arg#*=}" ;;
         *)       VERSION="$arg" ;;
     esac
 done
@@ -49,7 +52,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if [ "$PACK_MODE" = true ]; then
-    OUTPUT_DESC="${PACKAGE_DIR}/  (transfer-safe, all .txt)"
+    OUTPUT_DESC="${PACKAGE_DIR}/  (transfer-safe, chunked, all .txt)"
 else
     OUTPUT_DESC="${PACKAGE_DIR}.tar.gz"
 fi
@@ -61,6 +64,9 @@ echo "=============================================="
 echo "Version:      $VERSION"
 echo "Project root: $PROJECT_ROOT"
 echo "Output:       $OUTPUT_DESC"
+if [ "$PACK_MODE" = true ]; then
+echo "Chunk size:   ${CHUNK_MB}MB per file (--chunk-mb=${CHUNK_MB})"
+fi
 echo "=============================================="
 echo ""
 
@@ -296,15 +302,34 @@ else
     echo -e "  ${GREEN}softpower-app-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
 fi
 
-# Verify both image tars are non-empty
+# Verify image tars are non-empty AND reasonably sized.
+# A valid Docker image tar should be at least 50MB.  A tiny file (e.g. 36KB)
+# means docker save silently failed — the file contains only tar headers
+# or an error message, not actual image layers.
+MIN_IMAGE_MB=50
 for img_tar in "$PACKAGE_DIR/images/pgvector-pg16.tar" "$PACKAGE_DIR/images/softpower-app-airgap.tar"; do
     if [ ! -s "$img_tar" ]; then
         echo -e "  ${RED}ERROR: $(basename "$img_tar") is empty or missing${NC}"
         echo "  docker save may have failed. Check disk space and Docker daemon."
         exit 1
     fi
+    # Size check: wc -c gives exact byte count, portable across Linux/macOS
+    img_bytes=$(wc -c < "$img_tar" 2>/dev/null || echo 0)
+    img_mb=$((img_bytes / 1024 / 1024))
+    if [ "$img_mb" -lt "$MIN_IMAGE_MB" ]; then
+        echo -e "  ${RED}ERROR: $(basename "$img_tar") is only ${img_mb}MB (expected >${MIN_IMAGE_MB}MB)${NC}"
+        echo "  This usually means 'docker save' failed silently."
+        echo "  The file likely contains only tar metadata without image layers."
+        echo ""
+        echo "  Troubleshooting:"
+        echo "    1. Check the image exists: docker images | grep -E 'pgvector|softpower'"
+        echo "    2. Check disk space: df -h"
+        echo "    3. Try saving manually: docker save softpower-app-airgap:latest -o test.tar"
+        echo "    4. Check Docker daemon: docker info"
+        exit 1
+    fi
 done
-echo -e "  ${GREEN}Both image exports verified${NC}"
+echo -e "  ${GREEN}Both image exports verified (size check passed)${NC}"
 echo ""
 
 # ============================================
@@ -562,7 +587,7 @@ if [ "$PACK_MODE" = true ]; then
     echo ""
     echo "  Encoding binaries and renaming blocked files..."
     echo ""
-    python3 "$SCRIPT_DIR/pack-airgap.py" "$PACKAGE_DIR" --apply
+    python3 "$SCRIPT_DIR/pack-airgap.py" "$PACKAGE_DIR" --apply --chunk-mb "$CHUNK_MB"
 
     echo ""
     echo "=============================================="
