@@ -2,7 +2,7 @@
 """
 Pack redacted file types for transfer to systems that block them.
 
-Finds all files matching blocked extensions (.sh, .ps1, .tsx, .js, .ini)
+Finds all files matching blocked extensions (.sh, .ps1, .tsx, .js, .ini, .dockerfile)
 and blocked filenames (Dockerfile*, .gitignore, .dockerignore) in the repo,
 renames them to .txt, and records a manifest so they can be restored later
 with unpack_files.py.
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 # Extensions that get blocked (matched case-insensitively)
-BLOCKED_EXTENSIONS = {".sh", ".ps1", ".tsx", ".js", ".ini"}
+BLOCKED_EXTENSIONS = {".sh", ".ps1", ".tsx", ".js", ".ini", ".dockerfile"}
 
 # Exact filenames that get blocked (matched case-insensitively)
 BLOCKED_EXACT_NAMES = {".gitignore", ".dockerignore"}
