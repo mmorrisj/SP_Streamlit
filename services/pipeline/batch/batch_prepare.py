@@ -66,6 +66,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
     JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
+    JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
@@ -2258,6 +2259,174 @@ Return ONLY a JSON object with no additional text:
     }
 
 
+def load_country_pairs_for_bilateral_summaries(
+    session, country: Optional[str], min_docs: int = 500,
+    regenerate: bool = False, config=None
+) -> List[Dict]:
+    """
+    Load country pairs needing bilateral relationship summaries.
+
+    Gathers all data for each pair at prepare time and embeds it in the prompt.
+
+    Args:
+        session: Database session
+        country: Filter by initiating country (optional)
+        min_docs: Minimum documents threshold for a pair
+        regenerate: If True, include pairs that already have summaries
+        config: Config object for influencer/recipient filtering
+
+    Returns:
+        List of pair dicts with pre-computed prompt data
+    """
+    import uuid as _uuid
+    from services.pipeline.summaries.generate_bilateral_summaries import (
+        gather_bilateral_data,
+        format_bilateral_data_for_prompt,
+        BILATERAL_SUMMARY_PROMPT
+    )
+
+    # Build query for eligible country pairs
+    if config:
+        influencers = config.influencers if hasattr(config, 'influencers') else []
+        recipients = config.recipients if hasattr(config, 'recipients') else []
+
+        pair_query = text("""
+            SELECT
+                ic.initiating_country,
+                rc.recipient_country,
+                COUNT(DISTINCT d.doc_id) as doc_count
+            FROM documents d
+            JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+            JOIN recipient_countries rc ON d.doc_id = rc.doc_id
+            WHERE (:init_country IS NULL OR ic.initiating_country = :init_country)
+            AND ic.initiating_country = ANY(:influencers)
+            AND rc.recipient_country = ANY(:recipients)
+            AND ic.initiating_country <> rc.recipient_country
+            GROUP BY ic.initiating_country, rc.recipient_country
+            HAVING COUNT(DISTINCT d.doc_id) >= :min_docs
+            ORDER BY doc_count DESC
+        """)
+
+        pairs = session.execute(pair_query, {
+            'init_country': country,
+            'min_docs': min_docs,
+            'influencers': influencers,
+            'recipients': recipients
+        }).fetchall()
+    else:
+        pair_query = text("""
+            SELECT
+                ic.initiating_country,
+                rc.recipient_country,
+                COUNT(DISTINCT d.doc_id) as doc_count
+            FROM documents d
+            JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+            JOIN recipient_countries rc ON d.doc_id = rc.doc_id
+            WHERE (:init_country IS NULL OR ic.initiating_country = :init_country)
+            AND ic.initiating_country <> rc.recipient_country
+            GROUP BY ic.initiating_country, rc.recipient_country
+            HAVING COUNT(DISTINCT d.doc_id) >= :min_docs
+            ORDER BY doc_count DESC
+        """)
+
+        pairs = session.execute(pair_query, {
+            'init_country': country,
+            'min_docs': min_docs
+        }).fetchall()
+
+    if not pairs:
+        return []
+
+    # Filter out pairs that already have summaries (unless regenerate)
+    if not regenerate:
+        existing = session.execute(text("""
+            SELECT initiating_country, recipient_country
+            FROM bilateral_relationship_summaries
+            WHERE is_deleted = false
+        """)).fetchall()
+        existing_set = {(r[0], r[1]) for r in existing}
+        pairs = [p for p in pairs if (p[0], p[1]) not in existing_set]
+
+    if not pairs:
+        return []
+
+    result = []
+    for init_c, recip_c, doc_count in pairs:
+        # Gather bilateral data (7 SQL queries per pair)
+        data = gather_bilateral_data(session, init_c, recip_c)
+
+        if data['total_documents'] == 0:
+            continue
+
+        # Format data for prompt
+        prompt_data = format_bilateral_data_for_prompt(data)
+
+        # Generate deterministic UUID from country pair
+        pair_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, f"{init_c}_{recip_c}"))
+
+        result.append({
+            'id': pair_uuid,
+            'initiating_country': init_c,
+            'recipient_country': recip_c,
+            'total_documents': data['total_documents'],
+            'first_date': data['first_date'],
+            'last_date': data['last_date'],
+            'daily_events': data['daily_events'],
+            'weekly_events': data['weekly_events'],
+            'monthly_events': data['monthly_events'],
+            'prompt_data': prompt_data
+        })
+
+    return result
+
+
+BILATERAL_SUMMARY_SYS_PROMPT = "You are an expert analyst of international relations and soft power diplomacy. Output valid JSON only."
+
+
+def build_bilateral_summary_prompt(pair_data: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt for bilateral relationship summary generation.
+
+    Uses BILATERAL_SUMMARY_PROMPT template from generate_bilateral_summaries.py.
+
+    Args:
+        pair_data: Dict from load_country_pairs_for_bilateral_summaries
+
+    Returns:
+        Dict with 'messages' key containing system + user messages
+    """
+    from services.pipeline.summaries.generate_bilateral_summaries import BILATERAL_SUMMARY_PROMPT
+
+    first_date = pair_data['first_date']
+    last_date = pair_data['last_date']
+    if hasattr(first_date, 'strftime'):
+        first_date = first_date.strftime('%Y-%m-%d')
+    if hasattr(last_date, 'strftime'):
+        last_date = last_date.strftime('%Y-%m-%d')
+
+    total_events = pair_data['daily_events'] + pair_data['weekly_events'] + pair_data['monthly_events']
+
+    user_prompt = BILATERAL_SUMMARY_PROMPT.format(
+        initiating_country=pair_data['initiating_country'],
+        recipient_country=pair_data['recipient_country'],
+        first_date=first_date,
+        last_date=last_date,
+        total_docs=pair_data['total_documents'],
+        total_events=total_events,
+        daily_events=pair_data['daily_events'],
+        weekly_events=pair_data['weekly_events'],
+        monthly_events=pair_data['monthly_events'],
+        **pair_data['prompt_data']
+    )
+
+    return {
+        "messages": [
+            {"role": "system", "content": BILATERAL_SUMMARY_SYS_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
 def generate_batch_requests(
     job_type: str,
     records: List[Any],
@@ -2499,6 +2668,26 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_GENERATE_BILATERAL_SUMMARIES:
+        for pair in records:
+            custom_id = generate_custom_id(
+                job_type, pair['id'],
+                suffix=f"{pair['initiating_country']}--{pair['recipient_country']}"
+            )
+            prompt_data = build_bilateral_summary_prompt(pair)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
 
 
@@ -2547,7 +2736,8 @@ def main():
                                JOB_TYPE_CANONICAL_ENTITY_DECONFLICT, JOB_TYPE_GENERATE_DAILY_SUMMARY,
                                JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
                                JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
-                               JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS],
+                               JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
+                               JOB_TYPE_GENERATE_BILATERAL_SUMMARIES],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -2734,6 +2924,20 @@ def main():
             )
             mode = "all (force)" if args.force else "missing only"
             print(f"Found {len(records)} entities needing descriptions ({mode})")
+
+        elif args.job_type == JOB_TYPE_GENERATE_BILATERAL_SUMMARIES:
+            from shared.utils.utils import Config
+            config = Config.from_yaml('shared/config/config.yaml')
+            min_docs = args.min_articles if args.min_articles != 3 else 500
+            records = load_country_pairs_for_bilateral_summaries(
+                session,
+                args.country,
+                min_docs=min_docs,
+                regenerate=args.rescore,
+                config=config
+            )
+            mode = "all (regenerate)" if args.rescore else "new pairs only"
+            print(f"Found {len(records)} country pairs needing bilateral summaries ({mode}, min_docs={min_docs})")
 
         else:
             print(f"Error: Unsupported job type: {args.job_type}")

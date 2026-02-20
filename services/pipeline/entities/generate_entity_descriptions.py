@@ -57,15 +57,53 @@ def load_config(config_path: str = 'shared/config/config.yaml') -> dict:
         return {'influencers': ['China', 'Russia', 'Iran', 'Turkey', 'United States']}
 
 
-SYS_PROMPT = """You are an expert analyst specializing in international relations and soft power. \
-Generate concise, factual entity profiles based on the provided data. \
-Use AP (Associated Press) style. Be specific and concrete, avoid generic characterizations. \
-Focus on what this entity actually does based on the document evidence provided."""
+SYS_PROMPT = """You are an expert analyst writing entity profiles for an international relations database. \
+Write in AP style. Every claim must come directly from the evidence snippets provided. \
+NEVER use filler phrases like "plays a significant role", "is involved in various initiatives", \
+"engages in diplomatic activities", or "shapes regional dynamics". \
+Instead, name specific actions, specific counterparts, specific agreements, and specific places. \
+If the evidence is thin, write a shorter description rather than padding with vague language."""
 
 
-def build_user_prompt(entity: dict, event_names: list) -> str:
-    """Build the LLM prompt for entity description generation."""
-    # Format categories and recipients as readable strings
+def load_entity_context(session, entity_id: str, entity_name: str) -> list:
+    """
+    Load actual document context snippets from raw_entities for this entity.
+    Returns list of context strings with role info.
+    """
+    snippets = session.execute(text('''
+        SELECT DISTINCT re.context_snippet, re.role
+        FROM raw_entities re
+        WHERE re.entity_name = :entity_name
+          AND re.context_snippet IS NOT NULL
+          AND re.context_snippet != ''
+        ORDER BY re.role
+        LIMIT 15
+    '''), {'entity_name': entity_name}).fetchall()
+
+    if not snippets:
+        # Try matching via alternative names or partial match
+        snippets = session.execute(text('''
+            SELECT DISTINCT re.context_snippet, re.role
+            FROM raw_entities re
+            WHERE LOWER(re.entity_name) LIKE LOWER(:pattern)
+              AND re.context_snippet IS NOT NULL
+              AND re.context_snippet != ''
+            LIMIT 10
+        '''), {'pattern': f'%{entity_name[:20]}%'}).fetchall()
+
+    return [(s[0], s[1]) for s in snippets]
+
+
+def build_user_prompt(entity: dict, event_names: list, context_snippets: list) -> str:
+    """Build the LLM prompt with actual document evidence."""
+    # Format context snippets as numbered evidence
+    evidence_lines = []
+    for i, (snippet, role) in enumerate(context_snippets[:12], 1):
+        role_tag = f" [{role}]" if role else ""
+        evidence_lines.append(f"  {i}. {snippet}{role_tag}")
+    evidence_str = "\n".join(evidence_lines) if evidence_lines else "  (no document excerpts available)"
+
+    # Format categories
     categories_str = "N/A"
     if entity.get('primary_categories'):
         cats = entity['primary_categories']
@@ -78,6 +116,7 @@ def build_user_prompt(entity: dict, event_names: list) -> str:
             sorted_cats = sorted(cats.items(), key=lambda x: x[1], reverse=True)[:5]
             categories_str = ", ".join(f"{k} ({v})" for k, v in sorted_cats)
 
+    # Format recipients
     recipients_str = "N/A"
     if entity.get('primary_recipients'):
         recips = entity['primary_recipients']
@@ -91,30 +130,32 @@ def build_user_prompt(entity: dict, event_names: list) -> str:
             recipients_str = ", ".join(f"{k} ({v})" for k, v in sorted_recips)
 
     alt_names_str = ", ".join(entity.get('alternative_names', [])[:5]) or "None"
-    affiliations_str = ", ".join(entity.get('country_affiliations', [])[:5]) or "None"
-    events_str = ", ".join(event_names[:5]) or "None linked"
+    events_str = "\n  ".join(f"- {e}" for e in event_names[:5]) if event_names else "None linked"
 
-    return f"""Generate a profile for this entity based on its activity in diplomatic/soft power documents.
+    return f"""Write a profile for this entity using ONLY the document evidence below. Do not invent or generalize.
 
-Entity: {entity['canonical_name']}
-Type: {entity['entity_type']}
-Role: {entity.get('primary_role') or 'Unknown'}
-Country context: {entity['initiating_country']}
-Country affiliations: {affiliations_str}
-Also known as: {alt_names_str}
-Active period: {entity['first_mention_date']} to {entity['last_mention_date']} ({entity.get('total_mention_days', 0)} days)
-Total documents: {entity['total_documents']}
-Top categories: {categories_str}
-Top recipient countries: {recipients_str}
-Associated events: {events_str}
+**Entity**: {entity['canonical_name']}
+**Type**: {entity['entity_type']}
+**Role**: {entity.get('primary_role') or 'Unknown'}
+**Country context**: {entity['initiating_country']}
+**Also known as**: {alt_names_str}
+**Active**: {entity['first_mention_date']} to {entity['last_mention_date']} ({entity.get('total_mention_days', 0)} days, {entity['total_documents']} documents)
+**Categories**: {categories_str}
+**Recipient countries**: {recipients_str}
 
-Return ONLY a JSON object with no additional text:
+**Document evidence** (excerpts from source documents mentioning this entity):
+{evidence_str}
+
+**Associated events**:
+  {events_str}
+
+Based on the evidence above, return ONLY a JSON object:
 {{
-    "entity_description": "2-3 sentence profile describing who/what this entity is and their role in soft power activities. Be specific about their actions and significance based on the data above.",
+    "entity_description": "2-3 sentences. Name specific actions, counterparts, agreements, or locations from the evidence. No filler.",
     "key_activities": {{
-        "primary_function": "One sentence on primary function/role",
-        "notable_actions": ["action1", "action2", "action3"],
-        "key_relationships": ["relationship1", "relationship2"],
+        "primary_function": "One specific sentence based on evidence",
+        "notable_actions": ["specific action from evidence 1", "specific action 2", "specific action 3"],
+        "key_relationships": ["specific counterpart/partner 1", "specific counterpart 2"],
         "geographic_focus": ["country1", "country2"]
     }}
 }}"""
@@ -213,6 +254,9 @@ def generate_descriptions_for_country(
             'associated_events': row[13] or []
         }
 
+        # Load actual document context snippets
+        context_snippets = load_entity_context(session, entity['id'], entity['canonical_name'])
+
         # Load event names if associated_events available
         event_names = []
         if entity['associated_events']:
@@ -225,8 +269,8 @@ def generate_descriptions_for_country(
             '''), {'event_ids': event_ids}).fetchall()
             event_names = [r[0] for r in event_rows]
 
-        # Build prompt and call LLM
-        user_prompt = build_user_prompt(entity, event_names)
+        # Build prompt with real evidence
+        user_prompt = build_user_prompt(entity, event_names, context_snippets)
 
         try:
             response = gai(SYS_PROMPT, user_prompt, model="gpt-4o-mini", use_proxy=True)

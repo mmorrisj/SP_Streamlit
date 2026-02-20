@@ -47,6 +47,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
     JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
+    JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -64,7 +65,8 @@ from services.pipeline.batch.batch_process_results import (
     process_weekly_summary_result,
     process_monthly_summary_result,
     process_summary_materiality_result,
-    process_entity_description_result
+    process_entity_description_result,
+    process_bilateral_summary_result
 )
 from services.pipeline.events.llm_deconflict_clusters import LLMClusterDeconfliction
 
@@ -108,7 +110,8 @@ def process_single_batch(
         'summaries_created': 0,
         'source_links_created': 0,
         'summaries_scored': 0,
-        'entities_described': 0
+        'entities_described': 0,
+        'bilateral_summaries_generated': 0
     }
 
     # Verify output file exists
@@ -290,6 +293,13 @@ def _route_result(
         return process_entity_description_result(
             session, record_id, llm_response, verbose=verbose
         )
+    elif job_type == JOB_TYPE_GENERATE_BILATERAL_SUMMARIES:
+        if not suffix:
+            raise ValueError("generate_bilateral_summaries requires country pair suffix in custom_id")
+        return process_bilateral_summary_result(
+            session, record_id, llm_response,
+            suffix=suffix, verbose=verbose
+        )
     else:
         return {'errors': 1}
 
@@ -327,6 +337,8 @@ def _merge_stats(overall: Dict, stats: Dict, job_type: str):
         overall['summaries_scored'] += stats.get('summaries_scored', 0)
     elif job_type == JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS:
         overall['entities_described'] += stats.get('entities_described', 0)
+    elif job_type == JOB_TYPE_GENERATE_BILATERAL_SUMMARIES:
+        overall['bilateral_summaries_generated'] += stats.get('bilateral_summaries_generated', 0)
 
 
 def main():
@@ -438,7 +450,8 @@ def main():
                 'summaries_created': 0,
                 'source_links_created': 0,
                 'summaries_scored': 0,
-                'entities_described': 0
+                'entities_described': 0,
+                'bilateral_summaries_generated': 0
             }
 
             for i, job in enumerate(batch_jobs, 1):
@@ -473,6 +486,7 @@ def main():
                     grand_total['source_links_created'] += stats.get('source_links_created', 0)
                     grand_total['summaries_scored'] += stats.get('summaries_scored', 0)
                     grand_total['entities_described'] += stats.get('entities_described', 0)
+                    grand_total['bilateral_summaries_generated'] += stats.get('bilateral_summaries_generated', 0)
 
                     print(f"  Done: {stats['total_processed']} processed, "
                           f"{stats['total_errors']} errors")
@@ -523,6 +537,8 @@ def main():
                 print(f"Summaries scored: {grand_total['summaries_scored']:,}")
             if grand_total['entities_described'] > 0:
                 print(f"Entities described: {grand_total['entities_described']:,}")
+            if grand_total['bilateral_summaries_generated'] > 0:
+                print(f"Bilateral summaries generated: {grand_total['bilateral_summaries_generated']:,}")
 
             print("=" * 80)
             print()

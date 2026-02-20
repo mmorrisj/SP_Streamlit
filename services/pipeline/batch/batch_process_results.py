@@ -42,6 +42,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
+    JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -1697,12 +1698,7 @@ def process_entity_description_result(
             stats['errors'] += 1
             return stats
 
-        if existing[0] is not None and existing[0] != '':
-            if verbose:
-                print(f"  Entity {entity_id}: Already has description, skipping")
-            return stats
-
-        # Update entity with description and key_activities
+        # Update entity with description and key_activities (overwrites existing if --force was used at prepare time)
         session.execute(text("""
             UPDATE canonical_entities
             SET entity_description = :description,
@@ -1724,6 +1720,190 @@ def process_entity_description_result(
     except Exception as e:
         if verbose:
             print(f"  Error processing entity {entity_id}: {e}")
+        stats['errors'] += 1
+        raise
+
+
+def process_bilateral_summary_result(
+    session,
+    record_id: str,
+    llm_response: Dict[str, Any],
+    suffix: str,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process bilateral relationship summary result.
+
+    Re-gathers fresh statistics and combines with LLM-generated summary
+    to create/update BilateralRelationshipSummary records.
+
+    Args:
+        session: Database session
+        record_id: Deterministic UUID (from country pair)
+        llm_response: Parsed LLM response with relationship analysis
+        suffix: Country pair encoded as "InitCountry--RecipCountry"
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    from datetime import datetime as _dt
+    from services.pipeline.summaries.generate_bilateral_summaries import gather_bilateral_data
+
+    stats = {
+        'bilateral_summaries_generated': 0,
+        'errors': 0
+    }
+
+    try:
+        # Parse country pair from suffix
+        if '--' not in suffix:
+            if verbose:
+                print(f"  Warning: Invalid suffix format '{suffix}', expected 'Init--Recip'")
+            stats['errors'] += 1
+            return stats
+
+        parts = suffix.split('--', 1)
+        initiating_country = parts[0]
+        recipient_country = parts[1]
+
+        # Validate LLM response has required fields
+        overview = llm_response.get('overview', '')
+        if not overview:
+            if verbose:
+                print(f"  Warning: {initiating_country} -> {recipient_country}: Empty overview in response")
+            stats['errors'] += 1
+            return stats
+
+        # Extract material assessment
+        material_assessment = llm_response.get('material_assessment', {})
+        material_score = material_assessment.get('score')
+        material_justification = material_assessment.get('justification')
+
+        # Re-gather fresh statistics
+        data = gather_bilateral_data(session, initiating_country, recipient_country)
+
+        if data['total_documents'] == 0:
+            if verbose:
+                print(f"  Warning: {initiating_country} -> {recipient_country}: No documents found")
+            stats['errors'] += 1
+            return stats
+
+        # Look up existing summary
+        existing = session.execute(text("""
+            SELECT id, version FROM bilateral_relationship_summaries
+            WHERE initiating_country = :init_country
+              AND recipient_country = :recip_country
+              AND is_deleted = false
+        """), {
+            'init_country': initiating_country,
+            'recip_country': recipient_country
+        }).fetchone()
+
+        if existing:
+            # Update existing record
+            new_version = (existing[1] or 1) + 1
+            session.execute(text("""
+                UPDATE bilateral_relationship_summaries
+                SET last_interaction_date = :last_date,
+                    analysis_generated_at = NOW(),
+                    total_documents = :total_docs,
+                    total_daily_events = :daily_events,
+                    total_weekly_events = :weekly_events,
+                    total_monthly_events = :monthly_events,
+                    count_by_category = :count_by_category,
+                    count_by_subcategory = :count_by_subcategory,
+                    count_by_source = :count_by_source,
+                    activity_by_month = :activity_by_month,
+                    relationship_summary = :relationship_summary,
+                    material_score = :material_score,
+                    material_justification = :material_justification,
+                    material_score_histogram = :material_histogram,
+                    material_score_avg = :material_avg,
+                    material_score_median = :material_median,
+                    updated_at = NOW(),
+                    version = :version
+                WHERE id = :summary_id
+            """), {
+                'summary_id': existing[0],
+                'last_date': data['last_date'],
+                'total_docs': data['total_documents'],
+                'daily_events': data['daily_events'],
+                'weekly_events': data['weekly_events'],
+                'monthly_events': data['monthly_events'],
+                'count_by_category': json.dumps(data['category_counts']),
+                'count_by_subcategory': json.dumps(data['subcategory_counts']),
+                'count_by_source': json.dumps(data['source_counts']),
+                'activity_by_month': json.dumps(data['monthly_activity']),
+                'relationship_summary': json.dumps(llm_response),
+                'material_score': material_score,
+                'material_justification': material_justification,
+                'material_histogram': json.dumps(data.get('material_histogram', {})),
+                'material_avg': data.get('material_avg'),
+                'material_median': data.get('material_median'),
+                'version': new_version
+            })
+
+            if verbose:
+                print(f"  {initiating_country} -> {recipient_country}: Updated (v{new_version})")
+
+        else:
+            # Create new record
+            import uuid as _uuid
+            session.execute(text("""
+                INSERT INTO bilateral_relationship_summaries (
+                    id, initiating_country, recipient_country,
+                    first_interaction_date, last_interaction_date,
+                    analysis_generated_at,
+                    total_documents, total_daily_events, total_weekly_events, total_monthly_events,
+                    count_by_category, count_by_subcategory, count_by_source,
+                    activity_by_month, relationship_summary,
+                    material_score, material_justification,
+                    material_score_histogram, material_score_avg, material_score_median,
+                    created_at, created_by, version, is_deleted
+                ) VALUES (
+                    :id, :init_country, :recip_country,
+                    :first_date, :last_date,
+                    NOW(),
+                    :total_docs, :daily_events, :weekly_events, :monthly_events,
+                    :count_by_category, :count_by_subcategory, :count_by_source,
+                    :activity_by_month, :relationship_summary,
+                    :material_score, :material_justification,
+                    :material_histogram, :material_avg, :material_median,
+                    NOW(), :created_by, 1, false
+                )
+            """), {
+                'id': str(_uuid.uuid4()),
+                'init_country': initiating_country,
+                'recip_country': recipient_country,
+                'first_date': data['first_date'],
+                'last_date': data['last_date'],
+                'total_docs': data['total_documents'],
+                'daily_events': data['daily_events'],
+                'weekly_events': data['weekly_events'],
+                'monthly_events': data['monthly_events'],
+                'count_by_category': json.dumps(data['category_counts']),
+                'count_by_subcategory': json.dumps(data['subcategory_counts']),
+                'count_by_source': json.dumps(data['source_counts']),
+                'activity_by_month': json.dumps(data['monthly_activity']),
+                'relationship_summary': json.dumps(llm_response),
+                'material_score': material_score,
+                'material_justification': material_justification,
+                'material_histogram': json.dumps(data.get('material_histogram', {})),
+                'material_avg': data.get('material_avg'),
+                'material_median': data.get('material_median'),
+                'created_by': 'batch_pipeline'
+            })
+
+            if verbose:
+                print(f"  {initiating_country} -> {recipient_country}: Created new ({data['total_documents']:,} docs)")
+
+        stats['bilateral_summaries_generated'] += 1
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing bilateral summary {suffix}: {e}")
         stats['errors'] += 1
         raise
 

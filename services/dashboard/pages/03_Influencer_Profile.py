@@ -164,8 +164,8 @@ def fetch_top_entities(country: str, start: str, end: str, entity_type_filter: s
     type_clause = ""
     params: dict = {"country": country, "start": start, "end": end}
     if entity_type_filter != "All":
-        type_clause = "AND ce.entity_type = :etype"
-        params["etype"] = entity_type_filter.lower()
+        type_clause = "AND ce.entity_type::text = :etype"
+        params["etype"] = entity_type_filter.upper()
 
     query = text(f"""
         SELECT
