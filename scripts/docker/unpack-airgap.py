@@ -5,6 +5,7 @@ Unpack an airgap deployment directory after transfer.
 Reverses all transformations made by pack-airgap.py:
   - .b64.txt files → base64 decoded back to original binary
   - .b64.partNNN.txt chunk files → decoded and concatenated back to original
+  - Scrambled base64 alphabet → unscrambled before decoding (DLP bypass)
   - .sh.txt files → renamed back to .sh
   - .symlink.txt placeholders → recreated as actual symlinks
 
@@ -22,10 +23,30 @@ import base64
 import hashlib
 import json
 import os
+import random
 import sys
 from pathlib import Path
 
 MANIFEST_NAME = "pack_manifest.json"
+
+# ============================================
+# Base64 alphabet unscrambling (must match pack-airgap.py)
+# ============================================
+SCRAMBLE_KEY = "softpower-airgap"
+STANDARD_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+def _make_scramble_tables(key: str = SCRAMBLE_KEY):
+    """Build str.translate tables for scrambling/unscrambling base64."""
+    chars = list(STANDARD_B64)
+    random.Random(key).shuffle(chars)
+    shuffled = "".join(chars)
+    encode_table = str.maketrans(STANDARD_B64, shuffled)
+    decode_table = str.maketrans(shuffled, STANDARD_B64)
+    return encode_table, decode_table
+
+
+_, DECODE_TABLE = _make_scramble_tables()
 
 
 def sha256_file(filepath: Path) -> str:
@@ -40,12 +61,15 @@ def sha256_file(filepath: Path) -> str:
     return h.hexdigest()
 
 
-def decode_b64(src: Path, dst: Path):
+def decode_b64(src: Path, dst: Path, scrambled: bool = False):
     """Stream base64 decode src → dst (memory efficient for large files).
 
     Handles both line-broken base64 (76-char lines, RFC 2045) and
     continuous base64 (no line breaks, legacy format).  Also tolerant of
     stray whitespace that transfer systems may have inserted.
+
+    When scrambled=True, reverses the alphabet substitution applied by
+    pack-airgap.py before decoding.
     """
     CHUNK = 4 * 1024 * 1024  # ~4MB read at a time
     remainder = ""
@@ -55,7 +79,11 @@ def decode_b64(src: Path, dst: Path):
             if not raw:
                 break
             # Strip whitespace (newlines, spaces, CR) for transfer tolerance
-            clean = remainder + raw.replace("\n", "").replace("\r", "").replace(" ", "")
+            new_clean = raw.replace("\n", "").replace("\r", "").replace(" ", "")
+            # Unscramble BEFORE combining with remainder (remainder already unscrambled)
+            if scrambled:
+                new_clean = new_clean.translate(DECODE_TABLE)
+            clean = remainder + new_clean
             # Decode in multiples of 4 chars (base64 group boundary)
             cut = (len(clean) // 4) * 4
             if cut > 0:
@@ -66,7 +94,8 @@ def decode_b64(src: Path, dst: Path):
             fout.write(base64.b64decode(remainder))
 
 
-def decode_b64_chunked(chunk_paths: list, dst: Path, pkg_dir: Path):
+def decode_b64_chunked(chunk_paths: list, dst: Path, pkg_dir: Path,
+                       scrambled: bool = False):
     """Decode multiple base64 chunk files back into a single binary file.
 
     Chunks are decoded in order and appended to the output file.
@@ -81,7 +110,10 @@ def decode_b64_chunked(chunk_paths: list, dst: Path, pkg_dir: Path):
                     raw = fin.read(CHUNK)
                     if not raw:
                         break
-                    clean = remainder + raw.replace("\n", "").replace("\r", "").replace(" ", "")
+                    new_clean = raw.replace("\n", "").replace("\r", "").replace(" ", "")
+                    if scrambled:
+                        new_clean = new_clean.translate(DECODE_TABLE)
+                    clean = remainder + new_clean
                     cut = (len(clean) // 4) * 4
                     if cut > 0:
                         fout.write(base64.b64decode(clean[:cut]))
@@ -103,6 +135,7 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
     entries = manifest.get("files", [])
     symlinks = manifest.get("symlinks", [])
     manifest_version = manifest.get("version", 1)
+    scrambled = manifest.get("scrambled", False)
 
     total_b64 = sum(1 for e in entries if e["action"] == "base64")
     total_chunked = sum(1 for e in entries if e["action"] == "base64_chunked")
@@ -117,6 +150,8 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
         print(f"  {total_chunked} chunked file(s) to reassemble ({total_chunks} chunks total)")
     print(f"  {total_ren} file(s) to rename")
     print(f"  {len(symlinks)} symlink(s) to recreate")
+    if scrambled:
+        print(f"  DLP bypass: base64 alphabet will be unscrambled before decoding")
     if has_checksums:
         print(f"  SHA256 checksums: will verify after decode")
     print()
@@ -184,7 +219,7 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
             )
             print(f"  Decoding {len(chunk_paths)} chunks → {e['original']} ({total_chunk_mb:.0f} MB encoded)...",
                   end="", flush=True)
-            decode_b64_chunked(chunk_paths, original, pkg_dir)
+            decode_b64_chunked(chunk_paths, original, pkg_dir, scrambled=scrambled)
             print(" done")
 
             # Verify size
@@ -228,7 +263,7 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
 
             size_mb = packed.stat().st_size / 1024 / 1024
             print(f"  Decoding {e['packed']} ({size_mb:.1f} MB)...", end="", flush=True)
-            decode_b64(packed, original)
+            decode_b64(packed, original, scrambled=scrambled)
             packed.unlink()
             print(" done")
 
