@@ -6,6 +6,18 @@ from typing import List, Dict, Optional
 from sqlalchemy import text
 from shared.database.database import get_session
 from shared.models.models import BilateralRelationshipSummary, EventSummary
+from shared.utils.utils import Config
+
+cfg = Config.from_yaml()
+
+
+def _base_bilateral_filter(query):
+    """Apply standard cfg filters: influencers, recipients, init != recipient."""
+    return query.filter(
+        BilateralRelationshipSummary.initiating_country.in_(cfg.influencers),
+        BilateralRelationshipSummary.recipient_country.in_(cfg.recipients),
+        BilateralRelationshipSummary.initiating_country != BilateralRelationshipSummary.recipient_country,
+    )
 
 
 def get_all_bilateral_summaries() -> List[Dict]:
@@ -16,8 +28,10 @@ def get_all_bilateral_summaries() -> List[Dict]:
         List of summary dicts with all fields
     """
     with get_session() as session:
-        summaries = session.query(BilateralRelationshipSummary).filter(
-            BilateralRelationshipSummary.is_deleted == False
+        summaries = _base_bilateral_filter(
+            session.query(BilateralRelationshipSummary).filter(
+                BilateralRelationshipSummary.is_deleted == False
+            )
         ).all()
 
         return [summary_to_dict(s) for s in summaries]
@@ -60,8 +74,10 @@ def get_top_relationships_by_documents(limit: int = 20) -> List[Dict]:
         List of summary dicts sorted by document count
     """
     with get_session() as session:
-        summaries = session.query(BilateralRelationshipSummary).filter(
-            BilateralRelationshipSummary.is_deleted == False
+        summaries = _base_bilateral_filter(
+            session.query(BilateralRelationshipSummary).filter(
+                BilateralRelationshipSummary.is_deleted == False
+            )
         ).order_by(
             BilateralRelationshipSummary.total_documents.desc()
         ).limit(limit).all()
@@ -80,9 +96,11 @@ def get_top_relationships_by_material_score(limit: int = 20) -> List[Dict]:
         List of summary dicts sorted by material score
     """
     with get_session() as session:
-        summaries = session.query(BilateralRelationshipSummary).filter(
-            BilateralRelationshipSummary.is_deleted == False,
-            BilateralRelationshipSummary.material_score.isnot(None)
+        summaries = _base_bilateral_filter(
+            session.query(BilateralRelationshipSummary).filter(
+                BilateralRelationshipSummary.is_deleted == False,
+                BilateralRelationshipSummary.material_score.isnot(None)
+            )
         ).order_by(
             BilateralRelationshipSummary.material_score.desc()
         ).limit(limit).all()
@@ -108,6 +126,9 @@ def search_bilateral_summaries(query: str) -> List[Dict]:
             SELECT *
             FROM bilateral_relationship_summaries
             WHERE is_deleted = FALSE
+            AND initiating_country = ANY(:influencers)
+            AND recipient_country = ANY(:recipients)
+            AND initiating_country != recipient_country
             AND (
                 relationship_summary->>'overview' ILIKE :query
                 OR relationship_summary->>'trend_analysis' ILIKE :query
@@ -120,7 +141,7 @@ def search_bilateral_summaries(query: str) -> List[Dict]:
 
         results = session.execute(
             sql,
-            {"query": f"%{query}%"}
+            {"query": f"%{query}%", "influencers": cfg.influencers, "recipients": cfg.recipients}
         ).fetchall()
 
         # Convert to dicts
@@ -168,6 +189,8 @@ def get_relationships_by_initiator(initiating_country: str) -> List[Dict]:
     with get_session() as session:
         summaries = session.query(BilateralRelationshipSummary).filter(
             BilateralRelationshipSummary.initiating_country == initiating_country,
+            BilateralRelationshipSummary.recipient_country.in_(cfg.recipients),
+            BilateralRelationshipSummary.initiating_country != BilateralRelationshipSummary.recipient_country,
             BilateralRelationshipSummary.is_deleted == False
         ).order_by(
             BilateralRelationshipSummary.total_documents.desc()
@@ -188,7 +211,9 @@ def get_relationships_by_recipient(recipient_country: str) -> List[Dict]:
     """
     with get_session() as session:
         summaries = session.query(BilateralRelationshipSummary).filter(
+            BilateralRelationshipSummary.initiating_country.in_(cfg.influencers),
             BilateralRelationshipSummary.recipient_country == recipient_country,
+            BilateralRelationshipSummary.initiating_country != BilateralRelationshipSummary.recipient_country,
             BilateralRelationshipSummary.is_deleted == False
         ).order_by(
             BilateralRelationshipSummary.total_documents.desc()
@@ -216,7 +241,10 @@ def get_summary_statistics() -> Dict:
                 MIN(material_score) as min_material_score
             FROM bilateral_relationship_summaries
             WHERE is_deleted = FALSE
-        """)).fetchone()
+              AND initiating_country = ANY(:influencers)
+              AND recipient_country = ANY(:recipients)
+              AND initiating_country != recipient_country
+        """), {"influencers": cfg.influencers, "recipients": cfg.recipients}).fetchone()
 
         return {
             'total_summaries': result[0],

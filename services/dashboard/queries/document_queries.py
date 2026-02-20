@@ -93,7 +93,8 @@ filtered_docs = (
     .where(
         InitiatingCountry.initiating_country.in_(cfg.influencers),
         RecipientCountry.recipient_country   .in_(cfg.recipients),
-        Document.date >= cfg.start_date,  # if you have a default end_date
+        InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+        Document.date >= cfg.start_date,
     )
     ).cte("filtered_docs")
 
@@ -118,14 +119,9 @@ def apply_filters(stmt, table=None, country_list='ALL', category='ALL', subcateg
     return stmt
 
 def set_start_date(start_date=None):
+    """Return start_date if provided, otherwise fall back to config default."""
     return start_date if start_date else cfg.start_date
-
-def set_start_date(start_date=None):
-    if start_date:
-        return start_date
-    else:
-        return cfg.start_date
-@st.cache_data
+@st.cache_data(ttl=300)
 def initiating_country_list():
     stmt = (select(InitiatingCountry.initiating_country)
         .where(InitiatingCountry.initiating_country.in_(cfg.influencers)))
@@ -133,7 +129,7 @@ def initiating_country_list():
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['initiating_country']])))
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def recipient_country_list():
     stmt = (select(RecipientCountry.recipient_country)
         .where(RecipientCountry.recipient_country.in_(cfg.recipients)))
@@ -141,7 +137,7 @@ def recipient_country_list():
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['recipient_country']])))
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def category_list():
     stmt = (select(Category.category)
         .where(Category.category.in_(cfg.categories)))
@@ -149,7 +145,7 @@ def category_list():
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['category']])))
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def subcategory_list():
     stmt = (select(Subcategory.subcategory)
         .where(Subcategory.subcategory.in_(cfg.subcategories)))
@@ -157,7 +153,7 @@ def subcategory_list():
        df = pd.read_sql(stmt, conn)
        return sorted(list(set([x for x in df['subcategory']])))
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_document_counts_per_week(
     country_list='ALL',
     category='ALL',
@@ -179,11 +175,10 @@ def get_document_counts_per_week(
         .join(RecipientCountry,  Document.doc_id == RecipientCountry.doc_id)
         .join(Category,           Document.doc_id == Category.doc_id)
         .where(
-            # use the function argument, not cfg.start_date
             Document.date >= start_date,
-            # later you can add filters on country_list, category, subcategory
             InitiatingCountry.initiating_country.in_(cfg.influencers),
             RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
         )
         .group_by('week_start')
         .order_by('week_start')
@@ -195,7 +190,7 @@ def get_document_counts_per_week(
 
     return df
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_subcategory_distribution_by_document_count(country_list='ALL',category='ALL',subcategory='ALL',start_date=None,end_date=None):
     # Build the base select
     start_date = set_start_date(start_date)
@@ -217,7 +212,7 @@ def get_subcategory_distribution_by_document_count(country_list='ALL',category='
         df = pd.read_sql(stmt, conn)
         return df
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_top_influencers_by_document_count(country_list='ALL', category='ALL', subcategory='ALL', start_date=None, end_date=None):
     start_date = set_start_date(start_date)
 
@@ -226,18 +221,25 @@ def get_top_influencers_by_document_count(country_list='ALL', category='ALL', su
             InitiatingCountry.initiating_country,
             func.count(func.distinct(InitiatingCountry.doc_id)).label('doc_count')
         ).select_from(InitiatingCountry)
-        .join(Document,InitiatingCountry.doc_id==Document.doc_id)
-        .join(RecipientCountry,Document.doc_id==RecipientCountry.doc_id)
-        .join(Category,Document.doc_id==Category.doc_id)
-        .where(InitiatingCountry.initiating_country.in_(cfg.influencers),
-        RecipientCountry.recipient_country.in_(cfg.recipients),
-        Document.date >=cfg.start_date)
+        .join(Document, InitiatingCountry.doc_id == Document.doc_id)
+        .join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+        .join(Category, Document.doc_id == Category.doc_id)
+        .where(
+            InitiatingCountry.initiating_country.in_(cfg.influencers),
+            RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Document.date >= start_date,
         )
-    # stmt = apply_filters(stmt,table=InitiatingCountry, country_list=country_list,
-    #                      category=category,
-    #                      subcategory=subcategory,
-    #                      start_date=start_date,
-    #                      end_date=end_date)
+    )
+
+    if country_list and country_list != 'ALL' and 'ALL' not in country_list:
+        stmt = stmt.where(InitiatingCountry.initiating_country.in_(country_list))
+
+    if category and category != 'ALL':
+        stmt = stmt.where(Category.category == category)
+
+    if end_date:
+        stmt = stmt.where(Document.date <= end_date)
 
     stmt = stmt.group_by(InitiatingCountry.initiating_country)
 
@@ -245,7 +247,7 @@ def get_top_influencers_by_document_count(country_list='ALL', category='ALL', su
         df = pd.read_sql(stmt, conn)
         return df
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_top_recipients_by_document_count(country_list='ALL',category='ALL',subcategory='ALL',start_date=None,end_date=None):
     start_date = set_start_date(start_date)
     stmt = (
@@ -267,54 +269,83 @@ def get_top_recipients_by_document_count(country_list='ALL',category='ALL',subca
         df = pd.read_sql(stmt, conn)
         return df
 
-@st.cache_data
-def get_category_distribution_by_document_count(country_list='ALL',category='ALL',subcategory='ALL',start_date=None,end_date=None):
+@st.cache_data(ttl=300)
+def get_category_distribution_by_document_count(country_list='ALL', category='ALL', subcategory='ALL', start_date=None, end_date=None):
     start_date = set_start_date(start_date)
-    stmt = (select(Category.category,
-        func.count(func.distinct(Category.doc_id)).label('doc_count')
+    stmt = (
+        select(
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('doc_count')
         ).select_from(Category)
-        .join(Document,Category.doc_id==Document.doc_id)
-        .join(RecipientCountry,Document.doc_id==RecipientCountry.doc_id)
-        .join(InitiatingCountry,Document.doc_id==InitiatingCountry.doc_id)
-        .where(InitiatingCountry.initiating_country.in_(cfg.influencers),
-        RecipientCountry.recipient_country.in_(cfg.recipients),
-        Category.category.in_(cfg.categories),
-        Document.date >=cfg.start_date)
+        .join(Document, Category.doc_id == Document.doc_id)
+        .join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+        .join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+        .where(
+            InitiatingCountry.initiating_country.in_(cfg.influencers),
+            RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Category.category.in_(cfg.categories),
+            Document.date >= start_date,
         )
+    )
+
+    if country_list and country_list != 'ALL' and 'ALL' not in country_list:
+        stmt = stmt.where(InitiatingCountry.initiating_country.in_(country_list))
+
+    if category and category != 'ALL':
+        stmt = stmt.where(Category.category == category)
+
+    if end_date:
+        stmt = stmt.where(Document.date <= end_date)
+
     stmt = stmt.group_by(Category.category)
     with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
-@st.cache_data
-def get_category_distribution_by_document_count_by_country(country_list='ALL',category='ALL',subcategory='ALL',start_date=None,end_date=None):
+@st.cache_data(ttl=300)
+def get_category_distribution_by_document_count_by_country(country_list='ALL', category='ALL', subcategory='ALL', start_date=None, end_date=None):
     start_date = set_start_date(start_date)
-    stmt = (select(
+    stmt = (
+        select(
             InitiatingCountry.initiating_country,
             Category.category,
             func.count(func.distinct(Category.doc_id)).label('doc_count')
         ).select_from(Category)
-        .join(Document,Category.doc_id==Document.doc_id)
-        .join(RecipientCountry,Document.doc_id==RecipientCountry.doc_id)
-        .join(InitiatingCountry,Document.doc_id==InitiatingCountry.doc_id)
-        .where(InitiatingCountry.initiating_country.in_(cfg.influencers),
-        RecipientCountry.recipient_country.in_(cfg.recipients),
-        Category.category.in_(cfg.categories),
-        Document.date >=cfg.start_date)
+        .join(Document, Category.doc_id == Document.doc_id)
+        .join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+        .join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+        .where(
+            InitiatingCountry.initiating_country.in_(cfg.influencers),
+            RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            Category.category.in_(cfg.categories),
+            Document.date >= start_date,
         )
+    )
+
+    if country_list and country_list != 'ALL' and 'ALL' not in country_list:
+        stmt = stmt.where(InitiatingCountry.initiating_country.in_(country_list))
+
+    if category and category != 'ALL':
+        stmt = stmt.where(Category.category == category)
+
+    if end_date:
+        stmt = stmt.where(Document.date <= end_date)
+
     stmt = stmt.group_by(
         InitiatingCountry.initiating_country,
         Category.category
-        ).order_by(
-            InitiatingCountry.initiating_country,
-            desc('doc_count')
-        )
+    ).order_by(
+        InitiatingCountry.initiating_country,
+        desc('doc_count')
+    )
 
     with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
         return df
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_category_count_over_time(country_list='ALL',category='ALL',subcategory='ALL',start_date=None,end_date=None):
     start_date = set_start_date(start_date)
     stmt = (select(
@@ -326,6 +357,7 @@ def get_category_count_over_time(country_list='ALL',category='ALL',subcategory='
     .join(InitiatingCountry,Document.doc_id==InitiatingCountry.doc_id)
     .where(InitiatingCountry.initiating_country.in_(cfg.influencers),
     RecipientCountry.recipient_country.in_(cfg.recipients),
+    InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
     Category.category.in_(cfg.categories),
     Document.date >=cfg.start_date)
     )
@@ -340,46 +372,46 @@ def get_category_count_over_time(country_list='ALL',category='ALL',subcategory='
         return df
 
 #get Category df
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_category_df():
-    stmt = select(Category).order_by(Category.category)
+    stmt = (
+        select(Category)
+        .join(Document, Category.doc_id == Document.doc_id)
+        .join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+        .join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+        .where(
+            InitiatingCountry.initiating_country.in_(cfg.influencers),
+            RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+        )
+        .order_by(Category.category)
+    )
     with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
     return df
 
 #get Subcategory df
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_subcategory_df():
-    stmt = select(Subcategory).order_by(Subcategory.subcategory)
+    stmt = (
+        select(Subcategory)
+        .join(Document, Subcategory.doc_id == Document.doc_id)
+        .join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+        .join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+        .where(
+            InitiatingCountry.initiating_country.in_(cfg.influencers),
+            RecipientCountry.recipient_country.in_(cfg.recipients),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+        )
+        .order_by(Subcategory.subcategory)
+    )
     with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
     return df
-#get activity df
-@st.cache_data
-def get_activity_df(country_list=None,start_date=None,end_date=None):
-    if start_date is None:
-        start_date = '2024-08-01'
-    if end_date is None:
-        end_date = pd.to_datetime('today').strftime('%Y-%m-%d')
-    stmt = select(SoftPowerActivity).order_by(SoftPowerActivity.date.desc())
-    stmt = stmt.filter(SoftPowerActivity.date.between(start_date, end_date),
-                       SoftPowerActivity.initiating_country.in_(cfg.influencers),
-                       SoftPowerActivity.recipient_country.in_(cfg.recipients))
-    if country_list and country_list != "ALL":
-        stmt = stmt.filter(SoftPowerActivity.initiating_country.in_(country_list))
-    with get_engine().connect() as conn:
-        df = pd.read_sql(stmt, conn)
-    return df
+# Legacy functions get_activity_df and get_daily_df removed - referenced non-existent
+# SoftPowerActivity and DailySummary models from an older schema.
 
-# get daily df
-@st.cache_data
-def get_daily_df():
-    stmt = select(DailySummary).order_by(DailySummary.date.desc())
-    with get_engine().connect() as conn:
-        df = pd.read_sql(stmt, conn)
-    return df
-
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_document_dates(country_list=None,start_date=None,end_date=None):
     if start_date is None:
         start_date = '2024-08-01'
@@ -388,6 +420,7 @@ def get_document_dates(country_list=None,start_date=None,end_date=None):
     stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
     stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers),
                        RecipientCountry.recipient_country.in_(cfg.recipients),
+                       InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
                        Document.date >= start_date)
     if country_list and country_list != "ALL":
         stmt = stmt.filter(InitiatingCountry.initiating_country.in_(country_list))
@@ -397,7 +430,7 @@ def get_document_dates(country_list=None,start_date=None,end_date=None):
         df = pd.read_sql(stmt, conn)
     return df
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_last_week_of_documents(country_list=None,end_date=None):
     #convert mmmm-mm-dd to datetime
     if isinstance(end_date, str):
@@ -409,35 +442,29 @@ def get_last_week_of_documents(country_list=None,end_date=None):
     stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
     stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
     stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers),
-                       RecipientCountry.recipient_country.in_(cfg.recipients))
+                       RecipientCountry.recipient_country.in_(cfg.recipients),
+                       InitiatingCountry.initiating_country != RecipientCountry.recipient_country)
     if country_list and country_list != "ALL":
         stmt = stmt.filter(InitiatingCountry.initiating_country.in_(country_list))
     with get_engine().connect() as conn:
         df = pd.read_sql(stmt, conn)
     return df
 
-@st.cache_data
-def get_most_recent_daily_summary(country_list=None,date=None):
-    stmt = select(DailySummary).order_by(DailySummary.date.desc()).limit(1)
-    if country_list and country_list != "ALL":
-        stmt = stmt.filter(DailySummary.initiating_country.in_(country_list))
-    if date:
-        stmt = stmt.filter(DailySummary.date == date)
-    with get_engine().connect() as conn:
-        df = pd.read_sql(stmt, conn)
-    return df
+# Legacy function get_most_recent_daily_summary removed - referenced non-existent DailySummary model.
+# Use queries/summary_queries.py get_daily_summaries_by_date() instead.
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_date_documents(date,country=None,category=None):
     stmt = select(Document).where(Document.date == date).order_by(Document.date.desc())
+    stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
+    stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
+    stmt = stmt.filter(
+        InitiatingCountry.initiating_country.in_(cfg.influencers),
+        RecipientCountry.recipient_country.in_(cfg.recipients),
+        InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+    )
     if country and country != "ALL":
-        stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
         stmt = stmt.filter(InitiatingCountry.initiating_country == country)
-    else:
-        stmt = stmt.join(InitiatingCountry, Document.doc_id == InitiatingCountry.doc_id)
-        stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers))
-        stmt = stmt.join(RecipientCountry, Document.doc_id == RecipientCountry.doc_id)
-        stmt = stmt.filter(RecipientCountry.recipient_country.in_(cfg.recipients))
     if category and category != "ALL":
         stmt = stmt.join(Category, Document.doc_id == Category.doc_id)
         stmt = stmt.filter(Category.category == category)
@@ -446,7 +473,7 @@ def get_date_documents(date,country=None,category=None):
         df.drop_duplicates(subset=['doc_id'], inplace=True)
     return df
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def fetch_daily_counts(country_list=None):
     raw = (
         get_document_dates(country_list=country_list)
@@ -473,7 +500,8 @@ def get_category(category=None,country=None):
     stmt = stmt.join(InitiatingCountry, Category.doc_id == InitiatingCountry.doc_id)
     stmt = stmt.join(RecipientCountry, Category.doc_id == RecipientCountry.doc_id)
     stmt = stmt.filter(InitiatingCountry.initiating_country.in_(cfg.influencers),
-                       RecipientCountry.recipient_country.in_(cfg.recipients))
+                       RecipientCountry.recipient_country.in_(cfg.recipients),
+                       InitiatingCountry.initiating_country != RecipientCountry.recipient_country)
     if category and category != "ALL":
         stmt = stmt.filter(Category.category == category)
     if country and country != "ALL":
@@ -487,7 +515,7 @@ def get_category(category=None,country=None):
 
     return df
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_daily_category_article_counts(category=None, country=None):
     df = get_category(category=category, country=country)
     if df.empty:
@@ -503,37 +531,37 @@ def get_daily_category_article_counts(category=None, country=None):
 
     return daily_counts
 
-def visualize_category_z_score(df):
-    if df.empty:
-        return alt.Chart().mark_text(text='No data available').properties(width=800, height=400)
+def visualize_category_z_score(df, category='', country=''):
+    """Calculate z-scores for document counts and return an Altair chart."""
+    import altair as alt
 
-    # Calculate z-scores
-    df['z_score'] = (df['doc_count'] - df['doc_count'].mean()) / df['doc_count'].std()
+    if df.empty:
+        return alt.Chart(pd.DataFrame({'x': [0]})).mark_text(text='No data available').properties(width=800, height=400)
+
+    df = df.copy()
+    std = df['doc_count'].std()
+    if std == 0 or pd.isna(std):
+        df['z_score'] = 0.0
+    else:
+        df['z_score'] = (df['doc_count'] - df['doc_count'].mean()) / std
+
+    title = 'Z-Score of Document Count'
+    if category:
+        title += f' for {category}'
+    if country:
+        title += f' in {country}'
 
     chart = alt.Chart(df).mark_line(point=True).encode(
         x=alt.X('date:T', title='Date'),
         y=alt.Y('z_score:Q', title='Z-Score of Document Count'),
         tooltip=['date:T', 'doc_count:Q', 'z_score:Q']
     ).properties(
-        title=f'Z-Score of Document Count for {category} in {country}',
+        title=title,
         width=800,
         height=400
     ).interactive()
 
-    return chart.configure_title(
-        fontSize=20,
-        anchor='start',
-        color='black'
-    ).configure_axis(
-        labelFontSize=12,
-        titleFontSize=14
-    ).configure_legend(
-        labelFontSize=12,
-        titleFontSize=14
-    )
+    return chart
 
-def get_most_recent_daily_date(country):
-    stmt = select(DailySummary.date).where(DailySummary.initiating_country==country)
-    with get_engine().connect() as conn:
-        df = pd.read_sql(stmt, conn)
-        return max(df['date'])
+# Legacy function get_most_recent_daily_date removed - referenced non-existent DailySummary model.
+# Use queries/summary_queries.py get_available_summary_dates() instead.

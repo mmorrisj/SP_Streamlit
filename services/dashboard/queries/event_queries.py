@@ -10,7 +10,7 @@ from shared.utils.utils import Config
 cfg = Config.from_yaml()
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_master_event_overview(start_date='2024-08-01', end_date='2024-08-31', recipients=None):
     """
     Get overview statistics for master events.
@@ -90,7 +90,7 @@ def get_master_event_overview(start_date='2024-08-01', end_date='2024-08-31', re
     return df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_top_master_events(
     limit=20,
     country=None,
@@ -190,7 +190,7 @@ def get_top_master_events(
     return df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_events_by_country(start_date='2024-08-01', end_date='2024-08-31'):
     """
     Get master event counts and article volumes by initiating country.
@@ -266,7 +266,7 @@ def get_events_by_country(start_date='2024-08-01', end_date='2024-08-31'):
     return df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_temporal_trends(
     country=None,
     start_date='2024-08-01',
@@ -355,7 +355,7 @@ def get_temporal_trends(
     return df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_recipient_impact(
     recipient_countries,
     start_date='2024-08-01',
@@ -433,7 +433,7 @@ def get_recipient_impact(
     return df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_category_breakdown(
     country=None,
     start_date='2024-08-01',
@@ -517,7 +517,7 @@ def get_category_breakdown(
     return df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_master_event_details(master_event_name, country=None):
     """
     Get detailed information about a specific master event including child events.
@@ -544,9 +544,10 @@ def get_master_event_details(master_event_name, country=None):
         FROM canonical_events m
         WHERE m.master_event_id IS NULL
           AND m.canonical_name = :event_name
+          AND m.initiating_country = ANY(:influencers)
     """)
 
-    params = {'event_name': master_event_name}
+    params = {'event_name': master_event_name, 'influencers': cfg.influencers}
 
     if country:
         master_query = text(str(master_query) + " AND m.initiating_country = :country")
@@ -574,7 +575,7 @@ def get_master_event_details(master_event_name, country=None):
     return master_df, child_df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_master_event_timeline(master_event_name):
     """
     Get daily timeline for a master event showing all child event mentions.
@@ -596,17 +597,18 @@ def get_master_event_timeline(master_event_name):
         JOIN daily_event_mentions dem ON dem.canonical_event_id = c.id
         WHERE m.master_event_id IS NULL
           AND m.canonical_name = :event_name
+          AND m.initiating_country = ANY(:influencers)
         ORDER BY dem.mention_date, dem.article_count DESC
     """)
 
     with get_engine().connect() as conn:
-        df = pd.read_sql(query, conn, params={'event_name': master_event_name})
+        df = pd.read_sql(query, conn, params={'event_name': master_event_name, 'influencers': cfg.influencers})
 
     df['date'] = pd.to_datetime(df['date'])
     return df
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_standalone_canonical_events(
     country=None,
     limit=20,

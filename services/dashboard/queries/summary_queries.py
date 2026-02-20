@@ -6,6 +6,9 @@ from datetime import date
 from typing import List, Dict, Optional, Any
 from sqlalchemy import text
 from shared.database.database import get_engine
+from shared.utils.utils import Config
+
+cfg = Config.from_yaml()
 
 
 def get_available_summary_dates(
@@ -28,6 +31,7 @@ def get_available_summary_dates(
         SELECT DISTINCT period_start
         FROM event_summaries
         WHERE initiating_country = :country
+          AND initiating_country = ANY(:influencers)
           AND period_type = :period_type
           AND is_deleted = false
         ORDER BY period_start DESC
@@ -36,7 +40,8 @@ def get_available_summary_dates(
     with engine.connect() as conn:
         result = conn.execute(query, {
             'country': country,
-            'period_type': period_type
+            'period_type': period_type,
+            'influencers': cfg.influencers,
         })
         return [row[0] for row in result]
 
@@ -72,6 +77,7 @@ def get_daily_summaries_by_date(
             created_at
         FROM event_summaries
         WHERE initiating_country = :country
+          AND initiating_country = ANY(:influencers)
           AND period_type = 'DAILY'
           AND period_start = :target_date
           AND is_deleted = false
@@ -86,7 +92,8 @@ def get_daily_summaries_by_date(
     with engine.connect() as conn:
         result = conn.execute(query, {
             'country': country,
-            'target_date': target_date
+            'target_date': target_date,
+            'influencers': cfg.influencers,
         })
 
         summaries = []
@@ -139,6 +146,7 @@ def get_daily_summaries_by_date_range(
             created_at
         FROM event_summaries
         WHERE initiating_country = :country
+          AND initiating_country = ANY(:influencers)
           AND period_type = 'DAILY'
           AND period_start >= :start_date
           AND period_start <= :end_date
@@ -155,7 +163,8 @@ def get_daily_summaries_by_date_range(
         result = conn.execute(query, {
             'country': country,
             'start_date': start_date,
-            'end_date': end_date
+            'end_date': end_date,
+            'influencers': cfg.influencers,
         })
 
         summaries = []
@@ -204,6 +213,7 @@ def get_summary_statistics(
             MAX(period_start) as latest_date
         FROM event_summaries
         WHERE initiating_country = :country
+          AND initiating_country = ANY(:influencers)
           AND period_type = :period_type
           AND period_start >= :start_date
           AND period_start <= :end_date
@@ -215,7 +225,8 @@ def get_summary_statistics(
             'country': country,
             'period_type': period_type,
             'start_date': start_date,
-            'end_date': end_date
+            'end_date': end_date,
+            'influencers': cfg.influencers,
         }).fetchone()
 
         return {
@@ -252,6 +263,7 @@ def search_summaries(
     # Build query with optional date filters
     where_clauses = [
         "initiating_country = :country",
+        "initiating_country = ANY(:influencers)",
         "period_type = 'DAILY'",
         "is_deleted = false",
         "(LOWER(event_name) LIKE LOWER(:search_term) OR " +
@@ -261,7 +273,8 @@ def search_summaries(
 
     params = {
         'country': country,
-        'search_term': f'%{search_term}%'
+        'search_term': f'%{search_term}%',
+        'influencers': cfg.influencers,
     }
 
     if start_date:
@@ -338,6 +351,7 @@ def get_top_events_by_period(
             MAX(period_start) as last_date
         FROM event_summaries
         WHERE initiating_country = :country
+          AND initiating_country = ANY(:influencers)
           AND period_type = 'DAILY'
           AND period_start >= :start_date
           AND period_start <= :end_date
@@ -352,7 +366,8 @@ def get_top_events_by_period(
             'country': country,
             'start_date': start_date,
             'end_date': end_date,
-            'limit': limit
+            'limit': limit,
+            'influencers': cfg.influencers,
         })
 
         events = []

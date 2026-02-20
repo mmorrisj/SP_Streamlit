@@ -10,6 +10,7 @@ from pyvis.network import Network
 import streamlit.components.v1 as components
 import tempfile
 import os
+import datetime
 from typing import List, Dict
 
 import sys
@@ -30,9 +31,8 @@ with st.sidebar:
 
     # Load filter options from database
     with get_session() as session:
-        # Use CanonicalEntity (two-stage pipeline) and only count master entities
         entity_count = session.query(CanonicalEntity).filter(
-            CanonicalEntity.master_entity_id.is_(None)  # Only master entities
+            CanonicalEntity.master_entity_id.is_(None)
         ).count()
         relationship_count = session.query(EntityRelationship).count()
 
@@ -46,10 +46,9 @@ with st.sidebar:
         else:
             use_sample_data = False
 
-            # Get filter options (use initiating_country from CanonicalEntity)
             countries = session.query(CanonicalEntity.initiating_country).distinct().filter(
                 CanonicalEntity.initiating_country.isnot(None),
-                CanonicalEntity.master_entity_id.is_(None)  # Only master entities
+                CanonicalEntity.master_entity_id.is_(None)
             ).all()
             countries = [c[0] for c in countries]
 
@@ -62,13 +61,26 @@ with st.sidebar:
             rel_types = [r[0] for r in rel_types]
 
     if not use_sample_data and entity_count > 0:
-        # Filters
         selected_countries = st.multiselect("Countries", countries, default=countries[:3] if len(countries) > 3 else countries)
         selected_entity_types = st.multiselect("Entity Types", entity_types, default=entity_types)
         selected_rel_types = st.multiselect("Relationship Types", rel_types, default=rel_types)
 
         min_mentions = st.slider("Min Mentions", 1, 10, 1)
         max_entities = st.slider("Max Entities to Display", 10, 200, 50)
+
+        # Temporal filtering
+        st.markdown("---")
+        st.markdown("### Temporal Filter")
+        enable_date_filter = st.checkbox("Filter by date range", value=False)
+        if enable_date_filter:
+            date_col1, date_col2 = st.columns(2)
+            with date_col1:
+                date_start = st.date_input("From", value=datetime.date(2024, 8, 1), key="ent_date_start")
+            with date_col2:
+                date_end = st.date_input("To", value=datetime.date.today(), key="ent_date_end")
+        else:
+            date_start = None
+            date_end = None
 
     st.markdown("---")
     st.markdown("### Graph Settings")
@@ -248,7 +260,6 @@ if use_sample_data:
 else:
     # Load data from database
     with get_session() as session:
-        # Query entities (only master entities from two-stage pipeline)
         query = session.query(CanonicalEntity).filter(
             CanonicalEntity.total_documents >= min_mentions,
             CanonicalEntity.master_entity_id.is_(None)
@@ -259,6 +270,13 @@ else:
 
         if selected_entity_types:
             query = query.filter(CanonicalEntity.entity_type.in_(selected_entity_types))
+
+        # Apply temporal filter
+        if enable_date_filter and date_start and date_end:
+            query = query.filter(
+                CanonicalEntity.last_mention_date >= date_start,
+                CanonicalEntity.first_mention_date <= date_end
+            )
 
         # Order by document count and limit
         query = query.order_by(CanonicalEntity.total_documents.desc()).limit(max_entities)
@@ -382,6 +400,50 @@ if entities and relationships:
     ])
 
     st.dataframe(df_top, use_container_width=True, hide_index=True)
+
+    # Entity Profile Panel
+    st.markdown("### Entity Profile")
+    entity_names = [e['name'] for e in entities]
+    selected_entity_name = st.selectbox("Select an entity to view its profile", [""] + sorted(entity_names))
+
+    if selected_entity_name:
+        with get_session() as session:
+            entity_obj = session.query(CanonicalEntity).filter(
+                CanonicalEntity.canonical_name == selected_entity_name,
+                CanonicalEntity.master_entity_id.is_(None)
+            ).first()
+
+            if entity_obj:
+                prof_col1, prof_col2, prof_col3, prof_col4 = st.columns(4)
+                with prof_col1:
+                    st.metric("Documents", entity_obj.total_documents or 0)
+                with prof_col2:
+                    st.metric("Mention Days", entity_obj.total_mention_days or 0)
+                with prof_col3:
+                    st.metric("Type", str(entity_obj.entity_type.value) if entity_obj.entity_type else "Unknown")
+                with prof_col4:
+                    st.metric("Role", entity_obj.primary_role or "Unknown")
+
+                if entity_obj.entity_description:
+                    st.markdown("**Description:**")
+                    st.markdown(entity_obj.entity_description)
+
+                if entity_obj.first_mention_date and entity_obj.last_mention_date:
+                    st.markdown(f"**Active:** {entity_obj.first_mention_date} to {entity_obj.last_mention_date}")
+
+                if entity_obj.key_activities:
+                    with st.expander("Key Activities"):
+                        if isinstance(entity_obj.key_activities, list):
+                            for activity in entity_obj.key_activities:
+                                st.markdown(f"- {activity}")
+                        elif isinstance(entity_obj.key_activities, dict):
+                            for k, v in entity_obj.key_activities.items():
+                                st.markdown(f"- **{k}:** {v}")
+
+                if entity_obj.associated_events:
+                    with st.expander(f"Associated Events ({len(entity_obj.associated_events)})"):
+                        for event in entity_obj.associated_events[:20]:
+                            st.markdown(f"- {event}")
 
 else:
     st.warning("No relationship data to display")
