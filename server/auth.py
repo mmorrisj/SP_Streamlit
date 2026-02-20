@@ -4,7 +4,7 @@ Authentication utilities for JWT-based auth.
 Provides password hashing (bcrypt) and JWT token management.
 """
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 import bcrypt
@@ -63,13 +63,13 @@ def create_access_token(user_id: str, username: str, role: str) -> str:
     Returns:
         Encoded JWT token string
     """
-    expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
     payload = {
         "user_id": user_id,
         "username": username,
         "role": role,
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 

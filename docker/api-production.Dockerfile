@@ -27,7 +27,7 @@ RUN ls -la dist/ && echo "✅ React build complete"
 # ============================================
 # Stage 2: Python Backend + API Server
 # ============================================
-FROM python:3.11-slim AS backend
+FROM python:3.13-slim AS backend
 
 WORKDIR /app
 
@@ -41,6 +41,11 @@ RUN apt-get update && apt-get install -y \
 # Copy and install Python requirements
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple
+
+# Remove build tools after pip install to reduce attack surface
+RUN apt-get purge -y build-essential \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Download NLTK data
 RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('stopwords', quiet=True)"

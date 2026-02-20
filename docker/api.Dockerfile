@@ -23,11 +23,12 @@ RUN npm run build
 # ============================================
 # Stage 2: Python Backend + API Server
 # ============================================
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies, build Python packages, then remove build-essential
+# to eliminate 39 binutils CVEs from the final image
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -36,6 +37,11 @@ RUN apt-get update && apt-get install -y \
 # Copy and install Python requirements (cached until requirements.txt changes)
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple
+
+# Remove build tools after pip install to reduce attack surface
+RUN apt-get purge -y build-essential \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Download NLTK data
 RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('stopwords', quiet=True)"

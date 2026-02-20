@@ -10,7 +10,7 @@ import json
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Generator
-from datetime import datetime
+from datetime import datetime, timezone
 
 from shared.database.database import get_session
 from shared.models.models import Document
@@ -570,7 +570,7 @@ def validate_report_stream(
         'type': 'validation_complete',
         'payload': {
             'overall_status': overall_status,
-            'validated_at': datetime.utcnow().isoformat()
+            'validated_at': datetime.now(timezone.utc).isoformat()
         }
     }
 
@@ -601,7 +601,7 @@ def validate_report(
 
     return {
         'status': overall_status,
-        'validated_at': datetime.utcnow().isoformat(),
+        'validated_at': datetime.now(timezone.utc).isoformat(),
         'model_used': model,
         'sections': sections
     }

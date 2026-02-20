@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from sqlalchemy import func
 from pathlib import Path
@@ -628,7 +628,7 @@ def get_events(
     country: Optional[str] = None,
     category: Optional[str] = None,
     story_phase: Optional[str] = None,
-    sort_by: str = Query(default="recency", regex="^(recency|articles|materiality)$"),
+    sort_by: str = Query(default="recency", pattern="^(recency|articles|materiality)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
@@ -1508,7 +1508,7 @@ def get_influencer_events(
     country: str,
     limit: int = Query(default=10, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    sort_by: str = Query(default="recency", regex="^(recency|articles|materiality)$")
+    sort_by: str = Query(default="recency", pattern="^(recency|articles|materiality)$")
 ):
     """Get rich master event data for a specific influencer."""
     with get_session() as session:
@@ -1572,7 +1572,7 @@ def get_influencer_entities(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     entity_type: Optional[str] = Query(default=None),
-    sort_by: str = Query(default="documents", regex="^(documents|recency)$")
+    sort_by: str = Query(default="documents", pattern="^(documents|recency)$")
 ):
     """Get key actors and entities associated with an influencer country."""
     with get_session() as session:
@@ -2654,7 +2654,7 @@ def get_bilateral_events(
     recipient: str,
     limit: int = Query(default=10, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    sort_by: str = Query(default="recency", regex="^(recency|articles|materiality)$")
+    sort_by: str = Query(default="recency", pattern="^(recency|articles|materiality)$")
 ):
     """Get rich event data relevant to this bilateral pair."""
     with get_session() as session:
@@ -2739,7 +2739,7 @@ def get_bilateral_entities(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     entity_type: Optional[str] = Query(default=None),
-    sort_by: str = Query(default="documents", regex="^(documents|recency)$")
+    sort_by: str = Query(default="documents", pattern="^(documents|recency)$")
 ):
     """Get key actors/entities relevant to this bilateral pair."""
     with get_session() as session:
@@ -4218,7 +4218,7 @@ def login(request: LoginRequest):
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         # Update last login
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
         session.commit()
 
         # Create token
@@ -4277,7 +4277,7 @@ def change_password(
 
         user.password_hash = hash_password(request.new_password)
         user.force_password_change = False
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         session.commit()
 
         return {"message": "Password changed successfully"}
@@ -4348,7 +4348,7 @@ def update_user(
         if request.force_password_change is not None:
             user.force_password_change = request.force_password_change
 
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         session.commit()
 
         return {"message": "User updated", "user": user.to_dict()}
@@ -4367,7 +4367,7 @@ def reset_user_password(
 
         user.password_hash = hash_password(request.new_password)
         user.force_password_change = True
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         session.commit()
 
         return {"message": "Password reset successfully"}
@@ -4388,7 +4388,7 @@ def delete_user(
             raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
         user.is_deleted = True
-        user.deleted_at = datetime.utcnow()
+        user.deleted_at = datetime.now(timezone.utc)
         session.commit()
 
         return {"message": "User deleted"}
