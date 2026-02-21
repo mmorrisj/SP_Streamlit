@@ -116,6 +116,12 @@ RUN ls -la client/dist/ \
     && ls -la /app/.cache/huggingface/models/all-MiniLM-L6-v2/modules.json \
     && echo "All application files verified"
 
+# Create non-root user for runtime security (Scout health check requirement)
+# Supervisord, Streamlit, and FastAPI all run as this user
+RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser \
+    && mkdir -p /var/log/supervisor /var/run/supervisor /app/.streamlit /app/output \
+    && chown -R appuser:appuser /app /var/log/supervisor /var/run/supervisor
+
 ENV PYTHONPATH=/app
 ENV NODE_ENV=production
 # Model is baked in — no network access to HuggingFace needed at runtime
@@ -123,6 +129,8 @@ ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
 
 EXPOSE 8000 8501
+
+USER appuser
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:${API_PORT:-8000}/api/health || exit 1
