@@ -64,9 +64,15 @@ RUN pip install --no-cache-dir \
 
 # Remove build tools after pip install to reduce attack surface
 # Eliminates 39 binutils CVEs from the final image
+# dpkg --purge removes residual config files so Scout doesn't flag removed packages
 RUN apt-get purge -y build-essential \
     && apt-get autoremove -y \
+    && dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true \
     && rm -rf /var/lib/apt/lists/*
+
+# Upgrade setuptools to fix CVE-2025-47273 (HIGH - path traversal)
+# and pip to fix CVE-2026-1703 (LOW - path traversal)
+RUN pip install --no-cache-dir "setuptools>=78.1.1" "pip>=26.0"
 
 # Download and bake in the HuggingFace sentence-transformers model.
 # Saved via model.save() for a clean, symlink-free layout that survives
