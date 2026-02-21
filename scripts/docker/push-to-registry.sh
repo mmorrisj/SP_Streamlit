@@ -1,16 +1,31 @@
 #!/bin/bash
 # ============================================
-# Push Air-Gapped Images to Container Registry
+# Push Images to Container Registry
 # ============================================
-# Pushes the 2-container airgap stack to a registry:
-#   1. softpower-app-airgap  (FastAPI + Streamlit consolidated)
-#   2. pgvector/pgvector     (PostgreSQL 16 + pgvector)
+# Supports two image modes:
+#
+#   --registry (default)
+#     Builds docker/registry.Dockerfile — fully self-contained image
+#     (ML packages + HuggingFace model baked in, ~2GB).
+#     For deployment via Docker Hub mirror: pull-and-run, no manual setup.
+#     Pushes:
+#       softpower-app  (FastAPI + Streamlit + React + ML, self-contained)
+#
+#   --airgap
+#     Uses existing locally-built softpower-app-airgap:latest (slim image).
+#     Requires airgap-build.sh to have been run first.
+#     Pushes:
+#       softpower-app-airgap  (slim — ML installed separately via setup)
+#
+# Note: pgvector is sourced from the company's existing mirror — no push needed.
 #
 # Usage:
-#   REGISTRY=docker.io/yourusername ./scripts/docker/push-to-registry.sh
-#   REGISTRY=registry.company.mil/softpower ./scripts/docker/push-to-registry.sh
+#   REGISTRY=docker.io/yourusername VERSION=1.0.0 ./scripts/docker/push-to-registry.sh
+#   REGISTRY=docker.io/yourusername VERSION=1.1.0 ./scripts/docker/push-to-registry.sh --airgap
+#   REGISTRY=registry.company.mil/softpower VERSION=2.0.0 ./scripts/docker/push-to-registry.sh
 #
 # For Docker Hub, REGISTRY should be: docker.io/<your-dockerhub-username>
+# VERSION defaults to 1.0.0 if not set — always set it explicitly for releases.
 # ============================================
 
 set -e
@@ -24,6 +39,15 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Parse mode flag
+MODE="registry"
+for arg in "$@"; do
+    case "$arg" in
+        --airgap)   MODE="airgap" ;;
+        --registry) MODE="registry" ;;
+    esac
+done
 
 # Load .env if available
 if [ -f "$PROJECT_ROOT/.env" ]; then
@@ -44,42 +68,50 @@ if [ -z "$REGISTRY" ]; then
     fi
 fi
 
-# Version tag (date-based, overridable)
-VERSION="${VERSION:-$(date +%Y%m%d)}"
-
-# Source images (must exist locally)
-APP_LOCAL="softpower-app-airgap:latest"
-DB_LOCAL="pgvector/pgvector:0.8.0-pg16"
+# Semantic version tag — must be set explicitly for each release
+VERSION="${VERSION:-1.0.0}"
 
 echo ""
 echo "=============================================="
-echo "Push Air-Gapped Images to Registry"
+if [ "$MODE" = "registry" ]; then
+    echo "Build & Push Registry Image (self-contained)"
+else
+    echo "Push Air-Gapped Images to Registry (slim)"
+fi
 echo "=============================================="
 echo "Registry:  $REGISTRY"
 echo "Version:   $VERSION"
+echo "Mode:      $MODE"
 echo "=============================================="
 echo ""
 
 # ============================================
-# Step 1: Verify local images exist
+# Step 1: Build or verify app image
 # ============================================
-echo -e "${BLUE}[1/4]${NC} Verifying local images..."
-echo ""
-
-for img in "$APP_LOCAL" "$DB_LOCAL"; do
-    if docker image inspect "$img" &>/dev/null; then
-        echo -e "  ${GREEN}Found:${NC} $img"
+if [ "$MODE" = "registry" ]; then
+    echo -e "${BLUE}[1/4]${NC} Building self-contained registry image..."
+    echo "  Dockerfile: docker/registry.Dockerfile"
+    echo "  This installs ML packages + bakes in HuggingFace model (~2GB, takes several minutes)..."
+    echo ""
+    docker build \
+        -f "$PROJECT_ROOT/docker/registry.Dockerfile" \
+        -t "softpower-analytics:latest" \
+        "$PROJECT_ROOT"
+    echo -e "  ${GREEN}Built:${NC} softpower-analytics:latest ($(docker images softpower-analytics:latest --format '{{.Size}}'))"
+    APP_LOCAL="softpower-analytics:latest"
+    APP_REMOTE_NAME="softpower-analytics"
+else
+    echo -e "${BLUE}[1/4]${NC} Verifying local airgap image..."
+    APP_LOCAL="softpower-app-airgap:latest"
+    APP_REMOTE_NAME="softpower-analytics"
+    if docker image inspect "$APP_LOCAL" &>/dev/null; then
+        echo -e "  ${GREEN}Found:${NC} $APP_LOCAL"
     else
-        echo -e "  ${RED}Missing:${NC} $img"
-        if [ "$img" = "$APP_LOCAL" ]; then
-            echo "  Build it first: ./scripts/docker/airgap-build.sh"
-        else
-            echo "  Pull it first:  docker pull $img"
-        fi
+        echo -e "  ${RED}Missing:${NC} $APP_LOCAL"
+        echo "  Build it first: ./scripts/docker/airgap-build.sh"
         exit 1
     fi
-done
-echo ""
+fi
 
 # ============================================
 # Step 2: Docker login
@@ -87,11 +119,15 @@ echo ""
 echo -e "${BLUE}[2/4]${NC} Docker registry login..."
 echo ""
 
-# Check if already logged in by attempting a token-based check
-if docker login "$REGISTRY" --get-login &>/dev/null 2>&1; then
-    echo -e "  ${GREEN}Already logged in to $REGISTRY${NC}"
+# Extract just the hostname for login (e.g. "docker.io/morrmjm" -> "docker.io")
+REGISTRY_HOST="${REGISTRY%%/*}"
+
+if docker login "$REGISTRY_HOST" 2>/dev/null; then
+    echo -e "  ${GREEN}Logged in to $REGISTRY_HOST${NC}"
 else
-    docker login "$REGISTRY"
+    echo -e "${RED}Login failed. Use a Personal Access Token as the password, not your account password.${NC}"
+    echo "  Generate one at: https://hub.docker.com/settings/security"
+    exit 1
 fi
 echo ""
 
@@ -101,13 +137,9 @@ echo ""
 echo -e "${BLUE}[3/4]${NC} Tagging images for registry..."
 echo ""
 
-# Tag with both :latest and :YYYYMMDD
-docker tag "$APP_LOCAL" "${REGISTRY}/softpower-app-airgap:latest"
-docker tag "$APP_LOCAL" "${REGISTRY}/softpower-app-airgap:${VERSION}"
-echo -e "  ${GREEN}Tagged:${NC} ${REGISTRY}/softpower-app-airgap:{latest,${VERSION}}"
-
-docker tag "$DB_LOCAL" "${REGISTRY}/pgvector:0.8.0-pg16"
-echo -e "  ${GREEN}Tagged:${NC} ${REGISTRY}/pgvector:0.8.0-pg16"
+docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:latest"
+docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
+echo -e "  ${GREEN}Tagged:${NC} ${REGISTRY}/${APP_REMOTE_NAME}:{latest,${VERSION}}"
 echo ""
 
 # ============================================
@@ -116,12 +148,9 @@ echo ""
 echo -e "${BLUE}[4/4]${NC} Pushing images to registry..."
 echo ""
 
-docker push "${REGISTRY}/softpower-app-airgap:latest"
-docker push "${REGISTRY}/softpower-app-airgap:${VERSION}"
-echo -e "  ${GREEN}Pushed:${NC} softpower-app-airgap"
-
-docker push "${REGISTRY}/pgvector:0.8.0-pg16"
-echo -e "  ${GREEN}Pushed:${NC} pgvector"
+docker push "${REGISTRY}/${APP_REMOTE_NAME}:latest"
+docker push "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
+echo -e "  ${GREEN}Pushed:${NC} ${APP_REMOTE_NAME}"
 echo ""
 
 # ============================================
@@ -132,17 +161,23 @@ echo -e "${GREEN}All Images Pushed Successfully${NC}"
 echo "=============================================="
 echo ""
 echo "Images in registry:"
-echo "  ${REGISTRY}/softpower-app-airgap:latest"
-echo "  ${REGISTRY}/softpower-app-airgap:${VERSION}"
-echo "  ${REGISTRY}/pgvector:0.8.0-pg16"
+echo "  ${REGISTRY}/${APP_REMOTE_NAME}:latest"
+echo "  ${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
 echo ""
 echo "To pull on another machine:"
-echo "  docker pull ${REGISTRY}/softpower-app-airgap:latest"
-echo "  docker pull ${REGISTRY}/pgvector:0.8.0-pg16"
+echo "  docker pull ${REGISTRY}/${APP_REMOTE_NAME}:latest"
 echo ""
-echo "To use with airgap-deploy.sh, set in .env:"
-echo "  AIRGAP_REGISTRY=${REGISTRY}"
-echo ""
-echo "Then run:"
-echo "  DEPLOY_MODE=standard ./scripts/docker/airgap-deploy.sh start"
+if [ "$MODE" = "registry" ]; then
+    echo "To run (self-contained, no setup steps needed):"
+    echo "  docker pull ${REGISTRY}/${APP_REMOTE_NAME}:latest"
+    echo "  docker run -d --name softpower_app --env-file .env \\"
+    echo "    -p 8000:8000 -p 8501:8501 \\"
+    echo "    ${REGISTRY}/${APP_REMOTE_NAME}:latest"
+else
+    echo "To use with airgap-deploy.sh, set in .env:"
+    echo "  AIRGAP_REGISTRY=${REGISTRY}"
+    echo ""
+    echo "Then run:"
+    echo "  DEPLOY_MODE=standard ./scripts/docker/airgap-deploy.sh start"
+fi
 echo ""

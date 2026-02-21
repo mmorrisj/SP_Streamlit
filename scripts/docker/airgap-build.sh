@@ -333,32 +333,9 @@ echo -e "  ${GREEN}Both image exports verified (size check passed)${NC}"
 echo ""
 
 # ============================================
-# Step 5: Database backup (if running)
+# Step 5: Copy deployment files
 # ============================================
-echo -e "${BLUE}[5/8]${NC} Checking for database backup..."
-echo ""
-
-if docker ps --format '{{.Names}}' | grep -q '^softpower_db$'; then
-    echo "  Active database found, creating backup..."
-    # Use stdout redirection (>) instead of pg_dump -f flag.
-    # pg_dump -f passes the path to docker exec, which on Windows (Git Bash / MSYS2)
-    # translates /tmp/ to C:/Users/.../AppData/Local/Temp/ — breaking the container path.
-    # Stdout redirection lets bash handle file creation on the host filesystem.
-    docker exec softpower_db pg_dump \
-        -U "${POSTGRES_USER:-matthew50}" \
-        -d "${POSTGRES_DB:-softpower-db}" \
-        -F c > "$PACKAGE_DIR/softpower-backup.dump"
-    echo -e "  ${GREEN}Database backup created${NC} ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"
-else
-    echo -e "  ${YELLOW}No running database found, skipping backup${NC}"
-    echo "  You can add a backup later: docker exec softpower_db pg_dump ..."
-fi
-echo ""
-
-# ============================================
-# Step 6: Copy deployment files
-# ============================================
-echo -e "${BLUE}[6/8]${NC} Copying deployment files..."
+echo -e "${BLUE}[5/7]${NC} Copying deployment files..."
 echo ""
 
 # Deployment script
@@ -386,7 +363,7 @@ echo ""
 # ============================================
 # Step 7: Create documentation
 # ============================================
-echo -e "${BLUE}[7/8]${NC} Creating documentation..."
+echo -e "${BLUE}[6/7]${NC} Creating documentation..."
 echo ""
 
 cat > "$PACKAGE_DIR/README.txt" << 'DOCEOF'
@@ -411,7 +388,6 @@ Contents:
   requirements-airgap-heavy.txt List of heavy packages to install from wheels
   airgap-deploy.sh              Deployment management script
   .env.example                  Environment variable template
-  softpower-backup.dump         Database backup (if included)
   debug/                        Alembic migrations (for troubleshooting)
 
 System Requirements:
@@ -448,10 +424,7 @@ QUICK START
 7. Run database migrations:
      ./airgap-deploy.sh migrate
 
-8. (Optional) Restore database backup:
-     ./airgap-deploy.sh restore softpower-backup.dump
-
-9. Access the application:
+8. Access the application:
      Web App:    http://<hostname>:8000
      Streamlit:  http://<hostname>:8501
      API Docs:   http://<hostname>:8000/docs
@@ -572,7 +545,7 @@ echo ""
 # ============================================
 # Step 8: Package for transfer
 # ============================================
-echo -e "${BLUE}[8/8]${NC} Packaging for transfer..."
+echo -e "${BLUE}[7/7]${NC} Packaging for transfer..."
 echo ""
 
 if [ "$PACK_MODE" = true ]; then
@@ -615,9 +588,6 @@ else
     echo "  images/softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
     echo "  wheels/                          ($(du -sh "$PACKAGE_DIR/wheels" | cut -f1) - ML package wheels)"
     echo "  hf_model/                        ($(du -sh "$PACKAGE_DIR/hf_model" | cut -f1) - sentence-transformers)"
-    if [ -f "$PACKAGE_DIR/softpower-backup.dump" ]; then
-        echo "  softpower-backup.dump            ($(du -h "$PACKAGE_DIR/softpower-backup.dump" | cut -f1))"
-    fi
     echo "  airgap-deploy.sh                 (deployment script)"
     echo "  .env.example                     (config template)"
     echo "  README.txt                       (instructions)"
