@@ -9,7 +9,7 @@ services:
   # PostgreSQL + pgvector
   # -----------------------
   db:
-    image: ankane/pgvector
+    image: mmorrisj/pgvector:0.8.0-pg16
     container_name: softpower_db
     restart: unless-stopped
     shm_size: "1gb"
