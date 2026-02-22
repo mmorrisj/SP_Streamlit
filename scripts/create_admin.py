@@ -3,8 +3,14 @@
 Create initial admin user for the Soft Power Analytics Dashboard.
 
 Usage:
+    # Interactive (prompts for password - most secure):
+    python scripts/create_admin.py --username admin
+
+    # Non-interactive (for scripted deployments):
     python scripts/create_admin.py --username admin --password YourSecurePassword
-    python scripts/create_admin.py  # Uses defaults: admin / admin123
+
+    # Skip force-password-change requirement:
+    python scripts/create_admin.py --username admin --password Pass --no-force-password-change
 """
 import sys
 import os
@@ -72,20 +78,30 @@ def main():
     )
     parser.add_argument(
         "--password",
-        default="admin123",
-        help="Admin password (default: admin123)"
+        default=None,
+        help="Admin password (required in production; prompts if omitted)"
     )
     parser.add_argument(
         "--force-password-change",
         action="store_true",
-        help="Require password change on first login"
+        default=True,
+        help="Require password change on first login (default: True)"
+    )
+    parser.add_argument(
+        "--no-force-password-change",
+        action="store_false",
+        dest="force_password_change",
+        help="Do NOT require password change on first login"
     )
 
     args = parser.parse_args()
 
-    if args.password == "admin123":
-        print("Warning: Using default password 'admin123'. Change this in production!")
-        print()
+    if args.password is None:
+        import getpass
+        args.password = getpass.getpass("Enter admin password: ")
+        if not args.password:
+            print("Error: Password cannot be empty.")
+            sys.exit(1)
 
     create_admin(
         username=args.username,

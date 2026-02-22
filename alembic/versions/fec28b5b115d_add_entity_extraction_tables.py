@@ -43,15 +43,30 @@ def upgrade() -> None:
         END $$;
     """)
 
+    # Use postgresql.ENUM with create_type=False to prevent SQLAlchemy from
+    # re-issuing CREATE TYPE during table creation (sa.Enum create_type=False
+    # is not reliably honored in SQLAlchemy >=2.0.37 with Python 3.13)
+    entity_type_enum = postgresql.ENUM(
+        'PERSON', 'ORGANIZATION', 'COMPANY', 'LOCATION', 'OTHER',
+        name='entitytypeenum', create_type=False
+    )
+    entity_role_enum = postgresql.ENUM(
+        'GOVERNMENT_OFFICIAL', 'DIPLOMAT', 'BUSINESS_LEADER', 'CULTURAL_FIGURE',
+        'MILITARY_OFFICIAL', 'ACADEMIC', 'MEDIA_FIGURE', 'CIVIL_SOCIETY',
+        'IMPLEMENTING_ORGANIZATION', 'FUNDING_ORGANIZATION', 'RECIPIENT_INSTITUTION',
+        'INFRASTRUCTURE_PROJECT', 'VENUE', 'OTHER',
+        name='entityroleenum', create_type=False
+    )
+
     op.create_table('canonical_entities',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('master_entity_id', sa.UUID(), nullable=True),
     sa.Column('llm_validated', sa.Boolean(), nullable=False),
     sa.Column('llm_validated_at', sa.DateTime(), nullable=True),
     sa.Column('canonical_name', sa.Text(), nullable=False),
-    sa.Column('entity_type', sa.Enum('PERSON', 'ORGANIZATION', 'COMPANY', 'LOCATION', 'OTHER', name='entitytypeenum', create_type=False), nullable=False),
+    sa.Column('entity_type', entity_type_enum, nullable=False),
     sa.Column('initiating_country', sa.Text(), nullable=False),
-    sa.Column('primary_role', sa.Enum('GOVERNMENT_OFFICIAL', 'DIPLOMAT', 'BUSINESS_LEADER', 'CULTURAL_FIGURE', 'MILITARY_OFFICIAL', 'ACADEMIC', 'MEDIA_FIGURE', 'CIVIL_SOCIETY', 'IMPLEMENTING_ORGANIZATION', 'FUNDING_ORGANIZATION', 'RECIPIENT_INSTITUTION', 'INFRASTRUCTURE_PROJECT', 'VENUE', 'OTHER', name='entityroleenum', create_type=False), nullable=True),
+    sa.Column('primary_role', entity_role_enum, nullable=True),
     sa.Column('country_affiliations', postgresql.ARRAY(sa.Text()), nullable=False),
     sa.Column('alternative_names', postgresql.ARRAY(sa.Text()), nullable=False),
     sa.Column('first_mention_date', sa.Date(), nullable=False),
@@ -79,7 +94,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('initiating_country', sa.Text(), nullable=False),
     sa.Column('cluster_date', sa.Date(), nullable=False),
-    sa.Column('entity_type', sa.Enum('PERSON', 'ORGANIZATION', 'COMPANY', 'LOCATION', 'OTHER', name='entitytypeenum', create_type=False), nullable=False),
+    sa.Column('entity_type', entity_type_enum, nullable=False),
     sa.Column('batch_number', sa.Integer(), nullable=False),
     sa.Column('cluster_id', sa.Integer(), nullable=False),
     sa.Column('entity_names', postgresql.ARRAY(sa.Text()), nullable=False),
@@ -116,7 +131,7 @@ def upgrade() -> None:
     op.create_table('raw_entities',
     sa.Column('doc_id', sa.Text(), nullable=False),
     sa.Column('entity_name', sa.Text(), nullable=False),
-    sa.Column('entity_type', sa.Enum('PERSON', 'ORGANIZATION', 'COMPANY', 'LOCATION', 'OTHER', name='entitytypeenum', create_type=False), nullable=False),
+    sa.Column('entity_type', entity_type_enum, nullable=False),
     sa.Column('role', sa.Text(), nullable=True),
     sa.Column('country_affiliation', sa.Text(), nullable=True),
     sa.Column('context_snippet', sa.Text(), nullable=True),

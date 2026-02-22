@@ -7,7 +7,7 @@
 python-dotenv
 pandas
 numpy
-sqlalchemy==2.0.23
+sqlalchemy>=2.0.37,<2.1
 psycopg2-binary>=2.9.10
 openpyxl
 python-docx

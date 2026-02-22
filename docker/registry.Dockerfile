@@ -104,6 +104,7 @@ COPY shared/ ./shared/
 COPY server/ ./server/
 COPY services/chat/ ./services/chat/
 COPY services/dashboard/ ./services/dashboard/
+COPY scripts/create_admin.py ./scripts/create_admin.py
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 

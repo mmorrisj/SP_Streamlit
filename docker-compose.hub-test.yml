@@ -1,0 +1,117 @@
+# ============================================
+# Fresh Machine Simulation - Docker Hub Images Only
+# Pulls all images from Docker Hub (no local builds)
+#
+# Usage:
+#   docker-compose -f docker-compose.hub-test.yml up -d
+#   docker-compose -f docker-compose.hub-test.yml down -v  (cleanup)
+# ============================================
+
+name: softpower_hub_test
+
+services:
+  # -----------------------
+  # PostgreSQL + pgvector
+  # -----------------------
+  db:
+    image: mmorrisj/pgvector:0.8.0-pg16
+    container_name: sp_hub_db
+    restart: unless-stopped
+    shm_size: "1gb"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - hub_test_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - hub_test_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-matthew50} -d ${POSTGRES_DB:-softpower-db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # -----------------------
+  # Redis
+  # -----------------------
+  redis:
+    image: redis:7-alpine
+    container_name: sp_hub_redis
+    restart: unless-stopped
+    networks:
+      - hub_test_net
+
+  # -----------------------
+  # SoftPower Analytics (FastAPI + Streamlit via supervisord)
+  # Single consolidated container from Docker Hub
+  # -----------------------
+  app:
+    image: mmorrisj/softpower-analytics:1.4.0
+    container_name: sp_hub_app
+    restart: unless-stopped
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: sp_hub_db
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      POSTGRES_HOST: sp_hub_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@sp_hub_db:5432/${POSTGRES_DB:-softpower-db}
+      REDIS_URL: redis://sp_hub_redis:6379
+      API_PORT: 8000
+      # Pass through credentials from .env (will be empty if not set)
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+    ports:
+      - "8000:8000"   # FastAPI (React UI + API)
+      - "8501:8501"   # Streamlit Dashboard
+    networks:
+      - hub_test_net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # -----------------------
+  # Alembic Migrations (run once with --profile migrate)
+  # -----------------------
+  migrate:
+    image: mmorrisj/softpower-analytics:1.4.0
+    container_name: sp_hub_migrate
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: sp_hub_db
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@sp_hub_db:5432/${POSTGRES_DB:-softpower-db}
+    command: alembic upgrade head
+    networks:
+      - hub_test_net
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+
+# -----------------------
+# Isolated volumes and network
+# -----------------------
+volumes:
+  hub_test_pgdata:
+
+networks:
+  hub_test_net:
