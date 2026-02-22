@@ -38,3 +38,14 @@ RUN apt-get purge -y build-essential git ca-certificates postgresql-server-dev-1
     && apt-get autoremove -y \
     && (dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true) \
     && rm -rf /tmp/pgvector /var/lib/apt/lists/*
+
+# Remove gosu (Go 1.24.6 binary) to eliminate CVE-2025-68121 (CRITICAL).
+# gosu is only used by the entrypoint when running as root to drop privileges.
+# Since we set USER postgres below, the entrypoint's root codepath is never
+# executed, making gosu unnecessary.
+RUN rm -f /usr/local/bin/gosu
+
+# Run as non-root user (Scout health check: "Default non-root user")
+# The postgres base image creates uid 999 (postgres) and its entrypoint
+# handles initialization correctly when running as non-root.
+USER postgres
