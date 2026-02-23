@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from typing import Optional, List
 from datetime import datetime, timezone
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, Text
 from pathlib import Path
 import yaml
 import json

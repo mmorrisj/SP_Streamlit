@@ -75,6 +75,10 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@sp_prod_db:5432/${POSTGRES_DB:-softpower-db}
       REDIS_URL: redis://sp_prod_redis:6379
       API_PORT: 8000
+      # Host-side proxy for LLM/S3 calls (run uvicorn server.main:app on host)
+      API_URL: http://host.docker.internal:${API_PORT:-7001}
+      S3_PROXY_URL: http://host.docker.internal:${API_PORT:-7001}
+      USE_S3_API_CLIENT: "true"
       # Pass through credentials from .env (will be empty if not set)
       CLAUDE_KEY: ${CLAUDE_KEY:-}
       OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
@@ -85,6 +89,8 @@ services:
     ports:
       - "8000:8000"   # FastAPI (React UI + API)
       - "8501:8501"   # Streamlit Dashboard
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - prod_net
     depends_on:
