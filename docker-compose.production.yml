@@ -60,7 +60,7 @@ services:
   # Single consolidated container from Docker Hub
   # -----------------------
   app:
-    image: mmorrisj/softpower-analytics:1.5.0
+    image: mmorrisj/softpower-analytics:1.5.1
     container_name: sp_prod_app
     restart: unless-stopped
     environment:
@@ -97,7 +97,7 @@ services:
   # Alembic Migrations (run once with --profile migrate)
   # -----------------------
   migrate:
-    image: mmorrisj/softpower-analytics:1.5.0
+    image: mmorrisj/softpower-analytics:1.5.1
     container_name: sp_prod_migrate
     environment:
       DOCKER_ENV: "true"

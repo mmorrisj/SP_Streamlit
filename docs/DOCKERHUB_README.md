@@ -40,7 +40,7 @@ services:
     image: redis:7-alpine
 
   app:
-    image: mmorrisj/softpower-analytics:1.5.0
+    image: mmorrisj/softpower-analytics:1.5.1
     environment:
       DOCKER_ENV: "true"
       DB_HOST: db
@@ -62,7 +62,7 @@ services:
         condition: service_started
 
   migrate:
-    image: mmorrisj/softpower-analytics:1.5.0
+    image: mmorrisj/softpower-analytics:1.5.1
     environment:
       DOCKER_ENV: "true"
       DATABASE_URL: postgresql+psycopg2://softpower:changeme@db:5432/softpower-db
