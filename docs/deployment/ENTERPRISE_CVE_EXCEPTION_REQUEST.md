@@ -1,0 +1,117 @@
+# Enterprise CVE Exception Request
+
+Date: February 23, 2026  
+System: SoftPower Analytics container deployment (enterprise network)  
+Prepared for: Security review and deployment approval
+
+## Scope
+
+This exception request covers medium-severity CVEs that may still be reported by enterprise scanners after rebuilding/publishing current images.
+
+Target images for this exception package (replace with exact scanned digests):
+
+- `mmorrisj/softpower-analytics:1.5.2` (application image)
+- `mmorrisj/pgvector:0.8.0-pg16` (database image)
+
+## Required Attachments
+
+Attach scanner output generated from the exact deployed image digests:
+
+- Enterprise scan report (full)
+- CVE-level evidence report for listed CVEs only
+- Image digest evidence (`docker inspect` output)
+
+## CVEs Requested for Exception
+
+The entries below are the current exception candidates based on package presence and dependency constraints in Debian-based runtime images.
+
+| CVE | Package Family | Image(s) | Disposition | Rationale |
+|---|---|---|---|---|
+| CVE-2025-10911 | `libxslt` | pgvector | Exception | Runtime dependency in base image; removal would remove PostgreSQL package chain. |
+| CVE-2025-13151 | `libtasn1` | app | Exception | Transitive dependency of TLS stack (`gnutls`); required by installed runtime libs. |
+| CVE-2025-14104 | `util-linux` | app, pgvector | Exception | Core OS utility package; not safely removable from runtime base. |
+| CVE-2025-15281 | `glibc` / `libc` | app, pgvector | Exception | Core C runtime; requires upstream distro update, not application-layer remediation. |
+| CVE-2025-7709 | `sqlite` (`libsqlite3-0`) | app, pgvector | Exception (if scanner still flags) | Required dependency chain on Debian trixie (`util-linux -> liblastlog2-2 -> libsqlite3-0`). |
+| CVE-2026-0915 | `glibc` / `libc` | app, pgvector | Exception | Core libc path; requires upstream distro fix. |
+| CVE-2026-0990 | `libxml2` | pgvector | Exception | Transitive runtime dependency; removing it removes PostgreSQL dependencies. |
+| CVE-2026-27171 | `zlib` | app, pgvector | Exception | Foundational OS dependency required by package manager/runtime stack. |
+
+## CVEs Not Requested for Exception (Expected Closed)
+
+These should be validated as closed by the enterprise scan after image refresh:
+
+| CVE | Expected Status | Notes |
+|---|---|---|
+| CVE-2023-50495 | Closed | `ncurses` on current Debian 13 package line. |
+| CVE-2024-10041 | Closed | `pam` on current Debian 13 package line. |
+| CVE-2025-14831 | Closed | `gnutls` package line updated. |
+| CVE-2025-30258 | Closed | `gnupg` removed from runtime images. |
+| CVE-2025-68972 | Closed / Not present | `gnupg2` package not installed in runtime images. |
+| CVE-2025-9820 | Closed | `gnutls` package line updated. |
+
+## Technical Constraints
+
+1. Base image inherited dependencies:
+- Remaining CVEs are primarily in base OS/runtime packages required by Debian and PostgreSQL packaging.
+
+2. Safe-removal limits:
+- Attempted package purges for these libraries remove or break core runtime dependencies (PostgreSQL/app startup risk).
+
+3. Upstream-fix dependency:
+- Several CVEs require upstream Debian package updates rather than application code changes.
+
+## Compensating Controls
+
+1. Network isolation and least exposure:
+- Only required service ports are exposed.
+- Database is intended for service-to-service use in Docker network.
+
+2. Non-root container execution:
+- Containers run as non-root users where configured.
+
+3. Minimal runtime footprint:
+- Build-time tooling removed from runtime images.
+- Unneeded package classes (e.g., `gnupg`) removed where safe.
+
+4. Deployment controls:
+- Image tags/digests are pinned for release approval.
+- Re-scan required before each production promotion.
+
+## Operational Risk Statement
+
+Residual risk is accepted for the listed CVEs because:
+
+- No safe package-level mitigation exists without destabilizing required runtime dependencies, and
+- Applicable fixes are pending from upstream distribution maintainers, and
+- Compensating controls materially reduce practical exploitability in this deployment model.
+
+## Revalidation Plan
+
+- Re-scan cadence: every release and at least monthly while exceptions remain open.
+- Trigger for early reassessment:
+  - Upstream fix published for an excepted CVE
+  - CVE enters CISA KEV or equivalent exploited-in-the-wild catalog
+  - Architecture change that increases attack surface
+
+## Evidence Commands (for Approval Packet)
+
+```bash
+# Replace tags with exact release tags/digests used in deployment
+docker pull mmorrisj/softpower-analytics:1.5.2
+docker pull mmorrisj/pgvector:0.8.0-pg16
+
+docker inspect --format='{{index .RepoDigests 0}}' mmorrisj/softpower-analytics:1.5.2
+docker inspect --format='{{index .RepoDigests 0}}' mmorrisj/pgvector:0.8.0-pg16
+
+# Package evidence snapshots
+docker run --rm mmorrisj/softpower-analytics:1.5.2 dpkg -l > app-dpkg.txt
+docker run --rm mmorrisj/pgvector:0.8.0-pg16 dpkg -l > db-dpkg.txt
+```
+
+## Approval Sign-Off
+
+Security reviewer: ____________________  
+Date: ____________________  
+Decision: Approved / Rejected  
+Conditions (if any): ______________________________________________
+

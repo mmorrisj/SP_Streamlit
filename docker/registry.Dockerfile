@@ -38,12 +38,10 @@ WORKDIR /app
 # System dependencies
 # - curl: health checks
 # - postgresql-client: pg_isready, psql utilities
-# - supervisor: process manager for FastAPI + Streamlit
 # - build-essential: required by some Python packages at install time
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         postgresql-client \
-        supervisor \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -70,13 +68,14 @@ RUN apt-get purge -y build-essential \
     && dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade setuptools to fix CVE-2025-47273 (HIGH - path traversal),
-# pip to fix CVE-2026-1703 (LOW - path traversal),
-# and jaraco.context to fix CVE-2026-23949 (HIGH - Zip Slip path traversal)
-RUN pip install --no-cache-dir "setuptools>=78.1.1" "pip>=26.0" "jaraco.context>=6.1.0" \
-    && dpkg --purge --force-depends python3-jaraco.context \
-    && ln -sf /usr/local/lib/python3.13/site-packages/jaraco/context \
-              /usr/lib/python3/dist-packages/jaraco/context
+# Install supervisor from PyPI (instead of distro package) to avoid pulling
+# Debian python3.13 runtime packages into the final image.
+# Also upgrade setuptools/pip and jaraco.context for known CVE fixes.
+RUN pip install --no-cache-dir \
+        "setuptools>=78.1.1" \
+        "pip>=26.0" \
+        "jaraco.context>=6.1.0" \
+        "supervisor>=4.2.5"
 
 # Download and bake in the HuggingFace sentence-transformers model.
 # Saved via model.save() for a clean, symlink-free layout that survives

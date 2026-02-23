@@ -1,13 +1,13 @@
 # CVE Mitigation Report: SoftPower Analytics Docker Stack
 
-**Date**: February 21, 2026
-**Scanner**: Docker Scout v1.18.3
+**Date**: February 23, 2026
+**Scanner**: Docker Scout v1.19.0
 **Platform**: linux/amd64
 
 | Image | Tag | Base | Purpose |
 |-------|-----|------|---------|
-| `mmorrisj/softpower-analytics` | 1.3.0 | `python:3.13-slim` (Debian Trixie) | Application (FastAPI + Streamlit + React + ML) |
-| `mmorrisj/pgvector` | 0.8.0-pg16 | `postgres:16-bookworm` (Debian Bookworm) | PostgreSQL 16 + pgvector extension |
+| `mmorrisj/softpower-analytics` | 1.5.2 | `python:3.13-slim` (Debian Trixie) | Application (FastAPI + Streamlit + React + ML) |
+| `mmorrisj/pgvector` | 0.8.0-pg16 | `postgres:16-trixie` (Debian Trixie) | PostgreSQL 16 + pgvector extension |
 
 ---
 
@@ -15,11 +15,11 @@
 
 A comprehensive vulnerability scan and remediation was performed on both Docker images in the SoftPower Analytics stack. Combined results:
 
-### Application Image (`softpower-analytics:1.3.0`)
+### Application Image (`softpower-analytics:1.5.2`)
 
 **60 of 96 identified CVEs were eliminated** through base image upgrades, package version bumps, build-tool removal, and Debian package conflict resolution. All CRITICAL and HIGH severity vulnerabilities have been resolved. Supply chain attestations (SBOM + provenance) are attached to the image.
 
-| Metric | Before (v1.0.0) | After (v1.3.0) | Change |
+| Metric | Before (v1.0.0) | After (v1.5.2) | Change |
 |--------|:---:|:---:|:---:|
 | Critical | 2 | 0 | -2 |
 | High | 5 | 0 | -5 |
@@ -30,26 +30,27 @@ A comprehensive vulnerability scan and remediation was performed on both Docker 
 | Packages Scanned | 418 | 367 | -51 removed |
 
 **Version History**:
-- **v1.1.0**: Base image upgrade (3.11→3.13), package upgrades, build-tool removal (95→36 CVEs)
+- **v1.1.0**: Base image upgrade (3.11->3.13), package upgrades, build-tool removal (95->36 CVEs)
 - **v1.2.0**: Added non-root user (`appuser`) for Docker Scout health score compliance
 - **v1.3.0**: Fixed CVE-2026-23949 (HIGH, jaraco.context Zip Slip), added supply chain attestations (SBOM + provenance)
+- **v1.5.0-1.5.2**: Deployment hardening (admin user creation, production compose, SQLAlchemy bump, supervisor via pip)
 
 **Risk Assessment**: The 36 remaining vulnerabilities are all LOW severity (35) or MEDIUM (1) with no available upstream fix. None are exploitable in this application's deployment context. See Section 2 for detailed analysis.
 
 ### Database Image (`pgvector:0.8.0-pg16`)
 
-The previous database image (`ankane/pgvector:latest`) had **337 CVEs** due to a stale, unmaintained base. A custom image was built from the current `postgres:16-bookworm` base with pgvector 0.8.0 compiled from source and build tools removed.
+The previous database image (`ankane/pgvector:latest`) had **337 CVEs** due to a stale, unmaintained base. A custom image was built from `postgres:16-trixie` with pgvector 0.8.0 compiled from source, build tools removed, and runtime packages hardened.
 
 | Metric | Before (ankane/pgvector) | After (mmorrisj/pgvector) | Change |
 |--------|:---:|:---:|:---:|
 | Critical | 9 | 1 | -8 |
 | High | 96 | 6 | -90 |
-| Medium | 87 | 12 | -75 |
-| Low | 145 | 40 | -105 |
-| **Total** | **337** | **59** | **-278 (82% reduction)** |
-| Packages Scanned | 224 | 211 | -13 removed |
+| Medium | 87 | 10 | -77 |
+| Low | 145 | 34 | -111 |
+| **Total** | **337** | **51** | **-286 (85% reduction)** |
+| Packages Scanned | 224 | 190 | -34 removed |
 
-**Risk Assessment**: The 59 remaining CVEs are all inherited from the official `postgres:16-bookworm` base image. The 1 CRITICAL and 6 HIGH are in Go stdlib (bundled by the PostgreSQL Docker maintainers, not by PostgreSQL itself) and affect every `postgres:16` image on Docker Hub. See Section 5 for detailed analysis.
+**Risk Assessment**: The 51 remaining CVEs are all inherited from the official `postgres:16-trixie` base image. The 1 CRITICAL and 6 HIGH are in Go stdlib (bundled by the PostgreSQL Docker maintainers, not by PostgreSQL itself) and affect every `postgres:16` image on Docker Hub. See Section 5 for detailed analysis.
 
 ---
 
@@ -89,11 +90,9 @@ The previous database image (`ankane/pgvector:latest`) had **337 CVEs** due to a
 
 This eliminated **39 binutils-related LOW CVEs** and reduced the package count from 418 to 370.
 
-### 1.4 Debian Package Conflict Resolution (v1.3.0)
+### 1.4 Supervisor via pip (v1.5.x)
 
-| Package | CVE | Severity | Issue | Fix |
-|---------|-----|:---:|-------|-----|
-| `jaraco.context` | CVE-2026-23949 | HIGH (8.6) | Zip Slip path traversal in `tarball()` function. The `supervisor` Debian package depends on `python3-jaraco.context 6.0.1-1`, which Scout flags even after pip-installing 6.1.0. | Pip-installed `jaraco.context>=6.1.0`, purged the Debian package via `dpkg --purge --force-depends`, and created a symlink from the system Python path to the pip-installed version so supervisor continues to function. |
+Starting with v1.5.0, `supervisor` is installed from PyPI instead of the Debian `supervisor` package. This eliminates the Debian `python3-jaraco.context` dependency chain entirely, removing the need for the dpkg purge + symlink workaround used in v1.3.0.
 
 ### 1.5 Non-Root User (v1.2.0)
 
@@ -106,7 +105,7 @@ The container now runs as a non-root user (`appuser`) for Docker Scout health sc
 
 SBOM (Software Bill of Materials) and provenance attestations are now attached to the image using Docker BuildKit's built-in attestation support:
 - **SBOM**: Generated by `docker/buildkit-syft-scanner` during build
-- **Provenance**: Build provenance metadata attached to the image manifest
+- **Provenance**: Build provenance metadata attached to the image manifest (max mode)
 - **Builder**: `docker-container` driver (required for attestation export and push)
 
 ### 1.7 Python 3.13 Compatibility Fixes
@@ -206,7 +205,7 @@ All 36 remaining CVEs have **no upstream fix available** from Debian or PyPI mai
 
 **Assessment**: Standard OS utilities. Not invoked with untrusted input. **No action needed.**
 
-#### Other Packages -- 1 LOW each (9 packages)
+#### Other Packages -- 1 LOW each (10 packages)
 
 | CVE | Package | Description | Relevance |
 |-----|---------|-------------|-----------|
@@ -219,6 +218,7 @@ All 36 remaining CVEs have **no upstream fix available** from Debian or PyPI mai
 | CVE-2007-5686 | shadow 4.17.4 | `/etc/login.defs` info leak | **Not relevant.** No interactive logins in the container. |
 | CVE-2010-0928 | openssl 3.5.4 | Theoretical plaintext recovery | **Not exploitable.** CVSS score of 2.6. Requires specific conditions unlikely in modern TLS. |
 | CVE-2019-12105 | supervisor 4.2.5 | Information disclosure in web UI | **Not exploitable.** Supervisor's web interface is not enabled; supervisord runs in foreground mode only. |
+| CVE-2024-2236 | libgcrypt20 1.11.0 | Side-channel in RSA decryption | **Not exploitable.** Requires local access and precise timing measurements. Container isolation mitigates. |
 
 ---
 
@@ -244,7 +244,7 @@ The deployment architecture provides multiple layers of protection beyond indivi
 
 3. **Network Segmentation**: The container exposes only ports 8000 (FastAPI API + React UI) and 8501 (Streamlit dashboard). Internal services communicate via localhost only.
 
-4. **Minimal Package Footprint**: Build tools (`build-essential`, binutils, gcc) are removed after compilation. The final image contains 370 packages -- only what is needed for runtime.
+4. **Minimal Package Footprint**: Build tools (`build-essential`, binutils, gcc) are removed after compilation. The final image contains 367 packages -- only what is needed for runtime.
 
 5. **Offline ML Model**: The HuggingFace sentence-transformer model is baked into the image at build time. `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1` prevent any runtime network calls to HuggingFace, eliminating a potential supply-chain vector.
 
@@ -252,7 +252,7 @@ The deployment architecture provides multiple layers of protection beyond indivi
 
 ### Conclusion
 
-**The `softpower-analytics:1.3.0` image is suitable for production deployment.** All CRITICAL and HIGH vulnerabilities have been resolved. The 36 remaining vulnerabilities (1 MEDIUM, 35 LOW) are either:
+**The `softpower-analytics:1.5.2` image is suitable for production deployment.** All CRITICAL and HIGH vulnerabilities have been resolved. The 36 remaining vulnerabilities (1 MEDIUM, 35 LOW) are either:
 
 - In OS packages not used by the application (systemd, openldap, krb5, sqlite3, perl, shadow)
 - In utilities used only for internal operations (curl for health checks, tar/apt for build-time only)
@@ -270,14 +270,55 @@ No remaining CVE is exploitable through the application's exposed attack surface
 | Action | Detail |
 |--------|--------|
 | Replaced `ankane/pgvector:latest` | Unmaintained image with 337 CVEs (9C, 96H, 87M, 145L) based on stale `debian:12-slim` |
-| Built custom `mmorrisj/pgvector:0.8.0-pg16` | Fresh `postgres:16-bookworm` base, pgvector 0.8.0 compiled from source |
+| Built custom `mmorrisj/pgvector:0.8.0-pg16` | `postgres:16-trixie` base (Debian 13), pgvector 0.8.0 compiled from source |
+| Base image upgrade | Moved from `postgres:16-bookworm` (Debian 12) to `postgres:16-trixie` (Debian 13) for newer libc/OpenLDAP/libxml2 packages |
 | Build tool removal | `build-essential`, `git`, `ca-certificates`, `postgresql-server-dev-16` purged after compilation |
+| Runtime package reduction | Purged unused GnuPG tooling (`gnupg`, `gpg`, `gpg-wks-client`, `gpg-wks-server`) from final runtime layer |
+| gosu removal | Removed Go-compiled `gosu` binary (Go 1.24.6) to reduce Go stdlib CVE exposure. Not needed when running as `USER postgres`. |
+| Non-root user | `USER postgres` set in Dockerfile. Entrypoint handles initialization correctly as non-root. |
 | Residual metadata cleanup | `dpkg --purge --force-all` on packages in `rc` state |
-| Updated `docker-compose.yml` | `db` service now uses `mmorrisj/pgvector:0.8.0-pg16` |
+| Supply chain attestations | SBOM + max-mode provenance attached via `docker-container` buildx driver |
+| Updated compose files | `docker-compose.yml` and `docker-compose.production.yml` use `mmorrisj/pgvector:0.8.0-pg16` |
 
-### 5.2 Remaining Vulnerabilities (59 total)
+### 5.1.1 Enterprise Scan CVE Closures (2026-02-23)
 
-All 59 remaining CVEs originate from the official `postgres:16-bookworm` base image. None were introduced by the pgvector extension or the custom build process.
+| CVE | Finding Source | Mitigation Status | Notes |
+|-----|----------------|-------------------|-------|
+| CVE-2025-7458 | Enterprise scanner | Partial / base-dependent | Mitigated in prior bookworm variant by removing `libsqlite3-0`. Current trixie-based image retains `libsqlite3-0` due to `util-linux -> liblastlog2-2` dependency chain; requires enterprise scanner validation on trixie package set. |
+| CVE-2023-45853 | Enterprise scanner | Exception / Not affected | CVE targets MiniZip paths; image does not install `minizip` packages. Keep documented exception evidence in scan packet. |
+| CVE-2023-2953 | Enterprise scanner | Mitigated | pgvector base moved from `postgres:16-bookworm` (`libldap-2.5-0` 2.5.13) to `postgres:16-trixie` (`libldap2` 2.6.10). |
+| CVE-2026-0861 | Enterprise scanner | Exception / Not affected | Affected glibc DNS backend path is not used in this image (`/etc/nsswitch.conf` has `networks: files`), so exploit path is not reachable in default runtime configuration. |
+
+### 5.1.2 CentOS 7 Host Compatibility Notes
+
+The pgvector image changes are compatible with CentOS 7 hosts running a supported Docker Engine setup, with one important operational caveat for existing database volumes.
+
+**Host runtime compatibility checks (CentOS 7):**
+
+1. Kernel and storage driver prerequisites:
+   - Ensure kernel is `3.10.0-514` or newer and Docker uses `overlay2`.
+   - Ensure backing filesystem supports `d_type` (`xfs` with `ftype=1`).
+2. Validate on target host:
+   - `uname -r`
+   - `docker info | egrep "Server Version|Storage Driver|Backing Filesystem|Cgroup Version"`
+   - `xfs_info /var/lib/docker | grep -E "ftype=1|ftype=true"` (if XFS)
+
+**PostgreSQL data compatibility caveat (important):**
+
+Moving from a `bookworm`-based PostgreSQL image (glibc 2.36) to `trixie` (glibc 2.41) can trigger collation version mismatches on existing clusters. PostgreSQL documents that this can affect index correctness until reindexed.
+
+If deploying against an existing `PGDATA` volume created on bookworm:
+
+1. Backup first (`pg_dump`/snapshot).
+2. Reindex affected databases (or all user databases in maintenance window).
+3. Refresh collation version:
+   - `ALTER DATABASE <db_name> REFRESH COLLATION VERSION;`
+
+For fresh deployments (new empty `PGDATA`), no collation migration step is needed.
+
+### 5.2 Remaining Vulnerabilities (51 total)
+
+All 51 remaining CVEs originate from the official `postgres:16-trixie` base image. None were introduced by the pgvector extension or the custom build process.
 
 #### 5.2.1 CRITICAL + HIGH: Go stdlib 1.24.6 (1C, 6H)
 
@@ -298,22 +339,23 @@ All 59 remaining CVEs originate from the official `postgres:16-bookworm` base im
 - **Are not network-exploitable** through PostgreSQL's port 5432. They require local code execution within the Go-compiled entrypoint tooling.
 - **Will be resolved automatically** when the PostgreSQL Docker team rebuilds with Go >=1.24.13. No user action can fix this sooner.
 
-**Assessment**: Accepted risk. Monitor for updated `postgres:16-bookworm` base image. Rebuild and push `mmorrisj/pgvector` when the upstream fix is available.
+**Assessment**: Accepted risk. Monitor for updated `postgres:16-trixie` base image. Rebuild and push `mmorrisj/pgvector` when the upstream fix is available.
 
-#### 5.2.2 MEDIUM Severity (12)
+#### 5.2.2 MEDIUM Severity (10)
 
-The 12 MEDIUM CVEs are in Debian Bookworm OS packages (glibc, openssl, perl, libtasn1, etc.) with no upstream fix available. These are the same class of unfixed OS-level vulnerabilities seen in the application image and are not exploitable through the PostgreSQL service.
+9 of the 10 MEDIUM CVEs are additional Go stdlib vulnerabilities in the same `gosu` binary bundled in the base image layer (see Section 5.2.1 -- same root cause, same accepted risk). The remaining 1 MEDIUM is `tar` (CVE-2025-45582), the same unfixed Debian package assessed in Section 2.2.
 
-#### 5.2.3 LOW Severity (40)
+#### 5.2.3 LOW Severity (34)
 
-The 40 LOW CVEs are in Debian Bookworm OS packages -- the same packages (glibc, openldap, curl, systemd, krb5, coreutils, etc.) assessed in Section 2.3 above. The same relevance assessment applies: these are in OS utilities not invoked by PostgreSQL on untrusted input.
+The 34 LOW CVEs are in Debian Trixie OS packages -- the same packages (glibc, openldap, systemd, krb5, coreutils, libxml2, libxslt, libgcrypt20, etc.) assessed in Section 2.3 above. The same relevance assessment applies: these are in OS utilities not invoked by PostgreSQL on untrusted input.
 
 ### 5.3 Alternative Approaches Evaluated
 
 | Option | CVEs | Tradeoff | Decision |
 |--------|:---:|----------|----------|
-| `postgres:16-bookworm` (current) | 1C 6H 12M 40L | Latest available tag. Debian/glibc-based, maximum compatibility with CentOS 7 host. | **Selected** |
-| `postgres:16-alpine` | 1C 6H 11M 1L | Drops 39 LOWs (Alpine has fewer OS packages). Same Go stdlib issue. Uses musl libc -- risk of locale/collation incompatibility with existing database, potential data migration required. | Rejected -- collation risk outweighs LOW CVE reduction |
+| `postgres:16-trixie` (current) | 1C 6H 10M 34L | Debian 13 base with newer packages (libldap 2.6.10, glibc 2.41). Resolves CVE-2023-2953 (OpenLDAP). | **Selected** |
+| `postgres:16-bookworm` (previous) | 1C 6H 12M 40L | Debian 12 base. Older libldap (2.5.13), more OS-level CVEs. | Superseded by trixie |
+| `postgres:16-alpine` | 1C 6H 11M 1L | Drops many LOWs (Alpine has fewer OS packages). Same Go stdlib issue. Uses musl libc -- risk of locale/collation incompatibility with existing database, potential data migration required. | Rejected -- collation risk outweighs LOW CVE reduction |
 | `postgres:17-bookworm` | 1C 6H 12M 40L | Same CVE count. Major PG version change requires migration testing. | Not needed -- no CVE benefit |
 | Host PostgreSQL (bare metal) | 0 Docker CVEs | Eliminates all Docker image CVEs including Go stdlib. However, pgvector extension is not available as a pre-built package for the CentOS 7 deployment host, and CentOS 7 is EOL (June 2024) with its own unpatched OS vulnerabilities. | Not feasible -- pgvector availability |
 
@@ -321,7 +363,7 @@ The 40 LOW CVEs are in Debian Bookworm OS packages -- the same packages (glibc, 
 
 1. **Network exposure**: PostgreSQL listens on port 5432 within the Docker network. The Go stdlib CVEs are in container entrypoint tooling, not in the PostgreSQL wire protocol handler. An attacker with access to port 5432 interacts with PostgreSQL's C-based query engine, not the Go runtime.
 
-2. **No public exposure**: The database container is not exposed to the internet. It communicates only with the application container via the `softpower_net` Docker network.
+2. **No public exposure**: The database container is not exposed to the internet. It communicates only with the application container via the Docker network.
 
 3. **Read-heavy workload**: The database serves a read-heavy analytics dashboard. Write operations are performed by the ingestion pipeline running on the host, not through the containerized application.
 
@@ -341,13 +383,16 @@ The 40 LOW CVEs are in Debian Bookworm OS packages -- the same packages (glibc, 
 | `35f3e04` | Add CVE mitigation report and update deployment scripts |
 | `aa4dfda` | Add custom pgvector Dockerfile and replace ankane/pgvector in compose |
 | `aa1cb21` | Add non-root user to registry Dockerfile for Scout health score |
-| *(pending)* | Fix CVE-2026-23949 (jaraco.context), add supply chain attestations |
+| `08e4fdd` | Fix CVE-2026-23949 (jaraco.context), add supply chain attestations |
+| `c9b6340` | Add non-root user and remove gosu from pgvector Dockerfile |
+| `4674fba` | Fix deployment bugs and harden admin user creation |
+| `3f28d8f` | Bump image references to 1.5.2 |
 
 ## Appendix B: Files Modified
 
 | File | Changes |
 |------|---------|
-| `docker/registry.Dockerfile` | Base image 3.11->3.13, torch>=2.6.0, build-essential purge + dpkg cleanup, setuptools/pip upgrade, jaraco.context fix (dpkg purge + symlink), non-root user |
+| `docker/registry.Dockerfile` | Base image 3.11->3.13, torch>=2.6.0, build-essential purge + dpkg cleanup, setuptools/pip upgrade, supervisor via pip, non-root user |
 | `docker/api.Dockerfile` | Base image 3.11->3.13, build-essential purge |
 | `docker/api-production.Dockerfile` | Base image 3.11->3.13, build-essential purge |
 | `docker/dashboard.Dockerfile` | Base image 3.11->3.13 |
@@ -357,16 +402,18 @@ The 40 LOW CVEs are in Debian Bookworm OS packages -- the same packages (glibc, 
 | `server/main.py` | Python 3.13 compatibility (datetime.utcnow, Pydantic regex->pattern) |
 | `server/auth.py` | Python 3.13 compatibility (datetime.utcnow) |
 | `server/report_validator.py` | Python 3.13 compatibility (datetime.utcnow) |
-| `docker/pgvector.Dockerfile` | New custom pgvector build from postgres:16-bookworm with build tool removal |
+| `docker/pgvector.Dockerfile` | Custom pgvector build: postgres:16-trixie base, build tool removal, gnupg removal, gosu removal, USER postgres |
 | `docker-compose.yml` | Updated `db` service from `ankane/pgvector` to `mmorrisj/pgvector:0.8.0-pg16` |
+| `docker-compose.production.yml` | Production deployment with pinned image tags |
+| `scripts/create_admin.py` | Hardened admin user creation, added to registry Dockerfile |
 
 ## Appendix C: Scanner Output
 
 ### Application Image
 
 ```
-Target:  mmorrisj/softpower-analytics:1.3.0
-Digest:  b29d8769a772
+Target:  mmorrisj/softpower-analytics:1.5.2
+Digest:  26719be6778b
 Platform: linux/amd64
 Size:    1.2 GB
 Packages: 367
@@ -380,13 +427,14 @@ Attestations:    SBOM + Provenance attached
 
 ```
 Target:  mmorrisj/pgvector:0.8.0-pg16
-Digest:  df4b453d2ebc
+Digest:  59a0ec1d681b
 Platform: linux/amd64
-Size:    535 MB
-Packages: 211
+Size:    536 MB
+Packages: 190
 
-Vulnerabilities: 1C 6H 12M 40L (59 total)
-Base image:      postgres:16-bookworm (1C 6H 12M 40L)
+Vulnerabilities: 1C 6H 10M 34L (51 total)
+Base image:      postgres:16-trixie (1C 6H 10M 34L)
+Attestations:    SBOM + Provenance attached
 
 Previous image (ankane/pgvector:latest):
 Vulnerabilities: 9C 96H 87M 145L (337 total)
@@ -398,14 +446,14 @@ Vulnerabilities: 9C 96H 87M 145L (337 total)
                     Application    Database    Combined
 Critical:                  0           1           1
 High:                      0           6           6
-Medium:                    1          12          13
-Low:                      35          40          75
-Total:                    36          59          95
+Medium:                    1          10          11
+Low:                      35          34          69
+Total:                    36          51          87
 
 All Critical/High in database image are from Go stdlib in the
-postgres:16-bookworm base, affecting every postgres:16 image
+postgres:16-trixie base, affecting every postgres:16 image
 on Docker Hub. Not network-exploitable via PostgreSQL port 5432.
 ```
 
-Scanner: Docker Scout v1.18.3
-Scan date: February 21, 2026
+Scanner: Docker Scout v1.19.0
+Scan date: February 23, 2026

@@ -12,7 +12,9 @@
 #   docker push mmorrisj/pgvector:0.8.0-pg16
 # ============================================
 
-FROM postgres:16-bookworm
+# Use Debian 13 (trixie) variant to pick up newer libc/OpenLDAP packages
+# while staying on PostgreSQL 16.
+FROM postgres:16-trixie
 
 # pgvector version to install
 ARG PGVECTOR_VERSION=0.8.0
@@ -33,8 +35,11 @@ RUN apt-get update \
 # Verify the extension was installed
 RUN pg_config --sharedir | xargs -I{} ls {}/extension/vector.control
 
-# Remove build tools to reduce attack surface
+# Remove build tools and unneeded runtime packages to reduce attack surface.
+# On trixie, libsqlite3-0 is required by util-linux dependency chain and cannot
+# be safely purged without breaking base package dependencies.
 RUN apt-get purge -y build-essential git ca-certificates postgresql-server-dev-16 \
+    gnupg gpg gpg-wks-client gpg-wks-server \
     && apt-get autoremove -y \
     && (dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true) \
     && rm -rf /tmp/pgvector /var/lib/apt/lists/*
