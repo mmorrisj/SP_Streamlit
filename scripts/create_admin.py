@@ -9,6 +9,9 @@ Usage:
     # Non-interactive (for scripted deployments):
     python scripts/create_admin.py --username admin --password YourSecurePassword
 
+    # Reset password for existing user (e.g. after pg_restore):
+    python scripts/create_admin.py --username admin --password NewPass --reset-password
+
     # Skip force-password-change requirement:
     python scripts/create_admin.py --username admin --password Pass --no-force-password-change
 """
@@ -24,7 +27,8 @@ from shared.models.models import User, UserRole
 from server.auth import hash_password
 
 
-def create_admin(username: str, password: str, force_password_change: bool = False):
+def create_admin(username: str, password: str, force_password_change: bool = False,
+                  reset_password: bool = False):
     """
     Create an admin user in the database.
 
@@ -32,14 +36,14 @@ def create_admin(username: str, password: str, force_password_change: bool = Fal
         username: Admin username
         password: Admin password
         force_password_change: Whether to force password change on first login
+        reset_password: If True, reset password for existing users
     """
     with get_session() as session:
         # Check if user already exists
         existing = session.query(User).filter(User.username == username).first()
         if existing:
-            print(f"User '{username}' already exists.")
             if existing.is_deleted:
-                print("Note: This user was previously deleted. Reactivating...")
+                print(f"User '{username}' was previously deleted. Reactivating...")
                 existing.is_deleted = False
                 existing.deleted_at = None
                 existing.password_hash = hash_password(password)
@@ -48,6 +52,17 @@ def create_admin(username: str, password: str, force_password_change: bool = Fal
                 existing.force_password_change = force_password_change
                 session.commit()
                 print(f"User '{username}' has been reactivated as admin.")
+                return
+
+            if reset_password:
+                existing.password_hash = hash_password(password)
+                existing.force_password_change = force_password_change
+                session.commit()
+                print(f"Password reset for user '{username}'.")
+                return
+
+            print(f"User '{username}' already exists.")
+            print("  Hint: use --reset-password to update the password")
             return
 
         # Create new admin user
@@ -93,6 +108,12 @@ def main():
         dest="force_password_change",
         help="Do NOT require password change on first login"
     )
+    parser.add_argument(
+        "--reset-password",
+        action="store_true",
+        default=False,
+        help="Reset password if user already exists (useful after pg_restore)"
+    )
 
     args = parser.parse_args()
 
@@ -106,7 +127,8 @@ def main():
     create_admin(
         username=args.username,
         password=args.password,
-        force_password_change=args.force_password_change
+        force_password_change=args.force_password_change,
+        reset_password=args.reset_password
     )
 
 

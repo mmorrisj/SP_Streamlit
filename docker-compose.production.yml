@@ -1,13 +1,22 @@
 # ============================================
-# Fresh Machine Simulation - Docker Hub Images Only
+# Production Deployment - Docker Hub Images Only
 # Pulls all images from Docker Hub (no local builds)
 #
 # Usage:
-#   docker-compose -f docker-compose.hub-test.yml up -d
-#   docker-compose -f docker-compose.hub-test.yml down -v  (cleanup)
+#   # First time — run migrations:
+#   docker compose -f docker-compose.production.yml --profile migrate up
+#
+#   # Start the stack:
+#   docker compose -f docker-compose.production.yml up -d
+#
+#   # Tear down (preserves data):
+#   docker compose -f docker-compose.production.yml down
+#
+#   # Tear down and reset all data:
+#   docker compose -f docker-compose.production.yml down -v
 # ============================================
 
-name: softpower_hub_test
+name: softpower_production
 
 services:
   # -----------------------
@@ -15,22 +24,22 @@ services:
   # -----------------------
   db:
     image: mmorrisj/pgvector:0.8.0-pg16
-    container_name: sp_hub_db
+    container_name: sp_prod_db
     restart: unless-stopped
     shm_size: "1gb"
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_USER: ${POSTGRES_USER:-softpower}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - hub_test_pgdata:/var/lib/postgresql/data
+      - prod_pgdata:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "5432:5432"
     networks:
-      - hub_test_net
+      - prod_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-matthew50} -d ${POSTGRES_DB:-softpower-db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-softpower} -d ${POSTGRES_DB:-softpower-db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,10 +50,10 @@ services:
   # -----------------------
   redis:
     image: redis:7-alpine
-    container_name: sp_hub_redis
+    container_name: sp_prod_redis
     restart: unless-stopped
     networks:
-      - hub_test_net
+      - prod_net
 
   # -----------------------
   # SoftPower Analytics (FastAPI + Streamlit via supervisord)
@@ -52,19 +61,19 @@ services:
   # -----------------------
   app:
     image: mmorrisj/softpower-analytics:1.5.0
-    container_name: sp_hub_app
+    container_name: sp_prod_app
     restart: unless-stopped
     environment:
       DOCKER_ENV: "true"
-      DB_HOST: sp_hub_db
+      DB_HOST: sp_prod_db
       DB_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_USER: ${POSTGRES_USER:-softpower}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
-      POSTGRES_HOST: sp_hub_db
+      POSTGRES_HOST: sp_prod_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@sp_hub_db:5432/${POSTGRES_DB:-softpower-db}
-      REDIS_URL: redis://sp_hub_redis:6379
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@sp_prod_db:5432/${POSTGRES_DB:-softpower-db}
+      REDIS_URL: redis://sp_prod_redis:6379
       API_PORT: 8000
       # Pass through credentials from .env (will be empty if not set)
       CLAUDE_KEY: ${CLAUDE_KEY:-}
@@ -77,7 +86,7 @@ services:
       - "8000:8000"   # FastAPI (React UI + API)
       - "8501:8501"   # Streamlit Dashboard
     networks:
-      - hub_test_net
+      - prod_net
     depends_on:
       db:
         condition: service_healthy
@@ -89,18 +98,18 @@ services:
   # -----------------------
   migrate:
     image: mmorrisj/softpower-analytics:1.5.0
-    container_name: sp_hub_migrate
+    container_name: sp_prod_migrate
     environment:
       DOCKER_ENV: "true"
-      DB_HOST: sp_hub_db
+      DB_HOST: sp_prod_db
       DB_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-matthew50}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-softpower}
+      POSTGRES_USER: ${POSTGRES_USER:-softpower}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-matthew50}:${POSTGRES_PASSWORD:-softpower}@sp_hub_db:5432/${POSTGRES_DB:-softpower-db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@sp_prod_db:5432/${POSTGRES_DB:-softpower-db}
     command: alembic upgrade head
     networks:
-      - hub_test_net
+      - prod_net
     depends_on:
       db:
         condition: service_healthy
@@ -108,10 +117,10 @@ services:
       - migrate
 
 # -----------------------
-# Isolated volumes and network
+# Persistent Volumes and Network
 # -----------------------
 volumes:
-  hub_test_pgdata:
+  prod_pgdata:
 
 networks:
-  hub_test_net:
+  prod_net:
