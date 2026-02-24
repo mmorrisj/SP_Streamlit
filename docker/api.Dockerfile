@@ -39,8 +39,11 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple
 
 # Remove build tools after pip install to reduce attack surface
+# Also remove tar's rmt binary (TEMP-0290435-0B57B5) — remote tape server
+# is unused and has insufficient input validation.
 RUN apt-get purge -y build-essential \
     && apt-get autoremove -y \
+    && rm -f /usr/sbin/rmt \
     && rm -rf /var/lib/apt/lists/*
 
 # Download NLTK data

@@ -63,9 +63,12 @@ RUN pip install --no-cache-dir \
 # Remove build tools after pip install to reduce attack surface
 # Eliminates 39 binutils CVEs from the final image
 # dpkg --purge removes residual config files so Scout doesn't flag removed packages
+# Also remove tar's rmt binary (TEMP-0290435-0B57B5) — remote tape server
+# is unused and has insufficient input validation.
 RUN apt-get purge -y build-essential \
     && apt-get autoremove -y \
     && dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true \
+    && rm -f /usr/sbin/rmt \
     && rm -rf /var/lib/apt/lists/*
 
 # Install supervisor from PyPI (instead of distro package) to avoid pulling

@@ -50,6 +50,10 @@ RUN apt-get purge -y build-essential git ca-certificates postgresql-server-dev-1
 # executed, making gosu unnecessary.
 RUN rm -f /usr/local/bin/gosu
 
+# Remove tar's rmt binary (TEMP-0290435-0B57B5) — remote tape server
+# is unused and has insufficient input validation.
+RUN rm -f /usr/sbin/rmt
+
 # Run as non-root user (Scout health check: "Default non-root user")
 # The postgres base image creates uid 999 (postgres) and its entrypoint
 # handles initialization correctly when running as non-root.

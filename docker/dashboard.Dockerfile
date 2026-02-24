@@ -8,11 +8,14 @@ COPY requirements.txt .
 # Install build dependencies for hdbscan, then Python packages, then cleanup
 # Note: curl removed to eliminate CVE-2025-13034 (libcurl4t64);
 #       health checks use Python urllib instead.
+# Also remove tar's rmt binary (TEMP-0290435-0B57B5) — remote tape server
+# is unused and has insufficient input validation.
 RUN apt-get update && apt-get install -y \
     build-essential \
     && pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple \
     && apt-get purge -y build-essential \
     && apt-get autoremove -y \
+    && rm -f /usr/sbin/rmt \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy shared modules and services
