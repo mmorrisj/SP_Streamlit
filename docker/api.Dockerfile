@@ -29,9 +29,9 @@ WORKDIR /app
 
 # Install system dependencies, build Python packages, then remove build-essential
 # to eliminate 39 binutils CVEs from the final image
+# Note: curl removed to eliminate CVE-2025-13034 (libcurl4t64)
 RUN apt-get update && apt-get install -y \
     build-essential \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python requirements (cached until requirements.txt changes)
