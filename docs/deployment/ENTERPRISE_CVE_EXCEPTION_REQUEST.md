@@ -29,7 +29,6 @@ The entries below are the current exception candidates based on package presence
 |---|---|---|---|---|---|
 | CVE-2026-0861 | HIGH | `glibc` (`libc-bin`, `libc6`, `libc-l10n`, `locales`) | app (2), pgvector (4) | Exception | Integer overflow in memalign requires attacker control of both size (near PTRDIFF_MAX) and alignment (>=2^62) arguments — not reachable from application code or network input. Debian classified as "minor issue / no-dsa". Fix in glibc 2.42-8+ (sid), not yet in trixie (2.41-12+deb13u1). |
 | CVE-2025-10911 | MEDIUM | `libxslt` | pgvector | Exception | Runtime dependency in base image; removal would remove PostgreSQL package chain. |
-| CVE-2025-13151 | MEDIUM | `libtasn1` | app | Exception | Transitive dependency of TLS stack (`gnutls`); required by installed runtime libs. |
 | CVE-2025-14104 | MEDIUM | `util-linux` | app, pgvector | Exception | Core OS utility package; not safely removable from runtime base. |
 | CVE-2025-15281 | MEDIUM | `glibc` / `libc` | app, pgvector | Exception | Core C runtime; requires upstream distro update, not application-layer remediation. |
 | CVE-2025-7709 | MEDIUM | `sqlite` (`libsqlite3-0`) | app, pgvector | Exception (if scanner still flags) | Required dependency chain on Debian trixie (`util-linux -> liblastlog2-2 -> libsqlite3-0`). |
@@ -57,6 +56,7 @@ These should be validated as closed by the enterprise scan after image refresh:
 |---|---|---|
 | CVE-2023-50495 | Closed | `ncurses` on current Debian 13 package line. |
 | CVE-2024-10041 | Closed | `pam` on current Debian 13 package line. |
+| CVE-2025-13151 | Eliminated | `libtasn1` removed from app image: `postgresql-client` removed → `libpq5` removed → `libldap2` / Kerberos chain removed → `libtasn1` removed. `psycopg2-binary` bundles its own `libpq`; no CLI tools used at runtime. |
 | CVE-2025-14831 | Closed | `gnutls` package line updated. |
 | CVE-2025-30258 | Closed | `gnupg` removed from runtime images. |
 | CVE-2025-68972 | Closed / Not present | `gnupg2` package not installed in runtime images. |
@@ -89,6 +89,7 @@ These should be validated as closed by the enterprise scan after image refresh:
 - Build-time tooling (`build-essential`, `git`, `gnupg`) removed from all runtime images.
 - `dpkg --purge` on residual configs prevents scanners from flagging removed packages.
 - Supervisor installed from PyPI (not Debian apt) to avoid pulling 36 extra packages.
+- `postgresql-client` removed from app image: `psycopg2-binary` bundles its own `libpq`; eliminates `libpq5` → `libldap2` → `libtasn1` and Kerberos library chains from the app image.
 - `locales` / `libc-l10n` retained in pgvector only because postgresql-16 hard-depends on them.
 
 4. Deployment controls:

@@ -163,18 +163,7 @@ All 34 remaining CVEs have **no upstream fix available** from Debian or PyPI mai
 | CVE-2017-14159 | 2017 | `slapd` daemon issue | **Not relevant.** `slapd` not installed. |
 | CVE-2015-3276 | 2015 | Incorrect certificate DN matching | **Not relevant.** No LDAP connections. |
 
-**Assessment**: OpenLDAP client libraries are pulled in as a transitive dependency of `curl`/`libcurl`. The application makes no LDAP connections. Three of five CVEs apply only to `slapd` (the LDAP server), which is not installed. **No action needed.**
-
-#### curl 8.14.1 -- 4 LOWs
-
-| CVE | Year | Description | Relevance |
-|-----|:---:|-------------|-----------|
-| CVE-2025-15224 | 2025 | curl vulnerability | **Low risk.** `curl` is used only for Docker HEALTHCHECK probes to `localhost`. No user-supplied URLs. |
-| CVE-2025-15079 | 2025 | curl vulnerability | **Low risk.** Same assessment as above. |
-| CVE-2025-14017 | 2025 | curl vulnerability | **Low risk.** Same assessment. |
-| CVE-2025-10966 | 2025 | curl vulnerability | **Low risk.** Same assessment. |
-
-**Assessment**: `curl` is installed solely for the container health check (`curl -f http://localhost:8000/api/health`). It only connects to localhost on a fixed URL. No user-controlled URLs are passed to `curl`. **No action needed.**
+**Assessment**: OpenLDAP client libraries are pulled in as a transitive dependency of `postgresql-client` (`libpq` optional LDAP auth chain), not `curl`/`libcurl`. The application makes no LDAP connections. Three of five CVEs apply only to `slapd` (the LDAP server), which is not installed. **No action needed in current architecture.**
 
 #### systemd 257.9 -- 4 LOWs
 
@@ -225,9 +214,12 @@ All 34 remaining CVEs have **no upstream fix available** from Debian or PyPI mai
 
 | Priority | Item | Detail | Timeline |
 |----------|------|--------|----------|
+| Medium | Remove `postgresql-client` from application image (if unused at runtime) | Current `softpower-analytics` runtime stack (`supervisord` + FastAPI + Streamlit) does not require `psql`/`pg_isready`. Removing `postgresql-client` can reduce residual OpenLDAP/Kerberos exposure inherited via `libpq` optional auth dependencies. | Validate in next image build and adopt if no runtime regressions |
+| Medium | Pin pgvector source to immutable commit | `docker/pgvector.Dockerfile` currently clones by tag (`v0.8.1`). Pin to an exact commit SHA (and optionally verify signed tag/checksum) before `make install` to harden supply-chain integrity. | Next pgvector image refresh |
+| Medium | Lock and hash-pin Python dependencies | Current requirements primarily use `>=` ranges. Adopt lock/constraints with hashes (`--require-hashes`) for deterministic builds and tighter supply-chain control. | Next dependency refresh cycle |
 | Low | langchain-core SSRF | CVE-2026-26013 is fixable by upgrading to langchain-core >=1.2.11, but this is a breaking major version change (0.3.x -> 1.2.x). Current risk is LOW (CVSS 3.7) as the RAG service processes controlled document sources, not arbitrary user URLs. | Evaluate during next langchain major version upgrade cycle |
 | Monitor | tar MEDIUM | CVE-2025-45582 -- no fix available. Monitor Debian security tracker for an updated `tar` package. Not exploitable in current deployment (no user-supplied archives processed). | Watch for Debian fix |
-| Monitor | curl LOWs | Four unfixed curl CVEs. `curl` is only used for localhost health checks. Consider replacing health check with a Python-based probe to remove `curl` dependency entirely if curl CVEs escalate. | Optional future hardening |
+| Complete | curl removal | `curl` was removed from production images and health checks were migrated to Python probes. Keep scanner evidence current to prevent stale report carryover. | Done as of image line (`softpower-analytics:1.5.3`) |
 
 ---
 

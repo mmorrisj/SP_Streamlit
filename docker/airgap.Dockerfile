@@ -32,12 +32,13 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # System dependencies
-# - postgresql-client: database utilities (pg_isready, psql)
 # - build-essential: required by some Python packages at install time
-# Note: curl removed to eliminate CVE-2025-13034 (libcurl4t64);
-#       health checks use Python urllib instead.
+# Note: curl removed to eliminate CVE-2025-13034 (libcurl4t64).
+# Note: postgresql-client removed — app uses psycopg2-binary which bundles
+#       its own libpq; pg_isready runs in the DB container, not here;
+#       no CLI tools (psql/pg_isready) are used at runtime. Removing it
+#       eliminates libpq5 → libldap2 → libtasn1 and Kerberos library chains.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        postgresql-client \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
