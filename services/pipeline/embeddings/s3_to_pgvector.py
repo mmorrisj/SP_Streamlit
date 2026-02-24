@@ -30,7 +30,7 @@ from shared.database.database import get_session, get_engine
 from shared.models.models import Document
 
 # LangChain imports
-from langchain_community.vectorstores.pgvector import PGVector
+from langchain_postgres import PGVector
 from services.pipeline.embeddings.embedding_vectorstore import (
     build_connection_string,
     stores
@@ -95,9 +95,9 @@ class S3ToPgVectorMigrator:
             # Create custom store if not predefined
             embedding_function = get_hf_embeddings()
             self.vector_store = PGVector(
+                embeddings=embedding_function,
+                connection=build_connection_string(),
                 collection_name=collection_name,
-                connection_string=build_connection_string(),
-                embedding_function=embedding_function,
             )
 
         print("Initialized S3ToPgVectorMigrator:")
