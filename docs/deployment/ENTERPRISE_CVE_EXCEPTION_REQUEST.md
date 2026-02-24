@@ -96,6 +96,9 @@ These should be validated as closed by the enterprise scan after image refresh:
 - Image tags/digests are pinned for release approval.
 - Re-scan required before each production promotion.
 - Weekly base image rebuild cadence to pick up upstream fixes.
+- `no-new-privileges:true` set on all production containers (prevents SUID/SGID privilege escalation).
+- `cap_drop: ALL` on all production containers (eliminates all Linux capability escalation paths).
+- pgvector source SHA verified at build time (`778dacf`) against pinned `ARG PGVECTOR_SHA` (supply-chain hardening).
 
 ## Operational Risk Statement
 

@@ -16,10 +16,15 @@
 # while staying on PostgreSQL 16.
 FROM postgres:16-trixie
 
-# pgvector version to install
+# pgvector version and immutable commit SHA for supply-chain pinning.
+# SHA must match the tag; verify with:
+#   gh api repos/pgvector/pgvector/git/refs/tags/v0.8.1 --jq '.object.sha'
 ARG PGVECTOR_VERSION=0.8.1
+ARG PGVECTOR_SHA=778dacf20c07caf904557a88705142631818d8cb
 
-# Install build dependencies and compile pgvector
+# Install build dependencies and compile pgvector.
+# Clone by tag for shallow-clone efficiency, then verify the commit SHA
+# matches the pinned value to catch tag-mover or supply-chain attacks.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -29,6 +34,10 @@ RUN apt-get update \
     && git clone --branch v${PGVECTOR_VERSION} --depth 1 \
         https://github.com/pgvector/pgvector.git /tmp/pgvector \
     && cd /tmp/pgvector \
+    && ACTUAL_SHA=$(git rev-parse HEAD) \
+    && echo "pgvector HEAD: ${ACTUAL_SHA}" \
+    && [ "${ACTUAL_SHA}" = "${PGVECTOR_SHA}" ] \
+        || { echo "SHA MISMATCH: expected ${PGVECTOR_SHA}, got ${ACTUAL_SHA}"; exit 1; } \
     && make OPTFLAGS="" \
     && make install
 

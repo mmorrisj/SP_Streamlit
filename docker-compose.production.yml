@@ -27,6 +27,10 @@ services:
     container_name: sp_prod_db
     restart: unless-stopped
     shm_size: "1gb"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-softpower}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
@@ -63,6 +67,10 @@ services:
     image: mmorrisj/softpower-analytics:1.5.3
     container_name: sp_prod_app
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       DOCKER_ENV: "true"
       DB_HOST: sp_prod_db
@@ -105,6 +113,10 @@ services:
   migrate:
     image: mmorrisj/softpower-analytics:1.5.3
     container_name: sp_prod_migrate
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       DOCKER_ENV: "true"
       DB_HOST: sp_prod_db
