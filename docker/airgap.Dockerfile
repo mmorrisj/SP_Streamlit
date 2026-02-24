@@ -31,14 +31,14 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install system dependencies (no build-essential — no C packages to compile)
+# System dependencies
 # - curl: health checks
 # - postgresql-client: database utilities (pg_isready, psql)
-# - supervisor: process manager for running both services
+# - build-essential: required by some Python packages at install time
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         postgresql-client \
-        supervisor \
+        build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Install lightweight Python dependencies only.
@@ -48,6 +48,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # This keeps the image ~1.5GB smaller for transfer.
 COPY requirements-airgap.txt ./
 RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://pypi.org/simple
+
+# Remove build tools after pip install to reduce attack surface
+# dpkg --purge removes residual config files so Scout doesn't flag removed packages
+RUN apt-get purge -y build-essential \
+    && apt-get autoremove -y \
+    && dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install supervisor from PyPI (instead of distro package) to avoid pulling
+# Debian python3.13 runtime packages into the final image.
+# Also upgrade setuptools/pip and jaraco.context for known CVE fixes.
+RUN pip install --no-cache-dir \
+        "setuptools>=78.1.1" \
+        "pip>=26.0" \
+        "jaraco.context>=6.1.0" \
+        "supervisor>=4.2.5"
 
 # HuggingFace model is mounted as a volume at runtime (not baked into image).
 # This keeps the image ~90MB smaller for transfer.
@@ -70,6 +86,7 @@ COPY shared/ ./shared/
 COPY server/ ./server/
 COPY services/chat/ ./services/chat/
 COPY services/dashboard/ ./services/dashboard/
+COPY scripts/create_admin.py ./scripts/create_admin.py
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
@@ -85,19 +102,23 @@ RUN ls -la client/dist/ \
     && ls -la services/dashboard/app.py \
     && echo "All application files verified"
 
-# Environment
+# Create non-root user for runtime security
+# Supervisord, Streamlit, and FastAPI all run as this user
+RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser \
+    && mkdir -p /var/log/supervisor /var/run/supervisor /app/.streamlit /app/output \
+    && chown -R appuser:appuser /app /var/log/supervisor /var/run/supervisor
+
 ENV PYTHONPATH=/app
 ENV NODE_ENV=production
 # Ensure HuggingFace uses the cached model, not network
 ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
 
-# Expose both service ports
 EXPOSE 8000 8501
 
-# Health check targets the FastAPI service
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+USER appuser
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:${API_PORT:-8000}/api/health || exit 1
 
-# Start both services via supervisord
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/softpower.conf"]

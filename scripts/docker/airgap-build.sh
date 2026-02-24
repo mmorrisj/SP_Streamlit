@@ -155,10 +155,10 @@ else
         bash -c "mkdir -p /wheels && \
             pip download --no-cache-dir --dest /wheels \
                 --index-url https://download.pytorch.org/whl/cpu \
-                torch==2.5.1 && \
+                'torch>=2.6.0' && \
             pip download --no-cache-dir --dest /wheels \
                 --index-url https://pypi.org/simple \
-                sentence-transformers==3.3.1 \
+                'sentence-transformers>=3.3.1' \
                 langchain-huggingface==0.1.2"
 
     docker start -a "$WHEELS_CONTAINER"

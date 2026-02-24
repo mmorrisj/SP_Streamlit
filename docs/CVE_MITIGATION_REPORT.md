@@ -393,9 +393,8 @@ The 34 LOW CVEs are in Debian Trixie OS packages -- the same packages (glibc, op
 |------|---------|
 | `docker/registry.Dockerfile` | Base image 3.11->3.13, torch>=2.6.0, build-essential purge + dpkg cleanup, setuptools/pip upgrade, supervisor via pip, non-root user |
 | `docker/api.Dockerfile` | Base image 3.11->3.13, build-essential purge |
-| `docker/api-production.Dockerfile` | Base image 3.11->3.13, build-essential purge |
 | `docker/dashboard.Dockerfile` | Base image 3.11->3.13 |
-| `docker/airgap.Dockerfile` | Base image 3.11->3.13 |
+| `docker/airgap.Dockerfile` | Aligned with registry.Dockerfile: supervisor via pip, non-root user, build-essential purge + dpkg cleanup, setuptools/pip/jaraco.context upgrades |
 | `requirements.txt` | Version bumps for fastapi, uvicorn, torch, pyarrow, psycopg2-binary; added pillow, filelock, wheel |
 | `requirements-airgap.txt` | Version bumps for all runtime packages; added pillow, filelock, wheel |
 | `server/main.py` | Python 3.13 compatibility (datetime.utcnow, Pydantic regex->pattern) |

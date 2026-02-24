@@ -225,29 +225,24 @@ SP_Streamlit/
 │       ├── utils.py           # Common utilities
 │       └── prompts.py         # LLM prompts
 │
-├── docker/                     # Docker configurations (Dockerfiles only)
-│   ├── api.Dockerfile         # API service Dockerfile
-│   ├── dashboard.Dockerfile   # Dashboard Dockerfile
-│   └── pipeline.Dockerfile    # Pipeline Dockerfile (future use)
+├── docker/                     # Docker configurations
+│   ├── registry.Dockerfile    # Production consolidated app (Docker Hub)
+│   ├── airgap.Dockerfile      # Air-gapped consolidated app
+│   ├── pgvector.Dockerfile    # Custom pgvector database image
+│   ├── api.Dockerfile         # Dev API service Dockerfile
+│   ├── dashboard.Dockerfile   # Dev dashboard Dockerfile
+│   └── supervisord.conf       # Process manager config
 │
 ├── scripts/                    # All installation and deployment scripts
 │   ├── start_services.sh      # Non-Docker startup (Linux/macOS)
 │   ├── start_services.ps1     # Non-Docker startup (Windows)
-│   ├── build-docker.sh/ps1    # Docker build scripts
-│   ├── deploy-full.sh/ps1     # Full stack deployment
-│   ├── deploy-webapp.sh       # Web app deployment
-│   ├── deploy-docker-only.*   # Pure Docker deployment (no compose)
 │   ├── run_tests.sh/ps1       # Test runner scripts
 │   └── docker/                # Docker-specific scripts
-│       ├── build-all.*        # Build all images
-│       ├── run-all.*          # Run all services
-│       ├── run-database.sh    # Database only
-│       ├── run-webapp.sh      # Web app only
-│       ├── run-streamlit.sh   # Streamlit only
-│       ├── run-pipeline.sh    # Pipeline only
-│       ├── stop-all.*         # Stop all services
-│       ├── airgap-package.sh  # Air-gapped deployment
-│       └── push-to-registry.sh # Registry push
+│       ├── airgap-build.sh    # Air-gap package builder
+│       ├── airgap-deploy.sh   # Air-gap deployment script
+│       ├── push-to-registry.sh # Registry push
+│       ├── pack-airgap.py     # Binary encoding for transfer
+│       └── unpack-airgap.py   # Binary decoding on target
 │
 ├── alembic/                    # Database migrations
 ├── docker-compose.yml          # Docker orchestration
