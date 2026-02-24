@@ -10,7 +10,7 @@ This exception request covers medium-severity CVEs that may still be reported by
 
 Target images for this exception package (replace with exact scanned digests):
 
-- `mmorrisj/softpower-analytics:1.5.2` (application image)
+- `mmorrisj/softpower-analytics:1.5.3` (application image)
 - `mmorrisj/pgvector:0.8.0-pg16` (database image)
 
 ## Required Attachments
@@ -97,14 +97,14 @@ Residual risk is accepted for the listed CVEs because:
 
 ```bash
 # Replace tags with exact release tags/digests used in deployment
-docker pull mmorrisj/softpower-analytics:1.5.2
+docker pull mmorrisj/softpower-analytics:1.5.3
 docker pull mmorrisj/pgvector:0.8.0-pg16
 
-docker inspect --format='{{index .RepoDigests 0}}' mmorrisj/softpower-analytics:1.5.2
+docker inspect --format='{{index .RepoDigests 0}}' mmorrisj/softpower-analytics:1.5.3
 docker inspect --format='{{index .RepoDigests 0}}' mmorrisj/pgvector:0.8.0-pg16
 
 # Package evidence snapshots
-docker run --rm mmorrisj/softpower-analytics:1.5.2 dpkg -l > app-dpkg.txt
+docker run --rm mmorrisj/softpower-analytics:1.5.3 dpkg -l > app-dpkg.txt
 docker run --rm mmorrisj/pgvector:0.8.0-pg16 dpkg -l > db-dpkg.txt
 ```
 

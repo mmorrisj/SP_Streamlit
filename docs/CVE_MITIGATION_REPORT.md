@@ -1,12 +1,12 @@
 # CVE Mitigation Report: SoftPower Analytics Docker Stack
 
-**Date**: February 23, 2026
+**Date**: February 24, 2026
 **Scanner**: Docker Scout v1.19.0
 **Platform**: linux/amd64
 
 | Image | Tag | Base | Purpose |
 |-------|-----|------|---------|
-| `mmorrisj/softpower-analytics` | 1.5.2 | `python:3.13-slim` (Debian Trixie) | Application (FastAPI + Streamlit + React + ML) |
+| `mmorrisj/softpower-analytics` | 1.5.3 | `python:3.13-slim` (Debian Trixie) | Application (FastAPI + Streamlit + React + ML) |
 | `mmorrisj/pgvector` | 0.8.0-pg16 | `postgres:16-trixie` (Debian Trixie) | PostgreSQL 16 + pgvector extension |
 
 ---
@@ -15,27 +15,28 @@
 
 A comprehensive vulnerability scan and remediation was performed on both Docker images in the SoftPower Analytics stack. Combined results:
 
-### Application Image (`softpower-analytics:1.5.2`)
+### Application Image (`softpower-analytics:1.5.3`)
 
-**60 of 96 identified CVEs were eliminated** through base image upgrades, package version bumps, build-tool removal, and Debian package conflict resolution. All CRITICAL and HIGH severity vulnerabilities have been resolved. Supply chain attestations (SBOM + provenance) are attached to the image.
+**61 of 95 identified CVEs were eliminated** through base image upgrades, package version bumps, build-tool removal, Debian package removal, and supervisor migration to pip. All CRITICAL and HIGH severity vulnerabilities have been resolved. Supply chain attestations (SBOM + max-mode provenance) are attached to the image.
 
-| Metric | Before (v1.0.0) | After (v1.5.2) | Change |
+| Metric | Before (v1.0.0) | After (v1.5.3) | Change |
 |--------|:---:|:---:|:---:|
 | Critical | 2 | 0 | -2 |
 | High | 5 | 0 | -5 |
 | Medium | 6 | 1 | -5 |
-| Low | 81 | 35 | -46 |
+| Low | 81 | 33 | -48 |
 | Unknown | 1 | 0 | -1 |
-| **Total** | **95** | **36** | **-59 (62% reduction)** |
-| Packages Scanned | 418 | 367 | -51 removed |
+| **Total** | **95** | **34** | **-61 (64% reduction)** |
+| Packages Scanned | 418 | 331 | -87 removed |
 
 **Version History**:
 - **v1.1.0**: Base image upgrade (3.11->3.13), package upgrades, build-tool removal (95->36 CVEs)
 - **v1.2.0**: Added non-root user (`appuser`) for Docker Scout health score compliance
 - **v1.3.0**: Fixed CVE-2026-23949 (HIGH, jaraco.context Zip Slip), added supply chain attestations (SBOM + provenance)
-- **v1.5.0-1.5.2**: Deployment hardening (admin user creation, production compose, SQLAlchemy bump, supervisor via pip)
+- **v1.5.0-1.5.2**: Deployment hardening (admin user creation, production compose, SQLAlchemy bump)
+- **v1.5.3**: Supervisor via pip (eliminates Debian python3.13 package chain — 5 CVEs cleared, 36 packages removed)
 
-**Risk Assessment**: The 36 remaining vulnerabilities are all LOW severity (35) or MEDIUM (1) with no available upstream fix. None are exploitable in this application's deployment context. See Section 2 for detailed analysis.
+**Risk Assessment**: The 34 remaining vulnerabilities are all LOW severity (33) or MEDIUM (1) with no available upstream fix. None are exploitable in this application's deployment context. See Section 2 for detailed analysis.
 
 ### Database Image (`pgvector:0.8.0-pg16`)
 
@@ -121,13 +122,13 @@ Application code was updated for Python 3.13 deprecations:
 
 ---
 
-## 2. Remaining Vulnerabilities (36 total)
+## 2. Remaining Vulnerabilities (34 total)
 
 ### 2.1 Summary
 
-All 36 remaining CVEs have **no upstream fix available** from Debian or PyPI maintainers (with one exception noted below). They fall into two categories:
+All 34 remaining CVEs have **no upstream fix available** from Debian or PyPI maintainers (with one exception noted below). They fall into two categories:
 
-- **35 LOW** -- Minimal severity, no known active exploitation
+- **33 LOW** -- Minimal severity, no known active exploitation
 - **1 MEDIUM** -- `tar` vulnerability with limited attack surface
 
 ### 2.2 MEDIUM Severity (1)
@@ -205,19 +206,17 @@ All 36 remaining CVEs have **no upstream fix available** from Debian or PyPI mai
 
 **Assessment**: Standard OS utilities. Not invoked with untrusted input. **No action needed.**
 
-#### Other Packages -- 1 LOW each (10 packages)
+#### Other Packages -- 1 LOW each (8 packages)
 
 | CVE | Package | Description | Relevance |
 |-----|---------|-------------|-----------|
 | CVE-2021-45346 | sqlite3 3.46.1 | Memory leak via `UPDATE` | **Not relevant.** SQLite not used; PostgreSQL is the database. Library present as a transitive dependency. |
 | CVE-2011-4116 | perl 5.40.1 | Temp file race condition | **Not relevant.** Perl not invoked by the application. Present as an OS utility dependency. |
 | CVE-2026-26013 | langchain-core 0.3.83 | SSRF in URL handling | **Low risk.** Fix requires langchain-core >=1.2.11 which is a breaking major version change from our pinned 0.3.x. CVSS 3.7 (LOW). The SSRF vector requires crafted URLs in chain inputs; our RAG service uses controlled document sources. See Section 3 for mitigation plan. |
-| CVE-2025-15282 | python3.13 3.13.5 | Python vulnerability | **Low risk.** No fix available from Debian yet. Mitigated by application-level input validation. |
 | CVE-2011-3374 | apt 3.0.3 | Repository signature check issue | **Not relevant.** `apt` is not used at runtime; package lists are deleted in the build. |
 | CVE-2022-0563 | util-linux 2.41 | `chfn`/`chsh` info leak | **Not relevant.** These utilities are not used by the application. |
 | CVE-2007-5686 | shadow 4.17.4 | `/etc/login.defs` info leak | **Not relevant.** No interactive logins in the container. |
 | CVE-2010-0928 | openssl 3.5.4 | Theoretical plaintext recovery | **Not exploitable.** CVSS score of 2.6. Requires specific conditions unlikely in modern TLS. |
-| CVE-2019-12105 | supervisor 4.2.5 | Information disclosure in web UI | **Not exploitable.** Supervisor's web interface is not enabled; supervisord runs in foreground mode only. |
 | CVE-2024-2236 | libgcrypt20 1.11.0 | Side-channel in RSA decryption | **Not exploitable.** Requires local access and precise timing measurements. Container isolation mitigates. |
 
 ---
@@ -244,7 +243,7 @@ The deployment architecture provides multiple layers of protection beyond indivi
 
 3. **Network Segmentation**: The container exposes only ports 8000 (FastAPI API + React UI) and 8501 (Streamlit dashboard). Internal services communicate via localhost only.
 
-4. **Minimal Package Footprint**: Build tools (`build-essential`, binutils, gcc) are removed after compilation. The final image contains 367 packages -- only what is needed for runtime.
+4. **Minimal Package Footprint**: Build tools (`build-essential`, binutils, gcc) are removed after compilation. Supervisor is installed from PyPI (not the Debian package) to avoid pulling in Debian python3.13 runtime packages. The final image contains 331 packages -- only what is needed for runtime.
 
 5. **Offline ML Model**: The HuggingFace sentence-transformer model is baked into the image at build time. `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1` prevent any runtime network calls to HuggingFace, eliminating a potential supply-chain vector.
 
@@ -252,7 +251,7 @@ The deployment architecture provides multiple layers of protection beyond indivi
 
 ### Conclusion
 
-**The `softpower-analytics:1.5.2` image is suitable for production deployment.** All CRITICAL and HIGH vulnerabilities have been resolved. The 36 remaining vulnerabilities (1 MEDIUM, 35 LOW) are either:
+**The `softpower-analytics:1.5.3` image is suitable for production deployment.** All CRITICAL and HIGH vulnerabilities have been resolved. The 34 remaining vulnerabilities (1 MEDIUM, 33 LOW) are either:
 
 - In OS packages not used by the application (systemd, openldap, krb5, sqlite3, perl, shadow)
 - In utilities used only for internal operations (curl for health checks, tar/apt for build-time only)
@@ -412,15 +411,15 @@ The 34 LOW CVEs are in Debian Trixie OS packages -- the same packages (glibc, op
 ### Application Image
 
 ```
-Target:  mmorrisj/softpower-analytics:1.5.2
-Digest:  26719be6778b
+Target:  mmorrisj/softpower-analytics:1.5.3
+Digest:  df8f96c164d0
 Platform: linux/amd64
 Size:    1.2 GB
-Packages: 367
+Packages: 331
 
-Vulnerabilities: 0C 0H 1M 35L (36 total)
+Vulnerabilities: 0C 0H 1M 33L (34 total)
 Base image:      python:3.13-slim (0C 0H 1M 21L)
-Attestations:    SBOM + Provenance attached
+Attestations:    SBOM + Provenance (max mode) attached
 ```
 
 ### Database Image
@@ -447,8 +446,8 @@ Vulnerabilities: 9C 96H 87M 145L (337 total)
 Critical:                  0           1           1
 High:                      0           6           6
 Medium:                    1          10          11
-Low:                      35          34          69
-Total:                    36          51          87
+Low:                      33          34          67
+Total:                    34          51          85
 
 All Critical/High in database image are from Go stdlib in the
 postgres:16-trixie base, affecting every postgres:16 image
@@ -456,4 +455,4 @@ on Docker Hub. Not network-exploitable via PostgreSQL port 5432.
 ```
 
 Scanner: Docker Scout v1.19.0
-Scan date: February 23, 2026
+Scan date: February 24, 2026
