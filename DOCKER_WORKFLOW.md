@@ -57,7 +57,7 @@ sudo docker pull <REGISTRY>/softpower-app-airgap:latest
 sudo docker tag <REGISTRY>/softpower-app-airgap:latest softpower-analytics:latest
 
 # Pull the database image
-sudo docker pull <REGISTRY>/pgvector:0.8.0-pg16
+sudo docker pull <REGISTRY>/pgvector:0.8.1-pg16
 ```
 
 **Option B: Load from tar files (transferred via S3, SCP, or physical media)**
@@ -311,7 +311,7 @@ REGISTRY=docker.io/yourusername ./scripts/docker/push-to-registry.sh
 sudo docker save softpower-analytics:latest -o softpower-analytics.tar
 
 # Save the database image
-sudo docker save pgvector/pgvector:0.8.0-pg16 -o pgvector-pg16.tar
+sudo docker save pgvector/pgvector:0.8.1-pg16 -o pgvector-pg16.tar
 
 # Transfer to air-gapped system, then load
 sudo docker load -i softpower-analytics.tar

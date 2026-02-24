@@ -54,11 +54,11 @@ fi
 # Image names
 # If AIRGAP_REGISTRY is set, use registry-prefixed image names
 if [ -n "$AIRGAP_REGISTRY" ]; then
-    DB_IMAGE="${AIRGAP_REGISTRY}/pgvector:0.8.0-pg16"
+    DB_IMAGE="${AIRGAP_REGISTRY}/pgvector:0.8.1-pg16"
     APP_IMAGE="${AIRGAP_REGISTRY}/softpower-app-airgap:latest"
 else
     # Database: Official pgvector image (PostgreSQL 16 + pgvector extension)
-    DB_IMAGE="pgvector/pgvector:0.8.0-pg16"
+    DB_IMAGE="pgvector/pgvector:0.8.1-pg16"
     # Application: Built by airgap-build.sh
     APP_IMAGE="softpower-app-airgap:latest"
 fi

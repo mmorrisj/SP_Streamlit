@@ -181,7 +181,7 @@ def build_cve_report():
         [
             ["mmorrisj/softpower-analytics", "1.1.0", "python:3.13-slim (Debian Trixie)",
              "Application (FastAPI + Streamlit + React + ML)"],
-            ["mmorrisj/pgvector", "0.8.0-pg16", "postgres:16-bookworm (Debian Bookworm)",
+            ["mmorrisj/pgvector", "0.8.1-pg16", "postgres:16-bookworm (Debian Bookworm)",
              "PostgreSQL 16 + pgvector extension"],
         ],
         col_widths=[4.5, 2.5, 5, 6],
@@ -228,7 +228,7 @@ def build_cve_report():
         size=10, italic=True, color=MID_GREY)
 
     # -- Database Image summary --
-    _add_heading(doc, "Database Image (pgvector:0.8.0-pg16)", level=2)
+    _add_heading(doc, "Database Image (pgvector:0.8.1-pg16)", level=2)
 
     _add_para(doc,
         "The previous database image (ankane/pgvector:latest) had 337 CVEs due to "
@@ -624,14 +624,14 @@ def build_cve_report():
         [
             ["Replaced ankane/pgvector:latest",
              "Unmaintained image with 337 CVEs (9C, 96H, 87M, 145L) based on stale debian:12-slim"],
-            ["Built custom mmorrisj/pgvector:0.8.0-pg16",
+            ["Built custom mmorrisj/pgvector:0.8.1-pg16",
              "Fresh postgres:16-bookworm base, pgvector 0.8.0 compiled from source"],
             ["Build tool removal",
              "build-essential, git, ca-certificates, postgresql-server-dev-16 purged after compilation"],
             ["Residual metadata cleanup",
              "dpkg --purge --force-all on packages in rc state"],
             ["Updated docker-compose.yml",
-             "db service now uses mmorrisj/pgvector:0.8.0-pg16"],
+             "db service now uses mmorrisj/pgvector:0.8.1-pg16"],
         ],
         col_widths=[5, 13],
     )
@@ -731,7 +731,7 @@ def build_cve_report():
         p.paragraph_format.space_after = Pt(4)
 
     _add_para(doc,
-        "Conclusion: The mmorrisj/pgvector:0.8.0-pg16 image is suitable for production "
+        "Conclusion: The mmorrisj/pgvector:0.8.1-pg16 image is suitable for production "
         "deployment. The 1 CRITICAL and 6 HIGH vulnerabilities are in Go entrypoint tooling "
         "(not PostgreSQL), are not network-exploitable, and affect every postgres:16 Docker "
         "image universally. They will be resolved by an upstream rebuild.",
@@ -771,7 +771,7 @@ def build_cve_report():
             ["server/auth.py", "Python 3.13 compatibility (datetime.utcnow)"],
             ["server/report_validator.py", "Python 3.13 compatibility (datetime.utcnow)"],
             ["docker/pgvector.Dockerfile", "New custom pgvector build from postgres:16-bookworm with build tool removal"],
-            ["docker-compose.yml", "Updated db service from ankane/pgvector to mmorrisj/pgvector:0.8.0-pg16"],
+            ["docker-compose.yml", "Updated db service from ankane/pgvector to mmorrisj/pgvector:0.8.1-pg16"],
         ],
         col_widths=[5, 13],
     )
@@ -793,7 +793,7 @@ def build_cve_report():
 
     _add_heading(doc, "Database Image", level=2)
     _add_code_block(doc,
-        "Target:  mmorrisj/pgvector:0.8.0-pg16\n"
+        "Target:  mmorrisj/pgvector:0.8.1-pg16\n"
         "Digest:  df4b453d2ebc\n"
         "Platform: linux/amd64\n"
         "Size:    535 MB\n"

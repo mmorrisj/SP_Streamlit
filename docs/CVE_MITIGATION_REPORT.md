@@ -7,7 +7,7 @@
 | Image | Tag | Base | Purpose |
 |-------|-----|------|---------|
 | `mmorrisj/softpower-analytics` | 1.5.3 | `python:3.13-slim` (Debian Trixie) | Application (FastAPI + Streamlit + React + ML) |
-| `mmorrisj/pgvector` | 0.8.0-pg16 | `postgres:16-trixie` (Debian Trixie) | PostgreSQL 16 + pgvector extension |
+| `mmorrisj/pgvector` | 0.8.1-pg16 | `postgres:16-trixie` (Debian Trixie) | PostgreSQL 16 + pgvector extension |
 
 ---
 
@@ -38,9 +38,9 @@ A comprehensive vulnerability scan and remediation was performed on both Docker 
 
 **Risk Assessment**: The 34 remaining vulnerabilities are all LOW severity (33) or MEDIUM (1) with no available upstream fix. None are exploitable in this application's deployment context. See Section 2 for detailed analysis.
 
-### Database Image (`pgvector:0.8.0-pg16`)
+### Database Image (`pgvector:0.8.1-pg16`)
 
-The previous database image (`ankane/pgvector:latest`) had **337 CVEs** due to a stale, unmaintained base. A custom image was built from `postgres:16-trixie` with pgvector 0.8.0 compiled from source, build tools removed, and runtime packages hardened.
+The previous database image (`ankane/pgvector:latest`) had **337 CVEs** due to a stale, unmaintained base. A custom image was built from `postgres:16-trixie` with pgvector 0.8.1 compiled from source, build tools removed, and runtime packages hardened.
 
 | Metric | Before (ankane/pgvector) | After (mmorrisj/pgvector) | Change |
 |--------|:---:|:---:|:---:|
@@ -269,7 +269,7 @@ No remaining CVE is exploitable through the application's exposed attack surface
 | Action | Detail |
 |--------|--------|
 | Replaced `ankane/pgvector:latest` | Unmaintained image with 337 CVEs (9C, 96H, 87M, 145L) based on stale `debian:12-slim` |
-| Built custom `mmorrisj/pgvector:0.8.0-pg16` | `postgres:16-trixie` base (Debian 13), pgvector 0.8.0 compiled from source |
+| Built custom `mmorrisj/pgvector:0.8.1-pg16` | `postgres:16-trixie` base (Debian 13), pgvector 0.8.1 compiled from source (upgraded from 0.8.0) |
 | Base image upgrade | Moved from `postgres:16-bookworm` (Debian 12) to `postgres:16-trixie` (Debian 13) for newer libc/OpenLDAP/libxml2 packages |
 | Build tool removal | `build-essential`, `git`, `ca-certificates`, `postgresql-server-dev-16` purged after compilation |
 | Runtime package reduction | Purged unused GnuPG tooling (`gnupg`, `gpg`, `gpg-wks-client`, `gpg-wks-server`) from final runtime layer |
@@ -277,7 +277,7 @@ No remaining CVE is exploitable through the application's exposed attack surface
 | Non-root user | `USER postgres` set in Dockerfile. Entrypoint handles initialization correctly as non-root. |
 | Residual metadata cleanup | `dpkg --purge --force-all` on packages in `rc` state |
 | Supply chain attestations | SBOM + max-mode provenance attached via `docker-container` buildx driver |
-| Updated compose files | `docker-compose.yml` and `docker-compose.production.yml` use `mmorrisj/pgvector:0.8.0-pg16` |
+| Updated compose files | `docker-compose.yml` and `docker-compose.production.yml` use `mmorrisj/pgvector:0.8.1-pg16` |
 
 ### 5.1.1 Enterprise Scan CVE Closures (2026-02-23)
 
@@ -368,7 +368,7 @@ The 34 LOW CVEs are in Debian Trixie OS packages -- the same packages (glibc, op
 
 4. **Container isolation**: The database container runs as the `postgres` user (non-root) with no privileged capabilities.
 
-**Conclusion**: The `mmorrisj/pgvector:0.8.0-pg16` image is suitable for production deployment. The 1 CRITICAL and 6 HIGH vulnerabilities are in Go entrypoint tooling (not PostgreSQL), are not network-exploitable, and affect every postgres:16 Docker image universally. They will be resolved by an upstream rebuild.
+**Conclusion**: The `mmorrisj/pgvector:0.8.1-pg16` image is suitable for production deployment. The 1 CRITICAL and 6 HIGH vulnerabilities are in Go entrypoint tooling (not PostgreSQL), are not network-exploitable, and affect every postgres:16 Docker image universally. They will be resolved by an upstream rebuild.
 
 ---
 
@@ -402,7 +402,7 @@ The 34 LOW CVEs are in Debian Trixie OS packages -- the same packages (glibc, op
 | `server/auth.py` | Python 3.13 compatibility (datetime.utcnow) |
 | `server/report_validator.py` | Python 3.13 compatibility (datetime.utcnow) |
 | `docker/pgvector.Dockerfile` | Custom pgvector build: postgres:16-trixie base, build tool removal, gnupg removal, gosu removal, USER postgres |
-| `docker-compose.yml` | Updated `db` service from `ankane/pgvector` to `mmorrisj/pgvector:0.8.0-pg16` |
+| `docker-compose.yml` | Updated `db` service from `ankane/pgvector` to `mmorrisj/pgvector:0.8.1-pg16` |
 | `docker-compose.production.yml` | Production deployment with pinned image tags |
 | `scripts/create_admin.py` | Hardened admin user creation, added to registry Dockerfile |
 
@@ -425,8 +425,8 @@ Attestations:    SBOM + Provenance (max mode) attached
 ### Database Image
 
 ```
-Target:  mmorrisj/pgvector:0.8.0-pg16
-Digest:  59a0ec1d681b
+Target:  mmorrisj/pgvector:0.8.1-pg16
+Digest:  dea01a7610bc
 Platform: linux/amd64
 Size:    536 MB
 Packages: 190

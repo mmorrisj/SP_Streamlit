@@ -10,7 +10,7 @@ The deployment uses **2 Docker containers**:
 
 | Container | Image | Ports | Purpose |
 |-----------|-------|-------|---------|
-| `softpower_db` | `pgvector/pgvector:0.8.0-pg16` | 5432 | PostgreSQL 16 + pgvector |
+| `softpower_db` | `pgvector/pgvector:0.8.1-pg16` | 5432 | PostgreSQL 16 + pgvector |
 | `softpower_app` | `softpower-app-airgap:latest` | 8000, 8501 | FastAPI + Streamlit (via supervisord) |
 
 The app container is built as a **slim image** (~700 MB) with heavyweight ML packages (torch, sentence-transformers) installed on the target from pre-downloaded wheel files.
@@ -145,7 +145,7 @@ Verify:
 ```bash
 docker images | grep -E "softpower|pgvector"
 # Expected:
-#   pgvector/pgvector       0.8.0-pg16   ...   ~400MB
+#   pgvector/pgvector       0.8.1-pg16   ...   ~400MB
 #   softpower-app-airgap    latest       ...   ~700MB
 ```
 

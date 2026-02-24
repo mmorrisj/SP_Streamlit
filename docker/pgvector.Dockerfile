@@ -8,8 +8,8 @@
 # unfixed CVEs due to stale base image.
 #
 # Usage:
-#   docker build -f docker/pgvector.Dockerfile -t mmorrisj/pgvector:0.8.0-pg16 .
-#   docker push mmorrisj/pgvector:0.8.0-pg16
+#   docker build -f docker/pgvector.Dockerfile -t mmorrisj/pgvector:0.8.1-pg16 .
+#   docker push mmorrisj/pgvector:0.8.1-pg16
 # ============================================
 
 # Use Debian 13 (trixie) variant to pick up newer libc/OpenLDAP packages
@@ -17,7 +17,7 @@
 FROM postgres:16-trixie
 
 # pgvector version to install
-ARG PGVECTOR_VERSION=0.8.0
+ARG PGVECTOR_VERSION=0.8.1
 
 # Install build dependencies and compile pgvector
 RUN apt-get update \

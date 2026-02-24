@@ -19,7 +19,7 @@ This image bundles everything into a single container managed by supervisord:
 # docker-compose.production.yml
 services:
   db:
-    image: mmorrisj/pgvector:0.8.0-pg16
+    image: mmorrisj/pgvector:0.8.1-pg16
     environment:
       POSTGRES_USER: softpower
       POSTGRES_PASSWORD: changeme
@@ -148,7 +148,7 @@ docker exec <app-container> python scripts/create_admin.py \
 
 ## Database
 
-This image is designed to work with [`mmorrisj/pgvector:0.8.0-pg16`](https://hub.docker.com/r/mmorrisj/pgvector) — PostgreSQL 16 with the pgvector extension compiled from source for vector similarity search.
+This image is designed to work with [`mmorrisj/pgvector:0.8.1-pg16`](https://hub.docker.com/r/mmorrisj/pgvector) — PostgreSQL 16 with the pgvector extension compiled from source for vector similarity search.
 
 ## Windows / Git Bash Note
 

@@ -90,7 +90,7 @@ echo ""
 
 # Database: Use official pgvector image (PostgreSQL 16 + pgvector extension)
 # Source: https://hub.docker.com/r/pgvector/pgvector
-DB_IMAGE="pgvector/pgvector:0.8.0-pg16"
+DB_IMAGE="pgvector/pgvector:0.8.1-pg16"
 if docker image inspect "$DB_IMAGE" >/dev/null 2>&1; then
     echo -e "  ${GREEN}Database image found: ${DB_IMAGE}${NC}"
 else
@@ -501,7 +501,7 @@ Step 1 - Unpack (if transferred via pack):
 Step 2 - Load Images:
 [ ] Run: ./airgap-deploy.sh load ./images
 [ ] Verify: docker images | grep -E "softpower|pgvector"
-    - pgvector/pgvector:0.8.0-pg16
+    - pgvector/pgvector:0.8.1-pg16
     - softpower-app-airgap:latest
 [ ] Verify hf_model/ directory is present (sentence-transformers model)
 

@@ -38,7 +38,7 @@ air-gapped target.
 
 | # | Image                        | Tag    | Source                                           | Purpose                                |
 |---|------------------------------|--------|--------------------------------------------------|----------------------------------------|
-| 1 | `pgvector/pgvector`          | `0.8.0-pg16` | [Docker Hub](https://hub.docker.com/r/pgvector/pgvector) | PostgreSQL 16 + pgvector extension (database) |
+| 1 | `pgvector/pgvector`          | `0.8.1-pg16` | [Docker Hub](https://hub.docker.com/r/pgvector/pgvector) | PostgreSQL 16 + pgvector extension (database) |
 
 - **Base**: Official `postgres:16` (Debian Bookworm)
 - **Maintainer**: pgvector project (successor to deprecated `ankane/pgvector`)
@@ -79,7 +79,7 @@ The following CVEs are based on public vulnerability databases as of February 20
 Actual scan results should be generated using `docker scout`, `trivy`, or `snyk` on
 the exact image digests at time of package creation.
 
-### 3.1 pgvector/pgvector:0.8.0-pg16 (Base: postgres:16 / Debian Bookworm)
+### 3.1 pgvector/pgvector:0.8.1-pg16 (Base: postgres:16 / Debian Bookworm)
 
 | CVE               | Component | Severity | CVSS | Description                                              | Fixed Version | Exploitable in Context? |
 |-------------------|-----------|----------|------|----------------------------------------------------------|---------------|------------------------|
@@ -90,7 +90,7 @@ the exact image digests at time of package creation.
 
 **PostgreSQL-specific CVEs**: Check [postgresql.org/support/security](https://www.postgresql.org/support/security/)
 for the exact PG 16.x minor version included in the image at build time. Pin to the
-latest `0.8.0-pg16` tag and rebuild if a PostgreSQL CVE is published.
+latest `0.8.1-pg16` tag and rebuild if a PostgreSQL CVE is published.
 
 ### 3.2 python:3.11-slim (Debian Bookworm) — Baked into App Image
 
@@ -170,7 +170,7 @@ The following controls mitigate residual risk beyond what patching alone address
   non-local connections (`pg_hba.conf` uses `md5` for network connections).
 
 ### 5.3 Container Hardening
-- **Non-root database**: `pgvector/pgvector:0.8.0-pg16` runs PostgreSQL as the `postgres` user (UID 999).
+- **Non-root database**: `pgvector/pgvector:0.8.1-pg16` runs PostgreSQL as the `postgres` user (UID 999).
 - **Read-only model cache**: The HuggingFace model cache (`/app/.cache/huggingface`) is
   baked into the image at build time with `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1`,
   preventing any outbound model download attempts.
@@ -207,19 +207,19 @@ The following controls mitigate residual risk beyond what patching alone address
 
 ```bash
 # Option A: Docker Scout (requires Docker Desktop or Hub login)
-docker scout cves pgvector/pgvector:0.8.0-pg16
+docker scout cves pgvector/pgvector:0.8.1-pg16
 docker scout cves python:3.11-slim
 docker scout cves node:20-slim
 docker scout cves softpower-app-airgap:latest
 
 # Option B: Trivy (open source, no login required)
-trivy image pgvector/pgvector:0.8.0-pg16
+trivy image pgvector/pgvector:0.8.1-pg16
 trivy image python:3.11-slim
 trivy image node:20-slim
 trivy image softpower-app-airgap:latest
 
 # Save reports for audit
-trivy image --format json -o scan-pgvector.json pgvector/pgvector:0.8.0-pg16
+trivy image --format json -o scan-pgvector.json pgvector/pgvector:0.8.1-pg16
 trivy image --format json -o scan-app.json softpower-app-airgap:latest
 ```
 
@@ -241,7 +241,7 @@ When a CVE requires updating an image on the air-gapped system:
 ```
 Internet-Connected Machine                Air-Gapped Target
 ========================                  ==================
-1. docker pull pgvector/pgvector:0.8.0-pg16
+1. docker pull pgvector/pgvector:0.8.1-pg16
 2. docker build --pull -f airgap.Dockerfile
 3. Run vulnerability scan
 4. ./scripts/docker/airgap-build.sh
@@ -260,13 +260,13 @@ Estimated update cycle time: ~1 hour (build + scan + transfer + restart).
 
 | # | Image                   | Tag         | Registry   | Used On Target? | Official Image? |
 |---|-------------------------|-------------|------------|-----------------|-----------------|
-| 1 | `pgvector/pgvector`     | `0.8.0-pg16`      | Docker Hub | Yes             | Yes (Verified Publisher) |
+| 1 | `pgvector/pgvector`     | `0.8.1-pg16`      | Docker Hub | Yes             | Yes (Verified Publisher) |
 | 2 | `python`                | `3.11-slim` | Docker Hub | Yes (baked in)  | Yes (Docker Official) |
 | 3 | `node`                  | `20-slim`   | Docker Hub | No (build-only) | Yes (Docker Official) |
 
 ### Justification
 
-- **pgvector/pgvector:0.8.0-pg16**: Required for PostgreSQL with vector similarity search
+- **pgvector/pgvector:0.8.1-pg16**: Required for PostgreSQL with vector similarity search
   (pgvector extension). This is the official, maintained image from the pgvector project
   and the designated successor to the deprecated `ankane/pgvector`. No equivalent
   capability exists in the base PostgreSQL image without compiling the extension from
@@ -310,7 +310,7 @@ demonstration deployment.
 │  │  ┌─────────────────┐  ┌──────────────────┐ │ │
 │  │  │  softpower_db   │  │  softpower_app   │ │ │
 │  │  │  pgvector/      │  │  softpower-app-  │ │ │
-│  │  │  pgvector:0.8.0-pg16  │  │  airgap:latest   │ │ │
+│  │  │  pgvector:0.8.1-pg16  │  │  airgap:latest   │ │ │
 │  │  │                 │  │                  │ │ │
 │  │  │  Port: 5432     │  │  Port: 8000 (API)│ │ │
 │  │  │  User: postgres │  │  Port: 8501 (UI) │ │ │
