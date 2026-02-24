@@ -1,12 +1,12 @@
 # Enterprise CVE Exception Request
 
-Date: February 23, 2026  
+Date: February 24, 2026
 System: SoftPower Analytics container deployment (enterprise network)  
 Prepared for: Security review and deployment approval
 
 ## Scope
 
-This exception request covers medium-severity CVEs that may still be reported by enterprise scanners after rebuilding/publishing current images.
+This exception request covers HIGH and medium-severity CVEs that may still be reported by enterprise scanners after rebuilding/publishing current images.
 
 Target images for this exception package (replace with exact scanned digests):
 
@@ -25,16 +25,29 @@ Attach scanner output generated from the exact deployed image digests:
 
 The entries below are the current exception candidates based on package presence and dependency constraints in Debian-based runtime images.
 
-| CVE | Package Family | Image(s) | Disposition | Rationale |
-|---|---|---|---|---|
-| CVE-2025-10911 | `libxslt` | pgvector | Exception | Runtime dependency in base image; removal would remove PostgreSQL package chain. |
-| CVE-2025-13151 | `libtasn1` | app | Exception | Transitive dependency of TLS stack (`gnutls`); required by installed runtime libs. |
-| CVE-2025-14104 | `util-linux` | app, pgvector | Exception | Core OS utility package; not safely removable from runtime base. |
-| CVE-2025-15281 | `glibc` / `libc` | app, pgvector | Exception | Core C runtime; requires upstream distro update, not application-layer remediation. |
-| CVE-2025-7709 | `sqlite` (`libsqlite3-0`) | app, pgvector | Exception (if scanner still flags) | Required dependency chain on Debian trixie (`util-linux -> liblastlog2-2 -> libsqlite3-0`). |
-| CVE-2026-0915 | `glibc` / `libc` | app, pgvector | Exception | Core libc path; requires upstream distro fix. |
-| CVE-2026-0990 | `libxml2` | pgvector | Exception | Transitive runtime dependency; removing it removes PostgreSQL dependencies. |
-| CVE-2026-27171 | `zlib` | app, pgvector | Exception | Foundational OS dependency required by package manager/runtime stack. |
+| CVE | Severity | Package Family | Image(s) | Disposition | Rationale |
+|---|---|---|---|---|---|
+| CVE-2026-0861 | HIGH | `glibc` (`libc-bin`, `libc6`, `libc-l10n`, `locales`) | app (2), pgvector (4) | Exception | Integer overflow in memalign requires attacker control of both size (near PTRDIFF_MAX) and alignment (>=2^62) arguments — not reachable from application code or network input. Debian classified as "minor issue / no-dsa". Fix in glibc 2.42-8+ (sid), not yet in trixie (2.41-12+deb13u1). |
+| CVE-2025-10911 | MEDIUM | `libxslt` | pgvector | Exception | Runtime dependency in base image; removal would remove PostgreSQL package chain. |
+| CVE-2025-13151 | MEDIUM | `libtasn1` | app | Exception | Transitive dependency of TLS stack (`gnutls`); required by installed runtime libs. |
+| CVE-2025-14104 | MEDIUM | `util-linux` | app, pgvector | Exception | Core OS utility package; not safely removable from runtime base. |
+| CVE-2025-15281 | MEDIUM | `glibc` / `libc` | app, pgvector | Exception | Core C runtime; requires upstream distro update, not application-layer remediation. |
+| CVE-2025-7709 | MEDIUM | `sqlite` (`libsqlite3-0`) | app, pgvector | Exception (if scanner still flags) | Required dependency chain on Debian trixie (`util-linux -> liblastlog2-2 -> libsqlite3-0`). |
+| CVE-2026-0915 | MEDIUM | `glibc` / `libc` | app, pgvector | Exception | Core libc path; requires upstream distro fix. |
+| CVE-2026-0990 | MEDIUM | `libxml2` | pgvector | Exception | Transitive runtime dependency; removing it removes PostgreSQL dependencies. |
+| CVE-2026-27171 | MEDIUM | `zlib` | app, pgvector | Exception | Foundational OS dependency required by package manager/runtime stack. |
+
+## Python-Binary CVEs (Grype MEDIUM — Not Actionable)
+
+These appear in Grype scans against the CPython binary shipped in the `python:3.13-slim` base image. They are **not exploitable** in this application because the affected stdlib modules are never imported.
+
+| CVE | Module | Exploitable? | Rationale |
+|---|---|---|---|
+| CVE-2025-15366 | `imaplib` | No | IMAP command injection via newline chars. Application does not import or use `imaplib`. No IMAP connections made. |
+| CVE-2025-15367 | `poplib` | No | POP3 command injection. Application does not import or use `poplib`. No POP3 connections made. |
+| CVE-2026-1299 | `email` headers | No | Email header injection via unquoted newlines. Application does not import or use `email` module for header construction. |
+
+**Action**: No exception needed. Document as "not applicable — affected code paths unused" if scanner requires explicit disposition.
 
 ## CVEs Not Requested for Exception (Expected Closed)
 
@@ -63,19 +76,25 @@ These should be validated as closed by the enterprise scan after image refresh:
 ## Compensating Controls
 
 1. Network isolation and least exposure:
-- Only required service ports are exposed.
-- Database is intended for service-to-service use in Docker network.
+- Only required service ports are exposed (8000, 8501).
+- Database is internal to Docker network (not exposed to host in production compose).
+- No direct user input reaches glibc allocation functions with attacker-controlled alignment.
 
 2. Non-root container execution:
-- Containers run as non-root users where configured.
+- App container: runs as `appuser` (non-root) via `USER appuser`.
+- Database container: runs as `postgres` (non-root) via `USER postgres`.
+- gosu binary removed from pgvector image (eliminates Go stdlib attack surface).
 
 3. Minimal runtime footprint:
-- Build-time tooling removed from runtime images.
-- Unneeded package classes (e.g., `gnupg`) removed where safe.
+- Build-time tooling (`build-essential`, `git`, `gnupg`) removed from all runtime images.
+- `dpkg --purge` on residual configs prevents scanners from flagging removed packages.
+- Supervisor installed from PyPI (not Debian apt) to avoid pulling 36 extra packages.
+- `locales` / `libc-l10n` retained in pgvector only because postgresql-16 hard-depends on them.
 
 4. Deployment controls:
 - Image tags/digests are pinned for release approval.
 - Re-scan required before each production promotion.
+- Weekly base image rebuild cadence to pick up upstream fixes.
 
 ## Operational Risk Statement
 
