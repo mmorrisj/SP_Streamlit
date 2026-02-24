@@ -36,11 +36,11 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # System dependencies
-# - curl: health checks
 # - postgresql-client: pg_isready, psql utilities
 # - build-essential: required by some Python packages at install time
+# Note: curl removed to eliminate CVE-2025-13034 (libcurl4t64);
+#       health checks use Python urllib instead.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl \
         postgresql-client \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
@@ -63,9 +63,12 @@ RUN pip install --no-cache-dir \
 # Remove build tools after pip install to reduce attack surface
 # Eliminates 39 binutils CVEs from the final image
 # dpkg --purge removes residual config files so Scout doesn't flag removed packages
+# Also remove tar's rmt binary (TEMP-0290435-0B57B5) — remote tape server
+# is unused and has insufficient input validation.
 RUN apt-get purge -y build-essential \
     && apt-get autoremove -y \
     && dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true \
+    && rm -f /usr/sbin/rmt \
     && rm -rf /var/lib/apt/lists/*
 
 # Install supervisor from PyPI (instead of distro package) to avoid pulling
@@ -137,6 +140,6 @@ EXPOSE 8000 8501
 USER appuser
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:${API_PORT:-8000}/api/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${API_PORT:-8000}/api/health')" || exit 1
 
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/softpower.conf"]
