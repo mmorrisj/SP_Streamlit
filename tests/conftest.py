@@ -154,21 +154,17 @@ def create_test_document(db_session):
             "date": date(2024, 8, 1),
             "salience": "5",
             "salience_bool": "False",
-            "initiating_country": "China",
-            "recipient_country": "Egypt",
-            "category": "Economic",
-            "subcategory": "Trade",
         }
         defaults.update(kwargs)
 
         doc = Document(**defaults)
         db_session.add(doc)
 
-        # Populate normalized relationship tables used by API joins.
-        initiating_country = defaults.get("initiating_country")
-        recipient_country = defaults.get("recipient_country")
-        category = defaults.get("category")
-        subcategory = defaults.get("subcategory")
+        # Optionally populate normalized relationship tables when explicitly provided.
+        initiating_country = kwargs.get("initiating_country")
+        recipient_country = kwargs.get("recipient_country")
+        category = kwargs.get("category")
+        subcategory = kwargs.get("subcategory")
 
         if initiating_country:
             db_session.add(
