@@ -7,6 +7,9 @@ and blocked filenames (Dockerfile*, .gitignore, .dockerignore) in the repo,
 renames them to .txt, and records a manifest so they can be restored later
 with unpack_files.py.
 
+Also detects empty files (e.g. __init__.py) and fills them with a placeholder
+comment, since transfer tools reject 0-byte files.
+
 Excludes: _archive/, .git/, node_modules/, __pycache__/, venv/
 
 Usage:
@@ -33,6 +36,9 @@ BLOCKED_NAME_PREFIXES = {"dockerfile"}
 EXCLUDED_DIRS = {"_archive", ".git", "node_modules", "__pycache__", "venv", ".venv"}
 
 MANIFEST_FILENAME = ".packed_manifest.json"
+
+# Placeholder content for empty files (transfer tools reject 0-byte files)
+EMPTY_FILE_PLACEHOLDER = "# empty file placeholder\n"
 
 
 def find_repo_root() -> Path:
@@ -88,6 +94,31 @@ def find_blocked_files(repo_root: Path) -> list[dict]:
     return results
 
 
+def find_empty_files(repo_root: Path) -> list[dict]:
+    """Find all empty (0-byte) files, excluding certain directories."""
+    results = []
+    for root, dirs, files in os.walk(repo_root):
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+
+        for fname in files:
+            fpath = Path(root) / fname
+            if fpath.is_symlink():
+                continue
+            try:
+                if fpath.stat().st_size == 0:
+                    rel_path = str(fpath.relative_to(repo_root))
+                    results.append({
+                        "original_path": rel_path,
+                        "packed_path": rel_path,
+                        "permissions": get_file_permissions(fpath),
+                        "empty_placeholder": True,
+                    })
+            except OSError:
+                continue
+    results.sort(key=lambda x: x["original_path"])
+    return results
+
+
 def pack(repo_root: Path, dry_run: bool = True) -> None:
     manifest_path = repo_root / MANIFEST_FILENAME
 
@@ -97,35 +128,55 @@ def pack(repo_root: Path, dry_run: bool = True) -> None:
         print("or delete the manifest if you're sure files are in original state.")
         sys.exit(1)
 
-    files = find_blocked_files(repo_root)
+    blocked_files = find_blocked_files(repo_root)
+    empty_files = find_empty_files(repo_root)
 
-    if not files:
-        print("No blocked files found to pack.")
+    # Don't double-count files that are both blocked and empty
+    blocked_paths = {e["original_path"] for e in blocked_files}
+    empty_files = [e for e in empty_files if e["original_path"] not in blocked_paths]
+
+    all_files = blocked_files + empty_files
+
+    if not all_files:
+        print("No blocked or empty files found to pack.")
         return
 
-    print(f"Found {len(files)} file(s) to pack:\n")
-    for entry in files:
-        print(f"  {entry['original_path']}  ->  {entry['packed_path']}")
+    if blocked_files:
+        print(f"Found {len(blocked_files)} blocked file(s) to rename:")
+        for entry in blocked_files:
+            print(f"  [REN] {entry['original_path']}  ->  {entry['packed_path']}")
+
+    if empty_files:
+        print(f"Found {len(empty_files)} empty file(s) to fill with placeholder:")
+        for entry in empty_files:
+            print(f"  [MTY] {entry['original_path']}")
 
     if dry_run:
-        print(f"\nDry run complete. Use --apply to rename files.")
+        print(f"\nDry run complete. Use --apply to pack files.")
         return
 
-    # Rename files
-    for entry in files:
+    # Rename blocked files
+    for entry in blocked_files:
         src = repo_root / entry["original_path"]
         dst = repo_root / entry["packed_path"]
         src.rename(dst)
         print(f"  Renamed: {entry['original_path']}  ->  {entry['packed_path']}")
 
+    # Fill empty files with placeholder
+    for entry in empty_files:
+        fpath = repo_root / entry["original_path"]
+        fpath.write_text(EMPTY_FILE_PLACEHOLDER)
+        print(f"  Filled:  {entry['original_path']}")
+
     # Write manifest
     manifest = {
         "description": "Manifest for packed files. Use unpack_files.py to restore.",
-        "files": files,
+        "files": all_files,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"\nManifest written to {MANIFEST_FILENAME}")
-    print(f"\nDone. {len(files)} file(s) packed. Transfer the repo, then run:")
+    print(f"\nDone. {len(blocked_files)} file(s) renamed, {len(empty_files)} empty file(s) filled.")
+    print(f"Transfer the repo, then run:")
     print(f"  python scripts/unpack_files.py")
 
 
