@@ -59,7 +59,7 @@ RUN pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
         sentence-transformers>=3.3.1 \
-        langchain-huggingface==0.1.2
+        'langchain-huggingface>=0.1.0'
 
 # Remove build tools after pip install to reduce attack surface
 # Eliminates 39 binutils CVEs from the final image
