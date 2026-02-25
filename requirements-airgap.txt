@@ -19,7 +19,7 @@ matplotlib>=3.9.0
 
 # Database & Migrations
 alembic==1.12.1
-pgvector==0.2.4
+pgvector>=0.2.5,<0.4
 
 # LangChain 1.x ecosystem
 # Must be listed BEFORE requirements-airgap-heavy.txt installs langchain-huggingface,
