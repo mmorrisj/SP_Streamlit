@@ -8,11 +8,12 @@
 
 # PyTorch CPU-only (~500MB)
 # Installed from pytorch CPU index, not PyPI
-torch==2.5.1
+# Must match version downloaded by airgap-build.sh (>=2.6.0 to avoid CVE-2025-32434)
+torch>=2.6.0
 
 # Sentence-transformers + transitive deps (~300MB)
 # Pulls: transformers, scipy, scikit-learn, tokenizers, safetensors, nltk, Pillow
-sentence-transformers==3.3.1
+sentence-transformers>=3.3.1
 
 # LangChain HuggingFace wrapper (for RAG embedding)
 # Pulls: langchain-core
