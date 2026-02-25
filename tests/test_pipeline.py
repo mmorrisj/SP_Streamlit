@@ -136,9 +136,10 @@ class TestDocumentIngestion:
         doc_data = {
             "doc_id": "INGEST001",
             "title": "Test Ingestion",
-            "content": "Test content",
-            "url": "https://example.com/test",
-            "date_accessed": "2024-08-01"
+            "distilled_text": "Test content",
+            "date": "2024-08-01",
+            "initiating_country": "China",
+            "recipient_country": "Egypt",
         }
 
         doc = Document(**doc_data)
@@ -156,7 +157,7 @@ class TestDocumentIngestion:
             {
                 "doc_id": f"BATCH{i:03d}",
                 "title": f"Document {i}",
-                "content": f"Content {i}"
+                "distilled_text": f"Content {i}"
             }
             for i in range(10)
         ]

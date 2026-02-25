@@ -56,6 +56,8 @@ def db_engine(test_database_url: str, database_available: bool):
 
     from sqlalchemy import create_engine
     from shared.database.database import Base
+    # Ensure all model metadata is registered before create_all().
+    import shared.models.models  # noqa: F401
 
     engine = create_engine(
         test_database_url,
@@ -134,7 +136,14 @@ def sample_document_data() -> dict:
 @pytest.fixture
 def create_test_document(db_session):
     """Factory fixture to create test documents."""
-    from shared.models.models import Document
+    from datetime import date
+    from shared.models.models import (
+        Category,
+        Document,
+        InitiatingCountry,
+        RecipientCountry,
+        Subcategory,
+    )
 
     def _create_document(**kwargs) -> Document:
         """Create and persist a test document."""
@@ -142,14 +151,46 @@ def create_test_document(db_session):
             "doc_id": "TEST001",
             "title": "Test Document",
             "distilled_text": "Test content",
-            "date": "2024-08-01",
+            "date": date(2024, 8, 1),
             "salience": "5",
-            "salience_bool": "False"
+            "salience_bool": "False",
+            "initiating_country": "China",
+            "recipient_country": "Egypt",
+            "category": "Economic",
+            "subcategory": "Trade",
         }
         defaults.update(kwargs)
 
         doc = Document(**defaults)
         db_session.add(doc)
+
+        # Populate normalized relationship tables used by API joins.
+        initiating_country = defaults.get("initiating_country")
+        recipient_country = defaults.get("recipient_country")
+        category = defaults.get("category")
+        subcategory = defaults.get("subcategory")
+
+        if initiating_country:
+            db_session.add(
+                InitiatingCountry(
+                    doc_id=defaults["doc_id"],
+                    initiating_country=initiating_country,
+                )
+            )
+        if recipient_country:
+            db_session.add(
+                RecipientCountry(
+                    doc_id=defaults["doc_id"],
+                    recipient_country=recipient_country,
+                )
+            )
+        if category:
+            db_session.add(Category(doc_id=defaults["doc_id"], category=category))
+        if subcategory:
+            db_session.add(
+                Subcategory(doc_id=defaults["doc_id"], subcategory=subcategory)
+            )
+
         db_session.commit()
         db_session.refresh(doc)
         return doc
@@ -162,7 +203,7 @@ def create_test_document(db_session):
 # ===========================================
 
 @pytest.fixture(scope="function")
-def api_client():
+def api_client(db_engine):
     """Create FastAPI test client."""
     try:
         from fastapi.testclient import TestClient
