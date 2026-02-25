@@ -1,5 +1,5 @@
 # ============================================
-# Air-Gapped Consolidated Application Container
+# Production Consolidated Application Container
 # Single container running FastAPI + Streamlit
 # via supervisord process manager
 # ============================================
@@ -49,10 +49,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install lightweight Python dependencies only.
 # Heavy ML packages (torch, sentence-transformers, langchain-huggingface)
 # are shipped as wheels and installed on the target via:
-#   ./airgap-deploy.sh setup
+#   ./production-deploy.sh setup
 # This keeps the image ~1.5GB smaller for transfer.
-COPY requirements-airgap.txt ./
-RUN pip install --no-cache-dir -r requirements-airgap.txt --index-url https://pypi.org/simple
+COPY requirements-production.txt ./
+RUN pip install --no-cache-dir -r requirements-production.txt --index-url https://pypi.org/simple
 
 # Remove build tools after pip install to reduce attack surface
 # dpkg --purge removes residual config files so Scout doesn't flag removed packages
@@ -75,7 +75,7 @@ RUN pip install --no-cache-dir \
 
 # HuggingFace model is mounted as a volume at runtime (not baked into image).
 # This keeps the image ~90MB smaller for transfer.
-# The model directory is exported separately by airgap-build.sh.
+# The model directory is exported separately by production-build.sh.
 #
 # HF_HOME is the root for the HuggingFace Hub cache.  The hub library stores
 # models under $HF_HOME/hub/models--<org>--<name>/.
@@ -89,7 +89,7 @@ RUN pip install --no-cache-dir \
 ENV HF_HOME=/app/.cache/huggingface
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/hub
 
-# Copy application code (no pipeline — not needed on air-gapped system)
+# Copy application code (no pipeline — not needed in production image)
 COPY shared/ ./shared/
 COPY server/ ./server/
 COPY services/chat/ ./services/chat/

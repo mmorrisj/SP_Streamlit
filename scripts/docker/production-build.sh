@@ -1,12 +1,12 @@
 #!/bin/bash
 # ============================================
-# Air-Gapped Package Builder
+# Production Package Builder
 # Run this on an INTERNET-CONNECTED machine
 # Produces a self-contained package for transfer
-# to the air-gapped CentOS 7 target
+# to the production target
 # ============================================
-# Output (default): softpower-airgap-YYYYMMDD.tar.gz
-# Output (--pack):  softpower-airgap-YYYYMMDD/  (all files safe for transfer)
+# Output (default): softpower-production-YYYYMMDD.tar.gz
+# Output (--pack):  softpower-production-YYYYMMDD/  (all files safe for transfer)
 #   Contains:
 #   - 2 Docker image tar files (db + app, slim — no ML packages)
 #   - wheels/ directory with heavy ML packages (torch, sentence-transformers)
@@ -16,11 +16,11 @@
 #   - .env.example
 # ============================================
 # Usage:
-#   ./airgap-build.sh                  # standard tar.gz output
-#   ./airgap-build.sh --pack           # transfer-safe directory (base64 encoded, chunked)
-#   ./airgap-build.sh --pack 20260217  # with version tag
-#   ./airgap-build.sh --pack --chunk-mb=200  # smaller chunks for restrictive transfer systems
-#   ./airgap-build.sh --clean          # force fresh downloads (ignore cache)
+#   ./production-build.sh                  # standard tar.gz output
+#   ./production-build.sh --pack           # transfer-safe directory (base64 encoded, chunked)
+#   ./production-build.sh --pack 20260217  # with version tag
+#   ./production-build.sh --pack --chunk-mb=200  # smaller chunks for restrictive transfer systems
+#   ./production-build.sh --clean          # force fresh downloads (ignore cache)
 # ============================================
 
 set -e
@@ -47,7 +47,7 @@ for arg in "$@"; do
 done
 VERSION="${VERSION:-$(date +%Y%m%d)}"
 
-PACKAGE_DIR="softpower-airgap-${VERSION}"
+PACKAGE_DIR="softpower-production-${VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -59,7 +59,7 @@ fi
 
 echo ""
 echo "=============================================="
-echo "SoftPower Analytics - Air-Gap Package Builder"
+echo "SoftPower Analytics - Production Package Builder"
 echo "=============================================="
 echo "Version:      $VERSION"
 echo "Project root: $PROJECT_ROOT"
@@ -75,7 +75,7 @@ cd "$PROJECT_ROOT"
 # Persistent cache for wheels/model/images across builds.
 # Survives version tag changes (e.g. running today vs tomorrow).
 # Use --clean to force fresh downloads.
-CACHE_DIR="$PROJECT_ROOT/.airgap-cache"
+CACHE_DIR="$PROJECT_ROOT/.production-cache"
 if [ "$CLEAN_MODE" = true ]; then
     echo -e "${YELLOW}--clean: removing cache${NC} ($CACHE_DIR)"
     rm -rf "$CACHE_DIR"
@@ -108,8 +108,8 @@ fi
 echo ""
 echo "  Building slim application image (no ML packages)..."
 docker build \
-    -f docker/airgap.Dockerfile \
-    -t softpower-app-airgap:latest \
+    -f docker/production.Dockerfile \
+    -t softpower-app-production:latest \
     .
 echo -e "  ${GREEN}Slim application image built${NC}"
 echo ""
@@ -146,12 +146,12 @@ else
     # Download wheels inside the slim image so they're platform-compatible.
     # Uses docker create + docker cp instead of volume mounts for Windows compatibility.
     # PyTorch CPU from pytorch index, everything else from PyPI.
-    WHEELS_CONTAINER="airgap_build_wheels_$$"
+    WHEELS_CONTAINER="production_build_wheels_$$"
     docker rm -f "$WHEELS_CONTAINER" 2>/dev/null || true
 
     echo "  Downloading PyTorch CPU + sentence-transformers + langchain-huggingface wheels..."
     docker create --name "$WHEELS_CONTAINER" \
-        softpower-app-airgap:latest \
+        softpower-app-production:latest \
         bash -c "mkdir -p /wheels && \
             pip download --no-cache-dir --dest /wheels \
                 --index-url https://download.pytorch.org/whl/cpu \
@@ -206,14 +206,14 @@ else
     #      preferred path used by shared/utils/model_cache.py at runtime.
     #   2. /export/hub/models--sentence-transformers--all-MiniLM-L6-v2/  — standard
     #      HF Hub cache layout (kept as fallback for compatibility).
-    MODEL_CONTAINER="airgap_build_model_$$"
+    MODEL_CONTAINER="production_build_model_$$"
     docker rm -f "$MODEL_CONTAINER" 2>/dev/null || true
 
     docker create --name "$MODEL_CONTAINER" \
         -e HF_HOME=/export \
         -e TRANSFORMERS_OFFLINE=0 \
         -e HF_HUB_OFFLINE=0 \
-        softpower-app-airgap:latest \
+        softpower-app-production:latest \
         bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
             torch sentence-transformers langchain-huggingface && \
         python3 -c '
@@ -223,7 +223,7 @@ from sentence_transformers import SentenceTransformer
 # Download model into HF Hub cache (/export/hub/...)
 model = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\")
 
-# Save a clean, symlink-free copy for air-gapped portability
+# Save a clean, symlink-free copy for production portability
 direct_path = \"/export/models/all-MiniLM-L6-v2\"
 os.makedirs(direct_path, exist_ok=True)
 model.save(direct_path)
@@ -283,10 +283,10 @@ echo ""
 mkdir -p "$PACKAGE_DIR/images"
 
 # Check if both image tars already exist and are non-empty
-if [ -s "$PACKAGE_DIR/images/pgvector-pg16.tar" ] && [ -s "$PACKAGE_DIR/images/softpower-app-airgap.tar" ]; then
+if [ -s "$PACKAGE_DIR/images/pgvector-pg16.tar" ] && [ -s "$PACKAGE_DIR/images/softpower-app-production.tar" ]; then
     echo -e "  ${GREEN}Image tars already in package dir${NC}"
     echo "  pgvector-pg16.tar         ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
-    echo "  softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+    echo "  softpower-app-production.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-production.tar" | cut -f1))"
     echo "  Skipping export (use --clean to force)"
 else
     # Use stdout redirection (>) instead of -o flag.
@@ -297,9 +297,9 @@ else
     docker save "$DB_IMAGE" > "$PACKAGE_DIR/images/pgvector-pg16.tar"
     echo -e "  ${GREEN}pgvector-pg16.tar${NC} ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
 
-    echo "  Saving softpower-app-airgap:latest..."
-    docker save softpower-app-airgap:latest > "$PACKAGE_DIR/images/softpower-app-airgap.tar"
-    echo -e "  ${GREEN}softpower-app-airgap.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+    echo "  Saving softpower-app-production:latest..."
+    docker save softpower-app-production:latest > "$PACKAGE_DIR/images/softpower-app-production.tar"
+    echo -e "  ${GREEN}softpower-app-production.tar${NC} ($(du -h "$PACKAGE_DIR/images/softpower-app-production.tar" | cut -f1))"
 fi
 
 # Verify image tars are non-empty AND reasonably sized.
@@ -307,7 +307,7 @@ fi
 # means docker save silently failed — the file contains only tar headers
 # or an error message, not actual image layers.
 MIN_IMAGE_MB=50
-for img_tar in "$PACKAGE_DIR/images/pgvector-pg16.tar" "$PACKAGE_DIR/images/softpower-app-airgap.tar"; do
+for img_tar in "$PACKAGE_DIR/images/pgvector-pg16.tar" "$PACKAGE_DIR/images/softpower-app-production.tar"; do
     if [ ! -s "$img_tar" ]; then
         echo -e "  ${RED}ERROR: $(basename "$img_tar") is empty or missing${NC}"
         echo "  docker save may have failed. Check disk space and Docker daemon."
@@ -324,7 +324,7 @@ for img_tar in "$PACKAGE_DIR/images/pgvector-pg16.tar" "$PACKAGE_DIR/images/soft
         echo "  Troubleshooting:"
         echo "    1. Check the image exists: docker images | grep -E 'pgvector|softpower'"
         echo "    2. Check disk space: df -h"
-        echo "    3. Try saving manually: docker save softpower-app-airgap:latest -o test.tar"
+        echo "    3. Try saving manually: docker save softpower-app-production:latest -o test.tar"
         echo "    4. Check Docker daemon: docker info"
         exit 1
     fi
@@ -339,11 +339,11 @@ echo -e "${BLUE}[5/7]${NC} Copying deployment files..."
 echo ""
 
 # Deployment script
-cp scripts/docker/airgap-deploy.sh "$PACKAGE_DIR/"
-chmod +x "$PACKAGE_DIR/airgap-deploy.sh"
+cp scripts/docker/production-deploy.sh "$PACKAGE_DIR/"
+chmod +x "$PACKAGE_DIR/production-deploy.sh"
 
 # Heavy requirements file (needed by deploy setup command)
-cp requirements-airgap-heavy.txt "$PACKAGE_DIR/"
+cp requirements-production-heavy.txt "$PACKAGE_DIR/"
 
 # Environment template
 if [ -f .env.example ]; then
@@ -368,7 +368,7 @@ echo ""
 
 cat > "$PACKAGE_DIR/README.txt" << 'DOCEOF'
 ========================================================
-SoftPower Analytics - Air-Gapped Deployment Package
+SoftPower Analytics - Production Deployment Package
 ========================================================
 
 Architecture:
@@ -379,14 +379,14 @@ Architecture:
 Contents:
   images/
     pgvector-pg16.tar           PostgreSQL 16 + pgvector (official)
-    softpower-app-airgap.tar    FastAPI + Streamlit (slim — no ML packages)
+    softpower-app-production.tar    FastAPI + Streamlit (slim — no ML packages)
   wheels/                       Pre-downloaded Python wheels (~1.5GB)
                                 (torch, sentence-transformers, langchain-huggingface)
-                                Installed on target via: ./airgap-deploy.sh setup
+                                Installed on target via: ./production-deploy.sh setup
   hf_model/                     Pre-downloaded sentence-transformers model
                                 (~90MB, mounted as volume at runtime)
-  requirements-airgap-heavy.txt List of heavy packages to install from wheels
-  airgap-deploy.sh              Deployment management script
+  requirements-production-heavy.txt List of heavy packages to install from wheels
+  production-deploy.sh              Deployment management script
   .env.example                  Environment variable template
   debug/                        Alembic migrations (for troubleshooting)
 
@@ -401,17 +401,17 @@ System Requirements:
 QUICK START
 ========================================================
 
-1. Transfer this directory to the air-gapped system
+1. Transfer this directory to the production system
 
 2. If packed for transfer (contains .b64.txt files):
-     cd softpower-airgap-XXXXXXXX
-     python3 unpack-airgap.py --apply
+     cd softpower-production-XXXXXXXX
+     python3 unpack-production.py --apply
 
 3. Load Docker images:
-     ./airgap-deploy.sh load ./images
+     ./production-deploy.sh load ./images
 
 4. Install ML packages from wheels (one-time setup):
-     ./airgap-deploy.sh setup
+     ./production-deploy.sh setup
      (installs torch, sentence-transformers into the app image)
 
 5. Create environment file:
@@ -419,10 +419,10 @@ QUICK START
      # Edit .env with your credentials
 
 6. Start services:
-     ./airgap-deploy.sh start
+     ./production-deploy.sh start
 
 7. Run database migrations:
-     ./airgap-deploy.sh migrate
+     ./production-deploy.sh migrate
 
 8. Access the application:
      Web App:    http://<hostname>:8000
@@ -433,15 +433,15 @@ QUICK START
 MANAGEMENT COMMANDS
 ========================================================
 
-  ./airgap-deploy.sh setup              Install ML wheels into app image (one-time)
-  ./airgap-deploy.sh start              Start all services
-  ./airgap-deploy.sh stop               Stop all services
-  ./airgap-deploy.sh restart            Restart all services
-  ./airgap-deploy.sh status             Show service status
-  ./airgap-deploy.sh migrate            Run database migrations
-  ./airgap-deploy.sh backup             Create database backup
-  ./airgap-deploy.sh restore <file>     Restore from backup
-  ./airgap-deploy.sh logs [container]   View logs
+  ./production-deploy.sh setup              Install ML wheels into app image (one-time)
+  ./production-deploy.sh start              Start all services
+  ./production-deploy.sh stop               Stop all services
+  ./production-deploy.sh restart            Restart all services
+  ./production-deploy.sh status             Show service status
+  ./production-deploy.sh migrate            Run database migrations
+  ./production-deploy.sh backup             Create database backup
+  ./production-deploy.sh restore <file>     Restore from backup
+  ./production-deploy.sh logs [container]   View logs
 
 ========================================================
 TROUBLESHOOTING (CentOS 7)
@@ -467,7 +467,7 @@ Shared memory errors (PostgreSQL):
 Container networking issues:
   docker network rm softpower_net
   docker network create softpower_net
-  ./airgap-deploy.sh restart
+  ./production-deploy.sh restart
 
 Check container logs:
   docker logs softpower_db          # Database logs
@@ -483,7 +483,7 @@ Disk space check:
 DOCEOF
 
 cat > "$PACKAGE_DIR/INSTALL_CHECKLIST.txt" << 'CHECKEOF'
-Air-Gapped Installation Checklist
+Production Installation Checklist
 ==================================
 
 Pre-Installation:
@@ -495,20 +495,20 @@ Pre-Installation:
 
 Step 1 - Unpack (if transferred via pack):
 [ ] cd to package directory
-[ ] Run: python3 unpack-airgap.py --apply
+[ ] Run: python3 unpack-production.py --apply
     (Skip if package was NOT packed for transfer)
 
 Step 2 - Load Images:
-[ ] Run: ./airgap-deploy.sh load ./images
+[ ] Run: ./production-deploy.sh load ./images
 [ ] Verify: docker images | grep -E "softpower|pgvector"
     - pgvector/pgvector:0.8.1-pg16
-    - softpower-app-airgap:latest
+    - softpower-app-production:latest
 [ ] Verify hf_model/ directory is present (sentence-transformers model)
 
 Step 3 - Install ML Packages:
-[ ] Run: ./airgap-deploy.sh setup
+[ ] Run: ./production-deploy.sh setup
     (Installs torch, sentence-transformers from local wheels)
-[ ] Verify: docker images | grep softpower-app-airgap
+[ ] Verify: docker images | grep softpower-app-production
     Size should increase from ~700MB to ~2GB after setup
 
 Step 4 - Configure:
@@ -518,14 +518,14 @@ Step 4 - Configure:
     - POSTGRES_DB
 
 Step 5 - Start Services:
-[ ] Run: ./airgap-deploy.sh start
-[ ] Verify: ./airgap-deploy.sh status
+[ ] Run: ./production-deploy.sh start
+[ ] Verify: ./production-deploy.sh status
     - softpower_db is running
     - softpower_app is running
 
 Step 6 - Initialize Database:
-[ ] Run: ./airgap-deploy.sh migrate
-[ ] (If backup available) Run: ./airgap-deploy.sh restore softpower-backup.dump
+[ ] Run: ./production-deploy.sh migrate
+[ ] (If backup available) Run: ./production-deploy.sh restore softpower-backup.dump
 
 Step 7 - Verify:
 [ ] curl http://localhost:8000/api/health
@@ -553,14 +553,14 @@ if [ "$PACK_MODE" = true ]; then
     # Result is a directory of transfer-safe .txt files
 
     # Copy unpack script into the package
-    cp "$SCRIPT_DIR/unpack-airgap.py" "$PACKAGE_DIR/"
-    echo -e "  ${GREEN}Copied unpack-airgap.py into package${NC}"
+    cp "$SCRIPT_DIR/unpack-production.py" "$PACKAGE_DIR/"
+    echo -e "  ${GREEN}Copied unpack-production.py into package${NC}"
 
-    # Run pack-airgap.py
+    # Run pack-production.py
     echo ""
     echo "  Encoding binaries and renaming blocked files..."
     echo ""
-    python3 "$SCRIPT_DIR/pack-airgap.py" "$PACKAGE_DIR" --apply --chunk-mb "$CHUNK_MB"
+    python3 "$SCRIPT_DIR/pack-production.py" "$PACKAGE_DIR" --apply --chunk-mb "$CHUNK_MB"
 
     echo ""
     echo "=============================================="
@@ -575,20 +575,20 @@ if [ "$PACK_MODE" = true ]; then
     echo ""
     echo "Transfer the '${PACKAGE_DIR}/' directory, then on the target:"
     echo "  cd ${PACKAGE_DIR}"
-    echo "  python3 unpack-airgap.py --apply"
-    echo "  ./airgap-deploy.sh load ./images"
-    echo "  ./airgap-deploy.sh setup"
-    echo "  ./airgap-deploy.sh start"
-    echo "  ./airgap-deploy.sh migrate"
+    echo "  python3 unpack-production.py --apply"
+    echo "  ./production-deploy.sh load ./images"
+    echo "  ./production-deploy.sh setup"
+    echo "  ./production-deploy.sh start"
+    echo "  ./production-deploy.sh migrate"
     echo ""
 else
     # Standard mode: tar.gz archive
     echo "Contents:"
     echo "  images/pgvector-pg16.tar         ($(du -h "$PACKAGE_DIR/images/pgvector-pg16.tar" | cut -f1))"
-    echo "  images/softpower-app-airgap.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-airgap.tar" | cut -f1))"
+    echo "  images/softpower-app-production.tar  ($(du -h "$PACKAGE_DIR/images/softpower-app-production.tar" | cut -f1))"
     echo "  wheels/                          ($(du -sh "$PACKAGE_DIR/wheels" | cut -f1) - ML package wheels)"
     echo "  hf_model/                        ($(du -sh "$PACKAGE_DIR/hf_model" | cut -f1) - sentence-transformers)"
-    echo "  airgap-deploy.sh                 (deployment script)"
+    echo "  production-deploy.sh                 (deployment script)"
     echo "  .env.example                     (config template)"
     echo "  README.txt                       (instructions)"
     echo "  INSTALL_CHECKLIST.txt            (checklist)"
@@ -598,22 +598,22 @@ else
 
     echo ""
     echo "=============================================="
-    echo -e "${GREEN}Air-Gapped Package Created Successfully${NC}"
+    echo -e "${GREEN}Production Package Created Successfully${NC}"
     echo "=============================================="
     echo ""
     echo "Package:  ${PACKAGE_DIR}.tar.gz"
     echo "Size:     $(du -sh "${PACKAGE_DIR}.tar.gz" | cut -f1)"
     echo ""
-    echo "Transfer to air-gapped system:"
+    echo "Transfer to production system:"
     echo "  scp ${PACKAGE_DIR}.tar.gz user@target:/opt/"
     echo ""
     echo "On the target system:"
     echo "  cd /opt && tar xzf ${PACKAGE_DIR}.tar.gz"
     echo "  cd ${PACKAGE_DIR}"
-    echo "  ./airgap-deploy.sh load ./images"
-    echo "  ./airgap-deploy.sh setup"
-    echo "  ./airgap-deploy.sh start"
-    echo "  ./airgap-deploy.sh migrate"
+    echo "  ./production-deploy.sh load ./images"
+    echo "  ./production-deploy.sh setup"
+    echo "  ./production-deploy.sh start"
+    echo "  ./production-deploy.sh migrate"
     echo ""
 
     # Cleanup staging directory (keep the tar.gz)

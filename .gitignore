@@ -78,9 +78,9 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
-# Air-gap build cache (wheels, model, etc.)
-.airgap-cache/
-softpower-airgap-*/
+# Production build cache (wheels, model, etc.)
+.production-cache/
+softpower-production-*/
 
 # AidData dataset (large external dataset, not tracked in git)
 AidDatas_Global_Chinese_Development_Finance_Dataset_Version_3_0/
@@ -134,4 +134,4 @@ tmpclaude-e83e-cwd
 tmpclaude-e381-cwd
 tmpclaude-ec39-cwd
 tmpclaude-f3be-cwd
-softpower-airgap-20260220.tar.gz
+softpower-production-20260220.tar.gz

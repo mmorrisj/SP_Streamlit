@@ -227,7 +227,7 @@ SP_Streamlit/
 │
 ├── docker/                     # Docker configurations
 │   ├── registry.Dockerfile    # Production consolidated app (Docker Hub)
-│   ├── airgap.Dockerfile      # Air-gapped consolidated app
+│   ├── production.Dockerfile   # Production consolidated app
 │   ├── pgvector.Dockerfile    # Custom pgvector database image
 │   ├── api.Dockerfile         # Dev API service Dockerfile
 │   ├── dashboard.Dockerfile   # Dev dashboard Dockerfile
@@ -238,11 +238,11 @@ SP_Streamlit/
 │   ├── start_services.ps1     # Non-Docker startup (Windows)
 │   ├── run_tests.sh/ps1       # Test runner scripts
 │   └── docker/                # Docker-specific scripts
-│       ├── airgap-build.sh    # Air-gap package builder
-│       ├── airgap-deploy.sh   # Air-gap deployment script
+│       ├── production-build.sh  # Production package builder
+│       ├── production-deploy.sh # Production deployment script
 │       ├── push-to-registry.sh # Registry push
-│       ├── pack-airgap.py     # Binary encoding for transfer
-│       └── unpack-airgap.py   # Binary decoding on target
+│       ├── pack-production.py   # Binary encoding for transfer
+│       └── unpack-production.py # Binary decoding on target
 │
 ├── alembic/                    # Database migrations
 ├── docker-compose.yml          # Docker orchestration

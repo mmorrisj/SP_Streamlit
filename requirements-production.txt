@@ -1,8 +1,8 @@
 # ============================================
-# Air-Gapped Runtime Requirements (SLIM)
+# Production Runtime Requirements (SLIM)
 # Lightweight packages baked into the Docker image.
 # Heavy ML packages (torch, sentence-transformers, langchain-huggingface)
-# are installed separately from wheels — see requirements-airgap-heavy.txt
+# are installed separately from wheels — see requirements-production-heavy.txt
 # ============================================
 
 # Core
@@ -22,7 +22,7 @@ alembic==1.12.1
 pgvector>=0.2.5,<0.4
 
 # LangChain 1.x ecosystem
-# Must be listed BEFORE requirements-airgap-heavy.txt installs langchain-huggingface,
+# Must be listed BEFORE requirements-production-heavy.txt installs langchain-huggingface,
 # so pip resolves langchain-huggingface to 1.x (not 0.1.2 which pins langchain-core <0.4.0).
 langchain>=1.0
 langchain-core>=1.0

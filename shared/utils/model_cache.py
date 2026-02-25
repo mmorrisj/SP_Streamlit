@@ -4,7 +4,7 @@ Centralised helper for loading the sentence-transformers embedding model.
 Works transparently in three deployment scenarios:
   1. Online (dev): downloads from HuggingFace Hub on first use, caches locally.
   2. Docker (compose): model cached at image build time in HF_HOME.
-  3. Air-gapped: model directory mounted as a volume; TRANSFORMERS_OFFLINE=1.
+  3. Production: model directory mounted as a volume; TRANSFORMERS_OFFLINE=1.
 
 Usage:
     from shared.utils.model_cache import load_embedding_model
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Canonical model identifier used everywhere in the project.
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
-# Subdirectory used by airgap-build.sh for a clean, symlink-free model copy.
+# Subdirectory used by production-build.sh for a clean, symlink-free model copy.
 _DIRECT_MODEL_SUBDIR = os.path.join("models", "all-MiniLM-L6-v2")
 
 # HF Hub cache directory name (used when cache_dir is passed explicitly).
@@ -32,7 +32,7 @@ _HUB_CACHE_MODEL_DIR = "models--sentence-transformers--all-MiniLM-L6-v2"
 _CANDIDATE_CACHE_DIRS = [
     os.environ.get("SENTENCE_TRANSFORMERS_HOME"),
     os.environ.get("HF_HOME"),
-    "/app/.cache/huggingface",      # airgap container mount point
+    "/app/.cache/huggingface",      # production container mount point
     os.path.expanduser("~/.cache/huggingface"),
 ]
 
@@ -46,7 +46,7 @@ def _find_hub_snapshot(model_cache_dir: str) -> str | None:
     HF Hub stores models as:
       <cache_dir>/snapshots/<commit_hash>/<model_files>
 
-    After symlink resolution (airgap transfers), the snapshot directory
+    After symlink resolution (production transfers), the snapshot directory
     contains real files instead of symlinks to blobs/.  This function
     locates such a snapshot and returns its path.
     """
@@ -80,7 +80,7 @@ def _resolve_model_path() -> str | None:
       2. HF Hub cache snapshot at ``models--org--name/snapshots/<hash>/``.
       3. HF Hub cache snapshot at ``hub/models--org--name/snapshots/<hash>/``.
 
-    The snapshot fallback is critical for air-gapped deployments where the
+    The snapshot fallback is critical for production deployments where the
     package was built before the model.save() step was added, or where the
     HF Hub cache metadata (refs/blobs) is corrupted after transfer.
     """
@@ -152,7 +152,7 @@ def _log_search_diagnostics() -> None:
             os.path.isdir(hub_nested),
         )
     logger.warning(
-        "If air-gapped, ensure the hf_model/ directory is mounted at "
+        "If production, ensure the hf_model/ directory is mounted at "
         "/app/.cache/huggingface and contains models/all-MiniLM-L6-v2/modules.json"
     )
 
@@ -161,17 +161,17 @@ def load_embedding_model():
     """Return a ``SentenceTransformer`` instance with correct cache settings.
 
     Automatically resolves the local cache directory so the model works
-    in online, Docker, and air-gapped environments without code changes.
+    in online, Docker, and production environments without code changes.
 
     Resolution order:
-      1. Direct model save (airgap-build.sh ``model.save()`` copy — no symlinks)
+      1. Direct model save (production-build.sh ``model.save()`` copy — no symlinks)
       2. HF Hub cache snapshot (snapshots/<hash>/ inside the cache directory)
       3. HF Hub cache via SentenceTransformer cache_folder parameter
       4. Online download (if network available)
     """
     from sentence_transformers import SentenceTransformer
 
-    # Prefer direct model path (most robust for air-gapped / transferred deploys)
+    # Prefer direct model path (most robust for production / transferred deploys)
     model_path = _resolve_model_path()
     if model_path:
         logger.info("Loading embedding model from local path: %s", model_path)
@@ -198,7 +198,7 @@ def get_hf_embeddings():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Prefer direct model path (most robust for air-gapped / transferred deploys)
+    # Prefer direct model path (most robust for production / transferred deploys)
     model_path = _resolve_model_path()
     if model_path:
         logger.info("Loading HF embeddings from local path: %s", model_path)

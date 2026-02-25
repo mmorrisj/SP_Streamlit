@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pack an airgap deployment directory for transfer through systems that
+Pack a production deployment directory for transfer through systems that
 block/redact executables, binaries, and certain file extensions.
 
 Transformations:
@@ -14,16 +14,16 @@ Transformations:
 A manifest (pack_manifest.json) records all transformations plus SHA256
 checksums for integrity verification on the target system.
 
-Run unpack-airgap.py on the target system to restore everything.
+Run unpack-production.py on the target system to restore everything.
 
 Usage:
-    python scripts/docker/pack-airgap.py <package-dir>              # dry run
-    python scripts/docker/pack-airgap.py <package-dir> --apply      # encode/rename
-    python scripts/docker/pack-airgap.py <package-dir> --apply --chunk-mb 200  # smaller chunks
-    python scripts/docker/pack-airgap.py <package-dir> --apply --no-scramble   # disable DLP bypass
+    python scripts/docker/pack-production.py <package-dir>              # dry run
+    python scripts/docker/pack-production.py <package-dir> --apply      # encode/rename
+    python scripts/docker/pack-production.py <package-dir> --apply --chunk-mb 200  # smaller chunks
+    python scripts/docker/pack-production.py <package-dir> --apply --no-scramble   # disable DLP bypass
 
-Example (after airgap-build.sh --pack):
-    python scripts/docker/pack-airgap.py softpower-airgap-20260217 --apply
+Example (after production-build.sh --pack):
+    python scripts/docker/pack-production.py softpower-production-20260217 --apply
 """
 
 import argparse
@@ -79,7 +79,7 @@ DEFAULT_CHUNK_MB = 500
 #
 # By using a shuffled base64 alphabet, the DLP decodes with the standard
 # alphabet and gets garbage — no signatures match, so the file passes
-# through.  On the target, unpack-airgap.py reverses the substitution
+# through.  On the target, unpack-production.py reverses the substitution
 # before decoding.
 #
 # This uses the same 64 printable characters as standard base64, so the
@@ -238,7 +238,7 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
 
     if manifest_path.exists():
         print(f"ERROR: Manifest already exists at {manifest_path}")
-        print("Directory may already be packed. Run unpack-airgap.py first.")
+        print("Directory may already be packed. Run unpack-production.py first.")
         sys.exit(1)
 
     entries = []
@@ -385,7 +385,7 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
     # Write manifest
     manifest = {
         "version": 2,
-        "description": "Packed airgap deployment. Run unpack-airgap.py --apply to restore.",
+        "description": "Packed production deployment. Run unpack-production.py --apply to restore.",
         "scrambled": scramble,
         "chunk_mb": chunk_mb,
         "files": entries,
@@ -396,16 +396,16 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
     print(f"\nManifest written: {MANIFEST_NAME}")
     print(f"Done. {len(entries)} file(s) transformed, {len(symlinks)} symlink(s) recorded.")
     if scramble:
-        print(f"DLP bypass: base64 alphabet scrambled (unpack-airgap.py will reverse)")
+        print(f"DLP bypass: base64 alphabet scrambled (unpack-production.py will reverse)")
     print(f"\nTransfer the '{pkg_dir.name}/' directory, then on the target run:")
-    print(f"  python unpack-airgap.py --apply")
+    print(f"  python unpack-production.py --apply")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Pack airgap deployment for transfer (base64 binaries, rename scripts)"
+        description="Pack production deployment for transfer (base64 binaries, rename scripts)"
     )
-    parser.add_argument("package_dir", help="Path to the airgap package directory")
+    parser.add_argument("package_dir", help="Path to the production package directory")
     parser.add_argument("--apply", action="store_true", help="Actually transform files (default: dry run)")
     parser.add_argument(
         "--chunk-mb", type=int, default=DEFAULT_CHUNK_MB,

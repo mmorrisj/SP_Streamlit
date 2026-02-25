@@ -2,13 +2,13 @@
 # Heavy ML packages — installed from wheels on the target system
 # NOT baked into the Docker image (keeps image ~1.5GB smaller)
 #
-# These are downloaded as .whl files by airgap-build.sh and
-# installed via airgap-deploy.sh setup on the air-gapped target.
+# These are downloaded as .whl files by production-build.sh and
+# installed via production-deploy.sh setup on the target system.
 # ============================================
 
 # PyTorch CPU-only (~500MB)
 # Installed from pytorch CPU index, not PyPI
-# Must match version downloaded by airgap-build.sh (>=2.6.0 to avoid CVE-2025-32434)
+# Must match version downloaded by production-build.sh (>=2.6.0 to avoid CVE-2025-32434)
 torch>=2.6.0
 
 # Sentence-transformers + transitive deps (~300MB)

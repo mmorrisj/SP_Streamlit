@@ -51,13 +51,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install lightweight runtime dependencies
-COPY requirements-airgap.txt ./
-RUN pip install --no-cache-dir -r requirements-airgap.txt
+COPY requirements-production.txt ./
+RUN pip install --no-cache-dir -r requirements-production.txt
 
 # Install heavy ML dependencies
 # PyTorch CPU-only from the official PyTorch index (avoids pulling CUDA variant)
 # sentence-transformers and langchain-huggingface from PyPI
-COPY requirements-airgap-heavy.txt ./
+COPY requirements-production-heavy.txt ./
 RUN pip install --no-cache-dir \
         torch>=2.6.0 \
         --index-url https://download.pytorch.org/whl/cpu \

@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================
-# Air-Gapped Deployment Script
-# Run this ON the air-gapped CentOS 7 system
+# Production Deployment Script
+# Run this ON the the production target system
 # No docker-compose required - raw docker only
 # ============================================
-# Usage: ./airgap-deploy.sh [start|stop|restart|migrate|status|load|backup|restore]
+# Usage: ./production-deploy.sh [start|stop|restart|migrate|status|load|backup|restore]
 # ============================================
 
 set -e
@@ -38,12 +38,12 @@ STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
 # Set LLM_PROXY_PORT=0 to disable (container calls APIs directly).
 LLM_PROXY_PORT="${LLM_PROXY_PORT:-7001}"
 
-# Deployment mode: "airgap" or "standard"
-# airgap  = TRANSFORMERS_OFFLINE=1, HF_HUB_OFFLINE=1 (no network access to HuggingFace)
+# Deployment mode: "production" or "standard"
+# production = TRANSFORMERS_OFFLINE=1, HF_HUB_OFFLINE=1 (no network access to HuggingFace)
 # standard = TRANSFORMERS_OFFLINE=0, HF_HUB_OFFLINE=0 (model still baked in, but can reach out)
-DEPLOY_MODE="${DEPLOY_MODE:-airgap}"
+DEPLOY_MODE="${DEPLOY_MODE:-production}"
 
-if [ "$DEPLOY_MODE" = "airgap" ]; then
+if [ "$DEPLOY_MODE" = "production" ]; then
     TRANSFORMERS_OFFLINE=1
     HF_HUB_OFFLINE=1
 else
@@ -52,19 +52,19 @@ else
 fi
 
 # Image names
-# If AIRGAP_REGISTRY is set, use registry-prefixed image names
-if [ -n "$AIRGAP_REGISTRY" ]; then
-    DB_IMAGE="${AIRGAP_REGISTRY}/pgvector:0.8.1-pg16"
-    APP_IMAGE="${AIRGAP_REGISTRY}/softpower-app-airgap:latest"
+# If PRODUCTION_REGISTRY is set, use registry-prefixed image names
+if [ -n "$PRODUCTION_REGISTRY" ]; then
+    DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg16"
+    APP_IMAGE="${PRODUCTION_REGISTRY}/softpower-app-production:latest"
 else
     # Database: Official pgvector image (PostgreSQL 16 + pgvector extension)
     DB_IMAGE="pgvector/pgvector:0.8.1-pg16"
-    # Application: Built by airgap-build.sh
-    APP_IMAGE="softpower-app-airgap:latest"
+    # Application: Built by production-build.sh
+    APP_IMAGE="softpower-app-production:latest"
 fi
 
 # HuggingFace model directory (sentence-transformers, mounted as volume)
-# Default: hf_model/ next to this script (produced by airgap-build.sh)
+# Default: hf_model/ next to this script (produced by production-build.sh)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL_DIR="${MODEL_DIR:-${SCRIPT_DIR}/hf_model}"
 
@@ -148,7 +148,7 @@ cmd_setup() {
     local wheels_dir="${SCRIPT_DIR}/wheels"
     if [ ! -d "$wheels_dir" ]; then
         log_error "Wheels directory not found: $wheels_dir"
-        log_info "Expected: wheels/ directory produced by airgap-build.sh"
+        log_info "Expected: wheels/ directory produced by production-build.sh"
         exit 1
     fi
 
@@ -160,16 +160,16 @@ cmd_setup() {
     fi
 
     # Locate requirements file (packages to install from wheels)
-    local req_file="${SCRIPT_DIR}/requirements-airgap-heavy.txt"
+    local req_file="${SCRIPT_DIR}/requirements-production-heavy.txt"
     if [ ! -f "$req_file" ]; then
-        log_warn "requirements-airgap-heavy.txt not found, using built-in package list"
+        log_warn "requirements-production-heavy.txt not found, using built-in package list"
         req_file=""
     fi
 
     # Verify the slim image is loaded
     if ! docker image inspect "$APP_IMAGE" &>/dev/null; then
         log_error "App image not found: $APP_IMAGE"
-        log_info "Run './airgap-deploy.sh load ./images' first"
+        log_info "Run './production-deploy.sh load ./images' first"
         exit 1
     fi
 
@@ -178,11 +178,11 @@ cmd_setup() {
     echo ""
 
     # Build the pip install command.
-    # Prefer requirements-airgap-heavy.txt (versioned, matches what build downloaded)
+    # Prefer requirements-production-heavy.txt (versioned, matches what build downloaded)
     # with a hard-coded fallback for backwards compatibility.
     local pip_cmd="pip install --no-cache-dir --no-index --find-links /wheels"
     if [ -n "$req_file" ]; then
-        pip_cmd="$pip_cmd -r /requirements-airgap-heavy.txt"
+        pip_cmd="$pip_cmd -r /requirements-production-heavy.txt"
     else
         pip_cmd="$pip_cmd torch sentence-transformers langchain-huggingface"
     fi
@@ -198,7 +198,7 @@ cmd_setup() {
 
     docker cp "$wheels_dir" "$setup_container":/wheels
     if [ -n "$req_file" ]; then
-        docker cp "$req_file" "$setup_container":/requirements-airgap-heavy.txt
+        docker cp "$req_file" "$setup_container":/requirements-production-heavy.txt
     fi
     docker start -a "$setup_container"
 
@@ -220,14 +220,14 @@ cmd_setup() {
     else
         log_error "ML package verification FAILED — imports did not succeed"
         log_info "Check the pip install output above for errors"
-        log_info "You may need to re-run: ./airgap-deploy.sh setup"
+        log_info "You may need to re-run: ./production-deploy.sh setup"
         exit 1
     fi
 
     echo ""
     echo "Next steps:"
-    echo "  ./airgap-deploy.sh start"
-    echo "  ./airgap-deploy.sh migrate"
+    echo "  ./production-deploy.sh start"
+    echo "  ./production-deploy.sh migrate"
     echo ""
 }
 
@@ -267,10 +267,10 @@ cmd_load() {
         b64_count=$(ls -1 "$image_dir"/*.b64.txt 2>/dev/null | wc -l)
         if [ "$b64_count" -gt 0 ]; then
             log_info "Found $b64_count .b64.txt file(s) — images are still packed for transfer"
-            log_info "Run 'python3 unpack-airgap.py --apply' first to decode them"
+            log_info "Run 'python3 unpack-production.py --apply' first to decode them"
         else
-            log_info "Expected: pgvector-pg16.tar and softpower-app-airgap.tar"
-            log_info "Re-run airgap-build.sh to regenerate the package"
+            log_info "Expected: pgvector-pg16.tar and softpower-app-production.tar"
+            log_info "Re-run production-build.sh to regenerate the package"
         fi
         exit 1
     fi
@@ -288,7 +288,7 @@ cmd_load() {
 cmd_start() {
     echo ""
     echo "=============================================="
-    echo "SoftPower Analytics - Air-Gapped Deployment"
+    echo "SoftPower Analytics - Production Deployment"
     echo "=============================================="
     echo ""
 
@@ -298,7 +298,7 @@ cmd_start() {
     for img in "$DB_IMAGE" "$APP_IMAGE"; do
         if docker image inspect "$img" &>/dev/null; then
             log_ok "Image found: $img"
-        elif [ -n "$AIRGAP_REGISTRY" ] && [ "$DEPLOY_MODE" != "airgap" ]; then
+        elif [ -n "$PRODUCTION_REGISTRY" ] && [ "$DEPLOY_MODE" != "production" ]; then
             log_info "Pulling $img from registry..."
             if docker pull "$img"; then
                 log_ok "Pulled: $img"
@@ -308,7 +308,7 @@ cmd_start() {
             fi
         else
             log_error "Image not found: $img"
-            log_info "Run './airgap-deploy.sh load' first to load images from tar files"
+            log_info "Run './production-deploy.sh load' first to load images from tar files"
             exit 1
         fi
     done
@@ -378,7 +378,7 @@ cmd_start() {
         # Verify HuggingFace model directory exists and contains model files
         if [ ! -d "$MODEL_DIR" ]; then
             log_error "HuggingFace model directory not found: $MODEL_DIR"
-            log_info "The model is packaged in hf_model/ by airgap-build.sh"
+            log_info "The model is packaged in hf_model/ by production-build.sh"
             log_info "Set MODEL_DIR=/path/to/hf_model to override"
             exit 1
         fi
@@ -386,15 +386,15 @@ cmd_start() {
         if [ ! -f "$MODEL_DIR/models/all-MiniLM-L6-v2/modules.json" ]; then
             log_error "Model files missing: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
             log_info "The hf_model/ directory exists but appears empty or incomplete"
-            log_info "Re-run airgap-build.sh to regenerate the model export"
+            log_info "Re-run production-build.sh to regenerate the model export"
             exit 1
         fi
         log_ok "Model dir: $MODEL_DIR (verified)"
 
-        # Pre-flight: verify ML packages were installed (./airgap-deploy.sh setup)
+        # Pre-flight: verify ML packages were installed (./production-deploy.sh setup)
         if ! docker run --rm "$APP_IMAGE" python3 -c "import sentence_transformers" 2>/dev/null; then
             log_error "ML packages not installed in $APP_IMAGE"
-            log_info "Run './airgap-deploy.sh setup' first to install torch + sentence-transformers"
+            log_info "Run './production-deploy.sh setup' first to install torch + sentence-transformers"
             exit 1
         fi
         log_ok "ML packages: installed"
@@ -464,7 +464,7 @@ cmd_start() {
         echo ""
     fi
     echo "First-time setup:"
-    echo "  ./airgap-deploy.sh migrate     # Run database migrations"
+    echo "  ./production-deploy.sh migrate     # Run database migrations"
     echo ""
     echo "View logs:"
     echo "  docker logs -f $APP_CONTAINER  # Application logs"
@@ -506,7 +506,7 @@ cmd_migrate() {
     log_info "Running database migrations..."
 
     if ! container_running "$DB_CONTAINER"; then
-        log_error "Database is not running. Start it first: ./airgap-deploy.sh start"
+        log_error "Database is not running. Start it first: ./production-deploy.sh start"
         exit 1
     fi
 
@@ -605,7 +605,7 @@ cmd_restore() {
     local backup_file="$1"
 
     if [ -z "$backup_file" ]; then
-        log_error "Usage: ./airgap-deploy.sh restore <backup-file>"
+        log_error "Usage: ./production-deploy.sh restore <backup-file>"
         exit 1
     fi
 
@@ -670,7 +670,7 @@ case "${1:-help}" in
         ;;
     *)
         echo ""
-        echo "SoftPower Analytics - Air-Gapped Deployment"
+        echo "SoftPower Analytics - Production Deployment"
         echo ""
         echo "Usage: $0 {command} [args]"
         echo ""
@@ -697,9 +697,9 @@ case "${1:-help}" in
         echo "  Create a .env file to override defaults (see .env.example)"
         echo "  Key variables: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB"
         echo ""
-        echo "  DEPLOY_MODE=airgap      HuggingFace fully offline (default)"
+        echo "  DEPLOY_MODE=production   HuggingFace fully offline (default)"
         echo "  DEPLOY_MODE=standard    HuggingFace can reach network"
-        echo "  AIRGAP_REGISTRY=...     Use registry-prefixed image name"
+        echo "  PRODUCTION_REGISTRY=...     Use registry-prefixed image name"
         echo "  MODEL_DIR=./hf_model    Path to HuggingFace model directory"
         echo "  LLM_PROXY_PORT=7001     Host-side LLM/S3 proxy port (default: 7001)"
         echo "  LLM_PROXY_PORT=0        Disable proxy (container calls APIs directly)"

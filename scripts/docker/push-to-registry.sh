@@ -11,18 +11,18 @@
 #     Pushes:
 #       softpower-app  (FastAPI + Streamlit + React + ML, self-contained)
 #
-#   --airgap
-#     Uses existing locally-built softpower-app-airgap:latest (slim image).
-#     Requires airgap-build.sh to have been run first.
+#   --production
+#     Uses existing locally-built softpower-app-production:latest (slim image).
+#     Requires production-build.sh to have been run first.
 #     Pushes:
-#       softpower-app-airgap  (slim — ML installed separately via setup)
+#       softpower-app-production  (slim — ML installed separately via setup)
 #
 # Note: pgvector is sourced from the company's existing mirror — no push needed.
 #
 # Usage:
 #   ./scripts/docker/push-to-registry.sh [mode] [username] [version]
 #   ./scripts/docker/push-to-registry.sh registry mmorrisj 1.5.4
-#   ./scripts/docker/push-to-registry.sh airgap mmorrisj 1.5.4
+#   ./scripts/docker/push-to-registry.sh production mmorrisj 1.5.4
 #
 #   Or via env vars (legacy):
 #   REGISTRY=docker.io/yourusername VERSION=1.0.0 ./scripts/docker/push-to-registry.sh
@@ -45,12 +45,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Parse positional and flag arguments
 # Positional form: [mode] [username] [version]
-# Flag form:       --registry / --airgap
+# Flag form:       --registry / --production
 MODE="registry"
 _POS_ARGS=()
 for arg in "$@"; do
     case "$arg" in
-        --airgap)   MODE="airgap" ;;
+        --production)   MODE="production" ;;
         --registry) MODE="registry" ;;
         *)          _POS_ARGS+=("$arg") ;;
     esac
@@ -59,7 +59,7 @@ done
 if [ "${#_POS_ARGS[@]}" -ge 1 ]; then
     case "${_POS_ARGS[0]}" in
         registry) MODE="registry" ;;
-        airgap)   MODE="airgap" ;;
+        production)   MODE="production" ;;
     esac
 fi
 if [ "${#_POS_ARGS[@]}" -ge 2 ] && [ -z "${REGISTRY:-}" ]; then
@@ -77,10 +77,10 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
 fi
 
 # Registry from env, argument, or prompt
-REGISTRY="${REGISTRY:-${AIRGAP_REGISTRY:-}}"
+REGISTRY="${REGISTRY:-${PRODUCTION_REGISTRY:-}}"
 if [ -z "$REGISTRY" ]; then
     echo -e "${YELLOW}No registry specified.${NC}"
-    echo "Set REGISTRY or AIRGAP_REGISTRY in your .env, or pass as env var:"
+    echo "Set REGISTRY or PRODUCTION_REGISTRY in your .env, or pass as env var:"
     echo "  REGISTRY=docker.io/yourusername $0"
     echo ""
     read -p "Enter registry (e.g., docker.io/yourusername): " REGISTRY
@@ -98,7 +98,7 @@ echo "=============================================="
 if [ "$MODE" = "registry" ]; then
     echo "Build & Push Registry Image (self-contained)"
 else
-    echo "Push Air-Gapped Images to Registry (slim)"
+    echo "Push Production Images to Registry (slim)"
 fi
 echo "=============================================="
 echo "Registry:  $REGISTRY"
@@ -165,24 +165,24 @@ if [ "$MODE" = "registry" ]; then
     echo -e "  ${GREEN}Built and pushed:${NC} ${REGISTRY}/${APP_REMOTE_NAME}:{latest,${VERSION}}"
     echo -e "  ${GREEN}Attestations:${NC} SBOM + provenance (max mode) attached"
 else
-    echo -e "${BLUE}[2/4]${NC} Verifying local airgap image..."
-    APP_LOCAL="softpower-app-airgap:latest"
+    echo -e "${BLUE}[2/4]${NC} Verifying local production image..."
+    APP_LOCAL="softpower-app-production:latest"
     if docker image inspect "$APP_LOCAL" &>/dev/null; then
         echo -e "  ${GREEN}Found:${NC} $APP_LOCAL"
     else
         echo -e "  ${RED}Missing:${NC} $APP_LOCAL"
-        echo "  Build it first: ./scripts/docker/airgap-build.sh"
+        echo "  Build it first: ./scripts/docker/production-build.sh"
         exit 1
     fi
 fi
 echo ""
 
 # ============================================
-# Step 3: Tag and push (airgap mode only)
+# Step 3: Tag and push (production mode only)
 # Registry mode already pushed via buildx above.
 # ============================================
-if [ "$MODE" = "airgap" ]; then
-    echo -e "${BLUE}[3/4]${NC} Tagging airgap image for registry..."
+if [ "$MODE" = "production" ]; then
+    echo -e "${BLUE}[3/4]${NC} Tagging production image for registry..."
     echo ""
     docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:latest"
     docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
@@ -224,10 +224,10 @@ if [ "$MODE" = "registry" ]; then
     echo "    -p 8000:8000 -p 8501:8501 \\"
     echo "    ${REGISTRY}/${APP_REMOTE_NAME}:latest"
 else
-    echo "To use with airgap-deploy.sh, set in .env:"
-    echo "  AIRGAP_REGISTRY=${REGISTRY}"
+    echo "To use with production-deploy.sh, set in .env:"
+    echo "  PRODUCTION_REGISTRY=${REGISTRY}"
     echo ""
     echo "Then run:"
-    echo "  DEPLOY_MODE=standard ./scripts/docker/airgap-deploy.sh start"
+    echo "  DEPLOY_MODE=standard ./scripts/docker/production-deploy.sh start"
 fi
 echo ""

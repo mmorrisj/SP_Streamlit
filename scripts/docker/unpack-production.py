@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Unpack an airgap deployment directory after transfer.
+Unpack a production deployment directory after transfer.
 
-Reverses all transformations made by pack-airgap.py:
+Reverses all transformations made by pack-production.py:
   - .b64.txt files → base64 decoded back to original binary
   - .b64.partNNN.txt chunk files → decoded and concatenated back to original
   - Scrambled base64 alphabet → unscrambled before decoding (DLP bypass)
   - .sh.txt files → renamed back to .sh
   - .symlink.txt placeholders → recreated as actual symlinks
 
-Reads the manifest (pack_manifest.json) written by pack-airgap.py.
+Reads the manifest (pack_manifest.json) written by pack-production.py.
 Verifies SHA256 checksums when present to detect transfer corruption.
 
 Usage:
-    cd softpower-airgap-YYYYMMDD
-    python unpack-airgap.py              # dry run (shows what would be restored)
-    python unpack-airgap.py --apply      # actually restore files
+    cd softpower-production-YYYYMMDD
+    python unpack-production.py              # dry run (shows what would be restored)
+    python unpack-production.py --apply      # actually restore files
 """
 
 import argparse
@@ -30,7 +30,7 @@ from pathlib import Path
 MANIFEST_NAME = "pack_manifest.json"
 
 # ============================================
-# Base64 alphabet unscrambling (must match pack-airgap.py)
+# Base64 alphabet unscrambling (must match pack-production.py)
 # ============================================
 SCRAMBLE_KEY = "softpower-airgap"
 STANDARD_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -69,7 +69,7 @@ def decode_b64(src: Path, dst: Path, scrambled: bool = False):
     stray whitespace that transfer systems may have inserted.
 
     When scrambled=True, reverses the alphabet substitution applied by
-    pack-airgap.py before decoding.
+    pack-production.py before decoding.
     """
     CHUNK = 4 * 1024 * 1024  # ~4MB read at a time
     remainder = ""
@@ -346,19 +346,19 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
         sys.exit(1)
 
     print(f"\nNext steps:")
-    print(f"  ./airgap-deploy.sh load ./images")
-    print(f"  ./airgap-deploy.sh setup")
-    print(f"  ./airgap-deploy.sh start")
-    print(f"  ./airgap-deploy.sh migrate")
+    print(f"  ./production-deploy.sh load ./images")
+    print(f"  ./production-deploy.sh setup")
+    print(f"  ./production-deploy.sh start")
+    print(f"  ./production-deploy.sh migrate")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Unpack airgap deployment after transfer (decode base64, restore names)"
+        description="Unpack production deployment after transfer (decode base64, restore names)"
     )
     parser.add_argument(
         "package_dir", nargs="?", default=".",
-        help="Path to the packed airgap directory (default: current directory)"
+        help="Path to the packed production directory (default: current directory)"
     )
     parser.add_argument("--apply", action="store_true", help="Actually restore files (default: dry run)")
     args = parser.parse_args()

@@ -4,7 +4,7 @@ Quick reference for building, running, and maintaining the SoftPower Analytics D
 
 ## Architecture
 
-The airgap image is a **single container** running two services via supervisord:
+The production image is a **single container** running two services via supervisord:
 - **FastAPI** (port 8000 inside container) — React UI + API + Chat/RAG
 - **Streamlit** (port 8501 inside container) — Analytics dashboard
 
@@ -24,13 +24,13 @@ This means the host-side FastAPI must be running for any LLM features (report ge
 ### Development (internet-connected machine) — build from source
 
 ```bash
-sudo docker build -f docker/airgap.Dockerfile -t softpower-analytics:latest .
+sudo docker build -f docker/production.Dockerfile -t softpower-analytics:latest .
 ```
 
 **What happens during the build:**
 - Stage 1: `node:20-slim` installs npm deps and runs `npm run build` (compiles React to static files)
-- Stage 2: `python:3.11-slim` installs system packages and **lightweight** pip dependencies only
-- Heavy ML packages (torch, sentence-transformers, langchain-huggingface) are **not** included — they are shipped as wheels and installed on the target via `./airgap-deploy.sh setup`
+- Stage 2: `python:3.13-slim` installs system packages and **lightweight** pip dependencies only
+- Heavy ML packages (torch, sentence-transformers, langchain-huggingface) are **not** included — they are shipped as wheels and installed on the target via `./production-deploy.sh setup`
 - The built React files are copied from Stage 1 into Stage 2
 - Node.js is **not** present in the final image — React runs as pre-built static files
 
@@ -43,18 +43,18 @@ Fix the source files in `client/src/`, then re-run the build command. Only the c
 
 ### Air-gapped system — load pre-built images
 
-The air-gapped system has no internet access, so you **cannot** `docker build`. Instead, load images that were built and exported from an internet-connected machine.
+The production system has no internet access, so you **cannot** `docker build`. Instead, load images that were built and exported from an internet-connected machine.
 
-**Option A: Pull from a registry accessible to the air-gapped network**
+**Option A: Pull from a registry accessible to the production network**
 
-If a Docker registry is reachable from the air-gapped system (e.g., an internal/corporate registry):
+If a Docker registry is reachable from the production system (e.g., an internal/corporate registry):
 
 ```bash
 # Pull the app image (pushed earlier via push-to-registry.sh)
-sudo docker pull <REGISTRY>/softpower-app-airgap:latest
+sudo docker pull <REGISTRY>/softpower-app-production:latest
 
 # Tag it to match the expected name
-sudo docker tag <REGISTRY>/softpower-app-airgap:latest softpower-analytics:latest
+sudo docker tag <REGISTRY>/softpower-app-production:latest softpower-analytics:latest
 
 # Pull the database image
 sudo docker pull <REGISTRY>/pgvector:0.8.1-pg16
@@ -62,11 +62,11 @@ sudo docker pull <REGISTRY>/pgvector:0.8.1-pg16
 
 **Option B: Load from tar files (transferred via S3, SCP, or physical media)**
 
-On the internet-connected machine, export the images first (see Section 9). Then on the air-gapped system:
+On the internet-connected machine, export the images first (see Section 9). Then on the production system:
 
 ```bash
 # Load the app image
-sudo docker load -i softpower-app-airgap.tar
+sudo docker load -i softpower-app-production.tar
 # or if saved with a different name:
 sudo docker load -i softpower-analytics.tar
 
@@ -79,13 +79,13 @@ sudo docker images | grep -E "softpower|pgvector"
 
 **Option C: Use the automated deployment package**
 
-If the package was created with `airgap-build.sh`:
+If the package was created with `production-build.sh`:
 
 ```bash
-tar xzf softpower-airgap-YYYYMMDD.tar.gz
-cd softpower-airgap-YYYYMMDD
-./airgap-deploy.sh load ./images
-./airgap-deploy.sh setup              # Install ML packages from wheels (~1.5GB)
+tar xzf softpower-production-YYYYMMDD.tar.gz
+cd softpower-production-YYYYMMDD
+./production-deploy.sh load ./images
+./production-deploy.sh setup              # Install ML packages from wheels (~1.5GB)
 ```
 
 The `setup` command installs torch, sentence-transformers, and langchain-huggingface from pre-downloaded wheel files into the app image via `docker commit`. This is a one-time operation.
@@ -189,7 +189,7 @@ After editing source files, rebuild and restart:
 
 ```bash
 sudo docker rm -f softpower_analytics && \
-sudo docker build -f docker/airgap.Dockerfile -t softpower-analytics:latest . && \
+sudo docker build -f docker/production.Dockerfile -t softpower-analytics:latest . && \
 sudo docker run -d \
   --name softpower_analytics \
   -p 8005:8000 \
@@ -296,12 +296,48 @@ sudo docker image prune
 sudo docker system prune
 ```
 
-## 9. Export for Air-Gapped Deployment
+## 9. Registry / Production Deployment
+
+The **registry** path is the recommended production deployment. It produces a fully self-contained ~2GB image with ML packages and HuggingFace model baked in — pull-and-run, no manual setup.
+
+### Build and push to Docker Hub
+
+```bash
+# Build + push the registry image (default mode)
+REGISTRY=docker.io/yourusername ./scripts/docker/push-to-registry.sh
+
+# This builds docker/registry.Dockerfile with:
+#   --pull --sbom=true --provenance=mode=max --push
+# Produces: softpower-app (FastAPI + Streamlit + React + ML, self-contained)
+# Also rebuilds: pgvector (PostgreSQL + pgvector extension)
+```
+
+### Deploy with docker-compose.production.yml
+
+```bash
+# First time — run migrations:
+docker compose -f docker-compose.production.yml --profile migrate up
+
+# Start the stack:
+docker compose -f docker-compose.production.yml up -d
+```
+
+This pulls pre-built images from Docker Hub (no local builds needed). See `docs/DOCKERHUB_README.md` for the full Docker Hub README with environment variables and restore instructions.
+
+### Security hardening (production compose)
+
+The production compose file includes:
+- `security_opt: no-new-privileges:true`
+- `cap_drop: ALL`
+- Health checks on database
+- Non-root user (`appuser`)
+
+## 10. Export for Production Deployment
 
 ### Option A: Registry push (if registry is accessible from both networks)
 
 ```bash
-REGISTRY=docker.io/yourusername ./scripts/docker/push-to-registry.sh
+REGISTRY=docker.io/yourusername ./scripts/docker/push-to-registry.sh --production
 ```
 
 ### Option B: Save as tar file (for physical/S3 transfer)
@@ -313,7 +349,7 @@ sudo docker save softpower-analytics:latest -o softpower-analytics.tar
 # Save the database image
 sudo docker save pgvector/pgvector:0.8.1-pg16 -o pgvector-pg16.tar
 
-# Transfer to air-gapped system, then load
+# Transfer to production system, then load
 sudo docker load -i softpower-analytics.tar
 sudo docker load -i pgvector-pg16.tar
 ```
@@ -321,21 +357,36 @@ sudo docker load -i pgvector-pg16.tar
 ### Option C: Automated build + package script
 
 ```bash
-./scripts/docker/airgap-build.sh
+./scripts/docker/production-build.sh
 ```
 
 This builds the image, exports both tars, and creates a self-contained deployment package.
 
-## 10. File Reference
+## 11. File Reference
 
 | File | Purpose |
 |------|---------|
-| `docker/airgap.Dockerfile` | Multi-stage Dockerfile (Node build + slim Python runtime) |
-| `docker/supervisord.conf` | Process manager config (runs FastAPI + Streamlit) |
-| `requirements-airgap.txt` | Lightweight Python deps baked into Docker image |
-| `requirements-airgap-heavy.txt` | Heavy ML deps installed from wheels on target |
-| `.env` | Environment variables (DB creds, API keys, etc.) |
-| `scripts/docker/airgap-build.sh` | Automated build + wheel download + package creation |
-| `scripts/docker/airgap-deploy.sh` | Deployment management on target system (includes `setup` command) |
+| **Dockerfiles** | |
+| `docker/registry.Dockerfile` | Production image — self-contained with ML packages + HuggingFace model (~2GB) |
+| `docker/production.Dockerfile` | Air-gapped image — slim, ML packages installed from wheels on target |
+| `docker/api.Dockerfile` | Dev API service (multi-stage: Node build + Python FastAPI) |
+| `docker/dashboard.Dockerfile` | Dev Streamlit dashboard service |
+| `docker/pgvector.Dockerfile` | Custom PostgreSQL 16 + pgvector (compiled from source) |
+| `docker/supervisord.conf` | Process manager config (runs FastAPI + Streamlit in consolidated images) |
+| **Compose files** | |
+| `docker-compose.yml` | Development stack (separate containers: API, Dashboard, DB, Redis) |
+| `docker-compose.production.yml` | Production stack (consolidated app image from Docker Hub) |
+| **Requirements** | |
+| `requirements-production.txt` | Lightweight Python deps baked into production Docker image |
+| `requirements-production-heavy.txt` | Heavy ML deps installed from wheels on production target |
+| **Scripts** | |
+| `scripts/docker/push-to-registry.sh` | Build + push images to Docker Hub (registry or production mode) |
+| `scripts/docker/production-build.sh` | Automated build + wheel download + package creation |
+| `scripts/docker/production-deploy.sh` | Deployment management on production target system |
+| `scripts/docker/pack-production.py` | Encode binaries for transfer through DLP-restricted networks |
+| `scripts/docker/unpack-production.py` | Decode binaries after transfer |
 | `scripts/llm_proxy.py` | Lightweight LLM+S3 proxy (only needs fastapi+uvicorn+openai+boto3) |
-| `scripts/docker/push-to-registry.sh` | Push images to a container registry |
+| **Documentation** | |
+| `docs/DOCKERHUB_README.md` | Docker Hub container registry README |
+| `.dockerignore` | Build context exclusions |
+| `.env` | Environment variables (DB creds, API keys, etc.) |

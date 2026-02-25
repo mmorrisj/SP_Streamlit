@@ -1,6 +1,6 @@
-# Air-Gapped Installation Guide (CentOS 7)
+# Production Installation Guide (CentOS 7)
 
-Complete guide for deploying SoftPower Analytics on air-gapped CentOS 7 systems using only Docker (no Docker Compose required).
+Complete guide for deploying SoftPower Analytics on production CentOS 7 systems using only Docker (no Docker Compose required).
 
 ---
 
@@ -11,13 +11,13 @@ The deployment uses **2 Docker containers**:
 | Container | Image | Ports | Purpose |
 |-----------|-------|-------|---------|
 | `softpower_db` | `pgvector/pgvector:0.8.1-pg16` | 5432 | PostgreSQL 16 + pgvector |
-| `softpower_app` | `softpower-app-airgap:latest` | 8000, 8501 | FastAPI + Streamlit (via supervisord) |
+| `softpower_app` | `softpower-app-production:latest` | 8000, 8501 | FastAPI + Streamlit (via supervisord) |
 
 The app container is built as a **slim image** (~700 MB) with heavyweight ML packages (torch, sentence-transformers) installed on the target from pre-downloaded wheel files.
 
 ```
 ┌────────────────────────────────────────────────┐
-│           Air-Gapped CentOS 7 Host             │
+│           Production CentOS 7 Host             │
 │                                                │
 │  ┌─────────────┐    ┌──────────────────────┐   │
 │  │ softpower_db│    │  softpower_app       │   │
@@ -37,7 +37,7 @@ The app container is built as a **slim image** (~700 MB) with heavyweight ML pac
 
 ## Part 1: Build Transfer Package (Internet-Connected Machine)
 
-Everything is automated via `airgap-build.sh`. It produces a self-contained package containing Docker image tars, ML wheel files, a HuggingFace model, and a deployment script.
+Everything is automated via `production-build.sh`. It produces a self-contained package containing Docker image tars, ML wheel files, a HuggingFace model, and a deployment script.
 
 ### Quick Build
 
@@ -45,15 +45,15 @@ Everything is automated via `airgap-build.sh`. It produces a self-contained pack
 cd SP_Streamlit
 
 # Standard output: tar.gz archive
-./scripts/docker/airgap-build.sh
+./scripts/docker/production-build.sh
 
 # Transfer-safe output: directory of .txt files (for systems that block binaries)
-./scripts/docker/airgap-build.sh --pack
+./scripts/docker/production-build.sh --pack
 ```
 
 ### What the Build Script Does (8 steps)
 
-1. **Build slim Docker image** — `airgap.Dockerfile` installs only lightweight Python packages
+1. **Build slim Docker image** — `production.Dockerfile` installs only lightweight Python packages
 2. **Download ML wheels** — `pip download` inside the slim image for platform-compatible `.whl` files (torch CPU, sentence-transformers, langchain-huggingface)
 3. **Download HuggingFace model** — sentence-transformers/all-MiniLM-L6-v2 for offline embedding
 4. **Export Docker images** — `docker save` to tar files
@@ -65,18 +65,18 @@ cd SP_Streamlit
 ### Package Contents
 
 ```
-softpower-airgap-YYYYMMDD/
+softpower-production-YYYYMMDD/
 ├── images/
 │   ├── pgvector-pg16.tar            # ~400 MB  PostgreSQL + pgvector
-│   └── softpower-app-airgap.tar     # ~700 MB  FastAPI + Streamlit (slim)
+│   └── softpower-app-production.tar     # ~700 MB  FastAPI + Streamlit (slim)
 ├── wheels/                          # ~1.5 GB  ML package wheels
 │   ├── torch-2.5.1-cp311-*.whl
 │   ├── sentence_transformers-3.3.1-*.whl
 │   ├── langchain_huggingface-0.1.2-*.whl
 │   └── ... (transitive dependencies)
 ├── hf_model/                        # ~90 MB   sentence-transformers model
-├── requirements-airgap-heavy.txt    # Package list for wheel install
-├── airgap-deploy.sh                 # Deployment management script
+├── requirements-production-heavy.txt    # Package list for wheel install
+├── production-deploy.sh                 # Deployment management script
 ├── .env.example                     # Environment variable template
 ├── softpower-backup.dump            # Database backup (if available)
 ├── README.txt                       # Quick start instructions
@@ -84,14 +84,14 @@ softpower-airgap-YYYYMMDD/
 └── debug/                           # Alembic migrations (troubleshooting)
 ```
 
-### Transfer to Air-Gapped System
+### Transfer to Production System
 
 ```bash
 # Option 1: SCP via bastion/jump host
-scp softpower-airgap-YYYYMMDD.tar.gz user@bastion:/approved-transfer/
+scp softpower-production-YYYYMMDD.tar.gz user@bastion:/approved-transfer/
 
 # Option 2: Internal file share
-cp softpower-airgap-YYYYMMDD.tar.gz /mnt/secure-transfer/
+cp softpower-production-YYYYMMDD.tar.gz /mnt/secure-transfer/
 
 # Option 3: Organization's secure file transfer application
 # Upload via web portal or CLI tool
@@ -99,7 +99,7 @@ cp softpower-airgap-YYYYMMDD.tar.gz /mnt/secure-transfer/
 
 ---
 
-## Part 2: Installation on Air-Gapped CentOS 7
+## Part 2: Installation on Production CentOS 7
 
 ### Step 1: Verify Docker Installation
 
@@ -125,20 +125,20 @@ docker ps
 
 ```bash
 cd /opt
-tar xzf softpower-airgap-YYYYMMDD.tar.gz
-cd softpower-airgap-YYYYMMDD
+tar xzf softpower-production-YYYYMMDD.tar.gz
+cd softpower-production-YYYYMMDD
 ```
 
 If using `--pack` mode (base64-encoded .txt files):
 ```bash
-cd softpower-airgap-YYYYMMDD
-python3 unpack-airgap.py --apply
+cd softpower-production-YYYYMMDD
+python3 unpack-production.py --apply
 ```
 
 ### Step 3: Load Docker Images
 
 ```bash
-./airgap-deploy.sh load ./images
+./production-deploy.sh load ./images
 ```
 
 Verify:
@@ -146,7 +146,7 @@ Verify:
 docker images | grep -E "softpower|pgvector"
 # Expected:
 #   pgvector/pgvector       0.8.1-pg16   ...   ~400MB
-#   softpower-app-airgap    latest       ...   ~700MB
+#   softpower-app-production    latest       ...   ~700MB
 ```
 
 ### Step 4: Install ML Packages from Wheels
@@ -154,7 +154,7 @@ docker images | grep -E "softpower|pgvector"
 This is a one-time operation that installs torch, sentence-transformers, and langchain-huggingface into the app image from the pre-downloaded wheel files.
 
 ```bash
-./airgap-deploy.sh setup
+./production-deploy.sh setup
 ```
 
 What happens:
@@ -166,7 +166,7 @@ What happens:
 
 Verify the image size increased:
 ```bash
-docker images | grep softpower-app-airgap
+docker images | grep softpower-app-production
 # Size should now be ~2 GB (was ~700 MB)
 ```
 
@@ -193,7 +193,7 @@ CLAUDE_KEY=your_api_key
 ### Step 6: Start Services
 
 ```bash
-./airgap-deploy.sh start
+./production-deploy.sh start
 ```
 
 This starts both containers:
@@ -204,17 +204,17 @@ This starts both containers:
 
 ```bash
 # Run Alembic migrations
-./airgap-deploy.sh migrate
+./production-deploy.sh migrate
 
 # (Optional) Restore from backup
-./airgap-deploy.sh restore softpower-backup.dump
+./production-deploy.sh restore softpower-backup.dump
 ```
 
 ### Step 8: Verify Deployment
 
 ```bash
 # Check status
-./airgap-deploy.sh status
+./production-deploy.sh status
 
 # Health check
 curl http://localhost:8000/api/health
@@ -230,16 +230,16 @@ curl http://localhost:8000/api/health
 ## Management Commands
 
 ```bash
-./airgap-deploy.sh load [dir]       # Load Docker images from tar files
-./airgap-deploy.sh setup            # Install ML wheels into app image (one-time)
-./airgap-deploy.sh start            # Start all services
-./airgap-deploy.sh stop             # Stop all services (preserves data)
-./airgap-deploy.sh restart          # Stop then start all services
-./airgap-deploy.sh migrate          # Run database migrations (Alembic)
-./airgap-deploy.sh status           # Show container status
-./airgap-deploy.sh backup [file]    # Create database backup
-./airgap-deploy.sh restore <file>   # Restore database from backup
-./airgap-deploy.sh logs [container] # Tail container logs (default: app)
+./production-deploy.sh load [dir]       # Load Docker images from tar files
+./production-deploy.sh setup            # Install ML wheels into app image (one-time)
+./production-deploy.sh start            # Start all services
+./production-deploy.sh stop             # Stop all services (preserves data)
+./production-deploy.sh restart          # Stop then start all services
+./production-deploy.sh migrate          # Run database migrations (Alembic)
+./production-deploy.sh status           # Show container status
+./production-deploy.sh backup [file]    # Create database backup
+./production-deploy.sh restore <file>   # Restore database from backup
+./production-deploy.sh logs [container] # Tail container logs (default: app)
 ```
 
 ---
@@ -283,7 +283,7 @@ getenforce
 sudo setenforce 0
 
 # Or add proper SELinux contexts
-sudo chcon -Rt svirt_sandbox_file_t /opt/softpower-airgap-*
+sudo chcon -Rt svirt_sandbox_file_t /opt/softpower-production-*
 ```
 
 ### Firewall
@@ -328,9 +328,9 @@ Requires=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/softpower-airgap-YYYYMMDD
-ExecStart=/opt/softpower-airgap-YYYYMMDD/airgap-deploy.sh start
-ExecStop=/opt/softpower-airgap-YYYYMMDD/airgap-deploy.sh stop
+WorkingDirectory=/opt/softpower-production-YYYYMMDD
+ExecStart=/opt/softpower-production-YYYYMMDD/production-deploy.sh start
+ExecStop=/opt/softpower-production-YYYYMMDD/production-deploy.sh stop
 
 [Install]
 WantedBy=multi-user.target
@@ -373,10 +373,10 @@ docker network inspect softpower_net
 If you see `ImportError: No module named 'torch'` or similar:
 ```bash
 # Re-run setup
-./airgap-deploy.sh setup
+./production-deploy.sh setup
 
 # Verify packages installed
-docker run --rm softpower-app-airgap:latest python -c "import torch; print(torch.__version__)"
+docker run --rm softpower-app-production:latest python -c "import torch; print(torch.__version__)"
 ```
 
 ### Shared Memory Errors (PostgreSQL)
@@ -394,7 +394,7 @@ sudo sysctl -w kernel.shmmax=2147483648
 # Recreate network
 docker network rm softpower_net
 docker network create softpower_net
-./airgap-deploy.sh restart
+./production-deploy.sh restart
 ```
 
 ---
@@ -405,25 +405,25 @@ When a new version is available:
 
 ```bash
 # 1. On internet-connected system: rebuild package
-./scripts/docker/airgap-build.sh
+./scripts/docker/production-build.sh
 
-# 2. Transfer new package to air-gapped system
+# 2. Transfer new package to production system
 
-# 3. On air-gapped system:
-./airgap-deploy.sh stop
-./airgap-deploy.sh load ./images      # Load updated slim image
-./airgap-deploy.sh setup              # Re-install ML packages
-./airgap-deploy.sh start
-./airgap-deploy.sh migrate            # Apply any new migrations
+# 3. On production system:
+./production-deploy.sh stop
+./production-deploy.sh load ./images      # Load updated slim image
+./production-deploy.sh setup              # Re-install ML packages
+./production-deploy.sh start
+./production-deploy.sh migrate            # Apply any new migrations
 ```
 
 To update only the ML wheels (e.g., new torch version) without rebuilding the full image:
 ```bash
 # Transfer only the updated .whl files to wheels/
-./airgap-deploy.sh stop
-./airgap-deploy.sh load ./images      # Reload the slim base image
-./airgap-deploy.sh setup              # Install updated wheels
-./airgap-deploy.sh start
+./production-deploy.sh stop
+./production-deploy.sh load ./images      # Reload the slim base image
+./production-deploy.sh setup              # Install updated wheels
+./production-deploy.sh start
 ```
 
 ---
@@ -431,7 +431,7 @@ To update only the ML wheels (e.g., new torch version) without rebuilding the fu
 ## Verification Checklist
 
 - [ ] Docker installed and running
-- [ ] Both Docker images loaded (`pgvector`, `softpower-app-airgap`)
+- [ ] Both Docker images loaded (`pgvector`, `softpower-app-production`)
 - [ ] ML packages installed via `setup` command
 - [ ] HuggingFace model directory present (`hf_model/`)
 - [ ] `.env` configured with credentials
