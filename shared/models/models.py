@@ -1572,3 +1572,152 @@ class User(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None,
         }
+
+
+# ---------------------------------------------------------------------------
+# AidData Global Chinese Development Finance Dataset v3.0
+# ---------------------------------------------------------------------------
+
+class AidDataProject(Base):
+    """
+    AidData's Global Chinese Development Finance Dataset v3.0 (GCDF 3.0).
+    Source: AidDatasGlobalChineseDevelopmentFinanceDataset_v3.0.xlsx, sheet 'GCDF_3.0'
+    20,985 project records covering Chinese ODA/OOF commitments from 2000-2023.
+    """
+    __tablename__ = 'aiddata_projects'
+
+    # Primary key — AidData's own record ID
+    aiddata_record_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # --- Identification & Status ---
+    aiddata_parent_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    recommended_for_aggregates: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    umbrella: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    intent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --- Geography ---
+    financier_country: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recipient: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recipient_iso3: Mapped[Optional[str]] = mapped_column(String(3), nullable=True, index=True)
+    recipient_region: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    oda_eligible_recipient: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    oecd_oda_income_group: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --- Timeline ---
+    commitment_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    implementation_start_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completion_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    commitment_date: Mapped[Optional[DateType]] = mapped_column(Date, nullable=True)
+
+    # --- Financial Classification ---
+    flow_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    flow_type_simplified: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    flow_class: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --- Amounts ---
+    amount_original_currency: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    original_currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    amount_usd_2021: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    amount_nominal_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    adjusted_amount_usd_2021: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    adjusted_amount_nominal_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # --- Sector ---
+    sector_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    sector_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    infrastructure: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    covid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+    # --- Agencies (pipe-delimited multi-value) ---
+    funding_agencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    funding_agencies_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cofinanced: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    cofinancing_agencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    direct_receiving_agencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    direct_receiving_agencies_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    implementing_agencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    on_lending: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+    # --- Project Description ---
+    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    location_narrative: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --- Loan Terms ---
+    maturity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    interest_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    grace_period: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    management_fee: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    commitment_fee: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    grant_element_imf: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    grant_element_oecd_cashflow: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # --- Loan Flags ---
+    financial_distress: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    guarantee_provided: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    collateralized: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    rescue: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    level_of_public_liability: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --- Geographic Precision ---
+    geographic_precision: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    adm1_available: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    adm2_available: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+    # --- Quality Scores ---
+    source_quality_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    data_completeness_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    implementation_detail_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    loan_detail_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_source_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    official_source_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # --- Relationships ---
+    locations: Mapped[List["AidDataLocation"]] = relationship(
+        "AidDataLocation", back_populates="project", lazy="dynamic"
+    )
+
+    __table_args__ = (
+        Index('ix_aiddata_recipient_year', 'recipient_iso3', 'commitment_year'),
+        Index('ix_aiddata_flow_class', 'flow_class'),
+        Index('ix_aiddata_sector', 'sector_code'),
+        Index('ix_aiddata_status', 'status'),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AidDataProject(id={self.aiddata_record_id}, recipient='{self.recipient}', year={self.commitment_year})>"
+
+
+class AidDataLocation(Base):
+    """
+    Sub-national geographic locations for AidData GCDF 3.0 projects.
+    Combines ADM1 (province/state) and ADM2 (district/county) location files.
+    Each project can have multiple ADM1 and ADM2 entries.
+    """
+    __tablename__ = 'aiddata_locations'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    aiddata_record_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey('aiddata_projects.aiddata_record_id', ondelete='CASCADE'),
+        nullable=False, index=True
+    )
+    adm_level: Mapped[str] = mapped_column(String(4), nullable=False)  # 'ADM1' or 'ADM2'
+    shape_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    shape_group: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)  # ISO-3 country
+    shape_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    intersection_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    even_split_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    intersection_ratio_commitment_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    even_split_ratio_commitment_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    centroid_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    centroid_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    project: Mapped["AidDataProject"] = relationship("AidDataProject", back_populates="locations")
+
+    __table_args__ = (
+        Index('ix_aiddata_loc_adm_level', 'adm_level'),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AidDataLocation(record_id={self.aiddata_record_id}, adm={self.adm_level}, name='{self.shape_name}')>"
