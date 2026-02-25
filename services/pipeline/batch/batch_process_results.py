@@ -43,6 +43,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
+    JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -1904,6 +1905,106 @@ def process_bilateral_summary_result(
     except Exception as e:
         if verbose:
             print(f"  Error processing bilateral summary {suffix}: {e}")
+        stats['errors'] += 1
+        raise
+
+
+VALID_RELATIONSHIP_TYPES = {
+    'works_with', 'employed_by', 'leads', 'represents',
+    'partnered_with', 'subsidiary_of', 'located_in', 'visited',
+    'signed_agreement_with', 'co_occurrence',
+}
+
+
+def process_relationship_classification_result(
+    session,
+    record_id: str,
+    llm_response: Dict[str, Any],
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process entity relationship classification result.
+
+    Updates entity_relationships.relationship_type and relationship_description.
+
+    Args:
+        session: Database session
+        record_id: entity_relationships UUID
+        llm_response: Parsed LLM response with 'relationship_type' and 'relationship_description'
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'relationships_classified': 0,
+        'errors': 0
+    }
+
+    try:
+        rel_type = llm_response.get('relationship_type', '').strip()
+        description = llm_response.get('relationship_description', '').strip()
+
+        if not rel_type:
+            if verbose:
+                print(f"  Warning: Relationship {record_id}: Empty relationship_type in response")
+            stats['errors'] += 1
+            return stats
+
+        if not description:
+            if verbose:
+                print(f"  Warning: Relationship {record_id}: Empty relationship_description in response")
+            stats['errors'] += 1
+            return stats
+
+        # Validate type — fall back to co_occurrence if unrecognised
+        if rel_type not in VALID_RELATIONSHIP_TYPES:
+            if verbose:
+                print(f"  Warning: Relationship {record_id}: Unknown type '{rel_type}', using co_occurrence")
+            rel_type = 'co_occurrence'
+
+        # Check the relationship exists
+        existing = session.execute(text("""
+            SELECT id FROM entity_relationships
+            WHERE id = CAST(:rel_id AS uuid)
+        """), {'rel_id': record_id}).fetchone()
+
+        if not existing:
+            if verbose:
+                print(f"  Warning: Relationship {record_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        # Update relationship type and description
+        try:
+            session.execute(text("""
+                UPDATE entity_relationships
+                SET relationship_type = :rel_type,
+                    relationship_description = :description,
+                    updated_at = NOW()
+                WHERE id = CAST(:rel_id AS uuid)
+            """), {
+                'rel_type': rel_type,
+                'description': description,
+                'rel_id': record_id
+            })
+        except Exception as db_err:
+            # Handle unique constraint violation (e.g., classified type already exists for pair)
+            if 'uq_entity_relationship' in str(db_err) or 'unique' in str(db_err).lower():
+                if verbose:
+                    print(f"  Warning: Relationship {record_id}: unique constraint, skipping ({rel_type})")
+                return stats
+            raise
+
+        if verbose:
+            print(f"  Relationship {record_id[:8]}...: classified as '{rel_type}'")
+
+        stats['relationships_classified'] += 1
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error classifying relationship {record_id}: {e}")
         stats['errors'] += 1
         raise
 

@@ -67,6 +67,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
+    JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE
@@ -2259,6 +2260,192 @@ Return ONLY a JSON object with no additional text:
     }
 
 
+RELATIONSHIP_CLASSIFICATION_SYS_PROMPT = (
+    "You are an expert analyst of international relations and soft power diplomacy. "
+    "Classify the relationship between two entities based only on the document evidence provided. "
+    "Write descriptions in AP (Associated Press) style. Be specific and concrete — name the actual "
+    "agreements, meetings, titles, or actions observed. Never use vague filler phrases. "
+    "If the evidence is insufficient to determine a specific relationship type, use 'co_occurrence'. "
+    "Output valid JSON only."
+)
+
+RELATIONSHIP_TYPE_DEFINITIONS = """\
+Valid relationship_type values (choose exactly one):
+  works_with        - Colleagues operating at the same level (e.g., two ministers collaborating)
+  employed_by       - Person works for / is a staff member of an organization
+  leads             - Person heads, directs, or chairs an organization (CEO, minister, director)
+  represents        - Person acts as envoy, spokesperson, or representative of an entity
+  partnered_with    - Two organizations have a formal partnership, MOU, or joint initiative
+  subsidiary_of     - Organization is a branch, division, or subsidiary of a parent organization
+  located_in        - Organization or person is based in / headquartered in a location
+  visited           - Person traveled to, attended an event in, or met counterparts in a location
+  signed_agreement_with - Entities formally signed a treaty, contract, or agreement together
+  co_occurrence     - Insufficient evidence to determine a specific relationship type"""
+
+
+def load_relationships_for_classification(
+    session, country: str, force: bool = False, min_cooccurrence: int = 2
+) -> List[Dict]:
+    """
+    Load entity relationship pairs needing LLM classification.
+
+    Args:
+        session: Database session
+        country: Initiating country
+        force: If True, include already-classified rows (not just 'co_occurrence')
+        min_cooccurrence: Minimum co-occurrence count
+
+    Returns:
+        List of relationship dicts with entity metadata and doc snippets
+    """
+    import json as _json
+
+    type_filter = "" if force else "AND er.relationship_type = 'co_occurrence'"
+
+    rows = session.execute(text(f"""
+        SELECT
+            er.id::text,
+            er.entity_from_id::text,
+            er.entity_to_id::text,
+            er.co_occurrence_count,
+            er.first_co_occurrence::text,
+            er.last_co_occurrence::text,
+            er.primary_categories,
+            er.source_doc_ids,
+            ef.canonical_name    AS from_name,
+            ef.entity_type::text AS from_type,
+            ef.primary_role::text AS from_role,
+            ef.initiating_country AS from_country,
+            et.canonical_name    AS to_name,
+            et.entity_type::text AS to_type,
+            et.primary_role::text AS to_role
+        FROM entity_relationships er
+        JOIN canonical_entities ef ON er.entity_from_id = ef.id
+        JOIN canonical_entities et ON er.entity_to_id = et.id
+        WHERE ef.initiating_country = :country
+          AND ef.master_entity_id IS NULL
+          AND et.master_entity_id IS NULL
+          AND er.co_occurrence_count >= :min_coo
+          {type_filter}
+        ORDER BY er.co_occurrence_count DESC
+    """), {'country': country, 'min_coo': min_cooccurrence}).fetchall()
+
+    if not rows:
+        return []
+
+    # Batch-load doc snippets for all relationships
+    # Collect a sample of doc_ids across all relationships (cap to avoid huge queries)
+    all_doc_ids = set()
+    rel_doc_ids_map = {}
+    for row in rows:
+        source_ids = row[7] or []
+        sampled = source_ids[:10]
+        rel_doc_ids_map[row[0]] = sampled
+        all_doc_ids.update(sampled)
+
+    doc_snippets_map = {}
+    if all_doc_ids:
+        doc_id_list = list(all_doc_ids)
+        snippet_rows = session.execute(text("""
+            SELECT doc_id, distilled_text FROM documents
+            WHERE doc_id = ANY(:doc_ids)
+              AND distilled_text IS NOT NULL
+              AND distilled_text != ''
+        """), {'doc_ids': doc_id_list}).fetchall()
+        for doc_id, distilled in snippet_rows:
+            if distilled:
+                doc_snippets_map[doc_id] = distilled[:400]
+
+    result = []
+    for row in rows:
+        cats = row[6] or {}
+        if isinstance(cats, str):
+            try:
+                cats = _json.loads(cats)
+            except (ValueError, TypeError):
+                cats = {}
+        if isinstance(cats, dict) and cats:
+            sorted_cats = sorted(cats.items(), key=lambda x: x[1], reverse=True)[:5]
+            categories_str = ", ".join(f"{k} ({v})" for k, v in sorted_cats)
+        else:
+            categories_str = "N/A"
+
+        rel_id = row[0]
+        doc_snippets = [
+            doc_snippets_map[did]
+            for did in rel_doc_ids_map.get(rel_id, [])
+            if did in doc_snippets_map
+        ][:5]
+
+        result.append({
+            'id': rel_id,
+            'entity_from_id': row[1],
+            'entity_to_id': row[2],
+            'co_occurrence_count': row[3],
+            'first_co_occurrence': row[4],
+            'last_co_occurrence': row[5],
+            'categories_str': categories_str,
+            'from_name': row[8],
+            'from_type': row[9],
+            'from_role': row[10],
+            'from_country': row[11],
+            'to_name': row[12],
+            'to_type': row[13],
+            'to_role': row[14],
+            'doc_snippets': doc_snippets,
+        })
+
+    return result
+
+
+def build_relationship_classification_prompt(rel: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt for entity relationship classification.
+
+    Args:
+        rel: Relationship dict from load_relationships_for_classification
+
+    Returns:
+        Dict with 'messages' key containing system + user messages
+    """
+    snippets = rel.get('doc_snippets', [])
+    if snippets:
+        snippet_lines = "\n".join(f"  {i+1}. {s[:400]}" for i, s in enumerate(snippets))
+    else:
+        snippet_lines = "  (no document excerpts available)"
+
+    user_prompt = f"""Classify the relationship between these two entities using ONLY the document evidence below.
+
+**Entity A**: {rel['from_name']}
+  Type: {rel['from_type']} | Role: {rel.get('from_role') or 'Unknown'} | Country: {rel['from_country']}
+
+**Entity B**: {rel['to_name']}
+  Type: {rel['to_type']} | Role: {rel.get('to_role') or 'Unknown'}
+
+**Co-occurrence statistics**:
+  Shared documents: {rel['co_occurrence_count']}
+  Date range: {rel['first_co_occurrence']} to {rel['last_co_occurrence']}
+  Top categories: {rel['categories_str']}
+
+**Document evidence** (excerpts where both entities appear):
+{snippet_lines}
+
+{RELATIONSHIP_TYPE_DEFINITIONS}
+
+Based ONLY on the evidence above, return a JSON object:
+{{
+    "relationship_type": "<one of the valid types above>",
+    "relationship_description": "2-3 sentences. Name specific actions, titles, agreements, or meetings from the evidence. No filler phrases."
+}}"""
+
+    return {
+        "messages": [
+            {"role": "system", "content": RELATIONSHIP_CLASSIFICATION_SYS_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
 def load_country_pairs_for_bilateral_summaries(
     session, country: Optional[str], min_docs: int = 500,
     regenerate: bool = False, config=None
@@ -2688,6 +2875,23 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS:
+        for rel in records:
+            custom_id = generate_custom_id(job_type, rel['id'])
+            prompt_data = build_relationship_classification_prompt(rel)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+            })
+
     return batch_requests
 
 
@@ -2737,7 +2941,8 @@ def main():
                                JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
                                JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
                                JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
-                               JOB_TYPE_GENERATE_BILATERAL_SUMMARIES],
+                               JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
+                               JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -2938,6 +3143,20 @@ def main():
             )
             mode = "all (regenerate)" if args.rescore else "new pairs only"
             print(f"Found {len(records)} country pairs needing bilateral summaries ({mode}, min_docs={min_docs})")
+
+        elif args.job_type == JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS:
+            if not args.country:
+                print("Error: --country is required for classify_entity_relationships")
+                return
+            min_coo = args.min_articles if args.min_articles != 3 else 2
+            records = load_relationships_for_classification(
+                session,
+                args.country,
+                force=args.force,
+                min_cooccurrence=min_coo
+            )
+            mode = "all (force)" if args.force else "unclassified only"
+            print(f"Found {len(records)} entity relationships to classify ({mode}, min_cooccurrence={min_coo})")
 
         else:
             print(f"Error: Unsupported job type: {args.job_type}")
