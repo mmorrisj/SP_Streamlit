@@ -107,42 +107,17 @@ echo "Mode:      $MODE"
 echo "=============================================="
 echo ""
 
-# ============================================
-# Step 1: Build or verify app image
-# ============================================
-if [ "$MODE" = "registry" ]; then
-    echo -e "${BLUE}[1/4]${NC} Building self-contained registry image..."
-    echo "  Dockerfile: docker/registry.Dockerfile"
-    echo "  This installs ML packages + bakes in HuggingFace model (~2GB, takes several minutes)..."
-    echo ""
-    docker build \
-        -f "$PROJECT_ROOT/docker/registry.Dockerfile" \
-        -t "softpower-analytics:latest" \
-        "$PROJECT_ROOT"
-    echo -e "  ${GREEN}Built:${NC} softpower-analytics:latest ($(docker images softpower-analytics:latest --format '{{.Size}}'))"
-    APP_LOCAL="softpower-analytics:latest"
-    APP_REMOTE_NAME="softpower-analytics"
-else
-    echo -e "${BLUE}[1/4]${NC} Verifying local airgap image..."
-    APP_LOCAL="softpower-app-airgap:latest"
-    APP_REMOTE_NAME="softpower-analytics"
-    if docker image inspect "$APP_LOCAL" &>/dev/null; then
-        echo -e "  ${GREEN}Found:${NC} $APP_LOCAL"
-    else
-        echo -e "  ${RED}Missing:${NC} $APP_LOCAL"
-        echo "  Build it first: ./scripts/docker/airgap-build.sh"
-        exit 1
-    fi
-fi
+APP_REMOTE_NAME="softpower-analytics"
 
-# ============================================
-# Step 2: Docker login
-# ============================================
-echo -e "${BLUE}[2/4]${NC} Docker registry login..."
-echo ""
-
-# Extract just the hostname for login (e.g. "docker.io/morrmjm" -> "docker.io")
+# Extract just the hostname for login (e.g. "docker.io/mmorrisj" -> "docker.io")
 REGISTRY_HOST="${REGISTRY%%/*}"
+
+# ============================================
+# Step 1: Docker login
+# (Must happen before buildx --push for registry mode)
+# ============================================
+echo -e "${BLUE}[1/4]${NC} Docker registry login..."
+echo ""
 
 if docker login "$REGISTRY_HOST" 2>/dev/null; then
     echo -e "  ${GREEN}Logged in to $REGISTRY_HOST${NC}"
@@ -154,26 +129,75 @@ fi
 echo ""
 
 # ============================================
-# Step 3: Tag images
+# Step 2: Build or verify app image
 # ============================================
-echo -e "${BLUE}[3/4]${NC} Tagging images for registry..."
+if [ "$MODE" = "registry" ]; then
+    echo -e "${BLUE}[2/4]${NC} Building self-contained registry image with supply-chain attestations..."
+    echo "  Dockerfile: docker/registry.Dockerfile"
+    echo "  SBOM: enabled (--sbom=true)"
+    echo "  Provenance: max (--provenance=max)"
+    echo "  This installs ML packages + bakes in HuggingFace model (~2GB, takes several minutes)..."
+    echo ""
+
+    # Ensure a buildx builder capable of attestations is active.
+    # 'docker-container' driver is required for --sbom / --provenance support.
+    if ! docker buildx inspect softpower-builder &>/dev/null; then
+        docker buildx create --name softpower-builder --driver docker-container --use
+    else
+        docker buildx use softpower-builder
+    fi
+
+    # Build and push directly to registry with both tags + attestations.
+    # --push is required for attestation manifests (they can't be loaded locally).
+    docker buildx build \
+        --sbom=true \
+        --provenance=max \
+        --push \
+        --tag "${REGISTRY}/${APP_REMOTE_NAME}:latest" \
+        --tag "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}" \
+        -f "$PROJECT_ROOT/docker/registry.Dockerfile" \
+        "$PROJECT_ROOT"
+
+    echo -e "  ${GREEN}Built and pushed:${NC} ${REGISTRY}/${APP_REMOTE_NAME}:{latest,${VERSION}}"
+    echo -e "  ${GREEN}Attestations:${NC} SBOM + provenance (max mode) attached"
+else
+    echo -e "${BLUE}[2/4]${NC} Verifying local airgap image..."
+    APP_LOCAL="softpower-app-airgap:latest"
+    if docker image inspect "$APP_LOCAL" &>/dev/null; then
+        echo -e "  ${GREEN}Found:${NC} $APP_LOCAL"
+    else
+        echo -e "  ${RED}Missing:${NC} $APP_LOCAL"
+        echo "  Build it first: ./scripts/docker/airgap-build.sh"
+        exit 1
+    fi
+fi
 echo ""
 
-docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:latest"
-docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
-echo -e "  ${GREEN}Tagged:${NC} ${REGISTRY}/${APP_REMOTE_NAME}:{latest,${VERSION}}"
-echo ""
-
 # ============================================
-# Step 4: Push images
+# Step 3: Tag and push (airgap mode only)
+# Registry mode already pushed via buildx above.
 # ============================================
-echo -e "${BLUE}[4/4]${NC} Pushing images to registry..."
-echo ""
+if [ "$MODE" = "airgap" ]; then
+    echo -e "${BLUE}[3/4]${NC} Tagging airgap image for registry..."
+    echo ""
+    docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:latest"
+    docker tag "$APP_LOCAL" "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
+    echo -e "  ${GREEN}Tagged:${NC} ${REGISTRY}/${APP_REMOTE_NAME}:{latest,${VERSION}}"
+    echo ""
 
-docker push "${REGISTRY}/${APP_REMOTE_NAME}:latest"
-docker push "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
-echo -e "  ${GREEN}Pushed:${NC} ${APP_REMOTE_NAME}"
-echo ""
+    echo -e "${BLUE}[4/4]${NC} Pushing images to registry..."
+    echo ""
+    docker push "${REGISTRY}/${APP_REMOTE_NAME}:latest"
+    docker push "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
+    echo -e "  ${GREEN}Pushed:${NC} ${APP_REMOTE_NAME}"
+    echo ""
+else
+    # Steps 3/4 already completed by buildx --push above
+    echo -e "${BLUE}[3/4]${NC} Tag + push completed by buildx (skipped separate steps)"
+    echo ""
+    echo -e "${BLUE}[4/4]${NC} Attestation manifests pushed to registry"
+    echo ""
+fi
 
 # ============================================
 # Summary
