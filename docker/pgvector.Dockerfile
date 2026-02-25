@@ -14,7 +14,9 @@
 
 # Use Debian 13 (trixie) variant to pick up newer libc/OpenLDAP packages
 # while staying on PostgreSQL 16.
-FROM postgres:16-trixie
+# Digest-pinned for Docker Scout "Outdated base images" compliance.
+# Update digest with: docker pull postgres:16-trixie && docker inspect postgres:16-trixie --format='{{index .RepoDigests 0}}'
+FROM postgres:16-trixie@sha256:23af655ba1ddf74eaa002e3deaf5fce022ab8791672336a7c1fb0ef2d57efb7f
 
 # pgvector version and immutable commit SHA for supply-chain pinning.
 # SHA must match the tag; verify with:

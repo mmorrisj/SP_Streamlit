@@ -10,7 +10,9 @@
 # ============================================
 # Stage 1: Build React Frontend
 # ============================================
-FROM node:20-slim AS frontend-builder
+# Digest-pinned for Docker Scout "Outdated base images" compliance.
+# Update digest with: docker pull node:20-slim && docker inspect node:20-slim --format='{{index .RepoDigests 0}}'
+FROM node:20-slim@sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb AS frontend-builder
 
 WORKDIR /app/client
 
@@ -27,7 +29,9 @@ RUN npm run build \
 # ============================================
 # Stage 2: Python Runtime (FastAPI + Streamlit)
 # ============================================
-FROM python:3.13-slim
+# Digest-pinned for Docker Scout "Outdated base images" compliance.
+# Update digest with: docker pull python:3.13-slim && docker inspect python:3.13-slim --format='{{index .RepoDigests 0}}'
+FROM python:3.13-slim@sha256:ffd0509e1b2e45d60ba8fa4a52aa94e1a39d60a90243329533b0769bf01fbbc5
 
 WORKDIR /app
 
