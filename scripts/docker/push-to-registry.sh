@@ -20,11 +20,14 @@
 # Note: pgvector is sourced from the company's existing mirror — no push needed.
 #
 # Usage:
-#   REGISTRY=docker.io/yourusername VERSION=1.0.0 ./scripts/docker/push-to-registry.sh
-#   REGISTRY=docker.io/yourusername VERSION=1.1.0 ./scripts/docker/push-to-registry.sh --airgap
-#   REGISTRY=registry.company.mil/softpower VERSION=2.0.0 ./scripts/docker/push-to-registry.sh
+#   ./scripts/docker/push-to-registry.sh [mode] [username] [version]
+#   ./scripts/docker/push-to-registry.sh registry mmorrisj 1.5.4
+#   ./scripts/docker/push-to-registry.sh airgap mmorrisj 1.5.4
 #
-# For Docker Hub, REGISTRY should be: docker.io/<your-dockerhub-username>
+#   Or via env vars (legacy):
+#   REGISTRY=docker.io/yourusername VERSION=1.0.0 ./scripts/docker/push-to-registry.sh
+#
+# For Docker Hub, username is your Docker Hub username (docker.io/<username> is inferred).
 # VERSION defaults to 1.0.0 if not set — always set it explicitly for releases.
 # ============================================
 
@@ -40,14 +43,33 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Parse mode flag
+# Parse positional and flag arguments
+# Positional form: [mode] [username] [version]
+# Flag form:       --registry / --airgap
 MODE="registry"
+_POS_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --airgap)   MODE="airgap" ;;
         --registry) MODE="registry" ;;
+        *)          _POS_ARGS+=("$arg") ;;
     esac
 done
+# Positional: first=mode, second=username/registry, third=version
+if [ "${#_POS_ARGS[@]}" -ge 1 ]; then
+    case "${_POS_ARGS[0]}" in
+        registry) MODE="registry" ;;
+        airgap)   MODE="airgap" ;;
+    esac
+fi
+if [ "${#_POS_ARGS[@]}" -ge 2 ] && [ -z "${REGISTRY:-}" ]; then
+    _USER="${_POS_ARGS[1]}"
+    # Accept bare username (mmorrisj) or full path (docker.io/mmorrisj)
+    [[ "$_USER" == *"/"* ]] && REGISTRY="$_USER" || REGISTRY="docker.io/$_USER"
+fi
+if [ "${#_POS_ARGS[@]}" -ge 3 ] && [ -z "${VERSION:-}" ]; then
+    VERSION="${_POS_ARGS[2]}"
+fi
 
 # Load .env if available
 if [ -f "$PROJECT_ROOT/.env" ]; then
