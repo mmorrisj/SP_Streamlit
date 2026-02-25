@@ -35,7 +35,7 @@ RUN npm run build \
 # ============================================
 # Digest-pinned for Docker Scout "Outdated base images" compliance.
 # Update digest with: docker pull python:3.13-slim && docker inspect python:3.13-slim --format='{{index .RepoDigests 0}}'
-FROM python:3.13-slim@sha256:ffd0509e1b2e45d60ba8fa4a52aa94e1a39d60a90243329533b0769bf01fbbc5
+FROM python:3.13-slim@sha256:f50f56f1471fc430b394ee75fc826be2d212e35d85ed1171ac79abbba485dce9
 
 WORKDIR /app
 
