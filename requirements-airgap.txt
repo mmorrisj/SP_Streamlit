@@ -21,6 +21,12 @@ matplotlib>=3.9.0
 alembic==1.12.1
 pgvector==0.2.4
 
+# LangChain 1.x ecosystem
+# Must be listed BEFORE requirements-airgap-heavy.txt installs langchain-huggingface,
+# so pip resolves langchain-huggingface to 1.x (not 0.1.2 which pins langchain-core <0.4.0).
+langchain>=1.0
+langchain-core>=1.0
+
 # AI/LLM
 openai>=2.14.0
 boto3
