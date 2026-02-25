@@ -1,6 +1,6 @@
 import os
 import torch
-from langchain_community.vectorstores.pgvector import PGVector
+from langchain_postgres import PGVector
 from sqlalchemy import text
 import numpy as np
 from shared.database.database import get_engine
@@ -16,51 +16,51 @@ def build_connection_string():
     user = os.getenv("POSTGRES_USER", "matthew50")
     password = os.getenv("POSTGRES_PASSWORD", "softpower")
     db = os.getenv("POSTGRES_DB", "softpower-db")
-    host = os.getenv("DB_HOST", "localhost")   # 👈 respects env var
+    host = os.getenv("DB_HOST", "localhost")
     port = os.getenv("DB_PORT", "5432")
-    return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+    return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
 
 CONNECTION_STRING = build_connection_string()
 
 # These are still created at import time, but now they respect env vars
 chunk_store = PGVector(
+    embeddings=embedding_function,
+    connection=CONNECTION_STRING,
     collection_name="chunk_embeddings",
-    connection_string=CONNECTION_STRING,
-    embedding_function=embedding_function,
 )
 
 summary_store = PGVector(
+    embeddings=embedding_function,
+    connection=CONNECTION_STRING,
     collection_name="summary_embeddings",
-    connection_string=CONNECTION_STRING,
-    embedding_function=embedding_function,
 )
 
 # Daily summaries
 daily_store = PGVector(
+    embeddings=embedding_function,
+    connection=CONNECTION_STRING,
     collection_name="daily_event_embeddings",
-    connection_string=CONNECTION_STRING,
-    embedding_function=embedding_function,
 )
 
 # Weekly events
 weekly_store = PGVector(
+    embeddings=embedding_function,
+    connection=CONNECTION_STRING,
     collection_name="weekly_event_embeddings",
-    connection_string=CONNECTION_STRING,
-    embedding_function=embedding_function,
 )
 
 # Monthly events
 monthly_store = PGVector(
+    embeddings=embedding_function,
+    connection=CONNECTION_STRING,
     collection_name="monthly_event_embeddings",
-    connection_string=CONNECTION_STRING,
-    embedding_function=embedding_function,
 )
 
 # Yearly events
 yearly_store = PGVector(
+    embeddings=embedding_function,
+    connection=CONNECTION_STRING,
     collection_name="yearly_event_embeddings",
-    connection_string=CONNECTION_STRING,
-    embedding_function=embedding_function,
 )
 
 stores = {

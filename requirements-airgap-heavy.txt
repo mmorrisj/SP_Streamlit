@@ -17,3 +17,7 @@ sentence-transformers==3.3.1
 # LangChain HuggingFace wrapper (for RAG embedding)
 # Pulls: langchain-core
 langchain-huggingface==0.1.2
+
+# LangChain PostgreSQL vector store (migrated from langchain-community)
+# Pulls: langchain-core, psycopg
+langchain-postgres>=0.0.13,<0.1.0
