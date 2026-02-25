@@ -7,6 +7,7 @@ Reverses all transformations made by pack-airgap.py:
   - .b64.partNNN.txt chunk files → decoded and concatenated back to original
   - Scrambled base64 alphabet → unscrambled before decoding (DLP bypass)
   - .sh.txt files → renamed back to .sh
+  - Empty file placeholders → restored to 0-byte files
   - .symlink.txt placeholders → recreated as actual symlinks
 
 Reads the manifest (pack_manifest.json) written by pack-airgap.py.
@@ -140,6 +141,7 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
     total_b64 = sum(1 for e in entries if e["action"] == "base64")
     total_chunked = sum(1 for e in entries if e["action"] == "base64_chunked")
     total_ren = sum(1 for e in entries if e["action"] == "rename")
+    total_empty = sum(1 for e in entries if e["action"] == "empty_placeholder")
     has_checksums = any(e.get("sha256") for e in entries)
 
     print(f"Package directory: {pkg_dir}")
@@ -149,6 +151,7 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
         total_chunks = sum(len(e["packed"]) for e in entries if e["action"] == "base64_chunked")
         print(f"  {total_chunked} chunked file(s) to reassemble ({total_chunks} chunks total)")
     print(f"  {total_ren} file(s) to rename")
+    print(f"  {total_empty} empty file(s) to restore")
     print(f"  {len(symlinks)} symlink(s) to recreate")
     if scrambled:
         print(f"  DLP bypass: base64 alphabet will be unscrambled before decoding")
@@ -174,6 +177,13 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
                 for mc in missing_chunks:
                     print(f"        MISSING: {mc}")
                     missing.append(mc)
+        elif e["action"] == "empty_placeholder":
+            packed_path = pkg_dir / e["packed"]
+            exists = packed_path.exists()
+            status = "" if exists else "  [MISSING]"
+            print(f"  [MTY] {e['original']}  (placeholder → empty){status}")
+            if not exists:
+                missing.append(e["packed"])
         else:
             packed_path = pkg_dir / e["packed"]
             exists = packed_path.exists()
@@ -301,6 +311,18 @@ def unpack(pkg_dir: Path, dry_run: bool = True):
 
             print(f"  Renaming {e['packed']}  →  {e['original']}")
             packed.rename(original)
+            restored += 1
+
+        elif e["action"] == "empty_placeholder":
+            packed = pkg_dir / e["packed"]
+            if not packed.exists():
+                print(f"  SKIP (missing): {e['packed']}")
+                skipped += 1
+                continue
+
+            print(f"  Restoring empty file: {e['original']}")
+            # Truncate to 0 bytes (remove placeholder content)
+            original.write_bytes(b"")
             restored += 1
 
         # Restore permissions
