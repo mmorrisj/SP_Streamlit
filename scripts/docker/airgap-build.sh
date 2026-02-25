@@ -159,7 +159,7 @@ else
             pip download --no-cache-dir --dest /wheels \
                 --index-url https://pypi.org/simple \
                 'sentence-transformers>=3.3.1' \
-                'langchain-huggingface>=0.1.0'"
+                'langchain-huggingface>=1.0'"
 
     docker start -a "$WHEELS_CONTAINER"
     docker cp "$WHEELS_CONTAINER":/wheels/. "$WHEELS_DIR/"
