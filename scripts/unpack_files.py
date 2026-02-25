@@ -2,8 +2,9 @@
 """
 Unpack files after transfer.
 
-Reads the manifest created by pack_executables.py and restores files to their
-original names and permissions.
+Reads the manifest created by pack_files.py and restores files to their
+original names and permissions. Empty file placeholders are truncated back
+to 0 bytes.
 
 Usage:
     python scripts/unpack_files.py          # dry run (default)
@@ -54,7 +55,10 @@ def unpack(repo_root: Path, dry_run: bool = True) -> None:
         perms = oct(entry["permissions"])
         exists = packed.exists()
         status = "" if exists else "  [MISSING]"
-        print(f"  {entry['packed_path']}  ->  {original}  (perms: {perms}){status}")
+        if entry.get("empty_placeholder"):
+            print(f"  [MTY] {original}  (placeholder -> empty){status}")
+        else:
+            print(f"  [REN] {entry['packed_path']}  ->  {original}  (perms: {perms}){status}")
         if not exists:
             missing.append(entry["packed_path"])
 
@@ -77,9 +81,15 @@ def unpack(repo_root: Path, dry_run: bool = True) -> None:
             skipped += 1
             continue
 
-        packed.rename(original)
+        if entry.get("empty_placeholder"):
+            # Truncate back to 0 bytes (remove placeholder content)
+            original.write_bytes(b"")
+            print(f"  Emptied:   {entry['original_path']}")
+        else:
+            packed.rename(original)
+            print(f"  Restored:  {entry['original_path']}  (perms: {oct(entry['permissions'])})")
+
         os.chmod(original, entry["permissions"])
-        print(f"  Restored: {entry['original_path']}  (perms: {oct(entry['permissions'])})")
         restored += 1
 
     # Remove manifest
