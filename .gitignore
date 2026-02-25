@@ -82,6 +82,9 @@ htmlcov/
 .airgap-cache/
 softpower-airgap-*/
 
+# AidData dataset (large external dataset, not tracked in git)
+AidDatas_Global_Chinese_Development_Finance_Dataset_Version_3_0/
+
 # Local data
 data/processed_embeddings/
 material_exports/
