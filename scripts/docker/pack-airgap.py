@@ -8,7 +8,6 @@ Transformations:
     Large binaries (>500MB) are split into multiple chunk files for reliable transfer
     Base64 alphabet is scrambled to defeat DLP content inspection
   - Blocked text files (.sh, .ini) → renamed to .sh.txt, .ini.txt
-  - Empty files (__init__.py, etc.) → filled with placeholder comment (transfer tools reject 0-byte files)
   - Symlinks → recorded in manifest, replaced with placeholder .txt
   - Safe text files (.txt, .json, .py, .md, ...) → left as-is
 
@@ -64,9 +63,6 @@ SAFE_TEXT_EXTENSIONS = {
 }
 
 MANIFEST_NAME = "pack_manifest.json"
-
-# Placeholder content for empty files (transfer tools reject 0-byte files)
-EMPTY_FILE_PLACEHOLDER = "# empty file placeholder\n"
 
 # Default chunk size for splitting large binaries.
 # 500MB of raw binary → ~667MB of base64 text per chunk.
@@ -263,20 +259,8 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
                 })
                 continue
 
-            file_size = fpath.stat().st_size
-
-            # Empty files need a placeholder so transfer tools don't reject them
-            if file_size == 0:
-                entries.append({
-                    "original": rel,
-                    "packed": rel,
-                    "action": "empty_placeholder",
-                    "permissions": get_perms(fpath),
-                    "size": 0,
-                })
-                continue
-
             kind = classify_file(fpath)
+            file_size = fpath.stat().st_size
 
             if kind == "binary":
                 # Large binaries get chunked for reliable transfer
@@ -316,7 +300,6 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
     total_binary = sum(1 for e in entries if e["action"] == "base64")
     total_chunked = sum(1 for e in entries if e["action"] == "base64_chunked")
     total_rename = sum(1 for e in entries if e["action"] == "rename")
-    total_empty = sum(1 for e in entries if e["action"] == "empty_placeholder")
     total_symlinks = len(symlinks)
     binary_bytes = sum(e["size"] for e in entries if e["action"] in ("base64", "base64_chunked"))
 
@@ -326,7 +309,6 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
         total_chunks = sum(len(e["packed"]) for e in entries if e["action"] == "base64_chunked")
         print(f"  {total_chunked} large file(s) will be split into {total_chunks} chunks (≤{chunk_mb}MB each)")
     print(f"  {total_rename} text file(s) to rename")
-    print(f"  {total_empty} empty file(s) to fill with placeholder")
     print(f"  {total_symlinks} symlink(s) to record")
     if scramble:
         print(f"  DLP bypass: base64 alphabet scrambled (defeats content inspection)")
@@ -340,8 +322,6 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
                 print(f"        {chunk}")
         elif e["action"] == "base64":
             print(f"  [B64] {e['original']}  →  {e['packed']}")
-        elif e["action"] == "empty_placeholder":
-            print(f"  [MTY] {e['original']}  (empty → placeholder)")
         else:
             print(f"  [REN] {e['original']}  →  {e['packed']}")
     for s in symlinks:
@@ -393,10 +373,6 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
             print(f"  Renaming {e['original']}  →  {e['packed']}")
             src.rename(dst)
 
-        elif e["action"] == "empty_placeholder":
-            print(f"  Filling empty file: {e['original']}")
-            src.write_text(EMPTY_FILE_PLACEHOLDER)
-
     # Handle symlinks: record and replace with placeholder
     for s in symlinks:
         link_path = pkg_dir / s["path"]
@@ -418,8 +394,7 @@ def pack(pkg_dir: Path, dry_run: bool = True, chunk_mb: int = DEFAULT_CHUNK_MB,
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
     print(f"\nManifest written: {MANIFEST_NAME}")
-    total_transformed = sum(1 for e in entries if e["action"] != "empty_placeholder")
-    print(f"Done. {total_transformed} file(s) transformed, {total_empty} empty file(s) filled, {len(symlinks)} symlink(s) recorded.")
+    print(f"Done. {len(entries)} file(s) transformed, {len(symlinks)} symlink(s) recorded.")
     if scramble:
         print(f"DLP bypass: base64 alphabet scrambled (unpack-airgap.py will reverse)")
     print(f"\nTransfer the '{pkg_dir.name}/' directory, then on the target run:")
