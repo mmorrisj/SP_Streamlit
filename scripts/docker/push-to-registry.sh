@@ -135,7 +135,7 @@ if [ "$MODE" = "registry" ]; then
     echo -e "${BLUE}[2/4]${NC} Building self-contained registry image with supply-chain attestations..."
     echo "  Dockerfile: docker/registry.Dockerfile"
     echo "  SBOM: enabled (--sbom=true)"
-    echo "  Provenance: max (--provenance=max)"
+    echo "  Provenance: max (--provenance=mode=max)"
     echo "  This installs ML packages + bakes in HuggingFace model (~2GB, takes several minutes)..."
     echo ""
 
@@ -149,9 +149,10 @@ if [ "$MODE" = "registry" ]; then
 
     # Build and push directly to registry with both tags + attestations.
     # --push is required for attestation manifests (they can't be loaded locally).
+    # --provenance=mode=max captures full build graph (vs min which only records base image).
     docker buildx build \
         --sbom=true \
-        --provenance=max \
+        --provenance=mode=max \
         --push \
         --tag "${REGISTRY}/${APP_REMOTE_NAME}:latest" \
         --tag "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}" \
