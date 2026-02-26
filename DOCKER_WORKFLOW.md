@@ -374,7 +374,7 @@ This builds the image, exports both tars, and creates a self-contained deploymen
 | `docker/pgvector.Dockerfile` | Custom PostgreSQL 16 + pgvector (compiled from source) |
 | `docker/supervisord.conf` | Process manager config (runs FastAPI + Streamlit in consolidated images) |
 | **Compose files** | |
-| `docker-compose.yml` | Development stack (separate containers: API, Dashboard, DB, Redis) |
+| `docker-compose.dev.yml` | Development stack (separate containers: API, Dashboard, DB, Redis) |
 | `docker-compose.production.yml` | Production stack (consolidated app image from Docker Hub) |
 | **Requirements** | |
 | `requirements-production.txt` | Lightweight Python deps baked into production Docker image |
@@ -390,3 +390,4 @@ This builds the image, exports both tars, and creates a self-contained deploymen
 | `docs/DOCKERHUB_README.md` | Docker Hub container registry README |
 | `.dockerignore` | Build context exclusions |
 | `.env` | Environment variables (DB creds, API keys, etc.) |
+

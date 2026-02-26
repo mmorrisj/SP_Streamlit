@@ -2,7 +2,7 @@
 #  SoftPower Streamlit / Backend / PGVector Stack
 # ============================================
 
-name: softpower_streamlit
+name: softpower_streamlit_dev
 
 services:
   # -----------------------
@@ -148,7 +148,7 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: softpower_streamlit_postgres_data
+    name: softpower_streamlit_dev_postgres_data
   app_output:
     driver: local
 
@@ -158,3 +158,4 @@ volumes:
 networks:
   softpower_net:
     external: true
+

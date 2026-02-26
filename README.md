@@ -138,6 +138,7 @@ docker exec -it softpower_db psql -U <POSTGRES_USER> -d <POSTGRES_DB> -c "\d+ la
 ## Useful Docs
 
 - [DOCKER_WORKFLOW.md](DOCKER_WORKFLOW.md)
-- [docker-compose.yml](docker-compose.yml)
+- [docker-compose.dev.yml](docker-compose.dev.yml)
 - [docker-compose.production.yml](docker-compose.production.yml)
 - [services/pipeline/batch/README_BATCH_PROCESSING.md](services/pipeline/batch/README_BATCH_PROCESSING.md)
+
