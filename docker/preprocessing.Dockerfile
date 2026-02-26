@@ -35,6 +35,7 @@ RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('s
 # Copy only code needed for preprocessing/pipeline execution.
 COPY shared/ ./shared/
 COPY services/__init__.py ./services/__init__.py
+COPY services/run_ingestion_pipeline.py ./services/run_ingestion_pipeline.py
 COPY services/pipeline/ ./services/pipeline/
 COPY services/publication/ ./services/publication/
 COPY alembic/ ./alembic/

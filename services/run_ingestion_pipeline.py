@@ -22,7 +22,7 @@ from typing import List
 import yaml
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INFLUENCERS = ["China", "Russia", "Iran", "Turkey", "United States"]
 
 CORE_STAGES = {
