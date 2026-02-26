@@ -10,9 +10,9 @@
 # ============================================
 # Stage 1: Build React Frontend
 # ============================================
-# Digest-pinned for Docker Scout "Outdated base images" compliance.
-# Update digest with: docker pull node:20-slim && docker inspect node:20-slim --format='{{index .RepoDigests 0}}'
-FROM node:20-slim@sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb AS frontend-builder
+# Bookworm (Debian 12, glibc 2.36) for CentOS 7 kernel 3.10 compatibility.
+# Trixie (Debian 13, glibc 2.38+) requires clone3 syscall (kernel 5.3+).
+FROM node:20-slim-bookworm AS frontend-builder
 
 WORKDIR /app/client
 
@@ -29,9 +29,9 @@ RUN npm run build \
 # ============================================
 # Stage 2: Python Runtime (FastAPI + Streamlit)
 # ============================================
-# Digest-pinned for Docker Scout "Outdated base images" compliance.
-# Update digest with: docker pull python:3.13-slim && docker inspect python:3.13-slim --format='{{index .RepoDigests 0}}'
-FROM python:3.13-slim@sha256:f50f56f1471fc430b394ee75fc826be2d212e35d85ed1171ac79abbba485dce9
+# Bookworm (Debian 12, glibc 2.36) for CentOS 7 kernel 3.10 compatibility.
+# Trixie (Debian 13, glibc 2.38+) requires clone3 syscall (kernel 5.3+).
+FROM python:3.13-slim-bookworm
 
 WORKDIR /app
 

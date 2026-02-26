@@ -3,9 +3,18 @@
   Images: mmorrisj/softpower-analytics:1.5.5 + mmorrisj/pgvector:0.8.1-pg16
 ================================================================================
 
+IMPORTANT: CENTOS 7 KERNEL COMPATIBILITY
+  CentOS 7 runs kernel 3.10.x. Docker images built on Debian Trixie (glibc 2.38+)
+  require the clone3 syscall (kernel 5.3+) and WILL FAIL with:
+    "OCI runtime exec failed: error executing setns process: exit status 1"
+
+  Images MUST be built on Debian Bookworm (glibc 2.36) to work on CentOS 7.
+  Rebuild with: ./scripts/docker/push-to-registry.sh registry mmorrisj 1.5.5
+  The Dockerfiles in this repo now use Bookworm bases by default.
+
 PREREQUISITES
-  - Docker installed and running (sudo systemctl start docker)
-  - Both images already loaded (docker images | grep -E "softpower|pgvector")
+  - Docker CE 20.x+ installed and running (sudo systemctl start docker)
+  - Both images built on Bookworm and loaded (docker images | grep -E "softpower|pgvector")
   - A database dump file (.dump or .sql) available locally
 
 CREDENTIALS
