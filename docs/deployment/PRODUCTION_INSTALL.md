@@ -10,10 +10,8 @@ The deployment uses **2 Docker containers**:
 
 | Container | Image | Ports | Purpose |
 |-----------|-------|-------|---------|
-| `softpower_db` | `pgvector/pgvector:0.8.1-pg16` | 5432 | PostgreSQL 16 + pgvector |
-| `softpower_app` | `softpower-app-production:latest` | 8000, 8501 | FastAPI + Streamlit (via supervisord) |
-
-The app container is built as a **slim image** (~700 MB) with heavyweight ML packages (torch, sentence-transformers) installed on the target from pre-downloaded wheel files.
+| `softpower_db` | `mmorrisj/pgvector:0.8.1-pg16` | 5432 | PostgreSQL 16 + pgvector |
+| `softpower_app` | `mmorrisj/softpower-analytics:1.5.5` | 8000, 8501 | FastAPI + Streamlit (via supervisord) |
 
 ```
 ┌────────────────────────────────────────────────┐
@@ -24,8 +22,7 @@ The app container is built as a **slim image** (~700 MB) with heavyweight ML pac
 │  │ PostgreSQL  │◄───│  FastAPI  (port 8000)│   │
 │  │ + pgvector  │    │  Streamlit (port 8501)│  │
 │  │  port 5432  │    │                      │   │
-│  └─────────────┘    │  + HuggingFace model │   │
-│                      │    (volume mount)    │   │
+│  └─────────────┘    │  + ML model (baked in)│  │
 │                      └──────────────────────┘   │
 │                                                │
 │  Optional: Host-side LLM proxy (port 7001)     │
@@ -35,71 +32,22 @@ The app container is built as a **slim image** (~700 MB) with heavyweight ML pac
 
 ---
 
-## Part 1: Build Transfer Package (Internet-Connected Machine)
+## Two Deployment Paths
 
-Everything is automated via `production-build.sh`. It produces a self-contained package containing Docker image tars, ML wheel files, a HuggingFace model, and a deployment script.
-
-### Quick Build
-
-```bash
-cd SP_Streamlit
-
-# Standard output: tar.gz archive
-./scripts/docker/production-build.sh
-
-# Transfer-safe output: directory of .txt files (for systems that block binaries)
-./scripts/docker/production-build.sh --pack
-```
-
-### What the Build Script Does (8 steps)
-
-1. **Build slim Docker image** — `production.Dockerfile` installs only lightweight Python packages
-2. **Download ML wheels** — `pip download` inside the slim image for platform-compatible `.whl` files (torch CPU, sentence-transformers, langchain-huggingface)
-3. **Download HuggingFace model** — sentence-transformers/all-MiniLM-L6-v2 for offline embedding
-4. **Export Docker images** — `docker save` to tar files
-5. **Database backup** — if a local `softpower_db` container is running
-6. **Copy deployment files** — deploy script, .env template, requirements
-7. **Create documentation** — README.txt, INSTALL_CHECKLIST.txt
-8. **Package** — tar.gz (standard) or base64-encoded .txt directory (`--pack`)
-
-### Package Contents
-
-```
-softpower-production-YYYYMMDD/
-├── images/
-│   ├── pgvector-pg16.tar            # ~400 MB  PostgreSQL + pgvector
-│   └── softpower-app-production.tar     # ~700 MB  FastAPI + Streamlit (slim)
-├── wheels/                          # ~1.5 GB  ML package wheels
-│   ├── torch-2.5.1-cp311-*.whl
-│   ├── sentence_transformers-3.3.1-*.whl
-│   ├── langchain_huggingface-0.1.2-*.whl
-│   └── ... (transitive dependencies)
-├── hf_model/                        # ~90 MB   sentence-transformers model
-├── requirements-production-heavy.txt    # Package list for wheel install
-├── production-deploy.sh                 # Deployment management script
-├── .env.example                     # Environment variable template
-├── softpower-backup.dump            # Database backup (if available)
-├── README.txt                       # Quick start instructions
-├── INSTALL_CHECKLIST.txt            # Step-by-step checklist
-└── debug/                           # Alembic migrations (troubleshooting)
-```
-
-### Transfer to Production System
-
-```bash
-# Option 1: SCP via bastion/jump host
-scp softpower-production-YYYYMMDD.tar.gz user@bastion:/approved-transfer/
-
-# Option 2: Internal file share
-cp softpower-production-YYYYMMDD.tar.gz /mnt/secure-transfer/
-
-# Option 3: Organization's secure file transfer application
-# Upload via web portal or CLI tool
-```
+| | Path A: Registry Images | Path B: Slim Images |
+|---|---|---|
+| **Source** | Docker Hub (`mmorrisj/softpower-analytics`) | `production-build.sh` package |
+| **ML packages** | Baked into image | Installed from wheels via `setup` |
+| **HuggingFace model** | Baked into image | External `hf_model/` directory (volume mount) |
+| **Image size** | ~2 GB (ready to run) | ~700 MB slim + ~1.5 GB wheels |
+| **Steps** | Load → configure → start → restore | Load → setup → configure → start → restore |
+| **Best for** | Enterprise with pre-approved Docker Hub images | Air-gapped with no registry access |
 
 ---
 
-## Part 2: Installation on Production CentOS 7
+## Path A: Registry Images (Recommended for Enterprise)
+
+Use this path when you have loaded Docker Hub images (`mmorrisj/softpower-analytics` and `mmorrisj/pgvector`) into the enterprise environment.
 
 ### Step 1: Verify Docker Installation
 
@@ -121,96 +69,89 @@ sudo usermod -aG docker $(whoami)
 docker ps
 ```
 
-### Step 2: Extract Package
+### Step 2: Load Docker Images
 
+If images were transferred as tar files:
 ```bash
-cd /opt
-tar xzf softpower-production-YYYYMMDD.tar.gz
-cd softpower-production-YYYYMMDD
+docker load -i softpower-analytics-1.5.5.tar
+docker load -i pgvector-0.8.1-pg16.tar
 ```
 
-If using `--pack` mode (base64-encoded .txt files):
+If images were pulled from an enterprise registry mirror:
 ```bash
-cd softpower-production-YYYYMMDD
-python3 unpack-production.py --apply
+docker pull registry.enterprise.local/mmorrisj/softpower-analytics:1.5.5
+docker pull registry.enterprise.local/mmorrisj/pgvector:0.8.1-pg16
+
+# Tag to expected names
+docker tag registry.enterprise.local/mmorrisj/softpower-analytics:1.5.5 mmorrisj/softpower-analytics:1.5.5
+docker tag registry.enterprise.local/mmorrisj/pgvector:0.8.1-pg16 mmorrisj/pgvector:0.8.1-pg16
 ```
 
-### Step 3: Load Docker Images
-
-```bash
-./production-deploy.sh load ./images
-```
-
-Verify:
+Verify both images are loaded:
 ```bash
 docker images | grep -E "softpower|pgvector"
 # Expected:
-#   pgvector/pgvector       0.8.1-pg16   ...   ~400MB
-#   softpower-app-production    latest       ...   ~700MB
+#   mmorrisj/softpower-analytics   1.5.5    ...   ~2GB
+#   mmorrisj/pgvector              0.8.1-pg16  ...   ~400MB
 ```
 
-### Step 4: Install ML Packages from Wheels
+### Step 3: Configure Environment
 
-This is a one-time operation that installs torch, sentence-transformers, and langchain-huggingface into the app image from the pre-downloaded wheel files.
-
+Create a `.env` file in your working directory:
 ```bash
-./production-deploy.sh setup
-```
-
-What happens:
-1. Runs a temporary container from the slim image
-2. Mounts `wheels/` directory read-only
-3. `pip install --no-index --find-links /wheels torch sentence-transformers langchain-huggingface`
-4. `docker commit` saves the result as the updated image
-5. Removes the temporary container
-
-Verify the image size increased:
-```bash
-docker images | grep softpower-app-production
-# Size should now be ~2 GB (was ~700 MB)
-```
-
-### Step 5: Configure Environment
-
-```bash
-cp .env.example .env
-vi .env
-```
-
-Key settings:
-```bash
+cat > .env << 'EOF'
 POSTGRES_USER=matthew50
 POSTGRES_PASSWORD=your_secure_password
 POSTGRES_DB=softpower-db
 
+# Registry image configuration
+APP_IMAGE=mmorrisj/softpower-analytics:1.5.5
+DB_IMAGE=mmorrisj/pgvector:0.8.1-pg16
+
 # LLM proxy (set to 0 to disable)
-LLM_PROXY_PORT=7001
+LLM_PROXY_PORT=0
 
 # API key for LLM features (optional)
 CLAUDE_KEY=your_api_key
+EOF
 ```
 
-### Step 6: Start Services
+### Step 4: Start Services
 
 ```bash
 ./production-deploy.sh start
 ```
 
-This starts both containers:
+The script auto-detects the registry image and skips the setup/model checks. It starts:
 - `softpower_db` — PostgreSQL + pgvector on port 5432
-- `softpower_app` — FastAPI (8000) + Streamlit (8501) with HuggingFace model mounted
+- `softpower_app` — FastAPI (8000) + Streamlit (8501) with ML model baked in
 
-### Step 7: Initialize Database
+### Step 5: Initialize Database
 
+Choose one:
+
+**Option A: Fresh install (empty database)**
 ```bash
-# Run Alembic migrations
+# Run Alembic migrations to create all tables
 ./production-deploy.sh migrate
-
-# (Optional) Restore from backup
-./production-deploy.sh restore softpower-backup.dump
 ```
 
-### Step 8: Verify Deployment
+**Option B: Restore from pg_dump file**
+
+> **Do not** run migrations when restoring — the dump already contains the full schema.
+
+```bash
+./production-deploy.sh restore /path/to/your-backup.dump
+```
+
+If the dump was created with `pg_dump -Fc` (custom format), this uses `pg_restore --clean --if-exists` to drop and recreate objects.
+
+If the dump is a plain SQL file (`.sql`), restore it directly:
+```bash
+docker exec -i softpower_db psql -U matthew50 -d softpower-db < /path/to/backup.sql
+```
+
+### Step 6: Verify Deployment
 
 ```bash
 # Check status
@@ -225,13 +166,89 @@ curl http://localhost:8000/api/health
 #   API Docs:   http://<hostname>:8000/docs
 ```
 
+### Step 7: Verify pgvector Extension (after restore)
+
+After restoring a dump, verify the pgvector extension is active:
+```bash
+docker exec softpower_db psql -U matthew50 -d softpower-db -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
+```
+
+If not present (unlikely — the pgvector image auto-creates it), enable it:
+```bash
+docker exec softpower_db psql -U matthew50 -d softpower-db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+---
+
+## Path B: Slim Images (Air-Gapped via production-build.sh)
+
+Use this path when deploying from a `production-build.sh` transfer package.
+
+### Quick Build (Internet-Connected Machine)
+
+```bash
+cd SP_Streamlit
+
+# Standard output: tar.gz archive
+./scripts/docker/production-build.sh
+
+# Transfer-safe output: directory of .txt files (for systems that block binaries)
+./scripts/docker/production-build.sh --pack
+```
+
+### Package Contents
+
+```
+softpower-production-YYYYMMDD/
+├── images/
+│   ├── pgvector-pg16.tar            # ~400 MB  PostgreSQL + pgvector
+│   └── softpower-app-production.tar # ~700 MB  FastAPI + Streamlit (slim)
+├── wheels/                          # ~1.5 GB  ML package wheels
+├── hf_model/                        # ~90 MB   sentence-transformers model
+├── requirements-production-heavy.txt
+├── production-deploy.sh
+├── .env.example
+├── softpower-backup.dump            # Database backup (if available)
+└── README.txt
+```
+
+### Installation Steps
+
+```bash
+# 1. Extract package
+cd /opt
+tar xzf softpower-production-YYYYMMDD.tar.gz
+cd softpower-production-YYYYMMDD
+
+# If using --pack mode:
+python3 unpack-production.py --apply
+
+# 2. Load Docker images
+./production-deploy.sh load ./images
+
+# 3. Install ML packages from wheels (one-time)
+./production-deploy.sh setup
+
+# 4. Configure environment
+cp .env.example .env
+vi .env
+
+# 5. Start services
+./production-deploy.sh start
+
+# 6. Initialize database
+./production-deploy.sh migrate
+# Or restore from backup:
+./production-deploy.sh restore softpower-backup.dump
+```
+
 ---
 
 ## Management Commands
 
 ```bash
 ./production-deploy.sh load [dir]       # Load Docker images from tar files
-./production-deploy.sh setup            # Install ML wheels into app image (one-time)
+./production-deploy.sh setup            # Install ML wheels into app image (slim only, one-time)
 ./production-deploy.sh start            # Start all services
 ./production-deploy.sh stop             # Stop all services (preserves data)
 ./production-deploy.sh restart          # Stop then start all services
@@ -328,9 +345,9 @@ Requires=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/softpower-production-YYYYMMDD
-ExecStart=/opt/softpower-production-YYYYMMDD/production-deploy.sh start
-ExecStop=/opt/softpower-production-YYYYMMDD/production-deploy.sh stop
+WorkingDirectory=/opt/softpower
+ExecStart=/opt/softpower/production-deploy.sh start
+ExecStop=/opt/softpower/production-deploy.sh stop
 
 [Install]
 WantedBy=multi-user.target
@@ -370,12 +387,14 @@ docker network inspect softpower_net
 
 ### ML Packages Not Working
 
-If you see `ImportError: No module named 'torch'` or similar:
+For **registry images**, ML packages are baked in. Verify:
 ```bash
-# Re-run setup
-./production-deploy.sh setup
+docker run --rm mmorrisj/softpower-analytics:1.5.5 python -c "import torch; print(torch.__version__)"
+```
 
-# Verify packages installed
+For **slim images**, re-run setup:
+```bash
+./production-deploy.sh setup
 docker run --rm softpower-app-production:latest python -c "import torch; print(torch.__version__)"
 ```
 
@@ -401,15 +420,26 @@ docker network create softpower_net
 
 ## Updating the Application
 
-When a new version is available:
+### Registry images (from Docker Hub)
 
 ```bash
-# 1. On internet-connected system: rebuild package
-./scripts/docker/production-build.sh
+# 1. Load new image version
+docker load -i softpower-analytics-X.Y.Z.tar
 
-# 2. Transfer new package to production system
+# 2. Update .env
+APP_IMAGE=mmorrisj/softpower-analytics:X.Y.Z
 
-# 3. On production system:
+# 3. Restart
+./production-deploy.sh stop
+./production-deploy.sh start
+./production-deploy.sh migrate    # Apply any new migrations
+```
+
+### Slim images (from production-build.sh)
+
+```bash
+# 1. Transfer new package to production system
+# 2. On production system:
 ./production-deploy.sh stop
 ./production-deploy.sh load ./images      # Load updated slim image
 ./production-deploy.sh setup              # Re-install ML packages
@@ -417,19 +447,24 @@ When a new version is available:
 ./production-deploy.sh migrate            # Apply any new migrations
 ```
 
-To update only the ML wheels (e.g., new torch version) without rebuilding the full image:
-```bash
-# Transfer only the updated .whl files to wheels/
-./production-deploy.sh stop
-./production-deploy.sh load ./images      # Reload the slim base image
-./production-deploy.sh setup              # Install updated wheels
-./production-deploy.sh start
-```
-
 ---
 
 ## Verification Checklist
 
+### Registry Images (Path A)
+- [ ] Docker installed and running
+- [ ] Both Docker images loaded (`mmorrisj/softpower-analytics:1.5.5`, `mmorrisj/pgvector:0.8.1-pg16`)
+- [ ] `.env` configured with credentials and `APP_IMAGE`/`DB_IMAGE`
+- [ ] Database container running (port 5432)
+- [ ] App container running (ports 8000, 8501)
+- [ ] Database restored from dump or migrations applied
+- [ ] Health check passes: `curl http://localhost:8000/api/health`
+- [ ] Web app accessible in browser
+- [ ] Streamlit accessible in browser
+- [ ] Firewall allows ports 8000, 8501
+- [ ] (Optional) LLM proxy running on host port 7001
+
+### Slim Images (Path B)
 - [ ] Docker installed and running
 - [ ] Both Docker images loaded (`pgvector`, `softpower-app-production`)
 - [ ] ML packages installed via `setup` command

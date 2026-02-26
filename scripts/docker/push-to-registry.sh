@@ -21,8 +21,8 @@
 #
 # Usage:
 #   ./scripts/docker/push-to-registry.sh [mode] [username] [version]
-#   ./scripts/docker/push-to-registry.sh registry mmorrisj 1.5.4
-#   ./scripts/docker/push-to-registry.sh production mmorrisj 1.5.4
+#   ./scripts/docker/push-to-registry.sh registry mmorrisj 1.5.5
+#   ./scripts/docker/push-to-registry.sh production mmorrisj 1.5.5
 #
 #   Or via env vars (legacy):
 #   REGISTRY=docker.io/yourusername VERSION=1.0.0 ./scripts/docker/push-to-registry.sh

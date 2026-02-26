@@ -51,16 +51,45 @@ else
     HF_HUB_OFFLINE=0
 fi
 
-# Image names
-# If PRODUCTION_REGISTRY is set, use registry-prefixed image names
-if [ -n "$PRODUCTION_REGISTRY" ]; then
-    DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg16"
-    APP_IMAGE="${PRODUCTION_REGISTRY}/softpower-app-production:latest"
-else
-    # Database: Official pgvector image (PostgreSQL 16 + pgvector extension)
-    DB_IMAGE="pgvector/pgvector:0.8.1-pg16"
-    # Application: Built by production-build.sh
-    APP_IMAGE="softpower-app-production:latest"
+# Image type: "registry" (self-contained, ML baked in) or "slim" (needs setup + hf_model)
+# "registry" images are pulled from Docker Hub (mmorrisj/softpower-analytics:X.Y.Z)
+# "slim" images are built locally by production-build.sh (softpower-app-production:latest)
+# Default: auto-detect from PRODUCTION_REGISTRY or APP_IMAGE
+IMAGE_TYPE="${IMAGE_TYPE:-auto}"
+
+# Allow direct image name override (highest priority)
+APP_IMAGE="${APP_IMAGE:-}"
+DB_IMAGE="${DB_IMAGE:-}"
+APP_VERSION="${APP_VERSION:-latest}"
+
+# Auto-detect IMAGE_TYPE if set to "auto"
+if [ "$IMAGE_TYPE" = "auto" ]; then
+    if [ -n "$APP_IMAGE" ] && echo "$APP_IMAGE" | grep -q "softpower-analytics"; then
+        IMAGE_TYPE="registry"
+    elif [ -n "$PRODUCTION_REGISTRY" ]; then
+        IMAGE_TYPE="registry"
+    else
+        IMAGE_TYPE="slim"
+    fi
+fi
+
+# Build image names from PRODUCTION_REGISTRY if not explicitly set
+if [ -z "$DB_IMAGE" ]; then
+    if [ -n "$PRODUCTION_REGISTRY" ]; then
+        DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg16"
+    else
+        DB_IMAGE="pgvector/pgvector:0.8.1-pg16"
+    fi
+fi
+
+if [ -z "$APP_IMAGE" ]; then
+    if [ "$IMAGE_TYPE" = "registry" ] && [ -n "$PRODUCTION_REGISTRY" ]; then
+        APP_IMAGE="${PRODUCTION_REGISTRY}/softpower-analytics:${APP_VERSION}"
+    elif [ -n "$PRODUCTION_REGISTRY" ]; then
+        APP_IMAGE="${PRODUCTION_REGISTRY}/softpower-app-production:latest"
+    else
+        APP_IMAGE="softpower-app-production:latest"
+    fi
 fi
 
 # HuggingFace model directory (sentence-transformers, mounted as volume)
@@ -143,6 +172,19 @@ cmd_setup() {
     echo "Installing ML packages from local wheels"
     echo "=============================================="
     echo ""
+
+    # Registry images already have ML packages baked in — skip setup
+    if [ "$IMAGE_TYPE" = "registry" ]; then
+        log_ok "Registry image detected: $APP_IMAGE"
+        log_ok "ML packages (torch, sentence-transformers, langchain-huggingface) are already baked in"
+        log_info "The 'setup' step is only needed for slim images built by production-build.sh"
+        echo ""
+        echo "Next steps:"
+        echo "  ./production-deploy.sh start"
+        echo "  ./production-deploy.sh migrate  (or restore from dump)"
+        echo ""
+        return 0
+    fi
 
     # Locate wheels directory (next to this script)
     local wheels_dir="${SCRIPT_DIR}/wheels"
@@ -375,36 +417,44 @@ cmd_start() {
             log_info "LLM/S3 proxy: disabled (container calls APIs directly)"
         fi
 
-        # Verify HuggingFace model directory exists and contains model files
-        if [ ! -d "$MODEL_DIR" ]; then
-            log_error "HuggingFace model directory not found: $MODEL_DIR"
-            log_info "The model is packaged in hf_model/ by production-build.sh"
-            log_info "Set MODEL_DIR=/path/to/hf_model to override"
-            exit 1
-        fi
-        # Check for the model marker file (modules.json from model.save())
-        if [ ! -f "$MODEL_DIR/models/all-MiniLM-L6-v2/modules.json" ]; then
-            log_error "Model files missing: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
-            log_info "The hf_model/ directory exists but appears empty or incomplete"
-            log_info "Re-run production-build.sh to regenerate the model export"
-            exit 1
-        fi
-        log_ok "Model dir: $MODEL_DIR (verified)"
+        # Registry images have ML + model baked in; slim images need external checks
+        local VOLUME_FLAGS=""
+        if [ "$IMAGE_TYPE" = "slim" ]; then
+            # Verify HuggingFace model directory exists and contains model files
+            if [ ! -d "$MODEL_DIR" ]; then
+                log_error "HuggingFace model directory not found: $MODEL_DIR"
+                log_info "The model is packaged in hf_model/ by production-build.sh"
+                log_info "Set MODEL_DIR=/path/to/hf_model to override"
+                exit 1
+            fi
+            # Check for the model marker file (modules.json from model.save())
+            if [ ! -f "$MODEL_DIR/models/all-MiniLM-L6-v2/modules.json" ]; then
+                log_error "Model files missing: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
+                log_info "The hf_model/ directory exists but appears empty or incomplete"
+                log_info "Re-run production-build.sh to regenerate the model export"
+                exit 1
+            fi
+            log_ok "Model dir: $MODEL_DIR (verified)"
 
-        # Pre-flight: verify ML packages were installed (./production-deploy.sh setup)
-        if ! docker run --rm "$APP_IMAGE" python3 -c "import sentence_transformers" 2>/dev/null; then
-            log_error "ML packages not installed in $APP_IMAGE"
-            log_info "Run './production-deploy.sh setup' first to install torch + sentence-transformers"
-            exit 1
+            # Pre-flight: verify ML packages were installed (./production-deploy.sh setup)
+            if ! docker run --rm "$APP_IMAGE" python3 -c "import sentence_transformers" 2>/dev/null; then
+                log_error "ML packages not installed in $APP_IMAGE"
+                log_info "Run './production-deploy.sh setup' first to install torch + sentence-transformers"
+                exit 1
+            fi
+            log_ok "ML packages: installed"
+
+            VOLUME_FLAGS="-v $(cd "$MODEL_DIR" && pwd):/app/.cache/huggingface"
+        else
+            log_ok "Registry image: ML packages + model baked in"
         fi
-        log_ok "ML packages: installed"
 
         log_info "Starting application (FastAPI + Streamlit)..."
         docker run -d \
             --name "$APP_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
-            -v "$(cd "$MODEL_DIR" && pwd)":/app/.cache/huggingface \
+            $VOLUME_FLAGS \
             $PROXY_HOST_FLAG \
             -e DOCKER_ENV=true \
             -e NODE_ENV=production \
@@ -440,9 +490,14 @@ cmd_start() {
     echo -e "${GREEN}Deployment Complete${NC}"
     echo "=============================================="
     echo ""
+    echo "Image type:   $IMAGE_TYPE"
     echo "Deploy mode:  $DEPLOY_MODE"
     echo "HF offline:   TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE, HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
-    echo "Model dir:    $MODEL_DIR"
+    if [ "$IMAGE_TYPE" = "slim" ]; then
+        echo "Model dir:    $MODEL_DIR"
+    else
+        echo "Model dir:    (baked into image)"
+    fi
     echo "App image:    $APP_IMAGE"
     if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
         echo "LLM proxy:    host.docker.internal:${LLM_PROXY_PORT}"
@@ -557,8 +612,13 @@ cmd_status() {
     docker ps -a --filter "name=softpower" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
 
     echo ""
+    log_info "Image type:  $IMAGE_TYPE"
     log_info "Deploy mode: $DEPLOY_MODE (TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE)"
-    log_info "Model dir:   $MODEL_DIR"
+    if [ "$IMAGE_TYPE" = "slim" ]; then
+        log_info "Model dir:   $MODEL_DIR"
+    else
+        log_info "Model dir:   (baked into image)"
+    fi
     log_info "App image:   $APP_IMAGE"
 
     echo ""
@@ -686,7 +746,13 @@ case "${1:-help}" in
         echo "  restore <file>      Restore database from backup"
         echo "  logs [container]    Tail container logs (default: app)"
         echo ""
-        echo "First-time deployment:"
+        echo "First-time deployment (registry images from Docker Hub):"
+        echo "  1. $0 start             # Start database + application"
+        echo "  2. $0 migrate           # Initialize database schema"
+        echo "     — or —"
+        echo "  2. $0 restore backup.dump  # Restore data from dump"
+        echo ""
+        echo "First-time deployment (slim images from production-build.sh):"
         echo "  1. $0 load ./images     # Load pre-built Docker images"
         echo "  2. $0 setup             # Install ML packages from wheels"
         echo "  3. $0 start             # Start database + application"
@@ -697,12 +763,19 @@ case "${1:-help}" in
         echo "  Create a .env file to override defaults (see .env.example)"
         echo "  Key variables: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB"
         echo ""
-        echo "  DEPLOY_MODE=production   HuggingFace fully offline (default)"
-        echo "  DEPLOY_MODE=standard    HuggingFace can reach network"
-        echo "  PRODUCTION_REGISTRY=...     Use registry-prefixed image name"
-        echo "  MODEL_DIR=./hf_model    Path to HuggingFace model directory"
-        echo "  LLM_PROXY_PORT=7001     Host-side LLM/S3 proxy port (default: 7001)"
-        echo "  LLM_PROXY_PORT=0        Disable proxy (container calls APIs directly)"
+        echo "  IMAGE_TYPE=registry       Self-contained image (ML baked in, from Docker Hub)"
+        echo "  IMAGE_TYPE=slim           Slim image (needs setup + hf_model, from production-build.sh)"
+        echo "  IMAGE_TYPE=auto           Auto-detect from APP_IMAGE or PRODUCTION_REGISTRY (default)"
+        echo "  APP_IMAGE=...             Override app image name directly"
+        echo "  DB_IMAGE=...              Override database image name directly"
+        echo "  APP_VERSION=latest        Tag for registry images (default: latest)"
+        echo "  PRODUCTION_REGISTRY=...   Registry prefix (implies IMAGE_TYPE=registry)"
+        echo ""
+        echo "  DEPLOY_MODE=production    HuggingFace fully offline (default)"
+        echo "  DEPLOY_MODE=standard      HuggingFace can reach network"
+        echo "  MODEL_DIR=./hf_model      Path to HuggingFace model directory (slim only)"
+        echo "  LLM_PROXY_PORT=7001       Host-side LLM/S3 proxy port (default: 7001)"
+        echo "  LLM_PROXY_PORT=0          Disable proxy (container calls APIs directly)"
         echo ""
         exit 1
         ;;
