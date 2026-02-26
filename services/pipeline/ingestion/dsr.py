@@ -471,46 +471,9 @@ def process_dsr(relocate=True, batch_size=100):
 
     return new_doc_ids
 
-def dispatch_embedding_tasks(doc_ids, batch_size=50):
-    """
-    Dispatch embedding tasks to Celery workers for parallel processing.
-
-    Args:
-        doc_ids (list): List of document IDs to embed
-        batch_size (int): Number of documents to process per Celery task
-    """
-    if not doc_ids:
-        print("No documents to embed")
-        return
-
-    print(f"Dispatching embedding tasks for {len(doc_ids)} documents...")
-    print(f"Using batch size of {batch_size} documents per task")
-
-    try:
-        # Import the Celery task
-        from backend.tasks.embedding_tasks import process_document_batch
-
-        # Split doc_ids into batches
-        doc_batches = [doc_ids[i:i + batch_size] for i in range(0, len(doc_ids), batch_size)]
-
-        task_count = 0
-        for batch in doc_batches:
-            # Dispatch batch to Celery worker
-            process_document_batch.delay(batch)
-            task_count += 1
-            print(f"[INFO] Dispatched batch {task_count} with {len(batch)} documents")
-
-        print(f"[SUCCESS] Successfully dispatched {task_count} embedding tasks to Celery workers")
-        print("[INFO] Tasks will be processed in parallel by available workers")
-
-    except ImportError:
-        print("[WARNING] Celery tasks not available. Falling back to direct embedding...")
-        # Fallback to direct embedding if Celery is not available
-        embed_documents_direct(doc_ids, batch_size)
-
 def embed_documents_direct(doc_ids, batch_size=50):
     """
-    Fallback function to embed documents directly without Celery.
+    Embed documents directly in-process.
 
     Args:
         doc_ids (list): List of document IDs to embed
@@ -670,7 +633,7 @@ def process_dsr_s3(s3_prefix: str = "dsr_extracts/", specific_files: Optional[Li
     return new_doc_ids
 
 def process_dsr_s3_with_embedding(s3_prefix: str = "dsr_extracts/", specific_files: Optional[List[str]] = None,
-                                doc_batch_size: int = 100, embed_batch_size: int = 50, use_celery: bool = True):
+                                doc_batch_size: int = 100, embed_batch_size: int = 50):
     """
     Complete S3 DSR processing workflow: load documents from S3 then dispatch embedding tasks.
 
@@ -679,7 +642,6 @@ def process_dsr_s3_with_embedding(s3_prefix: str = "dsr_extracts/", specific_fil
         specific_files (Optional[List[str]]): Optional list of specific filenames to process
         doc_batch_size (int): Batch size for document loading
         embed_batch_size (int): Batch size for embedding tasks
-        use_celery (bool): Whether to use Celery for parallel embedding
     """
     # Step 1: Load documents from S3 to database
     print("[START] Step 1: Loading DSR documents from S3 to database...")
@@ -689,16 +651,12 @@ def process_dsr_s3_with_embedding(s3_prefix: str = "dsr_extracts/", specific_fil
         print("No new documents to embed")
         return
 
-    # Step 2: Dispatch embedding tasks
+    # Step 2: Process embeddings
     print(f"\n[START] Step 2: Processing embeddings for {len(new_doc_ids)} new documents...")
-
-    if use_celery:
-        dispatch_embedding_tasks(new_doc_ids, batch_size=embed_batch_size)
-    else:
-        embed_documents_direct(new_doc_ids, batch_size=embed_batch_size)
+    embed_documents_direct(new_doc_ids, batch_size=embed_batch_size)
 
 def reprocess_s3_files(filenames: List[str], s3_prefix: str = "dsr_extracts/",
-                      doc_batch_size: int = 100, embed_batch_size: int = 50, use_celery: bool = True):
+                      doc_batch_size: int = 100, embed_batch_size: int = 50):
     """
     Reprocess specific files from S3 by removing them from processed list and running the full workflow.
 
@@ -707,7 +665,6 @@ def reprocess_s3_files(filenames: List[str], s3_prefix: str = "dsr_extracts/",
         s3_prefix (str): S3 prefix/folder where files are located
         doc_batch_size (int): Batch size for document loading
         embed_batch_size (int): Batch size for embedding tasks
-        use_celery (bool): Whether to use Celery for parallel embedding
     """
     print(f"[PROCESS] Reprocessing {len(filenames)} files from S3...")
 
@@ -719,8 +676,7 @@ def reprocess_s3_files(filenames: List[str], s3_prefix: str = "dsr_extracts/",
         s3_prefix=s3_prefix,
         specific_files=filenames,
         doc_batch_size=doc_batch_size,
-        embed_batch_size=embed_batch_size,
-        use_celery=use_celery
+        embed_batch_size=embed_batch_size
     )
 
 def list_s3_dsr_status(s3_prefix: str = "dsr_extracts/"):
@@ -752,7 +708,7 @@ def list_s3_dsr_status(s3_prefix: str = "dsr_extracts/"):
     if tracker_data.get('last_updated'):
         print(f"\n[TIME] Last tracker update: {tracker_data['last_updated']}")
 
-def process_dsr_with_embedding(relocate=True, doc_batch_size=100, embed_batch_size=50, use_celery=True):
+def process_dsr_with_embedding(relocate=True, doc_batch_size=100, embed_batch_size=50):
     """
     Complete DSR processing workflow: load documents then dispatch embedding tasks.
 
@@ -760,7 +716,6 @@ def process_dsr_with_embedding(relocate=True, doc_batch_size=100, embed_batch_si
         relocate (bool): Whether to move processed files to processed folder
         doc_batch_size (int): Batch size for document loading
         embed_batch_size (int): Batch size for embedding tasks
-        use_celery (bool): Whether to use Celery for parallel embedding
     """
     # Step 1: Load documents to database
     print("[START] Step 1: Loading DSR documents to database...")
@@ -770,13 +725,9 @@ def process_dsr_with_embedding(relocate=True, doc_batch_size=100, embed_batch_si
         print("No new documents to embed")
         return
 
-    # Step 2: Dispatch embedding tasks
+    # Step 2: Process embeddings
     print(f"\n[START] Step 2: Processing embeddings for {len(new_doc_ids)} new documents...")
-
-    if use_celery:
-        dispatch_embedding_tasks(new_doc_ids, batch_size=embed_batch_size)
-    else:
-        embed_documents_direct(new_doc_ids, batch_size=embed_batch_size)
+    embed_documents_direct(new_doc_ids, batch_size=embed_batch_size)
 
 if __name__ == "__main__":
     import argparse
@@ -801,8 +752,6 @@ if __name__ == "__main__":
     parser.add_argument("--doc-batch-size", type=int, default=100, help="Batch size for document loading (default: 100)")
     parser.add_argument("--embed-batch-size", type=int, default=50, help="Batch size for embedding tasks (default: 50)")
     parser.add_argument("--no-embed", action="store_true", help="Skip embedding processing")
-    parser.add_argument("--no-celery", action="store_true", help="Use direct embedding instead of Celery workers")
-
     args = parser.parse_args()
 
     if args.source == "s3":
@@ -816,8 +765,7 @@ if __name__ == "__main__":
                 filenames=args.reprocess,
                 s3_prefix=args.s3_prefix,
                 doc_batch_size=args.doc_batch_size,
-                embed_batch_size=args.embed_batch_size,
-                use_celery=not args.no_celery
+                embed_batch_size=args.embed_batch_size
             )
         elif args.no_embed:
             # Just load documents from S3 without embedding
@@ -835,8 +783,7 @@ if __name__ == "__main__":
                 s3_prefix=args.s3_prefix,
                 specific_files=args.s3_files,
                 doc_batch_size=args.doc_batch_size,
-                embed_batch_size=args.embed_batch_size,
-                use_celery=not args.no_celery
+                embed_batch_size=args.embed_batch_size
             )
     else:
         # Local processing (original behavior)
@@ -848,10 +795,8 @@ if __name__ == "__main__":
         else:
             # Full workflow with embedding
             print("[START] Processing DSR documents from local directory with embedding...")
-            use_celery = not args.no_celery
             process_dsr_with_embedding(
                 relocate=args.relocate,
                 doc_batch_size=args.doc_batch_size,
-                embed_batch_size=args.embed_batch_size,
-                use_celery=use_celery
+                embed_batch_size=args.embed_batch_size
             )

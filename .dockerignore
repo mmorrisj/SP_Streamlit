@@ -61,12 +61,19 @@ event_exports/
 materiality_exports/
 full_db_export/
 test_export/
+services/pipeline/batch/batches/
+services/pipeline/batch/archive/
+.production-cache/
+.airgap-cache/
+AidDatas_Global_Chinese_Development_Finance_Dataset_Version_3_0/
+*.dump
 
 # ============================================
 # Archives & Documentation
 # ============================================
 docs/archive/
 archive/
+_archive/
 streamlit_old_backup/
 *.md
 !README.md
