@@ -64,7 +64,7 @@ services:
   # Single consolidated container from Docker Hub
   # -----------------------
   app:
-    image: mmorrisj/softpower-analytics:1.5.4
+    image: mmorrisj/softpower-analytics:1.5.5
     container_name: sp_prod_app
     restart: unless-stopped
     security_opt:
@@ -111,7 +111,7 @@ services:
   # Alembic Migrations (run once with --profile migrate)
   # -----------------------
   migrate:
-    image: mmorrisj/softpower-analytics:1.5.4
+    image: mmorrisj/softpower-analytics:1.5.5
     container_name: sp_prod_migrate
     security_opt:
       - no-new-privileges:true

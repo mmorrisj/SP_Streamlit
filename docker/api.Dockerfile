@@ -7,7 +7,8 @@
 # ============================================
 # Stage 1: Frontend Builder
 # ============================================
-FROM node:20-slim AS frontend-builder
+# Bookworm (Debian 12) for CentOS 7 kernel 3.10 compatibility.
+FROM node:20-slim-bookworm AS frontend-builder
 
 WORKDIR /app/client
 
@@ -23,7 +24,8 @@ RUN npm run build
 # ============================================
 # Stage 2: Python Backend + API Server
 # ============================================
-FROM python:3.13-slim
+# Bookworm (Debian 12) for CentOS 7 kernel 3.10 compatibility.
+FROM python:3.13-slim-bookworm
 
 WORKDIR /app
 

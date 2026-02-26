@@ -6,7 +6,7 @@
 
 | Image | Tag | Base | Purpose |
 |-------|-----|------|---------|
-| `mmorrisj/softpower-analytics` | 1.5.4 | `python:3.13-slim` (Debian Trixie) | Application (FastAPI + Streamlit + React + ML) |
+| `mmorrisj/softpower-analytics` | 1.5.5 | `python:3.13-slim` (Debian Trixie) | Application (FastAPI + Streamlit + React + ML) |
 | `mmorrisj/pgvector` | 0.8.1-pg16 | `postgres:16-trixie` (Debian Trixie) | PostgreSQL 16 + pgvector extension |
 
 ---
@@ -15,11 +15,11 @@
 
 A comprehensive vulnerability scan and remediation was performed on both Docker images in the SoftPower Analytics stack. Combined results:
 
-### Application Image (`softpower-analytics:1.5.4`)
+### Application Image (`softpower-analytics:1.5.5`)
 
 **61 of 95 identified CVEs were eliminated** through base image upgrades, package version bumps, build-tool removal, Debian package removal, and supervisor migration to pip. All CRITICAL and HIGH severity vulnerabilities have been resolved. Supply chain attestations (SBOM + max-mode provenance) are attached to the image.
 
-| Metric | Before (v1.0.0) | After (v1.5.4) | Change |
+| Metric | Before (v1.0.0) | After (v1.5.5) | Change |
 |--------|:---:|:---:|:---:|
 | Critical | 2 | 0 | -2 |
 | High | 5 | 0 | -5 |
@@ -35,7 +35,7 @@ A comprehensive vulnerability scan and remediation was performed on both Docker 
 - **v1.3.0**: Fixed CVE-2026-23949 (HIGH, jaraco.context Zip Slip), added supply chain attestations (SBOM + provenance)
 - **v1.5.0-1.5.2**: Deployment hardening (admin user creation, production compose, SQLAlchemy bump)
 - **v1.5.3**: Supervisor via pip (eliminates Debian python3.13 package chain — 5 CVEs cleared, 36 packages removed)
-- **v1.5.4**: curl + rmt binary + postgresql-client removed; langchain upgraded to 1.x (closes CVE-2026-26013); pgvector SHA supply-chain pinning; runtime cap_drop + no-new-privileges hardening
+- **v1.5.5**: curl + rmt binary + postgresql-client removed; langchain upgraded to 1.x (closes CVE-2026-26013); pgvector SHA supply-chain pinning; runtime cap_drop + no-new-privileges hardening
 
 **Risk Assessment**: The 34 remaining vulnerabilities are all LOW severity (33) or MEDIUM (1) with no available upstream fix. None are exploitable in this application's deployment context. See Section 2 for detailed analysis.
 
@@ -216,9 +216,9 @@ All 34 remaining CVEs have **no upstream fix available** from Debian or PyPI mai
 | Priority | Item | Detail | Timeline |
 |----------|------|--------|----------|
 | Medium | Remove `postgresql-client` from application image (if unused at runtime) | Current `softpower-analytics` runtime stack (`supervisord` + FastAPI + Streamlit) does not require `psql`/`pg_isready`. Removing `postgresql-client` can reduce residual OpenLDAP/Kerberos exposure inherited via `libpq` optional auth dependencies. | Validate in next image build and adopt if no runtime regressions |
-| Complete | Pin pgvector source to immutable commit | SHA `778dacf` pinned in `docker/pgvector.Dockerfile` via `ARG PGVECTOR_SHA`; build fails on mismatch. | Done as of v1.5.4 |
+| Complete | Pin pgvector source to immutable commit | SHA `778dacf` pinned in `docker/pgvector.Dockerfile` via `ARG PGVECTOR_SHA`; build fails on mismatch. | Done as of v1.5.5 |
 | Medium | Lock and hash-pin Python dependencies | Current requirements primarily use `>=` ranges. Adopt lock/constraints with hashes (`--require-hashes`) for deterministic builds and tighter supply-chain control. | Next dependency refresh cycle |
-| Complete | langchain-core SSRF | CVE-2026-26013 closed — langchain upgraded to 1.x ecosystem (langchain-1.2.10, langchain-core-1.2.15, langchain-openai-1.1.10). | Done as of v1.5.4 |
+| Complete | langchain-core SSRF | CVE-2026-26013 closed — langchain upgraded to 1.x ecosystem (langchain-1.2.10, langchain-core-1.2.15, langchain-openai-1.1.10). | Done as of v1.5.5 |
 | Monitor | tar MEDIUM | CVE-2025-45582 -- no fix available. Monitor Debian security tracker for an updated `tar` package. Not exploitable in current deployment (no user-supplied archives processed). | Watch for Debian fix |
 | Complete | curl removal | `curl` was removed from production images and health checks were migrated to Python probes. Keep scanner evidence current to prevent stale report carryover. | Done as of image line (`softpower-analytics:1.5.3`) |
 
@@ -244,7 +244,7 @@ The deployment architecture provides multiple layers of protection beyond indivi
 
 ### Conclusion
 
-**The `softpower-analytics:1.5.4` image is suitable for production deployment.** All CRITICAL and HIGH vulnerabilities have been resolved. The 34 remaining vulnerabilities (1 MEDIUM, 33 LOW) are either:
+**The `softpower-analytics:1.5.5` image is suitable for production deployment.** All CRITICAL and HIGH vulnerabilities have been resolved. The 34 remaining vulnerabilities (1 MEDIUM, 33 LOW) are either:
 
 - In OS packages not used by the application (systemd, openldap, krb5, sqlite3, perl, shadow)
 - In utilities used only for internal operations (curl for health checks, tar/apt for build-time only)
@@ -403,7 +403,7 @@ The 34 LOW CVEs are in Debian Trixie OS packages -- the same packages (glibc, op
 ### Application Image
 
 ```
-Target:  mmorrisj/softpower-analytics:1.5.4
+Target:  mmorrisj/softpower-analytics:1.5.5
 Digest:  df8f96c164d0
 Platform: linux/amd64
 Size:    1.2 GB

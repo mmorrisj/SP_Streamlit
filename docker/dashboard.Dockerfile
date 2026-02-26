@@ -1,4 +1,5 @@
-FROM python:3.13-slim
+# Bookworm (Debian 12) for CentOS 7 kernel 3.10 compatibility.
+FROM python:3.13-slim-bookworm
 
 WORKDIR /app
 

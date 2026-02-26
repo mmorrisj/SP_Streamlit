@@ -12,11 +12,9 @@
 #   docker push mmorrisj/pgvector:0.8.1-pg16
 # ============================================
 
-# Use Debian 13 (trixie) variant to pick up newer libc/OpenLDAP packages
-# while staying on PostgreSQL 16.
-# Digest-pinned for Docker Scout "Outdated base images" compliance.
-# Update digest with: docker pull postgres:16-trixie && docker inspect postgres:16-trixie --format='{{index .RepoDigests 0}}'
-FROM postgres:16-trixie@sha256:23af655ba1ddf74eaa002e3deaf5fce022ab8791672336a7c1fb0ef2d57efb7f
+# Bookworm (Debian 12, glibc 2.36) for CentOS 7 kernel 3.10 compatibility.
+# Trixie (Debian 13, glibc 2.38+) requires clone3 syscall (kernel 5.3+).
+FROM postgres:16-bookworm
 
 # pgvector version and immutable commit SHA for supply-chain pinning.
 # SHA must match the tag; verify with:
@@ -47,8 +45,6 @@ RUN apt-get update \
 RUN pg_config --sharedir | xargs -I{} ls {}/extension/vector.control
 
 # Remove build tools and unneeded runtime packages to reduce attack surface.
-# On trixie, libsqlite3-0 is required by util-linux dependency chain and cannot
-# be safely purged without breaking base package dependencies.
 RUN apt-get purge -y build-essential git ca-certificates postgresql-server-dev-16 \
     gnupg gpg gpg-wks-client gpg-wks-server \
     && apt-get autoremove -y \
