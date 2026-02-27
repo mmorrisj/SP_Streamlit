@@ -18,7 +18,7 @@
 # ============================================
 # Bookworm (Debian 12, glibc 2.36) for CentOS 7 kernel 3.10 compatibility.
 # Trixie (Debian 13, glibc 2.38+) requires clone3 syscall (kernel 5.3+).
-FROM node:20-slim-bookworm AS frontend-builder
+FROM node:20-bookworm-slim AS frontend-builder
 
 WORKDIR /app/client
 

@@ -8,7 +8,7 @@
 # Stage 1: Frontend Builder
 # ============================================
 # Bookworm (Debian 12) for CentOS 7 kernel 3.10 compatibility.
-FROM node:20-slim-bookworm AS frontend-builder
+FROM node:20-bookworm-slim AS frontend-builder
 
 WORKDIR /app/client
 
