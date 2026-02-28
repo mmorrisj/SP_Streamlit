@@ -3713,13 +3713,17 @@ def proxy_gai_query(input: QueryInput):
             raise HTTPException(status_code=500, detail="No OpenAI API key configured")
 
         client = OpenAI(api_key=api_key)
+        # gpt-5 family only supports temperature=1; use 0.4 for older models
+        extra_params = {}
+        if not input.model.startswith("gpt-5"):
+            extra_params["temperature"] = 0.4
         completion = client.chat.completions.create(
             model=input.model,
             messages=[
                 {"role": "system", "content": input.sys_prompt},
                 {"role": "user", "content": input.prompt},
             ],
-            temperature=0.7,
+            **extra_params,
         )
         content = completion.choices[0].message.content
         try:

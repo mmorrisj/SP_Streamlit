@@ -16,6 +16,14 @@ Usage:
         --model gpt-4o-mini \
         --validate \
         --output-dir ./reports
+
+    # Batch mode (50% cost via OpenAI Batch API, ~1-24h)
+    python scripts/generate_report.py \
+        --country China \
+        --start-date 2024-08-01 \
+        --end-date 2024-08-31 \
+        --model gpt-5-mini \
+        --batch
 """
 
 import sys
@@ -58,6 +66,16 @@ Examples:
   # Validation only on existing report JSON
   python scripts/generate_report.py \\
       --validate-only ./reports/China_Report_2024-08-01.json
+
+  # Batch mode — 50% cost via OpenAI Batch API (takes ~1-24h)
+  python scripts/generate_report.py \\
+      --country China --start-date 2024-08-01 --end-date 2024-08-31 \\
+      --model gpt-5-mini --batch
+
+  # Batch mode with custom poll interval (120s)
+  python scripts/generate_report.py \\
+      --country China --start-date 2024-08-01 --end-date 2024-08-31 \\
+      --batch --poll-interval 120
         """,
     )
 
@@ -89,7 +107,7 @@ Examples:
     parser.add_argument(
         "--model", "-m",
         default="gpt-4o-mini",
-        choices=["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"],
+        choices=["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1","gpt-5-mini"],
         help="LLM model for narrative generation (default: gpt-4o-mini)",
     )
 
@@ -108,6 +126,18 @@ Examples:
         "--validate-only",
         metavar="JSON_FILE",
         help="Skip generation; validate an existing report JSON file",
+    )
+
+    # Batch mode
+    parser.add_argument(
+        "--batch", "-B",
+        action="store_true",
+        help="Use OpenAI Batch API for event/entity LLM calls (50%% cost, 1-24h)",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=int, default=60,
+        help="Batch status polling interval in seconds (default: 60, only with --batch)",
     )
 
     # Output options
@@ -155,8 +185,6 @@ def log(msg: str, quiet: bool = False):
 
 def generate(args) -> dict:
     """Run the report generation pipeline."""
-    from server.report_generator import generate_report
-
     log(f"[CLI] Generating report: {args.country} "
         f"({args.start_date} to {args.end_date})", args.quiet)
     if args.recipient:
@@ -164,14 +192,33 @@ def generate(args) -> dict:
     log(f"[CLI] Model: {args.model}  |  Top events/category: {args.top_events}",
         args.quiet)
 
-    report = generate_report(
-        country=args.country,
-        start_date_str=args.start_date,
-        end_date_str=args.end_date,
-        recipient=args.recipient,
-        top_n=args.top_events,
-        model=args.model,
-    )
+    if args.batch:
+        from server.report_batch import generate_report_batch
+
+        log("[CLI] Mode: BATCH (OpenAI Batch API — 50% cost reduction)", args.quiet)
+        log(f"[CLI] Poll interval: {args.poll_interval}s", args.quiet)
+
+        report = generate_report_batch(
+            country=args.country,
+            start_date_str=args.start_date,
+            end_date_str=args.end_date,
+            recipient=args.recipient,
+            top_n=args.top_events,
+            model=args.model,
+            poll_interval=args.poll_interval,
+            quiet=args.quiet,
+        )
+    else:
+        from server.report_generator import generate_report
+
+        report = generate_report(
+            country=args.country,
+            start_date_str=args.start_date,
+            end_date_str=args.end_date,
+            recipient=args.recipient,
+            top_n=args.top_events,
+            model=args.model,
+        )
 
     total_events = report.get("metrics", {}).get("total_events", 0)
     total_docs = report.get("metrics", {}).get("total_documents", 0)
@@ -227,6 +274,26 @@ def export_docx(report: dict, path: Path, quiet: bool = False):
     log(f"[CLI] DOCX saved: {path}", quiet)
 
 
+def export_validation_docx(
+    validation: dict, report: dict, path: Path, quiet: bool = False
+):
+    """Write validation DOCX to disk."""
+    from server.report_exporter import export_validation_to_docx
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    buf = export_validation_to_docx(
+        validation,
+        report_title=report.get("title", ""),
+        country=report.get("country", ""),
+        period_start=report.get("period_start", ""),
+        period_end=report.get("period_end", ""),
+        report_data=report,
+    )
+    with open(path, "wb") as f:
+        f.write(buf.read())
+    log(f"[CLI] Validation DOCX saved: {path}", quiet)
+
+
 def main():
     args = parse_args()
     output_dir = Path(args.output_dir)
@@ -259,6 +326,12 @@ def main():
             docx_path = json_path.with_suffix(".docx")
             export_docx(report, docx_path, args.quiet)
 
+            # Validation DOCX
+            val_docx_path = json_path.with_name(
+                json_path.stem + "_validation.docx"
+            )
+            export_validation_docx(results, report, val_docx_path, args.quiet)
+
         sys.exit(0 if results["status"] == "GREEN" else 1)
 
     # ── Full generation mode ────────────────────────────────────
@@ -284,6 +357,13 @@ def main():
 
     if not args.json_only:
         export_docx(report, docx_path, args.quiet)
+
+        # Validation DOCX (when validation was run)
+        if args.validate:
+            val_docx_path = output_dir / f"{base_name}_validation.docx"
+            export_validation_docx(
+                report["validation"], report, val_docx_path, args.quiet
+            )
 
     # Exit code: non-zero if validation ran and failed
     if args.validate:

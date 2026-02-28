@@ -594,3 +594,351 @@ def _format_datetime(dt_str: str | None) -> str:
         return dt.strftime('%B %d, %Y at %I:%M %p')
     except (ValueError, TypeError):
         return str(dt_str)
+
+
+# ── Validation status colours ────────────────────────────────────
+
+STATUS_COLORS = {
+    'green': RGBColor(0x05, 0x96, 0x69),
+    'yellow': RGBColor(0xD9, 0x73, 0x06),
+    'red': RGBColor(0xDC, 0x26, 0x26),
+}
+
+STATUS_BG_HEX = {
+    'green': '#059669',
+    'yellow': '#d97306',
+    'red': '#dc2626',
+}
+
+STATUS_LABELS = {
+    'green': 'SUPPORTED',
+    'yellow': 'PARTIALLY SUPPORTED',
+    'red': 'UNSUPPORTED',
+}
+
+
+def _make_validation_summary_chart(sections: Dict[str, Any]) -> io.BytesIO:
+    """Pie chart of green/yellow/red section counts."""
+    counts = {'green': 0, 'yellow': 0, 'red': 0}
+    for sec in sections.values():
+        status = sec.get('status', '').lower()
+        if status in counts:
+            counts[status] += 1
+
+    labels = []
+    sizes = []
+    colors = []
+    for status in ('green', 'yellow', 'red'):
+        if counts[status] > 0:
+            labels.append(f"{STATUS_LABELS[status]} ({counts[status]})")
+            sizes.append(counts[status])
+            colors.append(STATUS_BG_HEX[status])
+
+    if not sizes:
+        return None
+
+    fig, ax = plt.subplots(figsize=(4, 3))
+    wedges, texts, autotexts = ax.pie(
+        sizes, labels=labels, colors=colors, autopct='%1.0f%%',
+        startangle=90, textprops={'fontsize': 8}
+    )
+    for at in autotexts:
+        at.set_color('white')
+        at.set_fontweight('bold')
+    ax.set_title('Validation Results by Section', fontsize=10, fontweight='bold')
+    fig.tight_layout()
+    return _fig_to_bytes(fig)
+
+
+def _make_claims_bar_chart(sections: Dict[str, Any]) -> io.BytesIO:
+    """Stacked bar chart: supported vs uncited claims per section type."""
+    type_counts: Dict[str, Dict[str, int]] = {}
+    for sec in sections.values():
+        stype = sec.get('section_type', 'unknown')
+        if stype not in type_counts:
+            type_counts[stype] = {'supported': 0, 'uncited': 0}
+        type_counts[stype]['supported'] += sec.get('claims_validated', 0)
+        type_counts[stype]['uncited'] += sec.get('uncited_claims', 0)
+
+    if not type_counts:
+        return None
+
+    labels = list(type_counts.keys())
+    supported = [type_counts[t]['supported'] for t in labels]
+    uncited = [type_counts[t]['uncited'] for t in labels]
+
+    fig, ax = plt.subplots(figsize=(5.5, 2.5))
+    x = range(len(labels))
+    ax.bar(x, supported, label='Supported', color='#059669', width=0.6)
+    ax.bar(x, uncited, bottom=supported, label='Uncited', color='#dc2626', width=0.6)
+    ax.set_xticks(x)
+    ax.set_xticklabels([l.replace('_', ' ').title() for l in labels], fontsize=8)
+    ax.set_ylabel('Claims', fontsize=8)
+    ax.set_title('Claims by Section Type', fontsize=10, fontweight='bold')
+    ax.legend(fontsize=8)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    fig.tight_layout()
+    return _fig_to_bytes(fig)
+
+
+def export_validation_to_docx(validation_data: dict,
+                               report_title: str = '',
+                               country: str = '',
+                               period_start: str = '',
+                               period_end: str = '',
+                               report_data: dict = None) -> io.BytesIO:
+    """
+    Convert validation results JSON into a formatted .docx BytesIO buffer.
+
+    Args:
+        validation_data: Validation JSON dict (status, sections, etc.)
+        report_title: Title of the parent report (for context).
+        country: Country name.
+        period_start: Report period start (YYYY-MM-DD).
+        period_end: Report period end (YYYY-MM-DD).
+        report_data: Full report JSON dict — used to look up event names
+            by index so the DOCX shows real names instead of "Event 3".
+    """
+    doc = Document()
+
+    style = doc.styles['Normal']
+    style.font.name = 'Calibri'
+    style.font.size = Pt(11)
+
+    overall_status = validation_data.get('status', 'unknown').lower()
+    sections = validation_data.get('sections', {})
+    validated_at = validation_data.get('validated_at', '')
+    model_used = validation_data.get('model_used', 'unknown')
+
+    # Build event name lookup: "event:Economic:3" -> "Sailun Group Tire Factory"
+    event_name_map: Dict[str, str] = {}
+    if report_data:
+        for cat in report_data.get('categories', []):
+            cat_name = cat.get('category', '')
+            for idx, evt in enumerate(cat.get('events', [])):
+                key = f"event:{cat_name}:{idx}"
+                event_name_map[key] = evt.get('event_name', '')
+
+    # ── Title Page ────────────────────────────────────────────────
+
+    for _ in range(4):
+        doc.add_paragraph()
+
+    title_para = doc.add_paragraph()
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_run = title_para.add_run('Source Validation Report')
+    _set_font(title_run, size=24, bold=True, color=RGBColor(0x1A, 0x36, 0x5D))
+
+    if report_title:
+        sub_para = doc.add_paragraph()
+        sub_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = sub_para.add_run(report_title)
+        _set_font(r, size=14, color=RGBColor(0x64, 0x74, 0x8B))
+
+    if period_start and period_end:
+        date_para = doc.add_paragraph()
+        date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = date_para.add_run(
+            f"{_format_date(period_start)} — {_format_date(period_end)}"
+        )
+        _set_font(r, size=12, color=RGBColor(0x64, 0x74, 0x8B))
+
+    # Overall status badge
+    status_para = doc.add_paragraph()
+    status_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph()  # spacer
+    badge_para = doc.add_paragraph()
+    badge_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    badge_label = STATUS_LABELS.get(overall_status, overall_status.upper())
+    r = badge_para.add_run(f"Overall: {badge_label}")
+    _set_font(r, size=16, bold=True,
+              color=STATUS_COLORS.get(overall_status, RGBColor(0x33, 0x33, 0x33)))
+
+    # Metadata
+    meta_para = doc.add_paragraph()
+    meta_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = meta_para.add_run(
+        f"Model: {model_used}  |  "
+        f"Validated: {_format_datetime(validated_at)}"
+    )
+    _set_font(r, size=9, color=RGBColor(0x94, 0xA3, 0xB8))
+
+    doc.add_page_break()
+
+    # ── Summary Statistics ────────────────────────────────────────
+
+    _add_heading(doc, 'Validation Summary', level=1,
+                 color=RGBColor(0x1A, 0x36, 0x5D))
+
+    # Compute aggregate stats
+    total_sections = len(sections)
+    green_count = sum(1 for s in sections.values() if s.get('status', '').lower() == 'green')
+    yellow_count = sum(1 for s in sections.values() if s.get('status', '').lower() == 'yellow')
+    red_count = sum(1 for s in sections.values() if s.get('status', '').lower() == 'red')
+    total_claims = sum(s.get('claims_validated', 0) for s in sections.values())
+    total_uncited = sum(s.get('uncited_claims', 0) for s in sections.values())
+    total_issues = sum(len(s.get('issues', [])) for s in sections.values())
+
+    stats_para = doc.add_paragraph()
+    r = stats_para.add_run(
+        f"Sections Validated: {total_sections}  |  "
+        f"Total Claims: {total_claims + total_uncited}  |  "
+        f"Issues Found: {total_issues}"
+    )
+    _set_font(r, size=10, bold=True, color=RGBColor(0x33, 0x33, 0x33))
+
+    # Status breakdown line
+    breakdown_para = doc.add_paragraph()
+
+    r = breakdown_para.add_run(f"Supported: {green_count}  ")
+    _set_font(r, size=10, bold=True, color=STATUS_COLORS['green'])
+    r = breakdown_para.add_run(f"Partial: {yellow_count}  ")
+    _set_font(r, size=10, bold=True, color=STATUS_COLORS['yellow'])
+    r = breakdown_para.add_run(f"Unsupported: {red_count}")
+    _set_font(r, size=10, bold=True, color=STATUS_COLORS['red'])
+
+    # Charts
+    pie_buf = _make_validation_summary_chart(sections)
+    if pie_buf:
+        doc.add_picture(pie_buf, width=Inches(3.5))
+
+    bar_buf = _make_claims_bar_chart(sections)
+    if bar_buf:
+        doc.add_picture(bar_buf, width=Inches(5))
+
+    doc.add_page_break()
+
+    # ── Section-by-Section Details ────────────────────────────────
+
+    _add_heading(doc, 'Detailed Results', level=1,
+                 color=RGBColor(0x1A, 0x36, 0x5D))
+
+    # Group sections by type for organized output
+    section_groups: Dict[str, List] = {}
+    for section_id, section in sections.items():
+        stype = section.get('section_type', 'unknown')
+        if stype not in section_groups:
+            section_groups[stype] = []
+        section_groups[stype].append((section_id, section))
+
+    # Define display order
+    type_order = ['overall_summary', 'category', 'event', 'entity']
+    type_labels = {
+        'overall_summary': 'Executive Summary',
+        'category': 'Category Narratives',
+        'event': 'Event Narratives',
+        'entity': 'Entity Summaries',
+    }
+
+    for stype in type_order:
+        group = section_groups.get(stype)
+        if not group:
+            continue
+
+        group_label = type_labels.get(stype, stype.replace('_', ' ').title())
+        _add_heading(doc, group_label, level=2, color=RGBColor(0x1A, 0x36, 0x5D))
+
+        for section_id, section in group:
+            status = section.get('status', 'unknown').lower()
+            claims = section.get('claims_validated', 0)
+            uncited = section.get('uncited_claims', 0)
+            issues = section.get('issues', [])
+            summary = section.get('summary', '')
+
+            # Section title with status — use event name map for real names
+            display_id = _format_section_id(section_id, event_name_map)
+            p = doc.add_paragraph()
+            status_label = STATUS_LABELS.get(status, status.upper())
+            r = p.add_run(f"[{status_label}]  ")
+            _set_font(r, size=9, bold=True,
+                      color=STATUS_COLORS.get(status, RGBColor(0x33, 0x33, 0x33)))
+            r = p.add_run(display_id)
+            _set_font(r, size=10, bold=True)
+
+            # Claims stats
+            stats_p = doc.add_paragraph()
+            r = stats_p.add_run(
+                f"Claims validated: {claims}  |  "
+                f"Uncited: {uncited}  |  "
+                f"Issues: {len(issues)}"
+            )
+            _set_font(r, size=9, color=RGBColor(0x64, 0x74, 0x8B))
+
+            if summary:
+                sum_p = doc.add_paragraph()
+                r = sum_p.add_run(summary)
+                _set_font(r, size=9, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
+
+            # Explanation for uncited-only sections (no issues means the
+            # narrative contained claims but none had inline citations)
+            if uncited > 0 and claims == 0 and not issues:
+                note_p = doc.add_paragraph()
+                note_p.paragraph_format.left_indent = Pt(18)
+                r = note_p.add_run(
+                    f"This section contains {uncited} factual claim(s) "
+                    f"with no inline citations. The narrative makes "
+                    f"assertions that are not attributed to any source "
+                    f"document, so they could not be verified."
+                )
+                _set_font(r, size=9, italic=True,
+                          color=STATUS_COLORS['red'])
+
+            # Issues list
+            if issues:
+                for issue in issues:
+                    issue_p = doc.add_paragraph()
+                    issue_p.paragraph_format.left_indent = Pt(18)
+                    r = issue_p.add_run("- ")
+                    _set_font(r, size=9, bold=True, color=RGBColor(0x94, 0xA3, 0xB8))
+                    r = issue_p.add_run(issue)
+                    _set_font(r, size=9)
+
+            # Spacer
+            doc.add_paragraph()
+
+    # ── Write to buffer ──────────────────────────────────────────
+
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output
+
+
+def _format_section_id(section_id: str,
+                       event_name_map: Dict[str, str] = None) -> str:
+    """Convert section_id like 'event:Economic:3' or 'entity:person:Xi Jinping'
+    to a readable label.
+
+    Args:
+        section_id: Raw section ID from validation JSON.
+        event_name_map: Optional dict mapping 'event:Category:idx' to
+            the actual event name from the report JSON.
+    """
+    if section_id == 'overall_summary':
+        return 'Overall Summary'
+
+    parts = section_id.split(':')
+    if len(parts) == 1:
+        return section_id.replace('_', ' ').title()
+
+    stype = parts[0]
+    if stype == 'category' and len(parts) >= 2:
+        return f"{parts[1]} (Category Narrative)"
+    elif stype == 'event' and len(parts) >= 3:
+        # Look up event name from report data first
+        if event_name_map and section_id in event_name_map:
+            return f"{parts[1]} — {event_name_map[section_id]}"
+        # Fallback: show index
+        try:
+            return f"{parts[1]} — Event {int(parts[2]) + 1}"
+        except ValueError:
+            return f"{parts[1]} — {parts[2]}"
+    elif stype == 'entity' and len(parts) >= 3:
+        # Entity IDs use names: "entity:person:Xi Jinping"
+        entity_type = parts[1].title()
+        entity_name = ':'.join(parts[2:])  # Handle names with colons
+        return f"{entity_name} ({entity_type})"
+    else:
+        return section_id.replace(':', ' / ').replace('_', ' ').title()
