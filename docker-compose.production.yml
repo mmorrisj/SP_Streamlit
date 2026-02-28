@@ -50,21 +50,11 @@ services:
       start_period: 30s
 
   # -----------------------
-  # Redis
-  # -----------------------
-  redis:
-    image: redis:7-alpine
-    container_name: sp_prod_redis
-    restart: unless-stopped
-    networks:
-      - prod_net
-
-  # -----------------------
   # SoftPower Analytics (FastAPI + Streamlit via supervisord)
   # Single consolidated container from Docker Hub
   # -----------------------
   app:
-    image: mmorrisj/softpower-analytics:1.5.5
+    image: mmorrisj/softpower-analytics:1.6.0
     container_name: sp_prod_app
     restart: unless-stopped
     security_opt:
@@ -81,7 +71,6 @@ services:
       POSTGRES_HOST: sp_prod_db
       POSTGRES_PORT: 5432
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@sp_prod_db:5432/${POSTGRES_DB:-softpower-db}
-      REDIS_URL: redis://sp_prod_redis:6379
       API_PORT: 8000
       # Host-side proxy for LLM/S3 calls (run uvicorn server.main:app on host)
       API_URL: http://host.docker.internal:${API_PORT:-7001}
@@ -104,14 +93,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
 
   # -----------------------
   # Alembic Migrations (run once with --profile migrate)
   # -----------------------
   migrate:
-    image: mmorrisj/softpower-analytics:1.5.5
+    image: mmorrisj/softpower-analytics:1.6.1
     container_name: sp_prod_migrate
     security_opt:
       - no-new-privileges:true
