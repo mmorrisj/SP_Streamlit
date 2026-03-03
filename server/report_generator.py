@@ -1218,13 +1218,439 @@ Write a factual summary of this entity's documented activities during this perio
         return f"{entity['name']} was mentioned in {entity['total_documents']} documents during this period."
 
 
+def get_lookback_events(
+    session: Session,
+    country: str,
+    start_date: date,
+    end_date: date,
+    events_by_category: Dict[str, List[Dict]],
+    recipient: Optional[str] = None,
+    max_per_event: int = 5,
+) -> List[Dict]:
+    """
+    Find events in the 3-month lookback window related to report-period events.
+    Returns list of groups: each group maps a report event to its prior related events.
+
+    Three-tier matching (cheapest first):
+    1. Master-chain: shared master_event_id hierarchy
+    2. Shared entities: 2+ overlapping person/org names
+    3. Category + recipient overlap
+    """
+    lookback_start = start_date - timedelta(days=90)
+    lookback_end = start_date - timedelta(days=1)
+
+    # Collect all report events with metadata
+    report_events = []
+    for category, events in events_by_category.items():
+        for event in events:
+            report_events.append({**event, 'category': category})
+
+    if not report_events:
+        return []
+
+    report_event_ids = [e['id'] for e in report_events]
+    # Track which lookback event IDs are already matched (to avoid duplicates)
+    already_matched_ids = set()
+    # Map: report_event_id -> list of lookback event dicts
+    matches_by_report_event = defaultdict(list)
+
+    # --- Tier 1: Master-chain match ---
+    try:
+        master_chain_query = text("""
+            WITH report_masters AS (
+                SELECT id, COALESCE(master_event_id::text, id::text) as effective_master
+                FROM canonical_events
+                WHERE id::text = ANY(:report_ids)
+            )
+            SELECT DISTINCT ON (ce.id)
+                ce.id::text as id,
+                ce.canonical_name,
+                ce.consolidated_description,
+                ce.first_mention_date,
+                ce.last_mention_date,
+                ce.total_articles,
+                COALESCE(ce.material_score, 0) as materiality_score,
+                ce.entities_mentioned,
+                rm.id::text as matched_report_event_id,
+                (
+                    SELECT ARRAY_AGG(DISTINCT d)
+                    FROM daily_event_mentions dem, unnest(dem.doc_ids) as d
+                    WHERE dem.canonical_event_id = ce.id
+                    AND dem.mention_date >= :lookback_start
+                    AND dem.mention_date <= :lookback_end
+                ) as doc_ids
+            FROM canonical_events ce
+            JOIN report_masters rm
+                ON COALESCE(ce.master_event_id::text, ce.id::text) = rm.effective_master
+            WHERE ce.initiating_country = :country
+                AND ce.id::text != ALL(:report_ids)
+                AND ce.first_mention_date >= :lookback_start
+                AND ce.first_mention_date <= :lookback_end
+                AND ce.total_articles >= 2
+            ORDER BY ce.id, ce.material_score DESC NULLS LAST
+        """)
+
+        master_results = session.execute(master_chain_query, {
+            'report_ids': report_event_ids,
+            'country': country,
+            'lookback_start': lookback_start,
+            'lookback_end': lookback_end,
+        }).fetchall()
+
+        for row in master_results:
+            lb_id = row.id
+            if lb_id in already_matched_ids:
+                continue
+            already_matched_ids.add(lb_id)
+
+            doc_ids = []
+            if row.doc_ids:
+                for d in row.doc_ids:
+                    if isinstance(d, list):
+                        doc_ids.extend(d)
+                    else:
+                        doc_ids.append(d)
+
+            matches_by_report_event[row.matched_report_event_id].append({
+                'event_name': row.canonical_name,
+                'description': row.consolidated_description,
+                'first_mention_date': row.first_mention_date.isoformat() if row.first_mention_date else None,
+                'last_mention_date': row.last_mention_date.isoformat() if row.last_mention_date else None,
+                'article_count': row.total_articles or 0,
+                'materiality_score': float(row.materiality_score),
+                'match_type': 'master_chain',
+                'shared_entities': [],
+                'doc_ids': list(set(doc_ids))[:10],
+            })
+
+        print(f"[Lookback] Tier 1 (master chain): {len(master_results)} matches")
+    except Exception as e:
+        print(f"[Lookback] Tier 1 error: {e}")
+
+    # --- Tier 2: Shared entities (2+ person/org names in common) ---
+    try:
+        # Build entity name sets for each report event
+        report_event_entities = {}
+        for evt in report_events:
+            entities_mentioned = evt.get('key_entities', [])
+            names = set()
+            for ent in entities_mentioned:
+                if ent.get('entity_type') in ('PERSON', 'ORGANIZATION', 'COMPANY'):
+                    name = ent.get('name') or ent.get('entity_name', '')
+                    if name:
+                        names.add(name.strip())
+            if names:
+                report_event_entities[evt['id']] = names
+
+        if report_event_entities:
+            # Query lookback events with their entities
+            entity_query = text("""
+                SELECT
+                    ce.id::text as id,
+                    ce.canonical_name,
+                    ce.consolidated_description,
+                    ce.first_mention_date,
+                    ce.last_mention_date,
+                    ce.total_articles,
+                    COALESCE(ce.material_score, 0) as materiality_score,
+                    ce.entities_mentioned,
+                    (
+                        SELECT ARRAY_AGG(DISTINCT d)
+                        FROM daily_event_mentions dem, unnest(dem.doc_ids) as d
+                        WHERE dem.canonical_event_id = ce.id
+                        AND dem.mention_date >= :lookback_start
+                        AND dem.mention_date <= :lookback_end
+                    ) as doc_ids
+                FROM canonical_events ce
+                WHERE ce.initiating_country = :country
+                    AND ce.master_event_id IS NULL
+                    AND ce.first_mention_date >= :lookback_start
+                    AND ce.first_mention_date <= :lookback_end
+                    AND ce.total_articles >= 2
+                    AND ce.id::text != ALL(:already_matched)
+                    AND ce.id::text != ALL(:report_ids)
+                ORDER BY ce.material_score DESC NULLS LAST
+                LIMIT 200
+            """)
+
+            entity_results = session.execute(entity_query, {
+                'country': country,
+                'lookback_start': lookback_start,
+                'lookback_end': lookback_end,
+                'already_matched': list(already_matched_ids),
+                'report_ids': report_event_ids,
+            }).fetchall()
+
+            tier2_count = 0
+            for row in entity_results:
+                lb_id = row.id
+                if lb_id in already_matched_ids:
+                    continue
+
+                # Parse lookback event entity names
+                lb_names = set()
+                em = row.entities_mentioned or {}
+                for key in ('persons', 'organizations', 'companies'):
+                    for ent in (em.get(key) or []):
+                        name = ent.get('entity_name', '').strip()
+                        if name:
+                            lb_names.add(name)
+
+                # Find report events sharing 2+ entities
+                for re_id, re_names in report_event_entities.items():
+                    shared = re_names & lb_names
+                    if len(shared) >= 2:
+                        already_matched_ids.add(lb_id)
+
+                        doc_ids = []
+                        if row.doc_ids:
+                            for d in row.doc_ids:
+                                if isinstance(d, list):
+                                    doc_ids.extend(d)
+                                else:
+                                    doc_ids.append(d)
+
+                        matches_by_report_event[re_id].append({
+                            'event_name': row.canonical_name,
+                            'description': row.consolidated_description,
+                            'first_mention_date': row.first_mention_date.isoformat() if row.first_mention_date else None,
+                            'last_mention_date': row.last_mention_date.isoformat() if row.last_mention_date else None,
+                            'article_count': row.total_articles or 0,
+                            'materiality_score': float(row.materiality_score),
+                            'match_type': 'shared_entities',
+                            'shared_entities': list(shared)[:5],
+                            'doc_ids': list(set(doc_ids))[:10],
+                        })
+                        tier2_count += 1
+                        break  # One match per lookback event
+
+            print(f"[Lookback] Tier 2 (shared entities): {tier2_count} matches")
+    except Exception as e:
+        print(f"[Lookback] Tier 2 error: {e}")
+
+    # --- Tier 3: Category + recipient overlap ---
+    try:
+        # Build category->recipient mapping from report events
+        cat_recipient_map = defaultdict(set)
+        for evt in report_events:
+            cat = evt['category']
+            # Get recipients from key_entities or from the event's doc metadata
+            em = evt.get('key_entities', [])
+            for ent in em:
+                if ent.get('entity_type') == 'LOCATION':
+                    cat_recipient_map[cat].add(ent.get('name', ''))
+
+        # Also try primary_recipients if available at the event level
+        # The events have doc_ids but not direct recipient info — use category only
+        if cat_recipient_map:
+            for category, recipients in cat_recipient_map.items():
+                recipients_list = [r for r in recipients if r]
+                if not recipients_list:
+                    continue
+
+                tier3_query = text("""
+                    SELECT
+                        ce.id::text as id,
+                        ce.canonical_name,
+                        ce.consolidated_description,
+                        ce.first_mention_date,
+                        ce.last_mention_date,
+                        ce.total_articles,
+                        COALESCE(ce.material_score, 0) as materiality_score,
+                        (
+                            SELECT ARRAY_AGG(DISTINCT d)
+                            FROM daily_event_mentions dem, unnest(dem.doc_ids) as d
+                            WHERE dem.canonical_event_id = ce.id
+                            AND dem.mention_date >= :lookback_start
+                            AND dem.mention_date <= :lookback_end
+                        ) as doc_ids
+                    FROM canonical_events ce
+                    WHERE ce.initiating_country = :country
+                        AND ce.master_event_id IS NULL
+                        AND ce.first_mention_date >= :lookback_start
+                        AND ce.first_mention_date <= :lookback_end
+                        AND ce.total_articles >= 2
+                        AND ce.id::text != ALL(:already_matched)
+                        AND ce.id::text != ALL(:report_ids)
+                        AND ce.primary_categories ? :category
+                        AND ce.primary_recipients ?| :recipients
+                    ORDER BY ce.material_score DESC NULLS LAST
+                    LIMIT 10
+                """)
+
+                tier3_results = session.execute(tier3_query, {
+                    'country': country,
+                    'lookback_start': lookback_start,
+                    'lookback_end': lookback_end,
+                    'already_matched': list(already_matched_ids),
+                    'report_ids': report_event_ids,
+                    'category': category,
+                    'recipients': recipients_list,
+                }).fetchall()
+
+                # Assign tier 3 matches to the first report event in this category
+                cat_report_events = [e for e in report_events if e['category'] == category]
+                if not cat_report_events:
+                    continue
+
+                for row in tier3_results:
+                    lb_id = row.id
+                    if lb_id in already_matched_ids:
+                        continue
+                    already_matched_ids.add(lb_id)
+
+                    doc_ids = []
+                    if row.doc_ids:
+                        for d in row.doc_ids:
+                            if isinstance(d, list):
+                                doc_ids.extend(d)
+                            else:
+                                doc_ids.append(d)
+
+                    # Assign to the highest-materiality report event in same category
+                    target_evt = max(cat_report_events, key=lambda e: e['materiality_score'])
+                    matches_by_report_event[target_evt['id']].append({
+                        'event_name': row.canonical_name,
+                        'description': row.consolidated_description,
+                        'first_mention_date': row.first_mention_date.isoformat() if row.first_mention_date else None,
+                        'last_mention_date': row.last_mention_date.isoformat() if row.last_mention_date else None,
+                        'article_count': row.total_articles or 0,
+                        'materiality_score': float(row.materiality_score),
+                        'match_type': 'category_recipient',
+                        'shared_entities': [],
+                        'doc_ids': list(set(doc_ids))[:10],
+                    })
+
+        print(f"[Lookback] Tier 3 (category+recipient): done")
+    except Exception as e:
+        print(f"[Lookback] Tier 3 error: {e}")
+
+    # Build grouped output, sorted by materiality, capped at max_per_event
+    groups = []
+    report_events_by_id = {e['id']: e for e in report_events}
+    for re_id, lb_events in matches_by_report_event.items():
+        re = report_events_by_id.get(re_id)
+        if not re or not lb_events:
+            continue
+
+        # Sort by materiality desc, cap
+        sorted_lb = sorted(lb_events, key=lambda e: e['materiality_score'], reverse=True)[:max_per_event]
+
+        groups.append({
+            'report_event_name': re['event_name'],
+            'report_event_category': re['category'],
+            'lookback_events': sorted_lb,
+        })
+
+    # Sort groups by report event materiality desc
+    groups.sort(key=lambda g: next(
+        (e['materiality_score'] for e in report_events if e['event_name'] == g['report_event_name']), 0
+    ), reverse=True)
+
+    total_lb = sum(len(g['lookback_events']) for g in groups)
+    print(f"[Lookback] Total: {total_lb} lookback events across {len(groups)} report event groups")
+    return groups
+
+
+def generate_lookback_narrative(
+    country: str,
+    lookback_groups: List[Dict],
+    start_date: date,
+    end_date: date,
+    source_map: Dict[str, int],
+    lookback_docs_by_event: Dict[str, List[Dict]],
+    model: str = "gpt-4o"
+) -> str:
+    """
+    Generate a cited narrative connecting lookback events to report events.
+    Follows the same citation pattern as category narratives.
+    """
+    if not lookback_groups:
+        return ""
+
+    group_texts = []
+    for group in lookback_groups:
+        report_name = group['report_event_name']
+        lookback_items = []
+        for lb_evt in group['lookback_events'][:5]:
+            # Build citation numbers from this lookback event's docs
+            docs = lookback_docs_by_event.get(lb_evt['event_name'], [])
+            citation_nums = [
+                str(source_map[doc['doc_id']])
+                for doc in docs[:5]
+                if doc['doc_id'] in source_map
+            ]
+            citations_str = ""
+            if citation_nums:
+                citations_str = f" [Citations: {', '.join(citation_nums[:3])}]"
+
+            lookback_items.append(
+                f"  - {lb_evt['event_name']} "
+                f"({lb_evt['first_mention_date']} to {lb_evt['last_mention_date']}, "
+                f"{lb_evt['article_count']} articles, "
+                f"materiality: {lb_evt['materiality_score']}/10"
+                f"{', shared entities: ' + ', '.join(lb_evt['shared_entities']) if lb_evt.get('shared_entities') else ''}"
+                f"){citations_str}"
+            )
+
+        if lookback_items:
+            group_texts.append(
+                f"Current Report Event: {report_name}\n"
+                f"Prior Developments:\n" + "\n".join(lookback_items)
+            )
+
+    if not group_texts:
+        return ""
+
+    all_groups_text = "\n\n".join(group_texts)
+    lookback_start = start_date - timedelta(days=90)
+    lookback_end_date = start_date - timedelta(days=1)
+
+    sys_prompt = """You are an analyst writing a historical context section for a policy briefing.
+
+Your task: For each current report event, explain how the prior developments in the lookback period
+led to or are connected to the current event. Write factually and concisely.
+
+Structure your output as paragraphs, one per report event that has prior developments.
+Begin each paragraph by naming the current report event, then describe the prior developments
+chronologically and explain the factual connection.
+
+IMPORTANT: Include inline citations [1], [2], [3] etc. after factual claims, using the citation
+numbers from the prior developments list.
+
+RULES:
+- State only documented facts from the event descriptions.
+- Name specific actors, dates, locations, and amounts.
+- Every substantive claim must have at least one citation.
+- Do NOT speculate about motives, strategy, or future outcomes.
+- Do NOT use "could", "might", "potentially", "signals", "underscores", "highlights".
+- Keep each paragraph to 3-5 sentences."""
+
+    user_prompt = f"""Country: {country}
+Report Period: {start_date} to {end_date}
+Lookback Period: {lookback_start} to {lookback_end_date}
+
+{all_groups_text}
+
+Write the Historical Context section with inline citations."""
+
+    try:
+        response = gai(sys_prompt, user_prompt, model=model)
+        narrative = response if isinstance(response, str) else str(response)
+        return narrative.strip()
+    except Exception as e:
+        print(f"  Warning: Error generating lookback narrative: {e}")
+        return ""
+
+
 def generate_report(
     country: str,
     start_date_str: str,
     end_date_str: str,
     recipient: Optional[str] = None,
     top_n: int = 10,
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4o-mini",
+    quarterly: bool = False,
 ) -> Dict[str, Any]:
     """
     Main report generation orchestrator.
@@ -1275,7 +1701,8 @@ def generate_report(
                     'significant_changes': []
                 },
                 'citations_by_event': [],
-                'entities': []
+                'entities': [],
+                'historical_context': None,
             }
 
         # Step 2: Get document details for each event
@@ -1322,6 +1749,24 @@ def generate_report(
                         session, entity['doc_ids'][:5]
                     )
 
+        # Step 3d: Historical lookback (quarterly reports only)
+        lookback_groups = []
+        lookback_docs_by_event = {}
+        if quarterly:
+            print("[Report] Finding historical lookback events...")
+            lookback_groups = get_lookback_events(
+                session, country, start_date, end_date, events_by_category, recipient
+            )
+            # Load documents for lookback events
+            if lookback_groups:
+                print("[Report] Loading lookback source documents...")
+                for group in lookback_groups:
+                    for lb_evt in group['lookback_events']:
+                        if lb_evt.get('doc_ids'):
+                            lookback_docs_by_event[lb_evt['event_name']] = get_document_details(
+                                session, lb_evt['doc_ids'][:5]
+                            )
+
     # Step 4: Build global source map (citation numbers)
     print("[Report] Building citation map...")
     all_sources = []
@@ -1367,6 +1812,26 @@ def generate_report(
                     'repo_hyperlink': repo_hyperlink
                 })
                 source_counter += 1
+
+    # Add lookback docs to source map (quarterly only)
+    if quarterly and lookback_docs_by_event:
+        for evt_name, docs in lookback_docs_by_event.items():
+            for doc in docs[:5]:
+                doc_id = doc['doc_id']
+                if doc_id not in source_map:
+                    source_map[doc_id] = source_counter
+                    repo_hyperlink = build_hyperlink([doc_id])
+                    all_sources.append({
+                        'citation_number': source_counter,
+                        'doc_id': doc_id,
+                        'headline': doc['headline'],
+                        'source_name': doc['source_name'],
+                        'published_date': doc['published_date'],
+                        'categories': doc['categories'],
+                        'recipients': doc['recipients'],
+                        'repo_hyperlink': repo_hyperlink
+                    })
+                    source_counter += 1
 
     print(f"[Report] Total citations: {len(all_sources)}")
 
@@ -1454,6 +1919,18 @@ def generate_report(
     else:
         print("[Report] Skipping overall synthesis (LLM unavailable)")
         overall_summary = f"This report covers {country}'s strategic activities from {start_date} to {end_date}. {total_events} events were identified across {len(events_by_category)} categories."
+
+    # Step 7a.5: Generate lookback narrative (quarterly only)
+    lookback_narrative = None
+    if quarterly and lookback_groups:
+        if llm_available:
+            print("[Report] Generating historical context narrative...")
+            lookback_narrative = generate_lookback_narrative(
+                country, lookback_groups, start_date, end_date,
+                source_map, lookback_docs_by_event, model=model
+            )
+        else:
+            lookback_narrative = ""
 
     # Step 7b: Generate entity summaries
     print("[Report] Generating entity summaries...")
@@ -1552,6 +2029,49 @@ def generate_report(
         entities_by_type=entities_by_type, entity_docs_by_id=entity_docs_by_id
     )
 
+    # Add lookback citations (quarterly only)
+    if quarterly and lookback_docs_by_event:
+        lookback_citations = []
+        for group in lookback_groups:
+            for lb_evt in group['lookback_events']:
+                docs = lookback_docs_by_event.get(lb_evt['event_name'], [])
+                evt_cits = []
+                for doc in docs[:5]:
+                    doc_id = doc['doc_id']
+                    if doc_id in source_map:
+                        evt_cits.append({
+                            'citation_number': source_map[doc_id],
+                            'doc_id': doc_id,
+                            'headline': doc['headline'],
+                            'source_name': doc['source_name'],
+                            'published_date': doc['published_date'],
+                            'categories': doc['categories'],
+                            'recipients': doc['recipients'],
+                            'repo_hyperlink': build_hyperlink([doc_id])
+                        })
+                if evt_cits:
+                    lookback_citations.append({
+                        'event_name': lb_evt['event_name'],
+                        'materiality_score': lb_evt['materiality_score'],
+                        'date_range': f"{lb_evt['first_mention_date']} to {lb_evt['last_mention_date']}",
+                        'citations': evt_cits
+                    })
+        if lookback_citations:
+            citations_by_event.append({
+                'category': 'Historical Context',
+                'events': lookback_citations
+            })
+
+    # Build historical context payload
+    historical_context = None
+    if quarterly and lookback_groups:
+        historical_context = {
+            'lookback_start': (start_date - timedelta(days=90)).isoformat(),
+            'lookback_end': (start_date - timedelta(days=1)).isoformat(),
+            'groups': lookback_groups,
+            'narrative': lookback_narrative,
+        }
+
     # Assemble final report
     report = {
         'country': country,
@@ -1565,7 +2085,8 @@ def generate_report(
         'entities': entities_output,
         'metrics': metrics,
         'materiality_trends': materiality_trends,
-        'citations_by_event': citations_by_event
+        'citations_by_event': citations_by_event,
+        'historical_context': historical_context,
     }
 
     print("[Report] Generation complete!")
@@ -1720,7 +2241,8 @@ def generate_report_stream(
     end_date_str: str,
     recipient: Optional[str] = None,
     top_n: int = 10,
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4o-mini",
+    quarterly: bool = False,
 ):
     """
     Streaming version of generate_report().
@@ -1769,7 +2291,8 @@ def generate_report_stream(
                     'overall_series': [],
                     'significant_changes': []
                 },
-                'citations_by_event': []
+                'citations_by_event': [],
+                'historical_context': None,
             }}
             yield {"type": "complete", "payload": {}}
             return
@@ -1811,6 +2334,23 @@ def generate_report_stream(
                         session, entity['doc_ids'][:5]
                     )
 
+        # Historical lookback (quarterly only)
+        lookback_groups = []
+        lookback_docs_by_event = {}
+        if quarterly:
+            print("[Report SSE] Finding historical lookback events...")
+            lookback_groups = get_lookback_events(
+                session, country, start_date, end_date, events_by_category, recipient
+            )
+            if lookback_groups:
+                print("[Report SSE] Loading lookback source documents...")
+                for group in lookback_groups:
+                    for lb_evt in group['lookback_events']:
+                        if lb_evt.get('doc_ids'):
+                            lookback_docs_by_event[lb_evt['event_name']] = get_document_details(
+                                session, lb_evt['doc_ids'][:5]
+                            )
+
     # Build source map (Step 4)
     print("[Report SSE] Building citation map...")
     source_map = {}
@@ -1832,6 +2372,15 @@ def generate_report_stream(
             if doc_id not in source_map:
                 source_map[doc_id] = source_counter
                 source_counter += 1
+
+    # Add lookback docs to source map (quarterly only)
+    if quarterly and lookback_docs_by_event:
+        for evt_name, docs in lookback_docs_by_event.items():
+            for doc in docs[:5]:
+                doc_id = doc['doc_id']
+                if doc_id not in source_map:
+                    source_map[doc_id] = source_counter
+                    source_counter += 1
 
     # Build skeleton (sorted by materiality desc)
     categories_output = []
@@ -1868,6 +2417,49 @@ def generate_report_stream(
         entities_by_type=entities_by_type, entity_docs_by_id=entity_docs_by_id
     )
 
+    # Add lookback citations (quarterly only)
+    if quarterly and lookback_docs_by_event:
+        lookback_citations = []
+        for group in lookback_groups:
+            for lb_evt in group['lookback_events']:
+                docs = lookback_docs_by_event.get(lb_evt['event_name'], [])
+                evt_cits = []
+                for doc in docs[:5]:
+                    doc_id = doc['doc_id']
+                    if doc_id in source_map:
+                        evt_cits.append({
+                            'citation_number': source_map[doc_id],
+                            'doc_id': doc_id,
+                            'headline': doc['headline'],
+                            'source_name': doc['source_name'],
+                            'published_date': doc['published_date'],
+                            'categories': doc['categories'],
+                            'recipients': doc['recipients'],
+                            'repo_hyperlink': build_hyperlink([doc_id])
+                        })
+                if evt_cits:
+                    lookback_citations.append({
+                        'event_name': lb_evt['event_name'],
+                        'materiality_score': lb_evt['materiality_score'],
+                        'date_range': f"{lb_evt['first_mention_date']} to {lb_evt['last_mention_date']}",
+                        'citations': evt_cits
+                    })
+        if lookback_citations:
+            citations_by_event.append({
+                'category': 'Historical Context',
+                'events': lookback_citations
+            })
+
+    # Build historical context for skeleton (narrative null — will be streamed later)
+    historical_context = None
+    if quarterly and lookback_groups:
+        historical_context = {
+            'lookback_start': (start_date - timedelta(days=90)).isoformat(),
+            'lookback_end': (start_date - timedelta(days=1)).isoformat(),
+            'groups': lookback_groups,
+            'narrative': None,
+        }
+
     skeleton = {
         'country': country,
         'title': f"{country} Strategic Activities: {start_date.strftime('%B %Y')}",
@@ -1880,7 +2472,8 @@ def generate_report_stream(
         'entities': entities_output,
         'metrics': metrics,
         'materiality_trends': materiality_trends,
-        'citations_by_event': citations_by_event
+        'citations_by_event': citations_by_event,
+        'historical_context': historical_context,
     }
 
     print(f"[Report SSE] Skeleton ready — {total_events} events, {len(citations_by_event)} citation groups")
@@ -1984,6 +2577,22 @@ def generate_report_stream(
         "type": "overall_synthesis",
         "payload": {"overall_summary": overall_summary}
     }
+
+    # Step 7a.5: Historical context narrative (quarterly only)
+    if quarterly and lookback_groups:
+        if llm_available:
+            print("[Report SSE] Generating historical context narrative...")
+            lookback_narrative = generate_lookback_narrative(
+                country, lookback_groups, start_date, end_date,
+                source_map, lookback_docs_by_event, model=model
+            )
+        else:
+            lookback_narrative = ""
+
+        yield {
+            "type": "historical_context",
+            "payload": {"narrative": lookback_narrative}
+        }
 
     # Step 7b: Entity summaries
     if entities_output:

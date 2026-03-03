@@ -157,6 +157,16 @@ export default function ChatReportModal({ isOpen, onClose, inferredFilters, quer
           setNarrativesDone(n => n + 1)
         },
 
+        onHistoricalContext: ({ narrative }) => {
+          setReport(prev => prev ? {
+            ...prev,
+            historical_context: prev.historical_context
+              ? { ...prev.historical_context, narrative }
+              : null
+          } : prev)
+          setNarrativesDone(n => n + 1)
+        },
+
         onEntitySummary: ({ entity_type_index, entity_index, summary }) => {
           setReport(prev => {
             if (!prev || !prev.entities) return prev

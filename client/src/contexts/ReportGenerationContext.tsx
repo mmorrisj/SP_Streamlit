@@ -63,7 +63,8 @@ export function ReportGenerationProvider({ children }: { children: ReactNode }) 
         setReport(skeleton)
         const totalEvents = skeleton.categories.reduce((s, c) => s + c.events.length, 0)
         const totalCats = skeleton.categories.length
-        setNarrativesTotal(totalEvents + totalCats + 2)
+        const hasLookback = skeleton.historical_context?.groups?.length ? 1 : 0
+        setNarrativesTotal(totalEvents + totalCats + 2 + hasLookback)
         setStreamPhase('Generating narratives...')
       },
 
@@ -103,6 +104,16 @@ export function ReportGenerationProvider({ children }: { children: ReactNode }) 
         setReport(prev => prev ? { ...prev, overall_summary } : prev)
         setNarrativesDone(n => n + 1)
         setStreamPhase('Finishing up...')
+      },
+
+      onHistoricalContext: ({ narrative }) => {
+        setReport(prev => prev ? {
+          ...prev,
+          historical_context: prev.historical_context
+            ? { ...prev.historical_context, narrative }
+            : null
+        } : prev)
+        setNarrativesDone(n => n + 1)
       },
 
       onEntitySummary: ({ entity_type_index, entity_index, summary }) => {

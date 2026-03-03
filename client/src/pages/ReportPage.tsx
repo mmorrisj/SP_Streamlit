@@ -133,6 +133,27 @@ export default function ReportPage() {
     startGeneration(request)
   }, [country, startDate, endDate, recipient, topEvents, selectedModel, startGeneration])
 
+  const handleQuarterlyGenerate = useCallback(() => {
+    // Auto-calculate 3-month range ending at endDate
+    const end = new Date(endDate + 'T00:00:00')
+    const start = new Date(end)
+    start.setMonth(start.getMonth() - 3)
+    const fmt = (d: Date) => d.toISOString().slice(0, 10)
+    const qStart = fmt(start)
+    const qEnd = fmt(end)
+    setStartDate(qStart)
+    const request: ReportRequest = {
+      country,
+      start_date: qStart,
+      end_date: qEnd,
+      recipient: recipient === 'All' ? 'All' : recipient,
+      top_events: topEvents,
+      model: selectedModel,
+      quarterly: true,
+    }
+    startGeneration(request)
+  }, [country, endDate, recipient, topEvents, selectedModel, startGeneration])
+
   const handleCancel = () => {
     cancelGeneration()
   }
@@ -326,6 +347,29 @@ export default function ReportPage() {
             )}
           </button>
 
+          {!isGenerating && (
+            <button
+              onClick={handleQuarterlyGenerate}
+              title="Generates a 3-month report ending at the selected End Date, with historical context from the prior 3 months"
+              style={{
+                padding: '0.5rem 1.5rem',
+                borderRadius: '6px',
+                border: '1px solid #7c3aed',
+                background: '#f5f3ff',
+                color: '#7c3aed',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                height: '38px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+              }}
+            >
+              Quarterly Report
+            </button>
+          )}
+
           {report && !isGenerating && (
             <>
               <button
@@ -518,6 +562,57 @@ export default function ReportPage() {
               <ShimmerBlock lines={4} />
             )}
           </div>
+
+          {/* Historical Context (Quarterly Reports) */}
+          {report.historical_context && report.historical_context.groups.length > 0 && (
+            <div className="chart-card" style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#7c3aed', borderBottom: '2px solid #7c3aed', paddingBottom: '0.5rem' }}>
+                Historical Context
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>
+                  ({formatDate(report.historical_context.lookback_start)} to {formatDate(report.historical_context.lookback_end)})
+                </span>
+              </h3>
+              {report.historical_context.narrative ? (
+                <div style={{ lineHeight: 1.8, color: '#333', marginTop: '0.75rem' }}>
+                  {report.historical_context.narrative.split('\n\n').filter(p => p.trim()).map((paragraph, i) => (
+                    <p key={i} style={{ marginBottom: '1rem' }}>{paragraph.trim()}</p>
+                  ))}
+                </div>
+              ) : (
+                <ShimmerBlock lines={4} />
+              )}
+
+              {/* Grouped lookback events */}
+              <div style={{ marginTop: '1rem' }}>
+                {report.historical_context.groups.map((group, gi) => (
+                  <div key={gi} style={{ marginBottom: '1rem' }}>
+                    <h4 style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '0.5rem' }}>
+                      Prior events related to: <span style={{ fontWeight: 600 }}>{group.report_event_name}</span>
+                    </h4>
+                    {group.lookback_events.map((lb, li) => (
+                      <div key={li} style={{
+                        padding: '0.6rem 0.75rem', border: '1px solid #e2e8f0',
+                        borderRadius: '6px', marginBottom: '0.4rem', background: '#f8fafc',
+                        borderLeft: `3px solid ${
+                          lb.match_type === 'master_chain' ? '#7c3aed' :
+                          lb.match_type === 'shared_entities' ? '#2563eb' : '#64748b'
+                        }`
+                      }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{lb.event_name}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>
+                          {formatDate(lb.first_mention_date)} to {formatDate(lb.last_mention_date)}
+                          {' | '}{lb.article_count} articles
+                          {' | '}Materiality: {lb.materiality_score}/10
+                          {' | '}Match: {lb.match_type.replace(/_/g, ' ')}
+                          {lb.shared_entities.length > 0 && ` | Shared: ${lb.shared_entities.join(', ')}`}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Key Events by Category */}
           {report.categories.map((cat) => {

@@ -276,6 +276,55 @@ def export_report_to_docx(report_data: dict) -> io.BytesIO:
         p.style.font.size = Pt(11)
         doc.add_paragraph()  # spacer
 
+    # ── Historical Context (Quarterly Reports) ──────────────────
+
+    historical_context = report_data.get('historical_context')
+    if historical_context and historical_context.get('groups'):
+        _add_heading(doc, 'Historical Context', level=1,
+                     color=RGBColor(0x1A, 0x36, 0x5D))
+
+        lookback_start = historical_context.get('lookback_start', '')
+        lookback_end = historical_context.get('lookback_end', '')
+        p = doc.add_paragraph()
+        r = p.add_run(
+            f"Lookback period: {_format_date(lookback_start)} to {_format_date(lookback_end)}"
+        )
+        _set_font(r, size=9, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
+
+        narrative = historical_context.get('narrative')
+        if narrative:
+            for para_text in narrative.split('\n\n'):
+                if para_text.strip():
+                    p = doc.add_paragraph(para_text.strip())
+                    for run in p.runs:
+                        _set_font(run, size=10)
+
+        # Grouped lookback events
+        for group in historical_context.get('groups', []):
+            p = doc.add_paragraph()
+            r = p.add_run(f"Prior events related to: {group['report_event_name']}")
+            _set_font(r, size=10, bold=True, color=RGBColor(0x47, 0x55, 0x69))
+
+            for lb_evt in group.get('lookback_events', []):
+                p = doc.add_paragraph()
+                r = p.add_run(f"  {lb_evt['event_name']}")
+                _set_font(r, size=9, bold=True)
+                detail_parts = []
+                if lb_evt.get('first_mention_date') and lb_evt.get('last_mention_date'):
+                    detail_parts.append(
+                        f"{_format_date(lb_evt['first_mention_date'])} to "
+                        f"{_format_date(lb_evt['last_mention_date'])}"
+                    )
+                if lb_evt.get('article_count'):
+                    detail_parts.append(f"{lb_evt['article_count']} articles")
+                if lb_evt.get('materiality_score') is not None:
+                    detail_parts.append(f"materiality: {lb_evt['materiality_score']}/10")
+                if detail_parts:
+                    r = p.add_run(f"  ({', '.join(detail_parts)})")
+                    _set_font(r, size=8, color=RGBColor(0x64, 0x74, 0x8B))
+
+        doc.add_paragraph()  # spacer
+
     # ── Metrics Charts ──────────────────────────────────────────
 
     metrics = report_data.get('metrics', {})

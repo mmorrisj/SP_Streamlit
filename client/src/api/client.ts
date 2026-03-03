@@ -887,6 +887,30 @@ export interface MaterialityTrends {
   significant_changes: SignificantChange[]
 }
 
+export interface LookbackEvent {
+  event_name: string
+  description: string | null
+  first_mention_date: string
+  last_mention_date: string
+  article_count: number
+  materiality_score: number
+  match_type: 'master_chain' | 'shared_entities' | 'category_recipient'
+  shared_entities: string[]
+}
+
+export interface LookbackGroup {
+  report_event_name: string
+  report_event_category: string
+  lookback_events: LookbackEvent[]
+}
+
+export interface HistoricalContext {
+  lookback_start: string
+  lookback_end: string
+  groups: LookbackGroup[]
+  narrative: string | null
+}
+
 export interface ReportData {
   country: string
   title: string
@@ -900,6 +924,7 @@ export interface ReportData {
   metrics: ReportMetrics
   materiality_trends: MaterialityTrends
   citations_by_event: ReportCitationGroup[]
+  historical_context: HistoricalContext | null
 }
 
 export interface ReportRequest {
@@ -909,6 +934,7 @@ export interface ReportRequest {
   recipient?: string
   top_events?: number
   model?: string
+  quarterly?: boolean
 }
 
 export const fetchReportConfig = async (): Promise<ReportConfig> => {
@@ -932,6 +958,7 @@ export interface SSECallbacks {
   onEventNarrative: (data: { category: string; event_index: number; overview: string; outcomes: string }) => void
   onCategoryNarrative: (data: { category: string; narrative: string }) => void
   onOverallSynthesis: (data: { overall_summary: string }) => void
+  onHistoricalContext: (data: { narrative: string }) => void
   onEntitySummary: (data: { entity_type_index: number; entity_index: number; summary: string }) => void
   onTitle: (data: { title: string }) => void
   onComplete: () => void
@@ -1003,6 +1030,9 @@ export async function generateReportStream(
               break
             case 'overall_synthesis':
               callbacks.onOverallSynthesis(payload)
+              break
+            case 'historical_context':
+              callbacks.onHistoricalContext(payload)
               break
             case 'entity_summary':
               callbacks.onEntitySummary(payload)
