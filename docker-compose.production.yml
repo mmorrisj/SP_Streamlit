@@ -54,7 +54,7 @@ services:
   # Single consolidated container from Docker Hub
   # -----------------------
   app:
-    image: mmorrisj/softpower-analytics:1.6.0
+    image: mmorrisj/softpower-analytics:1.6.1
     container_name: sp_prod_app
     restart: unless-stopped
     security_opt:

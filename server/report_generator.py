@@ -840,11 +840,12 @@ Generate two sections:
 2. OUTCOMES: State the documented results: agreements signed, funds committed, projects launched, statements issued, or positions taken. 2-3 sentences.
 
 RULES:
-- Report only facts that are stated or directly supported by the source material.
-- Name specific people, organizations, amounts, dates, and places wherever available.
-- Do NOT use speculative language: no "could", "might", "potentially", "is expected to", "remains to be seen", "signals", "underscores".
-- Do NOT editorialize or assess significance — let the facts speak.
-- Do NOT use filler phrases like "This event represents", "This development highlights", "This is a significant".{citation_instruction}"""
+- State what happened: name the actors, actions, agreements, dates, and places.
+- Every substantive claim must have at least one citation.
+- Do NOT speculate about motives, future outcomes, or strategic significance.
+- Do NOT use "could", "might", "potentially", "is expected to", "remains to be seen", "signals", "underscores", "highlights".
+- Do NOT use filler like "significant development", "key milestone", "growing importance", "deepening ties", "further illustrating".
+- Do NOT editorialize or assess significance — report the facts only.{citation_instruction}"""
 
     user_prompt = f"""Event: {event['event_name']}
 Description: {event['description']}
@@ -969,9 +970,12 @@ Structure:
 3. Closing paragraph: State documented trends (e.g., increasing/decreasing activity in specific areas) based on the evidence presented.
 
 RULES:
+- State what happened: name the actors, actions, agreements, dates, and places.
 - Report only what the category summaries state. Do not add speculation or editorial assessment.
 - Do NOT use "could", "might", "potentially", "is expected to", "signals", "underscores", "highlights".
+- Do NOT use filler like "significant development", "key milestone", "growing importance", "deepening ties", "expanding presence".
 - Do NOT predict future outcomes or assess strategic significance beyond what the sources document.
+- Connect developments by shared actors, regions, or subject matter — not by editorial assessment.
 - Preserve every [#] citation from the input."""
 
     user_prompt = f"""Country: {country}
@@ -1192,7 +1196,9 @@ RULES:
 - State what the entity did: meetings attended, agreements signed, statements made, projects involved in.
 - Name specific counterparts, dates, locations, and outcomes where available.
 - Do NOT speculate about motives, influence, or future impact.
-- Do NOT use "significant", "key player", "instrumental", "pivotal", or similar editorializing.{citation_instruction}"""
+- Do NOT use "could", "might", "potentially", "is expected to", "signals", "underscores", "highlights".
+- Do NOT use "significant", "key player", "instrumental", "pivotal", "growing importance", "deepening ties", or similar editorializing.
+- Report the facts only — do not assess strategic significance.{citation_instruction}"""
 
     user_prompt = f"""Entity: {entity['name']}
 Type: {entity['entity_type']}
@@ -1608,22 +1614,24 @@ def generate_lookback_narrative(
 
     sys_prompt = """You are an analyst writing a historical context section for a policy briefing.
 
-Your task: For each current report event, explain how the prior developments in the lookback period
-led to or are connected to the current event. Write factually and concisely.
+Your task: For each current report event, state what happened in the lookback period that is
+factually connected. Report the prior developments chronologically using AP style.
 
 Structure your output as paragraphs, one per report event that has prior developments.
-Begin each paragraph by naming the current report event, then describe the prior developments
-chronologically and explain the factual connection.
+Begin each paragraph by naming the current report event, then state the prior actions,
+agreements, meetings, or announcements with specific actors, dates, locations, and figures.
 
 IMPORTANT: Include inline citations [1], [2], [3] etc. after factual claims, using the citation
 numbers from the prior developments list.
 
 RULES:
-- State only documented facts from the event descriptions.
-- Name specific actors, dates, locations, and amounts.
+- State what happened: name the actors, actions, agreements, dates, and places.
 - Every substantive claim must have at least one citation.
 - Do NOT speculate about motives, strategy, or future outcomes.
-- Do NOT use "could", "might", "potentially", "signals", "underscores", "highlights".
+- Do NOT interpret or characterize what events "illustrate", "signal", "underscore", or "highlight".
+- Do NOT use "could", "might", "potentially", "is expected to", "further demonstrating", "reflecting".
+- Do NOT use filler like "significant development", "key milestone", "growing importance", "deepening ties", "expanding presence".
+- Connect events by shared actors, regions, or subject matter — not by editorial assessment.
 - Keep each paragraph to 3-5 sentences."""
 
     user_prompt = f"""Country: {country}
