@@ -32,9 +32,9 @@ services:
     cap_drop:
       - ALL
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-softpower}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - prod_pgdata:/var/lib/postgresql/data
@@ -43,7 +43,7 @@ services:
     networks:
       - prod_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-softpower} -d ${POSTGRES_DB:-softpower-db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?Set POSTGRES_USER in .env} -d ${POSTGRES_DB:?Set POSTGRES_DB in .env}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -65,12 +65,12 @@ services:
       DOCKER_ENV: "true"
       DB_HOST: sp_prod_db
       DB_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-softpower}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       POSTGRES_HOST: sp_prod_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@sp_prod_db:5432/${POSTGRES_DB:-softpower-db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
       API_PORT: 8000
       # Host-side proxy for LLM/S3 calls (run uvicorn server.main:app on host)
       API_URL: http://host.docker.internal:${API_PORT:-7001}
@@ -108,10 +108,10 @@ services:
       DOCKER_ENV: "true"
       DB_HOST: sp_prod_db
       DB_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-softpower}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@sp_prod_db:5432/${POSTGRES_DB:-softpower-db}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
     command: alembic upgrade head
     networks:
       - prod_net

@@ -127,20 +127,37 @@ def get_sp_project_config() -> MigrationConfig:
     This uses the existing database configuration from your project.
     """
     # Use your existing configuration pattern
+    _required_source = {
+        "SOURCE_POSTGRES_USER": os.getenv("SOURCE_POSTGRES_USER"),
+        "SOURCE_POSTGRES_PASSWORD": os.getenv("SOURCE_POSTGRES_PASSWORD"),
+        "SOURCE_POSTGRES_DB": os.getenv("SOURCE_POSTGRES_DB"),
+    }
+    _required_target = {
+        "TARGET_POSTGRES_USER": os.getenv("TARGET_POSTGRES_USER"),
+        "TARGET_POSTGRES_PASSWORD": os.getenv("TARGET_POSTGRES_PASSWORD"),
+        "TARGET_POSTGRES_DB": os.getenv("TARGET_POSTGRES_DB"),
+    }
+    _missing = [k for k, v in {**_required_source, **_required_target}.items() if not v]
+    if _missing:
+        raise EnvironmentError(
+            f"Required migration environment variables not set: {', '.join(_missing)}. "
+            "Set them in your .env file or environment."
+        )
+
     source_db = DatabaseConfig(
-        host=os.getenv("SOURCE_DB_HOST", "localhost"),
-        port=int(os.getenv("SOURCE_DB_PORT", "5432")),
-        user=os.getenv("SOURCE_POSTGRES_USER", "matthew50"),
-        password=os.getenv("SOURCE_POSTGRES_PASSWORD", "softpower"),
-        database=os.getenv("SOURCE_POSTGRES_DB", "softpower-db")
+        host=os.getenv("SOURCE_DB_HOST") or "0.0.0.0",
+        port=int(os.getenv("SOURCE_DB_PORT") or "5432"),
+        user=_required_source["SOURCE_POSTGRES_USER"],
+        password=_required_source["SOURCE_POSTGRES_PASSWORD"],
+        database=_required_source["SOURCE_POSTGRES_DB"],
     )
 
     target_db = DatabaseConfig(
-        host=os.getenv("TARGET_DB_HOST", "localhost"),
-        port=int(os.getenv("TARGET_DB_PORT", "5433")),  # Different port for target
-        user=os.getenv("TARGET_POSTGRES_USER", "matthew50"),
-        password=os.getenv("TARGET_POSTGRES_PASSWORD", "softpower"),
-        database=os.getenv("TARGET_POSTGRES_DB", "softpower-db-new")
+        host=os.getenv("TARGET_DB_HOST") or "0.0.0.0",
+        port=int(os.getenv("TARGET_DB_PORT") or "5433"),
+        user=_required_target["TARGET_POSTGRES_USER"],
+        password=_required_target["TARGET_POSTGRES_PASSWORD"],
+        database=_required_target["TARGET_POSTGRES_DB"],
     )
 
     return MigrationConfig(

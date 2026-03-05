@@ -25,12 +25,23 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
 fi
 
-POSTGRES_USER="${POSTGRES_USER:-matthew50}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-softpower}"
-POSTGRES_DB="${POSTGRES_DB:-softpower-db}"
+POSTGRES_USER="${POSTGRES_USER:-}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
+POSTGRES_DB="${POSTGRES_DB:-}"
 DB_PORT="${DB_PORT:-5432}"
 API_PORT="${API_PORT:-8000}"
 STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
+
+# Validate required database credentials
+_missing_vars=""
+[ -z "$POSTGRES_USER" ] && _missing_vars="$_missing_vars POSTGRES_USER"
+[ -z "$POSTGRES_PASSWORD" ] && _missing_vars="$_missing_vars POSTGRES_PASSWORD"
+[ -z "$POSTGRES_DB" ] && _missing_vars="$_missing_vars POSTGRES_DB"
+if [ -n "$_missing_vars" ]; then
+    log_error "Required environment variables not set:$_missing_vars"
+    log_info "Set them in your .env file or export them before running this script."
+    exit 1
+fi
 
 # LLM/S3 Proxy Relay
 # The container lacks certificate authorizations to call external APIs directly.

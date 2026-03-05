@@ -4435,4 +4435,5 @@ if STATIC_DIR.exists():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("API_PORT", "8000"))
-    uvicorn.run(app, host="localhost", port=port)
+    host = os.environ.get("API_HOST", "0.0.0.0")
+    uvicorn.run(app, host=host, port=port)

@@ -50,13 +50,21 @@ READ_BLOCK = 8 * 1024 * 1024  # 8MB blocks
 
 def get_connection_params(args):
     """Resolve target connection params: CLI args > env vars > defaults."""
-    return {
-        "host": args.target_host or os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "localhost"),
-        "port": args.target_port or os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT", "5432"),
-        "user": args.target_user or os.getenv("POSTGRES_USER", "matthew50"),
-        "password": args.target_password or os.getenv("POSTGRES_PASSWORD", "softpower"),
-        "dbname": args.target_db or os.getenv("POSTGRES_DB", "softpower-db"),
+    params = {
+        "host": args.target_host or os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST") or "0.0.0.0",
+        "port": args.target_port or os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT") or "5432",
+        "user": args.target_user or os.getenv("POSTGRES_USER"),
+        "password": args.target_password or os.getenv("POSTGRES_PASSWORD"),
+        "dbname": args.target_db or os.getenv("POSTGRES_DB"),
     }
+    missing = [k for k in ("user", "password", "dbname") if not params[k]]
+    if missing:
+        env_names = {"user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "dbname": "POSTGRES_DB"}
+        raise EnvironmentError(
+            f"Required database config not set: {', '.join(env_names[k] for k in missing)}. "
+            "Pass via CLI args or set in .env file."
+        )
+    return params
 
 
 def detect_docker_container():
