@@ -122,13 +122,22 @@ def detect_docker_container():
 
 
 def build_psql_cmd(conn, docker_container=None, dbname_override=None):
-    """Build a psql command."""
+    """Build a psql command.
+
+    When docker_container is set, uses an ephemeral container on the
+    softpower_net network instead of docker exec (enterprise compatibility).
+    """
     dbname = dbname_override or conn["dbname"]
     if docker_container:
+        # Ephemeral container connects over network (no docker exec needed)
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
         return [
-            "docker", "exec", "-i", docker_container,
+            "docker", "run", "--rm", "-i",
+            "--network", "softpower_net",
+            "-e", f"PGPASSWORD={conn['password']}",
+            db_image,
             "psql",
-            "--host=localhost",
+            f"--host={docker_container}",
             "--port=5432",
             f"--username={conn['user']}",
             f"--dbname={dbname}",

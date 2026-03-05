@@ -706,6 +706,231 @@ cmd_restore() {
 }
 
 # ============================================
+# Run SQL against the database
+# ============================================
+cmd_psql() {
+    if ! container_running "$DB_CONTAINER"; then
+        log_error "Database is not running"
+        exit 1
+    fi
+
+    if [ $# -eq 0 ]; then
+        # Interactive psql session
+        log_info "Opening interactive psql session (Ctrl+D to exit)..."
+        docker run --rm -it --network "$NETWORK_NAME" \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+    else
+        # Execute SQL command(s)
+        docker run --rm --network "$NETWORK_NAME" \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+            -c "$*"
+    fi
+}
+
+# ============================================
+# Rebuild Database (drop + recreate + migrate)
+# ============================================
+cmd_rebuild_db() {
+    local backup_file="${1:-}"
+    local skip_confirm="${2:-}"
+
+    echo ""
+    echo "=============================================="
+    echo "Database Rebuild"
+    echo "=============================================="
+    echo ""
+    log_warn "This will DESTROY the existing database and recreate it from scratch."
+    echo ""
+    echo "  Database:  $POSTGRES_DB"
+    echo "  User:      $POSTGRES_USER"
+    echo "  Volume:    $DB_VOLUME"
+    if [ -n "$backup_file" ]; then
+        echo "  Restore:   $backup_file"
+    else
+        echo "  Restore:   (none — empty schema only)"
+    fi
+    echo ""
+
+    # Safety confirmation
+    if [ "$skip_confirm" != "--yes" ]; then
+        echo -n "Type 'rebuild' to confirm: "
+        read -r confirm
+        if [ "$confirm" != "rebuild" ]; then
+            log_info "Aborted."
+            exit 0
+        fi
+    fi
+
+    check_docker
+
+    # ---- Step 1: Backup existing database (if running) ----
+    if container_running "$DB_CONTAINER"; then
+        local auto_backup="softpower-pre-rebuild-$(date +%Y%m%d-%H%M%S).dump"
+        log_info "Step 1/6: Creating safety backup before rebuild..."
+        if docker run --rm --network "$NETWORK_NAME" \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            pg_dump -h "$DB_CONTAINER" \
+            -U "$POSTGRES_USER" \
+            -d "$POSTGRES_DB" \
+            -F c > "$auto_backup" 2>/dev/null; then
+            local backup_size
+            backup_size=$(du -h "$auto_backup" 2>/dev/null | cut -f1)
+            if [ -s "$auto_backup" ]; then
+                log_ok "Safety backup saved: $auto_backup ($backup_size)"
+            else
+                rm -f "$auto_backup"
+                log_warn "Backup was empty (database may be new/empty) — skipping"
+            fi
+        else
+            rm -f "$auto_backup"
+            log_warn "Could not create safety backup — database may be unreachable"
+        fi
+    else
+        log_info "Step 1/6: Database not running — skipping safety backup"
+    fi
+
+    # ---- Step 2: Stop all services ----
+    log_info "Step 2/6: Stopping all services..."
+    for container in "$APP_CONTAINER" "$DB_CONTAINER"; do
+        if container_running "$container"; then
+            docker stop "$container" >/dev/null 2>&1
+            docker rm "$container" >/dev/null 2>&1
+            log_ok "Stopped: $container"
+        elif container_exists "$container"; then
+            docker rm "$container" >/dev/null 2>&1
+        fi
+    done
+
+    # ---- Step 3: Remove the database volume ----
+    log_info "Step 3/6: Removing database volume ($DB_VOLUME)..."
+    if docker volume inspect "$DB_VOLUME" &>/dev/null; then
+        docker volume rm "$DB_VOLUME"
+        log_ok "Volume removed: $DB_VOLUME"
+    else
+        log_info "Volume did not exist"
+    fi
+
+    # ---- Step 4: Start fresh database ----
+    log_info "Step 4/6: Starting fresh PostgreSQL..."
+
+    # Recreate network if needed
+    if ! docker network inspect "$NETWORK_NAME" &>/dev/null; then
+        docker network create "$NETWORK_NAME"
+    fi
+
+    # Recreate volume
+    docker volume create "$DB_VOLUME"
+
+    # Start PostgreSQL (it will auto-create the database on first boot)
+    docker run -d \
+        --name "$DB_CONTAINER" \
+        --network "$NETWORK_NAME" \
+        --restart unless-stopped \
+        -e POSTGRES_USER="$POSTGRES_USER" \
+        -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+        -e POSTGRES_DB="$POSTGRES_DB" \
+        -v "$DB_VOLUME":/var/lib/postgresql/data \
+        -p "${DB_PORT}:5432" \
+        --shm-size=1g \
+        "$DB_IMAGE"
+
+    wait_for_db
+
+    # ---- Step 5: Enable pgvector extension ----
+    log_info "Step 5/6: Enabling pgvector extension..."
+    docker run --rm --network "$NETWORK_NAME" \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
+        "$DB_IMAGE" \
+        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "CREATE EXTENSION IF NOT EXISTS vector;" \
+        -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
+        -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'pg_trgm');"
+
+    log_ok "Extensions enabled"
+
+    # ---- Step 6: Run migrations or restore ----
+    if [ -n "$backup_file" ]; then
+        log_info "Step 6/6: Restoring database from backup..."
+
+        if [ ! -f "$backup_file" ]; then
+            log_error "Backup file not found: $backup_file"
+            log_info "Database is running but empty. You can restore manually later:"
+            log_info "  ./production-deploy.sh restore <backup-file>"
+            exit 1
+        fi
+
+        docker run --rm -i --network "$NETWORK_NAME" \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            pg_restore -h "$DB_CONTAINER" \
+            -U "$POSTGRES_USER" \
+            -d "$POSTGRES_DB" \
+            --clean --if-exists < "$backup_file" || true
+
+        log_ok "Database restored from: $backup_file"
+
+        # Run migrations to apply any schema changes since the backup
+        log_info "Running migrations to apply any schema changes since backup..."
+        docker run --rm \
+            --network "$NETWORK_NAME" \
+            -e DOCKER_ENV=true \
+            -e DB_HOST="$DB_CONTAINER" \
+            -e DB_PORT=5432 \
+            -e POSTGRES_USER="$POSTGRES_USER" \
+            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            -e POSTGRES_DB="$POSTGRES_DB" \
+            -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
+            "$APP_IMAGE" \
+            alembic upgrade head
+        log_ok "Migrations applied"
+    else
+        log_info "Step 6/6: Running Alembic migrations (fresh schema)..."
+        docker run --rm \
+            --network "$NETWORK_NAME" \
+            -e DOCKER_ENV=true \
+            -e DB_HOST="$DB_CONTAINER" \
+            -e DB_PORT=5432 \
+            -e POSTGRES_USER="$POSTGRES_USER" \
+            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            -e POSTGRES_DB="$POSTGRES_DB" \
+            -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
+            "$APP_IMAGE" \
+            alembic upgrade head
+        log_ok "Migrations complete — empty schema created"
+    fi
+
+    # ---- Verify ----
+    log_info "Verifying database..."
+    local table_count
+    table_count=$(docker run --rm --network "$NETWORK_NAME" \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
+        "$DB_IMAGE" \
+        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
+
+    echo ""
+    echo "=============================================="
+    echo -e "${GREEN}Database Rebuild Complete${NC}"
+    echo "=============================================="
+    echo ""
+    echo "  Tables:    ${table_count:-unknown}"
+    echo "  Database:  $POSTGRES_DB"
+    echo "  Port:      $DB_PORT"
+    echo ""
+    echo "Next steps:"
+    echo "  ./production-deploy.sh start    # Start the application"
+    if [ -z "$backup_file" ]; then
+        echo "  ./production-deploy.sh restore <file>  # Restore data from backup"
+    fi
+    echo ""
+}
+
+# ============================================
 # Main
 # ============================================
 case "${1:-help}" in
@@ -738,6 +963,13 @@ case "${1:-help}" in
     restore)
         cmd_restore "$2"
         ;;
+    rebuild-db)
+        cmd_rebuild_db "$2" "$3"
+        ;;
+    psql)
+        shift
+        cmd_psql "$@"
+        ;;
     logs)
         container="${2:-$APP_CONTAINER}"
         docker logs -f "$container"
@@ -758,6 +990,8 @@ case "${1:-help}" in
         echo "  status              Show status of all containers"
         echo "  backup [file]       Create database backup"
         echo "  restore <file>      Restore database from backup"
+        echo "  rebuild-db [file]   Drop database, recreate schema, optionally restore from backup"
+        echo "  psql [sql]          Open interactive psql session, or execute SQL command"
         echo "  logs [container]    Tail container logs (default: app)"
         echo ""
         echo "First-time deployment (registry images from Docker Hub):"
