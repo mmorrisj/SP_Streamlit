@@ -34,11 +34,18 @@ def get_database_url():
         return database_url
 
     # Construct from individual variables
-    db_user = os.getenv("POSTGRES_USER", "matthew50")
-    db_pass = os.getenv("POSTGRES_PASSWORD", "softpower")
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_port = os.getenv("POSTGRES_PORT", "5432")
-    db_name = os.getenv("POSTGRES_DB", "softpower-db")
+    db_host = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST") or "0.0.0.0"
+    db_port = os.getenv("POSTGRES_PORT") or os.getenv("DB_PORT") or "5432"
+    db_user = os.getenv("POSTGRES_USER")
+    db_pass = os.getenv("POSTGRES_PASSWORD")
+    db_name = os.getenv("POSTGRES_DB")
+
+    missing = [v for v, val in [("POSTGRES_USER", db_user), ("POSTGRES_PASSWORD", db_pass), ("POSTGRES_DB", db_name)] if not val]
+    if missing:
+        raise EnvironmentError(
+            f"Required database environment variables not set: {', '.join(missing)}. "
+            "Set them in your .env file or environment."
+        )
 
     return f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 

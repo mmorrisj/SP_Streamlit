@@ -34,9 +34,9 @@ services:
     cap_drop:
       - ALL
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-softpower}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -45,7 +45,7 @@ services:
     networks:
       - softpower_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-softpower} -d ${POSTGRES_DB:-softpower-db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?Set POSTGRES_USER in .env} -d ${POSTGRES_DB:?Set POSTGRES_DB in .env}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -73,7 +73,7 @@ services:
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@softpower_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
       API_URL: http://host.docker.internal:${API_PORT:-7001}
       # Pass through credentials from .env
       CLAUDE_KEY: ${CLAUDE_KEY:-}
@@ -118,7 +118,7 @@ services:
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@softpower_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
       # Override API_PORT inside container so uvicorn binds to 8000 (matching EXPOSE/port mapping)
       API_PORT: 8000
       # S3_PROXY_URL/API_URL point to the host-side FastAPI for S3/Batch operations
@@ -189,7 +189,7 @@ services:
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@softpower_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
     command: alembic upgrade head
     depends_on:
       db:

@@ -18,7 +18,7 @@ Usage:
 
     # Export with explicit connection params
     python scripts/db_export.py --output-dir ./db_export_20260226 \
-        --host localhost --port 5432 --user matthew50 --password softpower --dbname softpower-db
+        --host 0.0.0.0 --port 5432 --user $POSTGRES_USER --password $POSTGRES_PASSWORD --dbname $POSTGRES_DB
 
 Import with:
     python scripts/db_import.py --input-dir ./db_export_20260226
@@ -50,13 +50,21 @@ READ_BLOCK = 8 * 1024 * 1024  # 8MB read blocks
 
 def get_connection_params(args):
     """Resolve connection params: CLI args > env vars > defaults."""
-    return {
-        "host": args.host or os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "localhost"),
-        "port": args.port or os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT", "5432"),
-        "user": args.user or os.getenv("POSTGRES_USER", "matthew50"),
-        "password": args.password or os.getenv("POSTGRES_PASSWORD", "softpower"),
-        "dbname": args.dbname or os.getenv("POSTGRES_DB", "softpower-db"),
+    params = {
+        "host": args.host or os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST") or "0.0.0.0",
+        "port": args.port or os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT") or "5432",
+        "user": args.user or os.getenv("POSTGRES_USER"),
+        "password": args.password or os.getenv("POSTGRES_PASSWORD"),
+        "dbname": args.dbname or os.getenv("POSTGRES_DB"),
     }
+    missing = [k for k in ("user", "password", "dbname") if not params[k]]
+    if missing:
+        env_names = {"user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "dbname": "POSTGRES_DB"}
+        raise EnvironmentError(
+            f"Required database config not set: {', '.join(env_names[k] for k in missing)}. "
+            "Pass via CLI args or set in .env file."
+        )
+    return params
 
 
 def detect_docker_container():
@@ -78,42 +86,60 @@ def detect_docker_container():
 
 
 def build_pg_dump_cmd(conn, docker_container=None):
-    """Build the pg_dump command list."""
+    """Build the pg_dump command list.
+
+    When docker_container is set, uses an ephemeral container on the
+    softpower_net network instead of docker exec (enterprise compatibility).
+    Stdout from the ephemeral container is piped to capture the dump.
+    """
     pg_dump_args = [
         "pg_dump",
         "--format=custom",
         "--compress=6",
         "--verbose",
-        f"--host={conn['host']}",
-        f"--port={conn['port']}",
-        f"--username={conn['user']}",
-        f"--dbname={conn['dbname']}",
     ]
 
     if docker_container:
-        # Inside Docker, connect to localhost (the container's own PG)
-        pg_dump_args = [
-            "pg_dump",
-            "--format=custom",
-            "--compress=6",
-            "--verbose",
-            "--host=localhost",
-            f"--port=5432",
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        network = os.getenv("NETWORK_NAME", "softpower_net")
+        pg_dump_args.extend([
+            f"--host={docker_container}",
+            "--port=5432",
             f"--username={conn['user']}",
             f"--dbname={conn['dbname']}",
-        ]
-        return ["docker", "exec", docker_container] + pg_dump_args
+        ])
+        return [
+            "docker", "run", "--rm",
+            "--network", network,
+            "-e", f"PGPASSWORD={conn['password']}",
+            db_image,
+        ] + pg_dump_args
     else:
+        pg_dump_args.extend([
+            f"--host={conn['host']}",
+            f"--port={conn['port']}",
+            f"--username={conn['user']}",
+            f"--dbname={conn['dbname']}",
+        ])
         return pg_dump_args
 
 
 def build_psql_cmd(conn, docker_container=None):
-    """Build a psql command for querying metadata."""
+    """Build a psql command for querying metadata.
+
+    When docker_container is set, uses an ephemeral container on the
+    softpower_net network instead of docker exec (enterprise compatibility).
+    """
     if docker_container:
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        network = os.getenv("NETWORK_NAME", "softpower_net")
         return [
-            "docker", "exec", docker_container,
+            "docker", "run", "--rm",
+            "--network", network,
+            "-e", f"PGPASSWORD={conn['password']}",
+            db_image,
             "psql",
-            "--host=localhost",
+            f"--host={docker_container}",
             "--port=5432",
             f"--username={conn['user']}",
             f"--dbname={conn['dbname']}",
@@ -135,8 +161,11 @@ def build_psql_cmd(conn, docker_container=None):
 def get_pg_dump_version(docker_container=None):
     """Get the pg_dump version string."""
     try:
-        cmd = ["docker", "exec", docker_container, "pg_dump", "--version"] if docker_container \
-            else ["pg_dump", "--version"]
+        if docker_container:
+            db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+            cmd = ["docker", "run", "--rm", db_image, "pg_dump", "--version"]
+        else:
+            cmd = ["pg_dump", "--version"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             return result.stdout.strip()
@@ -307,7 +336,7 @@ def export_database(args):
     print("  DATABASE EXPORT")
     print("=" * 60)
     if docker_container:
-        print(f"  Source:     docker exec {docker_container}")
+        print(f"  Source:     docker container {docker_container} (via network)")
     else:
         print(f"  Source:     {conn['host']}:{conn['port']}")
     print(f"  Database:  {conn['dbname']}")
@@ -319,7 +348,7 @@ def export_database(args):
     # Check pg_dump availability
     pg_version = get_pg_dump_version(docker_container)
     if pg_version == "unknown":
-        mode = f"docker exec {docker_container}" if docker_container else "local"
+        mode = f"docker:{docker_container}" if docker_container else "local"
         print(f"ERROR: pg_dump not found ({mode})")
         if not docker_container:
             print("  Try: --docker-container softpower_db")

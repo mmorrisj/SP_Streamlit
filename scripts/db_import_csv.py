@@ -86,13 +86,21 @@ TABLE_LOAD_ORDER = [
 
 def get_connection_params(args):
     """Resolve target connection params: CLI args > env vars > defaults."""
-    return {
-        "host": args.target_host or os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "localhost"),
-        "port": args.target_port or os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT", "5432"),
-        "user": args.target_user or os.getenv("POSTGRES_USER", "matthew50"),
-        "password": args.target_password or os.getenv("POSTGRES_PASSWORD", "softpower"),
-        "dbname": args.target_db or os.getenv("POSTGRES_DB", "softpower-db"),
+    params = {
+        "host": args.target_host or os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST") or "0.0.0.0",
+        "port": args.target_port or os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT") or "5432",
+        "user": args.target_user or os.getenv("POSTGRES_USER"),
+        "password": args.target_password or os.getenv("POSTGRES_PASSWORD"),
+        "dbname": args.target_db or os.getenv("POSTGRES_DB"),
     }
+    missing = [k for k in ("user", "password", "dbname") if not params[k]]
+    if missing:
+        env_names = {"user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "dbname": "POSTGRES_DB"}
+        raise EnvironmentError(
+            f"Required database config not set: {', '.join(env_names[k] for k in missing)}. "
+            "Pass via CLI args or set in .env file."
+        )
+    return params
 
 
 def detect_docker_container():
@@ -114,13 +122,22 @@ def detect_docker_container():
 
 
 def build_psql_cmd(conn, docker_container=None, dbname_override=None):
-    """Build a psql command."""
+    """Build a psql command.
+
+    When docker_container is set, uses an ephemeral container on the
+    softpower_net network instead of docker exec (enterprise compatibility).
+    """
     dbname = dbname_override or conn["dbname"]
     if docker_container:
+        # Ephemeral container connects over network (no docker exec needed)
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
         return [
-            "docker", "exec", "-i", docker_container,
+            "docker", "run", "--rm", "-i",
+            "--network", "softpower_net",
+            "-e", f"PGPASSWORD={conn['password']}",
+            db_image,
             "psql",
-            "--host=localhost",
+            f"--host={docker_container}",
             "--port=5432",
             f"--username={conn['user']}",
             f"--dbname={dbname}",
@@ -304,7 +321,7 @@ def import_csv(args):
     print()
 
     if docker_container:
-        print(f"  Target:        docker exec {docker_container}")
+        print(f"  Target:        docker container {docker_container} (via network)")
     else:
         print(f"  Target:        {conn['host']}:{conn['port']}")
     print(f"  Target DB:     {conn['dbname']}")

@@ -49,22 +49,10 @@ class DatabaseManager:
 
     def _get_database_url(self) -> str:
         """
-        Construct database URL from environment variables with fallbacks.
-        Supports both development and production configurations.
+        Construct database URL from environment variables.
+        Requires POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB to be set
+        (via .env file or environment), unless DATABASE_URL is provided directly.
         """
-        # Primary environment variables (your current setup)
-        db_host = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "localhost")
-        db_user = os.getenv("POSTGRES_USER", "matthew50")
-        db_pass = os.getenv("POSTGRES_PASSWORD", "softpower")
-        db_name = os.getenv("POSTGRES_DB", "softpower-db")
-        db_port = os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT", "5432")
-
-        # Alternative environment variable names (for flexibility)
-        if not all([db_user, db_pass, db_name]):
-            db_user = os.getenv("DATABASE_USER", db_user)
-            db_pass = os.getenv("DATABASE_PASSWORD", db_pass)
-            db_name = os.getenv("DATABASE_NAME", db_name)
-
         # Support for full DATABASE_URL (common in production)
         database_url = os.getenv("DATABASE_URL")
         if database_url:
@@ -72,6 +60,26 @@ class DatabaseManager:
             if database_url.startswith("postgres://"):
                 database_url = database_url.replace("postgres://", "postgresql://", 1)
             return database_url
+
+        # Construct from individual environment variables
+        db_host = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST") or "0.0.0.0"
+        db_port = os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT") or "5432"
+        db_user = os.getenv("POSTGRES_USER")
+        db_pass = os.getenv("POSTGRES_PASSWORD")
+        db_name = os.getenv("POSTGRES_DB")
+
+        missing = []
+        if not db_user:
+            missing.append("POSTGRES_USER")
+        if not db_pass:
+            missing.append("POSTGRES_PASSWORD")
+        if not db_name:
+            missing.append("POSTGRES_DB")
+        if missing:
+            raise EnvironmentError(
+                f"Required database environment variables not set: {', '.join(missing)}. "
+                "Set them in your .env file or environment."
+            )
 
         # Construct URL from components
         url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"

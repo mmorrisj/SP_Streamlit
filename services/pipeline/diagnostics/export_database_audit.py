@@ -24,11 +24,18 @@ sys.path.insert(0, str(project_root))
 
 # Database connection (from environment variables or defaults)
 import os
-DB_USER = os.getenv("POSTGRES_USER", "matthew50")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "softpower")
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("POSTGRES_DB", "softpower-db")
+DB_USER = os.getenv("POSTGRES_USER")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+DB_HOST = os.getenv("DB_HOST") or "0.0.0.0"
+DB_PORT = os.getenv("DB_PORT") or "5432"
+DB_NAME = os.getenv("POSTGRES_DB")
+
+_missing = [v for v, val in [("POSTGRES_USER", DB_USER), ("POSTGRES_PASSWORD", DB_PASSWORD), ("POSTGRES_DB", DB_NAME)] if not val]
+if _missing:
+    raise EnvironmentError(
+        f"Required database environment variables not set: {', '.join(_missing)}. "
+        "Set them in your .env file or environment."
+    )
 
 # Create engine
 engine = create_engine(f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")

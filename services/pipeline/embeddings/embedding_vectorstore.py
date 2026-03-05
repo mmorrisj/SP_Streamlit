@@ -13,11 +13,17 @@ print(f"Using device for embeddings: {device}")
 embedding_function = get_hf_embeddings()
 
 def build_connection_string():
-    user = os.getenv("POSTGRES_USER", "matthew50")
-    password = os.getenv("POSTGRES_PASSWORD", "softpower")
-    db = os.getenv("POSTGRES_DB", "softpower-db")
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    db = os.getenv("POSTGRES_DB")
+    host = os.getenv("DB_HOST") or "0.0.0.0"
+    port = os.getenv("DB_PORT") or "5432"
+    missing = [v for v, val in [("POSTGRES_USER", user), ("POSTGRES_PASSWORD", password), ("POSTGRES_DB", db)] if not val]
+    if missing:
+        raise EnvironmentError(
+            f"Required database environment variables not set: {', '.join(missing)}. "
+            "Set them in your .env file or environment."
+        )
     return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
 
 CONNECTION_STRING = build_connection_string()
