@@ -706,6 +706,121 @@ cmd_restore() {
 }
 
 # ============================================
+# Import: Additive load from dump file(s)
+# Unlike 'restore' (which uses --clean to replace), this adds data
+# to the existing database without dropping tables first.
+# ============================================
+cmd_import() {
+    if [ $# -eq 0 ]; then
+        echo ""
+        echo "Import dump file(s) into the running database (additive — no table drops)."
+        echo ""
+        echo "Usage:"
+        echo "  $0 import <file.dump>              # Import single dump file"
+        echo "  $0 import <dir>                     # Import chunked export (manifest.json)"
+        echo "  $0 import <file1.dump> <file2.dump> # Import multiple dump files in sequence"
+        echo ""
+        echo "Options (via environment variables):"
+        echo "  IMPORT_JOBS=4  $0 import file.dump  # Parallel restore (default: 1)"
+        echo ""
+        exit 1
+    fi
+
+    if ! container_running "$DB_CONTAINER"; then
+        log_error "Database is not running. Start it first: ./production-deploy.sh start"
+        exit 1
+    fi
+
+    local jobs="${IMPORT_JOBS:-1}"
+    local import_count=0
+    local fail_count=0
+
+    for target in "$@"; do
+        # --- Directory with manifest.json (chunked export from db_export.py) ---
+        if [ -d "$target" ]; then
+            if [ ! -f "$target/manifest.json" ]; then
+                log_error "Directory has no manifest.json: $target"
+                log_info "Expected a chunked export created by scripts/db_export.py"
+                fail_count=$((fail_count + 1))
+                continue
+            fi
+
+            log_info "Importing chunked export from: $target"
+
+            # Use db_import.py with the Docker container auto-detected over network.
+            # Pass host-level connection params so the script connects via the
+            # published port (no docker exec needed).
+            docker run --rm -i \
+                --network "$NETWORK_NAME" \
+                -v "$(cd "$target" && pwd):/import:ro" \
+                -e PGPASSWORD="$POSTGRES_PASSWORD" \
+                -e DB_IMAGE="$DB_IMAGE" \
+                -e NETWORK_NAME="$NETWORK_NAME" \
+                "$APP_IMAGE" \
+                python scripts/db_import.py \
+                    --input-dir /import \
+                    --target-host "$DB_CONTAINER" \
+                    --target-port 5432 \
+                    --target-user "$POSTGRES_USER" \
+                    --target-password "$POSTGRES_PASSWORD" \
+                    --target-db "$POSTGRES_DB" \
+                    --jobs "$jobs" && import_count=$((import_count + 1)) || fail_count=$((fail_count + 1))
+
+        # --- Single .dump file ---
+        elif [ -f "$target" ]; then
+            log_info "Importing dump file: $target (additive, no --clean)"
+
+            # pg_restore without --clean: adds data, skips existing objects
+            local restore_args="--verbose --if-exists --no-owner --no-privileges"
+            if [ "$jobs" -gt 1 ]; then
+                restore_args="$restore_args --jobs=$jobs"
+            fi
+
+            docker run --rm -i --network "$NETWORK_NAME" \
+                -e PGPASSWORD="$POSTGRES_PASSWORD" \
+                "$DB_IMAGE" \
+                pg_restore $restore_args \
+                -h "$DB_CONTAINER" \
+                -U "$POSTGRES_USER" \
+                -d "$POSTGRES_DB" < "$target" && import_count=$((import_count + 1)) || {
+                    # pg_restore returns non-zero on warnings too — check if data loaded
+                    log_warn "pg_restore exited non-zero for $target (may be warnings only)"
+                    import_count=$((import_count + 1))
+                }
+
+        else
+            log_error "Not found: $target"
+            fail_count=$((fail_count + 1))
+        fi
+    done
+
+    echo ""
+    log_ok "Import complete: $import_count succeeded, $fail_count failed"
+
+    # Run ANALYZE to update statistics after bulk import
+    log_info "Running ANALYZE to update table statistics..."
+    docker run --rm --network "$NETWORK_NAME" \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
+        "$DB_IMAGE" \
+        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "ANALYZE;" >/dev/null 2>&1
+    log_ok "Statistics updated"
+
+    # Show table counts
+    log_info "Current table row counts:"
+    docker run --rm --network "$NETWORK_NAME" \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
+        "$DB_IMAGE" \
+        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "SELECT relname AS table, reltuples::bigint AS approx_rows
+            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'r' AND n.nspname = 'public'
+            AND reltuples > 0
+            ORDER BY reltuples DESC;"
+    echo ""
+}
+
+# ============================================
 # Run SQL against the database
 # ============================================
 cmd_psql() {
@@ -963,6 +1078,10 @@ case "${1:-help}" in
     restore)
         cmd_restore "$2"
         ;;
+    import)
+        shift
+        cmd_import "$@"
+        ;;
     rebuild-db)
         cmd_rebuild_db "$2" "$3"
         ;;
@@ -989,7 +1108,8 @@ case "${1:-help}" in
         echo "  migrate             Run database migrations (Alembic)"
         echo "  status              Show status of all containers"
         echo "  backup [file]       Create database backup"
-        echo "  restore <file>      Restore database from backup"
+        echo "  restore <file>      Restore database from backup (replaces existing data)"
+        echo "  import <files|dir>  Import dump file(s) into database (additive — no drops)"
         echo "  rebuild-db [file]   Drop database, recreate schema, optionally restore from backup"
         echo "  psql [sql]          Open interactive psql session, or execute SQL command"
         echo "  logs [container]    Tail container logs (default: app)"

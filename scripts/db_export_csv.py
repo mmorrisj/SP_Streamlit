@@ -88,12 +88,21 @@ def detect_docker_container():
 
 
 def build_psql_cmd(conn, docker_container=None):
-    """Build a psql command for querying metadata."""
+    """Build a psql command for querying metadata.
+
+    When docker_container is set, uses an ephemeral container on the
+    softpower_net network instead of docker exec (enterprise compatibility).
+    """
     if docker_container:
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        network = os.getenv("NETWORK_NAME", "softpower_net")
         return [
-            "docker", "exec", docker_container,
+            "docker", "run", "--rm",
+            "--network", network,
+            "-e", f"PGPASSWORD={conn['password']}",
+            db_image,
             "psql",
-            "--host=localhost",
+            f"--host={docker_container}",
             "--port=5432",
             f"--username={conn['user']}",
             f"--dbname={conn['dbname']}",
@@ -212,7 +221,7 @@ def export_csv(args):
     print("  DATABASE CSV EXPORT")
     print("=" * 60)
     if docker_container:
-        print(f"  Source:     docker exec {docker_container}")
+        print(f"  Source:     docker container {docker_container} (via network)")
     else:
         print(f"  Source:     {conn['host']}:{conn['port']}")
     print(f"  Database:  {conn['dbname']}")

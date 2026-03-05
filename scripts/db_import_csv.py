@@ -321,7 +321,7 @@ def import_csv(args):
     print()
 
     if docker_container:
-        print(f"  Target:        docker exec {docker_container}")
+        print(f"  Target:        docker container {docker_container} (via network)")
     else:
         print(f"  Target:        {conn['host']}:{conn['port']}")
     print(f"  Target DB:     {conn['dbname']}")

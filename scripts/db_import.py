@@ -155,13 +155,21 @@ def reassemble_chunks(input_dir, chunks, output_path):
 
 
 def build_psql_cmd(conn, docker_container=None, dbname_override=None):
-    """Build a psql command."""
+    """Build a psql command.
+
+    When docker_container is set, uses an ephemeral container on the
+    softpower_net network instead of docker exec (enterprise compatibility).
+    """
     dbname = dbname_override or conn["dbname"]
     if docker_container:
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
         return [
-            "docker", "exec", docker_container,
+            "docker", "run", "--rm",
+            "--network", os.getenv("NETWORK_NAME", "softpower_net"),
+            "-e", f"PGPASSWORD={conn['password']}",
+            db_image,
             "psql",
-            "--host=localhost",
+            f"--host={docker_container}",
             "--port=5432",
             f"--username={conn['user']}",
             f"--dbname={dbname}",
@@ -264,7 +272,11 @@ def drop_database(conn, docker_container=None):
 
 
 def build_pg_restore_cmd(conn, dump_path, docker_container=None, jobs=1):
-    """Build the pg_restore command."""
+    """Build the pg_restore command.
+
+    When docker_container is set, uses an ephemeral container on the
+    softpower_net network instead of docker exec (enterprise compatibility).
+    """
     pg_restore_args = [
         "pg_restore",
         "--verbose",
@@ -277,14 +289,18 @@ def build_pg_restore_cmd(conn, dump_path, docker_container=None, jobs=1):
         pg_restore_args.append(f"--jobs={jobs}")
 
     if docker_container:
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
         pg_restore_args.extend([
-            "--host=localhost",
+            f"--host={docker_container}",
             "--port=5432",
             f"--username={conn['user']}",
         ])
-        # For Docker, we need to pipe the dump file via stdin
+        # Ephemeral container: pipe dump file via stdin
         return (
-            ["docker", "exec", "-i", docker_container] + pg_restore_args,
+            ["docker", "run", "--rm", "-i",
+             "--network", os.getenv("NETWORK_NAME", "softpower_net"),
+             "-e", f"PGPASSWORD={conn['password']}",
+             db_image] + pg_restore_args,
             True  # pipe_stdin=True
         )
     else:
@@ -481,7 +497,7 @@ def import_database(args):
     print()
 
     if docker_container:
-        print(f"  Target:        docker exec {docker_container}")
+        print(f"  Target:        docker container {docker_container} (via network)")
     else:
         print(f"  Target:        {conn['host']}:{conn['port']}")
     print(f"  Target DB:     {conn['dbname']}")
