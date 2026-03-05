@@ -1,5 +1,21 @@
 # ============================================
-#  SoftPower Streamlit / Backend / PGVector Stack
+# Development Stack - Local Builds with Hot Reload
+# Mirrors production structure with separate services for debugging
+#
+# Usage:
+#   # First time — create external volume and network, then run migrations:
+#   docker volume create softpower_streamlit_dev_postgres_data
+#   docker network create softpower_net
+#   docker compose -f docker-compose.dev.yml --profile migrate up --build
+#
+#   # Start the stack:
+#   docker compose -f docker-compose.dev.yml up -d --build
+#
+#   # Tear down (preserves data via external volume):
+#   docker compose -f docker-compose.dev.yml down
+#
+#   # View logs:
+#   docker compose -f docker-compose.dev.yml logs -f [service-name]
 # ============================================
 
 name: softpower_streamlit_dev
@@ -13,16 +29,27 @@ services:
     container_name: softpower_db
     restart: unless-stopped
     shm_size: "1gb"
-    env_file:
-      - .env
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
-      - PGDATA=/var/lib/postgresql/data/pgdata
+      POSTGRES_USER: ${POSTGRES_USER:-softpower}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-softpower-db}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     networks:
       - softpower_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-softpower} -d ${POSTGRES_DB:-softpower-db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # -----------------------
   # Streamlit Dashboard
@@ -34,6 +61,10 @@ services:
       dockerfile: docker/dashboard.Dockerfile
     container_name: streamlit-dashboard
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     env_file:
       - .env
     environment:
@@ -42,18 +73,28 @@ services:
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
-      API_URL: http://host.docker.internal:${API_PORT:-8000}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
+      API_URL: http://host.docker.internal:${API_PORT:-7001}
+      # Pass through credentials from .env
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
     ports:
       - "8501:8501"
     volumes:
       - ./services/dashboard:/app/services/dashboard
       - ./shared:/app/shared
       - app_output:/app/output
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - softpower_net
     depends_on:
-      - api
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
 
   # -----------------------
   # FastAPI API Service (Serves React UI + API endpoints)
@@ -65,6 +106,10 @@ services:
       dockerfile: docker/api.Dockerfile
     container_name: api-service
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     env_file:
       - .env
     environment:
@@ -73,19 +118,27 @@ services:
       DB_PORT: 5432
       POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
       # Override API_PORT inside container so uvicorn binds to 8000 (matching EXPOSE/port mapping)
-      # S3_PROXY_URL/API_URL point to the host-side FastAPI for S3/Batch operations
       API_PORT: 8000
+      # S3_PROXY_URL/API_URL point to the host-side FastAPI for S3/Batch operations
       S3_PROXY_URL: http://host.docker.internal:${API_PORT:-7001}
       API_URL: http://host.docker.internal:${API_PORT:-7001}
       USE_S3_API_CLIENT: "true"
       BATCH_SCRATCHPAD_DIR: ./services/pipeline/batch/batches
+      # Pass through credentials from .env
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
     ports:
       - "${API_PORT:-7001}:8000"
     volumes:
       - ./server:/app/server                      # React-serving API + S3/Batch proxy
       - ./services/pipeline:/app/services/pipeline
+      - ./services/chat:/app/services/chat
       - ./shared:/app/shared
       - ./scripts:/app/scripts                    # Admin scripts
       # Note: client/dist is built inside Docker image (multi-stage build)
@@ -98,7 +151,8 @@ services:
     networks:
       - softpower_net
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -109,6 +163,10 @@ services:
     image: redis:7
     container_name: redis
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - softpower_net
 
@@ -121,18 +179,21 @@ services:
       context: .
       dockerfile: docker/api.Dockerfile
     container_name: alembic-migrate
-    env_file:
-      - .env
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       DOCKER_ENV: "true"
       DB_HOST: softpower_db
-      POSTGRES_HOST: softpower_db
       DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql+psycopg2://matthew50:softpower@softpower_db:5432/softpower-db
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-softpower}:${POSTGRES_PASSWORD:-changeme}@softpower_db:5432/${POSTGRES_DB:-softpower-db}
     command: alembic upgrade head
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - softpower_net
     volumes:
@@ -158,4 +219,3 @@ volumes:
 networks:
   softpower_net:
     external: true
-

@@ -129,7 +129,10 @@ wait_for_db() {
     log_info "Waiting for PostgreSQL to be ready..."
     local max_attempts=30
     for i in $(seq 1 $max_attempts); do
-        if docker exec "$DB_CONTAINER" pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
+        # Use ephemeral container instead of docker exec (enterprise compatibility)
+        if docker run --rm --network "$NETWORK_NAME" \
+            "$DB_IMAGE" \
+            pg_isready -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
             log_ok "PostgreSQL is ready"
             return 0
         fi
@@ -565,22 +568,18 @@ cmd_migrate() {
         exit 1
     fi
 
-    # Run alembic inside the app container if running, otherwise ephemeral
-    if container_running "$APP_CONTAINER"; then
-        docker exec "$APP_CONTAINER" alembic upgrade head
-    else
-        docker run --rm \
-            --network "$NETWORK_NAME" \
-            -e DOCKER_ENV=true \
-            -e DB_HOST="$DB_CONTAINER" \
-            -e DB_PORT=5432 \
-            -e POSTGRES_USER="$POSTGRES_USER" \
-            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            -e POSTGRES_DB="$POSTGRES_DB" \
-            -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
-            "$APP_IMAGE" \
-            alembic upgrade head
-    fi
+    # Always use ephemeral container (enterprise compatibility — no docker exec)
+    docker run --rm \
+        --network "$NETWORK_NAME" \
+        -e DOCKER_ENV=true \
+        -e DB_HOST="$DB_CONTAINER" \
+        -e DB_PORT=5432 \
+        -e POSTGRES_USER="$POSTGRES_USER" \
+        -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+        -e POSTGRES_DB="$POSTGRES_DB" \
+        -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
+        "$APP_IMAGE" \
+        alembic upgrade head
 
     log_ok "Migrations complete"
     echo ""
@@ -647,9 +646,11 @@ cmd_backup() {
     fi
 
     log_info "Creating database backup..."
-    # Use stdout redirection instead of pg_dump -f / docker cp.
-    # Avoids MSYS2 path translation on Windows (Git Bash translates /tmp/ to C:\...\Temp\).
-    docker exec "$DB_CONTAINER" pg_dump \
+    # Ephemeral container connects over network (no docker exec needed).
+    # Stdout redirection avoids MSYS2 path translation on Windows.
+    docker run --rm --network "$NETWORK_NAME" \
+        "$DB_IMAGE" \
+        pg_dump -h "$DB_CONTAINER" \
         -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" \
         -F c > "$backup_file"
@@ -680,9 +681,11 @@ cmd_restore() {
     fi
 
     log_info "Restoring database from: $backup_file"
-    # Use stdin redirection instead of docker cp / pg_restore <file>.
-    # Avoids MSYS2 path translation on Windows (Git Bash translates /tmp/ to C:\...\Temp\).
-    docker exec -i "$DB_CONTAINER" pg_restore \
+    # Ephemeral container connects over network (no docker exec needed).
+    # Stdin redirection avoids MSYS2 path translation on Windows.
+    docker run --rm -i --network "$NETWORK_NAME" \
+        "$DB_IMAGE" \
+        pg_restore -h "$DB_CONTAINER" \
         -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" \
         --clean --if-exists < "$backup_file" || true
