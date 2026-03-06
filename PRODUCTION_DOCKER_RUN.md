@@ -45,6 +45,7 @@ docker run -d \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
+    -e PGDATA=/var/lib/postgresql/data/pgdata \
     -v softpower_pgdata:/var/lib/postgresql/data \
     -p 5432:5432 \
     --shm-size=1g \

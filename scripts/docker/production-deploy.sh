@@ -112,13 +112,13 @@ MODEL_DIR="${MODEL_DIR:-${SCRIPT_DIR}/hf_model}"
 REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
 
 # Container names
-DB_CONTAINER="softpower_db"
-APP_CONTAINER="softpower_app"
-REDIS_CONTAINER="softpower_redis"
+DB_CONTAINER="sp_prod_db"
+APP_CONTAINER="sp_prod_app"
+REDIS_CONTAINER="sp_prod_redis"
 
 # Docker resources
 NETWORK_NAME="softpower_net"
-DB_VOLUME="softpower_pgdata"
+DB_VOLUME="softpower_production_prod_pgdata"
 
 # ============================================
 # Helper Functions
@@ -404,6 +404,7 @@ cmd_start() {
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
+            -e PGDATA=/var/lib/postgresql/data/pgdata \
             -v "$DB_VOLUME":/var/lib/postgresql/data \
             -p "${DB_PORT}:5432" \
             --shm-size=1g \
@@ -988,6 +989,7 @@ cmd_rebuild_db() {
         -e POSTGRES_USER="$POSTGRES_USER" \
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
+        -e PGDATA=/var/lib/postgresql/data/pgdata \
         -v "$DB_VOLUME":/var/lib/postgresql/data \
         -p "${DB_PORT}:5432" \
         --shm-size=1g \
