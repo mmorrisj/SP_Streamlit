@@ -97,9 +97,9 @@ if [ -z "$APP_IMAGE" ]; then
     if [ "$IMAGE_TYPE" = "registry" ] && [ -n "$PRODUCTION_REGISTRY" ]; then
         APP_IMAGE="${PRODUCTION_REGISTRY}/softpower-analytics:${APP_VERSION}"
     elif [ -n "$PRODUCTION_REGISTRY" ]; then
-        APP_IMAGE="${PRODUCTION_REGISTRY}/softpower-app-production:latest"
+        APP_IMAGE="${PRODUCTION_REGISTRY}/softpower-analytics:latest"
     else
-        APP_IMAGE="softpower-app-production:latest"
+        APP_IMAGE="softpower-analytics:latest"
     fi
 fi
 
@@ -108,9 +108,13 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL_DIR="${MODEL_DIR:-${SCRIPT_DIR}/hf_model}"
 
+# Redis image (replace with enterprise hardened image on-site, e.g. dhi/redis:7)
+REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
+
 # Container names
 DB_CONTAINER="softpower_db"
 APP_CONTAINER="softpower_app"
+REDIS_CONTAINER="softpower_redis"
 
 # Docker resources
 NETWORK_NAME="softpower_net"
@@ -158,7 +162,7 @@ wait_for_api() {
     log_info "Waiting for API to be healthy..."
     local max_attempts=30
     for i in $(seq 1 $max_attempts); do
-        if curl -sf http://localhost:${API_PORT}/api/health > /dev/null 2>&1; then
+        if curl -sf http://0.0.0.0:${API_PORT}/api/health > /dev/null 2>&1; then
             log_ok "API is healthy"
             return 0
         fi
@@ -410,6 +414,39 @@ cmd_start() {
 
     wait_for_db
 
+    # --- Start Redis ---
+    if container_running "$REDIS_CONTAINER"; then
+        log_ok "Redis already running"
+    else
+        if container_exists "$REDIS_CONTAINER"; then
+            log_info "Removing stopped Redis container..."
+            docker rm "$REDIS_CONTAINER"
+        fi
+
+        log_info "Starting Redis cache..."
+        docker run -d \
+            --name "$REDIS_CONTAINER" \
+            --network "$NETWORK_NAME" \
+            --restart unless-stopped \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            "$REDIS_IMAGE"
+
+        # Wait for Redis to be ready
+        local redis_attempts=10
+        for i in $(seq 1 $redis_attempts); do
+            if docker run --rm --network "$NETWORK_NAME" \
+                "$REDIS_IMAGE" redis-cli -h "$REDIS_CONTAINER" ping 2>/dev/null | grep -q PONG; then
+                log_ok "Redis is ready"
+                break
+            fi
+            if [ "$i" -eq "$redis_attempts" ]; then
+                log_warn "Redis did not respond — caching will be disabled (app continues without it)"
+            fi
+            sleep 1
+        done
+    fi
+
     # --- Start Application ---
     if container_running "$APP_CONTAINER"; then
         log_ok "Application already running"
@@ -426,7 +463,7 @@ cmd_start() {
             PROXY_HOST_FLAG="--add-host=host.docker.internal:host-gateway"
             log_info "LLM/S3 proxy: host.docker.internal:${LLM_PROXY_PORT}"
         else
-            PROXY_API_URL="http://localhost:8000"
+            PROXY_API_URL="http://0.0.0.0:8000"
             PROXY_HOST_FLAG=""
             log_info "LLM/S3 proxy: disabled (container calls APIs directly)"
         fi
@@ -489,6 +526,7 @@ cmd_start() {
             -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
             -e HF_HOME="/app/.cache/huggingface" \
             -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface/hub" \
+            -e REDIS_URL="redis://${REDIS_CONTAINER}:6379/0" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
             -p "${API_PORT}:8000" \
             -p "${STREAMLIT_PORT}:8501" \
@@ -520,10 +558,11 @@ cmd_start() {
     fi
     echo ""
     echo "Access:"
-    echo "  React Web App:    http://localhost:${API_PORT}"
-    echo "  API Docs:         http://localhost:${API_PORT}/docs"
-    echo "  Streamlit:        http://localhost:${STREAMLIT_PORT}"
-    echo "  PostgreSQL:       localhost:${DB_PORT}"
+    echo "  React Web App:    http://0.0.0.0:${API_PORT}"
+    echo "  API Docs:         http://0.0.0.0:${API_PORT}/docs"
+    echo "  Streamlit:        http://0.0.0.0:${STREAMLIT_PORT}"
+    echo "  PostgreSQL:       0.0.0.0:${DB_PORT}"
+    echo "  Redis cache:      $REDIS_CONTAINER (internal)"
     echo ""
     if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
         echo "LLM/S3 proxy prerequisite:"
@@ -548,7 +587,7 @@ cmd_stop() {
     echo ""
     log_info "Stopping services..."
 
-    for container in "$APP_CONTAINER" "$DB_CONTAINER"; do
+    for container in "$APP_CONTAINER" "$REDIS_CONTAINER" "$DB_CONTAINER"; do
         if container_running "$container"; then
             docker stop "$container"
             docker rm "$container"
@@ -607,7 +646,7 @@ cmd_status() {
     echo ""
 
     # Check containers
-    for container in "$DB_CONTAINER" "$APP_CONTAINER"; do
+    for container in "$DB_CONTAINER" "$REDIS_CONTAINER" "$APP_CONTAINER"; do
         if container_running "$container"; then
             log_ok "$container is running"
         elif container_exists "$container"; then
@@ -911,7 +950,7 @@ cmd_rebuild_db() {
 
     # ---- Step 2: Stop all services ----
     log_info "Step 2/6: Stopping all services..."
-    for container in "$APP_CONTAINER" "$DB_CONTAINER"; do
+    for container in "$APP_CONTAINER" "$REDIS_CONTAINER" "$DB_CONTAINER"; do
         if container_running "$container"; then
             docker stop "$container" >/dev/null 2>&1
             docker rm "$container" >/dev/null 2>&1
@@ -1144,6 +1183,7 @@ case "${1:-help}" in
         echo "  MODEL_DIR=./hf_model      Path to HuggingFace model directory (slim only)"
         echo "  LLM_PROXY_PORT=7001       Host-side LLM/S3 proxy port (default: 7001)"
         echo "  LLM_PROXY_PORT=0          Disable proxy (container calls APIs directly)"
+        echo "  REDIS_IMAGE=redis:7-alpine  Redis image (default; swap for enterprise hardened image)"
         echo ""
         exit 1
         ;;

@@ -99,7 +99,7 @@ docker run -d \
 ### Wait for API readiness
 
 ```bash
-curl -sf http://localhost:8000/api/health
+curl -sf http://0.0.0.0:8000/api/health
 ```
 
 Repeat until HTTP 200.

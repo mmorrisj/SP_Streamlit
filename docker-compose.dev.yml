@@ -131,6 +131,7 @@ services:
       OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
     ports:
@@ -157,10 +158,12 @@ services:
       - "host.docker.internal:host-gateway"
 
   # -----------------------
-  # Redis (for Celery / caching)
+  # Redis (API response caching)
+  # Replace image with your enterprise hardened Redis image if required
+  # e.g., dhi/redis:7
   # -----------------------
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
     security_opt:
@@ -169,6 +172,12 @@ services:
       - ALL
     networks:
       - softpower_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # -----------------------
   # Alembic Migrations (run with `--profile migrate`)

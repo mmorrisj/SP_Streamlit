@@ -50,6 +50,28 @@ services:
       start_period: 30s
 
   # -----------------------
+  # Redis Cache
+  # Replace image with your enterprise hardened Redis image if required
+  # e.g., dhi/redis:7
+  # -----------------------
+  redis:
+    image: redis:7-alpine
+    container_name: sp_prod_redis
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - prod_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # -----------------------
   # SoftPower Analytics (FastAPI + Streamlit via supervisord)
   # Single consolidated container from Docker Hub
   # -----------------------
@@ -81,6 +103,7 @@ services:
       OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      REDIS_URL: redis://sp_prod_redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
     ports:
@@ -92,6 +115,8 @@ services:
       - prod_net
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # -----------------------

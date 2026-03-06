@@ -25,6 +25,7 @@ if env_path.exists():
     load_dotenv(env_path)
 
 from shared.database.database import get_session
+from shared.cache.redis_cache import cache, init_cache, get_cache
 from shared.models.models import (
     Document, EventSummary, CanonicalEvent, DailyEventMention,
     Category, Subcategory, InitiatingCountry, RecipientCountry,
@@ -249,11 +250,33 @@ def require_analyst_or_above(current_user: dict = Depends(get_current_user)) -> 
     return current_user
 
 
+@app.on_event("startup")
+def startup_event():
+    init_cache()  # Graceful: logs warning and continues if Redis unavailable
+
+
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    rc = get_cache()
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "cache": "redis" if rc.available else "disabled",
+    }
+
+
+@app.post("/api/cache/clear")
+def clear_cache(current_user: dict = Depends(require_admin)):
+    """Admin-only: flush all cached API responses."""
+    rc = get_cache()
+    if not rc.available:
+        return {"status": "cache_disabled", "cleared": 0}
+    count = rc.delete_pattern("api:*")
+    return {"status": "ok", "cleared": count}
+
 
 @app.get("/api/documents/stats", response_model=DocumentStats)
+@cache(ttl=300, prefix="doc_stats")
 def get_document_stats(
     country: Optional[str] = None,
     category: Optional[str] = None,
@@ -824,6 +847,7 @@ def get_summaries(
 # ===== DASHBOARD INTELLIGENCE ENDPOINT =====
 
 @app.get("/api/dashboard/intelligence")
+@cache(ttl=600, prefix="dashboard_intel")
 def get_dashboard_intelligence():
     """Get recent weekly/monthly event summaries for the dashboard intelligence section."""
     with get_session() as session:
@@ -955,6 +979,7 @@ def get_event_across_periods(event_id: str):
 # ===== COUNTRY COMPARISON =====
 
 @app.get("/api/events/comparison")
+@cache(ttl=600, prefix="event_comparison")
 def get_event_comparison(
     limit: int = Query(20, ge=1, le=100)
 ):
@@ -1014,6 +1039,7 @@ def get_event_comparison(
 # ===== MATERIALITY HEATMAP =====
 
 @app.get("/api/events/materiality-heatmap")
+@cache(ttl=600, prefix="materiality_heatmap")
 def get_materiality_heatmap():
     """Get materiality data for calendar heatmap visualization."""
     with get_session() as session:
@@ -1239,6 +1265,7 @@ def get_bilateral_map_data(influencer: Optional[str] = Query(None, description="
             }
 
 @app.get("/api/filters", response_model=FiltersResponse)
+@cache(ttl=3600, prefix="filters")
 def get_filter_options():
     with get_session() as session:
         # Return only influencers from config as filter options
@@ -1329,6 +1356,7 @@ class InfluencerBilateralSummariesResponse(BaseModel):
     summaries: list
 
 @app.get("/api/influencer/{country}/overview", response_model=InfluencerOverview)
+@cache(ttl=600, prefix="influencer_overview")
 def get_influencer_overview(country: str):
     """Get overview statistics for a specific influencer country."""
     with get_session() as session:
@@ -1889,6 +1917,7 @@ class RecipientMetrics(BaseModel):
     recent_events: list
 
 @app.get("/api/metrics/overall", response_model=OverallMetrics)
+@cache(ttl=600, prefix="metrics_overall")
 def get_overall_metrics():
     """Get comprehensive overall metrics across all influencers and recipients."""
     with get_session() as session:
@@ -2027,6 +2056,7 @@ def get_overall_metrics():
         )
 
 @app.get("/api/metrics/influencer/{country}", response_model=InfluencerMetrics)
+@cache(ttl=600, prefix="metrics_influencer")
 def get_influencer_metrics(country: str):
     """Get comprehensive metrics for a specific influencer with category/subcategory breakdowns."""
     with get_session() as session:
@@ -2130,6 +2160,7 @@ def get_influencer_metrics(country: str):
         )
 
 @app.get("/api/metrics/bilateral/{influencer}/{recipient}", response_model=BilateralMetrics)
+@cache(ttl=600, prefix="metrics_bilateral")
 def get_bilateral_metrics(influencer: str, recipient: str):
     """Get comprehensive bilateral metrics with category and subcategory breakdowns."""
     with get_session() as session:
@@ -2257,6 +2288,7 @@ def get_bilateral_metrics(influencer: str, recipient: str):
         )
 
 @app.get("/api/metrics/recipient/{country}", response_model=RecipientMetrics)
+@cache(ttl=600, prefix="metrics_recipient")
 def get_recipient_metrics(country: str):
     """Get comprehensive metrics for a specific recipient across all influencers."""
     with get_session() as session:
@@ -2460,6 +2492,7 @@ class BilateralSourcesResponse(BaseModel):
 # --- Bilateral sub-endpoints (must be before the catch-all /{influencer}/{recipient}) ---
 
 @app.get("/api/bilateral/{influencer}/{recipient}/enhanced-overview", response_model=BilateralEnhancedOverviewResponse)
+@cache(ttl=600, prefix="bilateral_overview")
 def get_bilateral_enhanced_overview(influencer: str, recipient: str):
     """Enhanced overview with richer KPIs for bilateral page."""
     with get_session() as session:
@@ -2573,6 +2606,7 @@ def get_bilateral_enhanced_overview(influencer: str, recipient: str):
 
 
 @app.get("/api/bilateral/{influencer}/{recipient}/relationship-profile", response_model=BilateralRelationshipProfileResponse)
+@cache(ttl=900, prefix="bilateral_profile")
 def get_bilateral_relationship_profile(influencer: str, recipient: str):
     """Get AI-generated relationship profile from BilateralRelationshipSummary."""
     with get_session() as session:
