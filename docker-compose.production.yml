@@ -39,7 +39,7 @@ services:
     volumes:
       - prod_pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     networks:
       - prod_net
     healthcheck:
@@ -98,20 +98,31 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
       API_PORT: 8000
       # Host-side proxy for LLM/S3 calls (run uvicorn server.main:app on host)
-      API_URL: http://host.docker.internal:${API_PORT:-7001}
-      S3_PROXY_URL: http://host.docker.internal:${API_PORT:-7001}
+      # LLM_PROXY_PORT defaults to 7001; set LLM_PROXY_PORT in .env to override
+      API_URL: http://host.docker.internal:${LLM_PROXY_PORT:-7001}
+      S3_PROXY_URL: http://host.docker.internal:${LLM_PROXY_PORT:-7001}
       USE_S3_API_CLIENT: "true"
       # Pass through credentials from .env (will be empty if not set)
       CLAUDE_KEY: ${CLAUDE_KEY:-}
       OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # Connection pooling
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+      # HuggingFace offline mode (model baked into image)
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      HF_HOME: /app/.cache/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
       REDIS_URL: redis://sp_prod_redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
     ports:
-      - "8000:8000"   # FastAPI (React UI + API)
-      - "8501:8501"   # Streamlit Dashboard
+      - "${API_PORT:-8000}:8000"   # FastAPI (React UI + API)
+      - "${STREAMLIT_PORT:-8501}:8501"   # Streamlit Dashboard
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

@@ -415,6 +415,8 @@ cmd_start() {
             --name "$DB_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
@@ -542,6 +544,8 @@ cmd_start() {
             --name "$DB_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
@@ -659,6 +663,8 @@ cmd_start() {
             --name "$APP_CONTAINER" \
             --network "$NETWORK_NAME" \
             --restart unless-stopped \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
             $VOLUME_FLAGS \
             $PROXY_HOST_FLAG \
             -e DOCKER_ENV=true \
@@ -676,12 +682,19 @@ cmd_start() {
             -e DB_POOL_TIMEOUT="${DB_POOL_TIMEOUT:-30}" \
             -e DB_POOL_RECYCLE="${DB_POOL_RECYCLE:-3600}" \
             -e API_URL="$PROXY_API_URL" \
+            -e S3_PROXY_URL="$PROXY_API_URL" \
+            -e USE_S3_API_CLIENT="true" \
             -e TRANSFORMERS_OFFLINE="$TRANSFORMERS_OFFLINE" \
             -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
             -e HF_HOME="/app/.cache/huggingface" \
             -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface/hub" \
             -e REDIS_URL="redis://${REDIS_CONTAINER}:6379/0" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
+            -e OPENAI_PROJ_API="${OPENAI_PROJ_API:-}" \
+            -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
+            -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
+            -e JWT_SECRET="${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}" \
+            -e JWT_EXPIRATION_HOURS="${JWT_EXPIRATION_HOURS:-24}" \
             -p "${API_PORT}:8000" \
             -p "${STREAMLIT_PORT}:8501" \
             "$APP_IMAGE"
@@ -1139,6 +1152,8 @@ cmd_rebuild_db() {
         --name "$DB_CONTAINER" \
         --network "$NETWORK_NAME" \
         --restart unless-stopped \
+        --security-opt no-new-privileges:true \
+        --cap-drop ALL \
         -e POSTGRES_USER="$POSTGRES_USER" \
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
