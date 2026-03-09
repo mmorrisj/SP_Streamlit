@@ -1185,4 +1185,78 @@ export async function validateReportStream(
   }
 }
 
+// ============================================================
+// Chart Drilldown Types and API functions
+// ============================================================
+
+/**
+ * Tracks the original user query that generated the chart,
+ * separate from which chart segment was clicked.
+ */
+export interface DrilldownQueryContext {
+  initiating_country?: string
+  recipient_country?: string
+  category?: string
+  subcategory?: string
+  start_date?: string
+  end_date?: string
+  page_source?: string  // which page the drilldown was triggered from
+}
+
+/**
+ * Describes which chart element the user clicked.
+ */
+export interface DrilldownChartSelection {
+  dimension: 'category' | 'subcategory' | 'recipient_country' | 'initiating_country' | 'month' | 'source'
+  value: string
+  chart_type?: string  // e.g. 'pie', 'bar', 'line'
+}
+
+export interface DrilldownRequest {
+  query_context: DrilldownQueryContext
+  chart_selection: DrilldownChartSelection
+  include_narrative?: boolean  // default true
+}
+
+export interface DrilldownMetrics {
+  total_documents: number
+  date_range: { min: string; max: string }
+  category_distribution: { category: string; count: number }[]
+  subcategory_distribution: { subcategory: string; count: number }[]
+  recipient_distribution: { recipient: string; count: number }[]
+  initiator_distribution: { initiator: string; count: number }[]
+  monthly_trend: { month: string; count: number }[]
+  top_sources: { source: string; count: number }[]
+  avg_material_score: number | null
+  material_score_distribution: { bin: string; count: number }[]
+}
+
+export interface DrilldownDocument {
+  doc_id: string
+  title: string
+  date: string
+  source_name: string | null
+  category: string | null
+  subcategory: string | null
+  initiating_country: string | null
+  recipient_country: string | null
+  material_score: number | null
+  distilled_text: string | null
+}
+
+export interface DrilldownResponse {
+  query_context: DrilldownQueryContext
+  chart_selection: DrilldownChartSelection
+  metrics: DrilldownMetrics
+  narrative: string | null
+  narrative_model: string | null
+  sample_documents: DrilldownDocument[]
+  total_documents: number
+}
+
+export const fetchDrilldown = async (request: DrilldownRequest): Promise<DrilldownResponse> => {
+  const { data } = await api.post('/drilldown', request)
+  return data
+}
+
 export default api

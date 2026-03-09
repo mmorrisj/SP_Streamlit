@@ -16,6 +16,7 @@ import {
 } from 'recharts'
 import { Activity, TrendingUp, Globe, Users } from 'lucide-react'
 import { fetchOverallMetrics } from '../api/client'
+import { useDrilldown } from '../hooks/useDrilldown'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c3daf7']
@@ -30,6 +31,10 @@ export default function OverallMetrics() {
   const { data: metrics, isLoading, error } = useQuery({
     queryKey: ['overallMetrics'],
     queryFn: fetchOverallMetrics,
+  })
+
+  const openDrilldown = useDrilldown({
+    page_source: 'Overall Metrics',
   })
 
   if (isLoading) {
@@ -77,6 +82,9 @@ export default function OverallMetrics() {
       <header className="page-header">
         <h1>Overall Soft Power Metrics</h1>
         <p>Comprehensive analysis across all influencers and recipients</p>
+        <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+          Click any chart element to drill down into the underlying data
+        </p>
       </header>
 
       {/* Key Stats */}
@@ -130,7 +138,18 @@ export default function OverallMetrics() {
       <div className="chart-card">
         <h3>📈 Monthly Activity Trend</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={metrics.monthly_trend}>
+          <LineChart
+            data={metrics.monthly_trend}
+            onClick={(e) => {
+              if (e?.activeLabel) {
+                const month = e.activeLabel as string
+                const d = new Date(month)
+                const formatted = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+                openDrilldown({ dimension: 'month', value: formatted, chart_type: 'line' })
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="month"
@@ -175,6 +194,12 @@ export default function OverallMetrics() {
                 outerRadius={120}
                 label={(entry: any) => `${entry.category}: ${entry.percent}%`}
                 labelLine={{ stroke: '#666', strokeWidth: 1 }}
+                onClick={(entry: any) => {
+                  if (entry?.category) {
+                    openDrilldown({ dimension: 'category', value: entry.category, chart_type: 'pie' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
               >
                 {categoryWithPercent.map((entry) => (
                   <Cell
@@ -195,7 +220,16 @@ export default function OverallMetrics() {
         <div className="chart-card">
           <h3>🌍 Influencer Comparison</h3>
           <ResponsiveContainer width="100%" height={350}>
-            <BarChart data={metrics.influencer_comparison} layout="vertical">
+            <BarChart
+              data={metrics.influencer_comparison}
+              layout="vertical"
+              onClick={(e) => {
+                if (e?.activeLabel) {
+                  openDrilldown({ dimension: 'initiating_country', value: e.activeLabel as string, chart_type: 'bar' })
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="influencer" type="category" width={100} tick={{ fontSize: 12 }} />
@@ -214,7 +248,16 @@ export default function OverallMetrics() {
       <div className="chart-card">
         <h3>🔍 Top 20 Subcategories</h3>
         <ResponsiveContainer width="100%" height={500}>
-          <BarChart data={metrics.subcategory_breakdown} layout="vertical">
+          <BarChart
+            data={metrics.subcategory_breakdown}
+            layout="vertical"
+            onClick={(e) => {
+              if (e?.activeLabel) {
+                openDrilldown({ dimension: 'subcategory', value: e.activeLabel as string, chart_type: 'bar' })
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" />
             <YAxis

@@ -17,6 +17,7 @@ import {
 } from 'recharts'
 import { ArrowLeft, FileText, Globe, TrendingUp } from 'lucide-react'
 import { fetchInfluencerMetrics } from '../api/client'
+import { useDrilldown } from '../hooks/useDrilldown'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c3daf7']
@@ -35,6 +36,11 @@ export default function InfluencerMetricsPage() {
     queryKey: ['influencerMetrics', country],
     queryFn: () => fetchInfluencerMetrics(country!),
     enabled: !!country,
+  })
+
+  const openDrilldown = useDrilldown({
+    initiating_country: country,
+    page_source: 'Influencer Metrics',
   })
 
   if (isLoading) {
@@ -81,6 +87,9 @@ export default function InfluencerMetricsPage() {
         </button>
         <h1>{metrics.influencer} - Detailed Metrics</h1>
         <p>Comprehensive breakdown of soft power activities and engagements</p>
+        <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+          Click any chart element to drill down into the underlying data
+        </p>
       </header>
 
       {/* Key Stats */}
@@ -122,7 +131,19 @@ export default function InfluencerMetricsPage() {
       <div className="chart-card">
         <h3>📈 Monthly Activity Trend</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={metrics.monthly_trend}>
+          <LineChart
+            data={metrics.monthly_trend}
+            onClick={(e) => {
+              if (e?.activeLabel) {
+                const month = e.activeLabel as string
+                // Format to YYYY-MM
+                const d = new Date(month)
+                const formatted = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+                openDrilldown({ dimension: 'month', value: formatted, chart_type: 'line' })
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="month"
@@ -166,6 +187,12 @@ export default function InfluencerMetricsPage() {
                 cy="50%"
                 outerRadius={100}
                 label={(entry: any) => `${entry.category}`}
+                onClick={(entry: any) => {
+                  if (entry?.category) {
+                    openDrilldown({ dimension: 'category', value: entry.category, chart_type: 'pie' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
               >
                 {metrics.category_breakdown.map((entry) => (
                   <Cell
@@ -183,7 +210,16 @@ export default function InfluencerMetricsPage() {
         <div className="chart-card">
           <h3>🌍 Top 10 Recipients</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={metrics.recipient_breakdown.slice(0, 10)} layout="vertical">
+            <BarChart
+              data={metrics.recipient_breakdown.slice(0, 10)}
+              layout="vertical"
+              onClick={(e) => {
+                if (e?.activeLabel) {
+                  openDrilldown({ dimension: 'recipient_country', value: e.activeLabel as string, chart_type: 'bar' })
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="recipient" type="category" width={100} tick={{ fontSize: 12 }} />
@@ -198,7 +234,16 @@ export default function InfluencerMetricsPage() {
       <div className="chart-card">
         <h3>🔍 Top 15 Subcategories</h3>
         <ResponsiveContainer width="100%" height={450}>
-          <BarChart data={metrics.subcategory_breakdown.slice(0, 15)} layout="vertical">
+          <BarChart
+            data={metrics.subcategory_breakdown.slice(0, 15)}
+            layout="vertical"
+            onClick={(e) => {
+              if (e?.activeLabel) {
+                openDrilldown({ dimension: 'subcategory', value: e.activeLabel as string, chart_type: 'bar' })
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" />
             <YAxis dataKey="subcategory" type="category" width={150} tick={{ fontSize: 11 }} />
@@ -212,7 +257,16 @@ export default function InfluencerMetricsPage() {
       <div className="chart-card">
         <h3>📰 Top 20 News Sources</h3>
         <ResponsiveContainer width="100%" height={500}>
-          <BarChart data={metrics.source_breakdown.slice(0, 20)} layout="vertical">
+          <BarChart
+            data={metrics.source_breakdown.slice(0, 20)}
+            layout="vertical"
+            onClick={(e) => {
+              if (e?.activeLabel) {
+                openDrilldown({ dimension: 'source', value: e.activeLabel as string, chart_type: 'bar' })
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" />
             <YAxis dataKey="source" type="category" width={150} tick={{ fontSize: 11 }} />

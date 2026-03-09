@@ -14,6 +14,7 @@ import {
   fetchInfluencerSources,
   fetchInfluencerTimeline,
 } from '../api/client'
+import { useDrilldown } from '../hooks/useDrilldown'
 import type {
   InfluencerEvent,
   InfluencerEntity,
@@ -224,6 +225,11 @@ export default function InfluencerPage() {
     sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
+  const openDrilldown = useDrilldown({
+    initiating_country: country,
+    page_source: 'Influencer Profile',
+  })
+
   // Helper: top N from Record<string, number>
   const topEntries = (obj: Record<string, number>, n: number) =>
     Object.entries(obj).sort(([, a], [, b]) => b - a).slice(0, n)
@@ -338,6 +344,12 @@ export default function InfluencerPage() {
                   label={(props: any) =>
                     `${props.category} ${(props.percent * 100).toFixed(0)}%`
                   }
+                  onClick={(entry: any) => {
+                    if (entry?.category) {
+                      openDrilldown({ dimension: 'category', value: entry.category, chart_type: 'pie' })
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
                 >
                   {overview.top_categories.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -352,7 +364,16 @@ export default function InfluencerPage() {
           <div className="chart-card">
             <h3>Top Recipients</h3>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={overview.top_recipients} layout="vertical">
+              <BarChart
+                data={overview.top_recipients}
+                layout="vertical"
+                onClick={(e) => {
+                  if (e?.activeLabel) {
+                    openDrilldown({ dimension: 'recipient_country', value: e.activeLabel as string, chart_type: 'bar' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+              >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" />
                 <YAxis dataKey="country" type="category" width={110} tick={{ fontSize: 11 }} />

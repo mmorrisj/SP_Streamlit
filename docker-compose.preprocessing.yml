@@ -1,0 +1,65 @@
+# ============================================
+# Preprocessing / Pipeline Runner - Standalone
+# Separate from dev and production stacks.
+#
+# Usage:
+#   # Build the image:
+#   docker compose -f docker-compose.preprocessing.yml build
+#
+#   # Run any pipeline script:
+#   docker compose -f docker-compose.preprocessing.yml run --rm preprocessing python services/pipeline/ingestion/dsr.py --source local
+#   docker compose -f docker-compose.preprocessing.yml run --rm preprocessing python services/pipeline/events/batch_cluster_events.py --influencers --start-date 2026-02-01 --end-date 2026-02-28
+#   docker compose -f docker-compose.preprocessing.yml run --rm preprocessing python services/pipeline/batch/batch_prepare.py --job-type cluster_deconflict --country China
+#   docker compose -f docker-compose.preprocessing.yml run --rm preprocessing python services/pipeline/batch/batch_queue_runner.py --job-type cluster_deconflict --country China
+#   docker compose -f docker-compose.preprocessing.yml run --rm preprocessing python services/pipeline/batch/batch_process_all_results.py --job-type cluster_deconflict
+#   docker compose -f docker-compose.preprocessing.yml run --rm preprocessing python services/pipeline/embeddings/embed_missing_documents.py --yes
+#
+#   # Shorthand alias (add to .bashrc):
+#   alias sp-pipeline='docker compose -f docker-compose.preprocessing.yml run --rm preprocessing'
+#   sp-pipeline python services/pipeline/ingestion/dsr.py --source local
+# ============================================
+
+name: softpower_preprocessing
+
+services:
+  preprocessing:
+    image: sp-preprocessing:latest
+    build:
+      context: .
+      dockerfile: docker/preprocessing.Dockerfile
+    container_name: sp-preprocessing
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: sp_prod_db
+      DB_PORT: 5432
+      POSTGRES_HOST: sp_prod_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      API_URL: http://host.docker.internal:${API_PORT:-7001}
+      S3_PROXY_URL: http://host.docker.internal:${API_PORT:-7001}
+      USE_S3_API_CLIENT: "true"
+      BATCH_SCRATCHPAD_DIR: /app/_data/batch
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - ./data:/app/data
+      - ./services/pipeline:/app/services/pipeline
+      - ./shared:/app/shared
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - softpower_net
+
+networks:
+  softpower_net:
+    external: true

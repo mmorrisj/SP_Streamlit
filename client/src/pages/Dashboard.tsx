@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Calendar, Zap, Tag, Globe } from 'lucide-react'
 import { fetchDocumentStats, fetchFilterOptions, fetchDashboardIntelligence } from '../api/client'
 import type { DashboardIntelligenceItem } from '../api/client'
+import { useDrilldown } from '../hooks/useDrilldown'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a5c4e0', '#c4d9ed', '#e0ebf5']
@@ -130,6 +131,12 @@ export default function Dashboard() {
   const { data: intelligence } = useQuery({
     queryKey: ['dashboard-intelligence'],
     queryFn: fetchDashboardIntelligence,
+  })
+
+  const openDrilldown = useDrilldown({
+    initiating_country: filterInfluencer !== 'ALL' ? filterInfluencer : undefined,
+    recipient_country: filterRecipient !== 'ALL' ? filterRecipient : undefined,
+    page_source: 'Dashboard',
   })
 
   // Merge weekly data for influencers and recipients (filtered client-side)
@@ -426,7 +433,16 @@ export default function Dashboard() {
         <div className="chart-card">
           <h3>Top Influencers by Document Count</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={data?.top_countries || []} layout="vertical">
+            <BarChart
+              data={data?.top_countries || []}
+              layout="vertical"
+              onClick={(e) => {
+                if (e?.activeLabel) {
+                  openDrilldown({ dimension: 'initiating_country', value: e.activeLabel as string, chart_type: 'bar' })
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="country" type="category" width={100} tick={{ fontSize: 12 }} />
@@ -440,7 +456,16 @@ export default function Dashboard() {
         <div className="chart-card">
           <h3>Top Recipients by Document Count</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={data?.top_recipients || []} layout="vertical">
+            <BarChart
+              data={data?.top_recipients || []}
+              layout="vertical"
+              onClick={(e) => {
+                if (e?.activeLabel) {
+                  openDrilldown({ dimension: 'recipient_country', value: e.activeLabel as string, chart_type: 'bar' })
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="country" type="category" width={100} tick={{ fontSize: 12 }} />
@@ -467,6 +492,12 @@ export default function Dashboard() {
                   const percent = ((entry.count / total) * 100).toFixed(0)
                   return `${entry.category} (${percent}%)`
                 }}
+                onClick={(entry: any) => {
+                  if (entry?.category) {
+                    openDrilldown({ dimension: 'category', value: entry.category, chart_type: 'pie' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
               >
                 {(data?.category_distribution || []).map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -494,6 +525,12 @@ export default function Dashboard() {
                   const percent = ((entry.count / total) * 100).toFixed(0)
                   return `${entry.subcategory} (${percent}%)`
                 }}
+                onClick={(entry: any) => {
+                  if (entry?.subcategory) {
+                    openDrilldown({ dimension: 'subcategory', value: entry.subcategory, chart_type: 'pie' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
               >
                 {(data?.subcategory_distribution || []).map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

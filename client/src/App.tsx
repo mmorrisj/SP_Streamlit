@@ -31,6 +31,7 @@ import CrossPeriodView from './pages/CrossPeriodView'
 import CountryComparison from './pages/CountryComparison'
 import MaterialityHeatmap from './pages/MaterialityHeatmap'
 import ChatPage from './pages/ChatPage'
+import DrilldownPage from './pages/DrilldownPage'
 
 const queryClient = new QueryClient()
 
@@ -81,6 +82,7 @@ function App() {
               <Route path="timeline" element={<TimelineComparison />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="report" element={<ReportPage />} />
+              <Route path="drilldown" element={<DrilldownPage />} />
 
               {/* Admin-only routes */}
               <Route path="admin/users" element={

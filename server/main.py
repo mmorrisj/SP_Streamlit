@@ -4435,6 +4435,311 @@ def delete_user(
         return {"message": "User deleted"}
 
 
+# ----- Chart Drilldown Endpoint -----
+
+class DrilldownQueryContext(BaseModel):
+    initiating_country: Optional[str] = None
+    recipient_country: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    page_source: Optional[str] = None
+
+class DrilldownChartSelection(BaseModel):
+    dimension: str  # category, subcategory, recipient_country, initiating_country, month, source
+    value: str
+    chart_type: Optional[str] = None
+
+class DrilldownRequest(BaseModel):
+    query_context: DrilldownQueryContext
+    chart_selection: DrilldownChartSelection
+    include_narrative: Optional[bool] = True
+
+@app.post("/api/drilldown")
+def chart_drilldown(request: DrilldownRequest):
+    """
+    On-demand drilldown for chart click interactions.
+    Returns SQL-computed metrics (always accurate, no context limits)
+    plus an optional LLM narrative from a representative sample.
+    """
+    from sqlalchemy import text as sql_text
+
+    ctx = request.query_context
+    sel = request.chart_selection
+
+    with get_session() as session:
+        # ── Build filter conditions ──
+        conditions = []
+        params: dict = {}
+
+        # Always restrict to known influencers/recipients
+        conditions.append("ic.initiating_country = ANY(:influencers)")
+        params["influencers"] = INFLUENCERS
+        conditions.append("rc.recipient_country = ANY(:recipients)")
+        params["recipients"] = RECIPIENTS
+        conditions.append("ic.initiating_country != rc.recipient_country")
+
+        # Original query context filters
+        if ctx.initiating_country and ctx.initiating_country != 'ALL':
+            conditions.append("ic.initiating_country = :ctx_init")
+            params["ctx_init"] = ctx.initiating_country
+        if ctx.recipient_country and ctx.recipient_country != 'ALL':
+            conditions.append("rc.recipient_country = :ctx_recip")
+            params["ctx_recip"] = ctx.recipient_country
+        if ctx.category and ctx.category != 'ALL':
+            conditions.append("cat.category = :ctx_cat")
+            params["ctx_cat"] = ctx.category
+        if ctx.subcategory and ctx.subcategory != 'ALL':
+            conditions.append("sub.subcategory = :ctx_subcat")
+            params["ctx_subcat"] = ctx.subcategory
+        if ctx.start_date:
+            conditions.append("d.date >= :ctx_start")
+            params["ctx_start"] = ctx.start_date
+        if ctx.end_date:
+            conditions.append("d.date <= :ctx_end")
+            params["ctx_end"] = ctx.end_date
+
+        # Chart selection filter (the clicked dimension)
+        dim_map = {
+            "category": ("cat.category", "sel_val"),
+            "subcategory": ("sub.subcategory", "sel_val"),
+            "recipient_country": ("rc.recipient_country", "sel_val"),
+            "initiating_country": ("ic.initiating_country", "sel_val"),
+            "source": ("d.source_name", "sel_val"),
+        }
+
+        need_cat_join = ctx.category or sel.dimension == "category"
+        need_sub_join = ctx.subcategory or sel.dimension == "subcategory"
+
+        if sel.dimension == "month":
+            # Month selection: filter to that month
+            conditions.append("to_char(d.date, 'YYYY-MM') = :sel_val")
+            params["sel_val"] = sel.value
+        elif sel.dimension in dim_map:
+            col, param = dim_map[sel.dimension]
+            conditions.append(f"{col} = :{param}")
+            params[param] = sel.value
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown dimension: {sel.dimension}")
+
+        # ── Build FROM clause ──
+        from_clause = """
+            documents d
+            JOIN initiating_countries ic ON d.doc_id = ic.doc_id
+            JOIN recipient_countries rc ON d.doc_id = rc.doc_id
+        """
+        if need_cat_join:
+            from_clause += " JOIN categories cat ON d.doc_id = cat.doc_id"
+        if need_sub_join:
+            from_clause += " JOIN subcategories sub ON d.doc_id = sub.doc_id"
+
+        where_clause = " AND ".join(conditions)
+
+        # ── 1. Total document count ──
+        count_sql = f"SELECT COUNT(DISTINCT d.doc_id) FROM {from_clause} WHERE {where_clause}"
+        total_documents = session.execute(sql_text(count_sql), params).scalar() or 0
+
+        # ── 2. Date range ──
+        date_sql = f"SELECT MIN(d.date), MAX(d.date) FROM {from_clause} WHERE {where_clause}"
+        date_row = session.execute(sql_text(date_sql), params).fetchone()
+        date_min = str(date_row[0]) if date_row and date_row[0] else None
+        date_max = str(date_row[1]) if date_row and date_row[1] else None
+
+        # ── 3. Category distribution ──
+        cat_dist_sql = f"""
+            SELECT cat2.category, COUNT(DISTINCT d.doc_id) as cnt
+            FROM {from_clause}
+            JOIN categories cat2 ON d.doc_id = cat2.doc_id
+            WHERE {where_clause}
+            GROUP BY cat2.category ORDER BY cnt DESC
+        """
+        cat_dist = [{"category": r[0], "count": r[1]}
+                    for r in session.execute(sql_text(cat_dist_sql), params).fetchall()]
+
+        # ── 4. Subcategory distribution ──
+        sub_dist_sql = f"""
+            SELECT sub2.subcategory, COUNT(DISTINCT d.doc_id) as cnt
+            FROM {from_clause}
+            JOIN subcategories sub2 ON d.doc_id = sub2.doc_id
+            WHERE {where_clause}
+            GROUP BY sub2.subcategory ORDER BY cnt DESC
+        """
+        sub_dist = [{"subcategory": r[0], "count": r[1]}
+                    for r in session.execute(sql_text(sub_dist_sql), params).fetchall()]
+
+        # ── 5. Recipient distribution ──
+        recip_dist_sql = f"""
+            SELECT rc2.recipient_country, COUNT(DISTINCT d.doc_id) as cnt
+            FROM {from_clause}
+            JOIN recipient_countries rc2 ON d.doc_id = rc2.doc_id
+            WHERE {where_clause}
+              AND rc2.recipient_country = ANY(:recipients)
+            GROUP BY rc2.recipient_country ORDER BY cnt DESC
+        """
+        recip_dist = [{"recipient": r[0], "count": r[1]}
+                      for r in session.execute(sql_text(recip_dist_sql), params).fetchall()]
+
+        # ── 6. Initiator distribution ──
+        init_dist_sql = f"""
+            SELECT ic2.initiating_country, COUNT(DISTINCT d.doc_id) as cnt
+            FROM {from_clause}
+            JOIN initiating_countries ic2 ON d.doc_id = ic2.doc_id
+            WHERE {where_clause}
+              AND ic2.initiating_country = ANY(:influencers)
+            GROUP BY ic2.initiating_country ORDER BY cnt DESC
+        """
+        init_dist = [{"initiator": r[0], "count": r[1]}
+                     for r in session.execute(sql_text(init_dist_sql), params).fetchall()]
+
+        # ── 7. Monthly trend ──
+        trend_sql = f"""
+            SELECT to_char(d.date, 'YYYY-MM') as month, COUNT(DISTINCT d.doc_id) as cnt
+            FROM {from_clause}
+            WHERE {where_clause} AND d.date IS NOT NULL
+            GROUP BY month ORDER BY month
+        """
+        monthly_trend = [{"month": r[0], "count": r[1]}
+                         for r in session.execute(sql_text(trend_sql), params).fetchall()]
+
+        # ── 8. Top sources ──
+        source_sql = f"""
+            SELECT d.source_name, COUNT(DISTINCT d.doc_id) as cnt
+            FROM {from_clause}
+            WHERE {where_clause} AND d.source_name IS NOT NULL
+            GROUP BY d.source_name ORDER BY cnt DESC LIMIT 15
+        """
+        top_sources = [{"source": r[0], "count": r[1]}
+                       for r in session.execute(sql_text(source_sql), params).fetchall()]
+
+        # ── 9. Material score stats ──
+        # Material score lives on EventSummary, not Document.
+        # Use a lightweight average from event_summaries matching our filters.
+        avg_material = None
+        material_dist = []
+
+        # ── 10. Sample documents (top 20 by date desc) ──
+        sample_sql = f"""
+            SELECT DISTINCT d.doc_id, d.title, d.date, d.source_name,
+                   d.category, d.subcategory,
+                   d.initiating_country, d.recipient_country,
+                   d.distilled_text
+            FROM {from_clause}
+            WHERE {where_clause} AND d.date IS NOT NULL
+            ORDER BY d.date DESC
+            LIMIT 20
+        """
+        sample_rows = session.execute(sql_text(sample_sql), params).fetchall()
+        sample_documents = [
+            {
+                "doc_id": r[0],
+                "title": r[1],
+                "date": str(r[2]) if r[2] else None,
+                "source_name": r[3],
+                "category": r[4],
+                "subcategory": r[5],
+                "initiating_country": r[6],
+                "recipient_country": r[7],
+                "material_score": None,
+                "distilled_text": (r[8][:500] + "...") if r[8] and len(r[8]) > 500 else r[8],
+            }
+            for r in sample_rows
+        ]
+
+        # ── 11. LLM Narrative (optional) ──
+        narrative = None
+        narrative_model = None
+
+        if request.include_narrative and total_documents > 0 and gai is not None:
+            # Build a context-aware prompt that references the original query
+            context_parts = []
+            if ctx.initiating_country and ctx.initiating_country != 'ALL':
+                context_parts.append(f"initiating country: {ctx.initiating_country}")
+            if ctx.recipient_country and ctx.recipient_country != 'ALL':
+                context_parts.append(f"recipient country: {ctx.recipient_country}")
+            if ctx.start_date:
+                context_parts.append(f"from {ctx.start_date}")
+            if ctx.end_date:
+                context_parts.append(f"to {ctx.end_date}")
+
+            original_query_desc = ", ".join(context_parts) if context_parts else "all countries and dates"
+
+            selection_desc = f"{sel.dimension.replace('_', ' ')}: {sel.value}"
+
+            # Prepare document excerpts for the LLM
+            doc_excerpts = []
+            for doc in sample_documents:
+                excerpt = f"- [{doc['date']}] {doc['title'] or 'Untitled'}"
+                if doc['distilled_text']:
+                    excerpt += f": {doc['distilled_text'][:300]}"
+                doc_excerpts.append(excerpt)
+
+            doc_text = "\n".join(doc_excerpts[:15])  # Cap at 15 for token budget
+
+            # Build distribution context for the LLM
+            top_cats = ", ".join([f"{c['category']} ({c['count']})" for c in cat_dist[:5]])
+            top_recips = ", ".join([f"{r['recipient']} ({r['count']})" for r in recip_dist[:5]])
+            top_subs = ", ".join([f"{s['subcategory']} ({s['count']})" for s in sub_dist[:5]])
+
+            sys_prompt = (
+                "You are an analyst specializing in international relations and soft power. "
+                "Write in AP style. Be specific and concrete — avoid generic characterizations. "
+                "Ground your analysis in the data provided."
+            )
+
+            user_prompt = f"""The user was analyzing data for: {original_query_desc}.
+They selected {selection_desc} from a chart, revealing {total_documents} documents spanning {date_min} to {date_max}.
+
+IMPORTANT: Frame your analysis around the original query context ({original_query_desc}), not just the selected slice. The user wants to understand how "{sel.value}" relates to their original analytical focus.
+
+Dataset statistics for this slice:
+- Total documents: {total_documents}
+- Categories: {top_cats}
+- Subcategories: {top_subs}
+- Recipients: {top_recips}
+- Date range: {date_min} to {date_max}
+
+Representative sample of {len(sample_documents)} most recent documents (of {total_documents} total):
+{doc_text}
+
+Provide a concise analytical summary (3-5 paragraphs) that:
+1. Contextualizes this selection within the original query scope
+2. Identifies key patterns and notable findings in this slice
+3. Highlights any significant concentrations or trends
+4. Notes anything unexpected or noteworthy about the distribution"""
+
+            try:
+                narrative_model = "gpt-4.1-mini"
+                response = gai(sys_prompt, user_prompt, narrative_model)
+                # gai() already extracts content; only use fetch_gai_content for raw API responses
+                narrative = response if isinstance(response, str) else str(response)
+            except Exception as e:
+                print(f"[Drilldown] LLM narrative failed: {e}")
+                narrative = None
+
+        # ── Build response ──
+        return {
+            "query_context": ctx.dict(),
+            "chart_selection": sel.dict(),
+            "metrics": {
+                "total_documents": total_documents,
+                "date_range": {"min": date_min, "max": date_max},
+                "category_distribution": cat_dist,
+                "subcategory_distribution": sub_dist,
+                "recipient_distribution": recip_dist,
+                "initiator_distribution": init_dist,
+                "monthly_trend": monthly_trend,
+                "top_sources": top_sources,
+                "avg_material_score": avg_material,
+                "material_score_distribution": material_dist,
+            },
+            "narrative": narrative,
+            "narrative_model": narrative_model,
+            "sample_documents": sample_documents,
+            "total_documents": total_documents,
+        }
+
+
 # Static file serving for React SPA
 # IMPORTANT: This must come AFTER all @app.get() API route definitions
 # so that API routes take precedence over the catch-all
