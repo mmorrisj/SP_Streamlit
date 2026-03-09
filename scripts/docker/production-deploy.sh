@@ -129,6 +129,20 @@ log_ok()    { echo -e "${GREEN}[OK]${NC}    $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# URL-encode a string for use in DATABASE_URL (handles @, /, #, %, spaces, etc.)
+urlencode() {
+    python3 -c "import urllib.parse; print(urllib.parse.quote_plus('$1'))" 2>/dev/null \
+        || printf '%s' "$1"  # Fallback: use raw value if python3 unavailable
+}
+
+# Build a properly-encoded DATABASE_URL from component env vars
+build_database_url() {
+    local encoded_user encoded_pass
+    encoded_user=$(urlencode "$POSTGRES_USER")
+    encoded_pass=$(urlencode "$POSTGRES_PASSWORD")
+    echo "postgresql+psycopg2://${encoded_user}:${encoded_pass}@${1}:${2}/${POSTGRES_DB}"
+}
+
 check_docker() {
     if ! command -v docker &> /dev/null; then
         log_error "Docker is not installed or not in PATH"
@@ -415,6 +429,145 @@ cmd_start() {
 
     wait_for_db
 
+    # --- Credential drift guard ---
+    # PostgreSQL only applies POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB on
+    # first initdb.  If the volume already contains an initialized database,
+    # those env vars are silently ignored on subsequent starts.  Detect the
+    # mismatch early and fix it so credentials in .env always work.
+    log_info "Verifying database credentials match .env..."
+    if docker run --rm --network "$NETWORK_NAME" \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
+        "$DB_IMAGE" \
+        pg_isready -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1 \
+    && docker run --rm --network "$NETWORK_NAME" \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
+        "$DB_IMAGE" \
+        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "SELECT 1" > /dev/null 2>&1; then
+        log_ok "Database credentials verified"
+    else
+        log_warn "Credential mismatch detected — .env password differs from initialized database"
+        log_info "This happens when POSTGRES_PASSWORD changed after the volume was first created."
+        log_info "Attempting to update the database password to match .env..."
+
+        # Try connecting with the superuser role 'postgres' (which uses trust auth
+        # from the same container on some setups) or via peer auth to reset the password.
+        # The most reliable method: use the running container's local socket (no password needed
+        # for local connections in default pg_hba.conf).
+        # We cannot docker exec in enterprise, so restart the DB container momentarily
+        # with trust auth to reset the password.
+        docker stop "$DB_CONTAINER" > /dev/null 2>&1
+        docker rm "$DB_CONTAINER" > /dev/null 2>&1
+
+        # Start with trust auth (no password required) temporarily
+        docker run -d \
+            --name "$DB_CONTAINER" \
+            --network "$NETWORK_NAME" \
+            -e PGDATA=/var/lib/postgresql/data/pgdata \
+            -v "$DB_VOLUME":/var/lib/postgresql/data \
+            -p "${DB_PORT}:5432" \
+            --shm-size=1g \
+            "$DB_IMAGE" \
+            postgres -c "authentication_timeout=30"
+
+        # Wait for it to be ready
+        local fix_attempts=15
+        for i in $(seq 1 $fix_attempts); do
+            if docker run --rm --network "$NETWORK_NAME" \
+                "$DB_IMAGE" \
+                pg_isready -h "$DB_CONTAINER" > /dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+        done
+
+        # Reset the password to match .env using the existing superuser
+        # First, discover the actual superuser name from the pg catalog
+        local actual_user
+        actual_user=$(docker run --rm --network "$NETWORK_NAME" \
+            "$DB_IMAGE" \
+            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d postgres \
+            -tAc "SELECT usename FROM pg_user WHERE usesuper LIMIT 1" 2>/dev/null || echo "")
+
+        if [ -z "$actual_user" ]; then
+            # Try common superuser names
+            for try_user in postgres "$POSTGRES_USER"; do
+                actual_user=$(docker run --rm --network "$NETWORK_NAME" \
+                    "$DB_IMAGE" \
+                    psql -h "$DB_CONTAINER" -U "$try_user" -d postgres \
+                    -tAc "SELECT usename FROM pg_user WHERE usesuper LIMIT 1" 2>/dev/null || echo "")
+                [ -n "$actual_user" ] && break
+            done
+        fi
+
+        if [ -n "$actual_user" ]; then
+            # Update password for the target user
+            docker run --rm --network "$NETWORK_NAME" \
+                "$DB_IMAGE" \
+                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                -c "ALTER USER \"$POSTGRES_USER\" WITH PASSWORD '$POSTGRES_PASSWORD';" > /dev/null 2>&1
+
+            # Create user if it doesn't exist (volume was initialized with a different username)
+            docker run --rm --network "$NETWORK_NAME" \
+                "$DB_IMAGE" \
+                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                -c "DO \$\$ BEGIN
+                    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$POSTGRES_USER') THEN
+                        CREATE USER \"$POSTGRES_USER\" WITH SUPERUSER PASSWORD '$POSTGRES_PASSWORD';
+                    END IF;
+                END \$\$;" > /dev/null 2>&1
+
+            # Create database if it doesn't exist
+            docker run --rm --network "$NETWORK_NAME" \
+                "$DB_IMAGE" \
+                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                -c "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'" 2>/dev/null | grep -q 1 || \
+            docker run --rm --network "$NETWORK_NAME" \
+                "$DB_IMAGE" \
+                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";" > /dev/null 2>&1
+
+            log_ok "Credentials updated to match .env"
+        else
+            log_error "Could not connect to PostgreSQL to fix credentials"
+            log_info "Manual fix: run './production-deploy.sh rebuild-db' to reset (DESTROYS DATA)"
+            log_info "Or update .env to match the original credentials used when the volume was created"
+        fi
+
+        # Restart the DB container normally (with password auth)
+        docker stop "$DB_CONTAINER" > /dev/null 2>&1
+        docker rm "$DB_CONTAINER" > /dev/null 2>&1
+
+        docker run -d \
+            --name "$DB_CONTAINER" \
+            --network "$NETWORK_NAME" \
+            --restart unless-stopped \
+            -e POSTGRES_USER="$POSTGRES_USER" \
+            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            -e POSTGRES_DB="$POSTGRES_DB" \
+            -e PGDATA=/var/lib/postgresql/data/pgdata \
+            -v "$DB_VOLUME":/var/lib/postgresql/data \
+            -p "${DB_PORT}:5432" \
+            --shm-size=1g \
+            "$DB_IMAGE"
+
+        wait_for_db
+
+        # Final verification
+        if docker run --rm --network "$NETWORK_NAME" \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+            -c "SELECT 1" > /dev/null 2>&1; then
+            log_ok "Credential fix verified — .env credentials now work"
+        else
+            log_error "Credential fix failed. Manual intervention required."
+            log_info "Options:"
+            log_info "  1. Update .env to match the original volume credentials"
+            log_info "  2. Run './production-deploy.sh rebuild-db' (DESTROYS DATA)"
+        fi
+    fi
+
     # --- Start Redis ---
     if container_running "$REDIS_CONTAINER"; then
         log_ok "Redis already running"
@@ -517,7 +670,7 @@ cmd_start() {
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
-            -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
+            -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
             -e DB_POOL_SIZE="${DB_POOL_SIZE:-10}" \
             -e DB_MAX_OVERFLOW="${DB_MAX_OVERFLOW:-20}" \
             -e DB_POOL_TIMEOUT="${DB_POOL_TIMEOUT:-30}" \
@@ -628,7 +781,7 @@ cmd_migrate() {
         -e POSTGRES_USER="$POSTGRES_USER" \
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
-        -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
+        -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
         "$APP_IMAGE" \
         alembic upgrade head
 
@@ -1040,7 +1193,7 @@ cmd_rebuild_db() {
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
-            -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
+            -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
             "$APP_IMAGE" \
             alembic upgrade head
         log_ok "Migrations applied"
@@ -1054,7 +1207,7 @@ cmd_rebuild_db() {
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
-            -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${POSTGRES_DB}" \
+            -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
             "$APP_IMAGE" \
             alembic upgrade head
         log_ok "Migrations complete — empty schema created"

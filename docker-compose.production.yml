@@ -92,6 +92,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       POSTGRES_HOST: sp_prod_db
       POSTGRES_PORT: 5432
+      # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
+      # be URL-encoded here. The app also builds the URL from individual vars
+      # (with auto-encoding) so you can omit DATABASE_URL entirely.
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
       API_PORT: 8000
       # Host-side proxy for LLM/S3 calls (run uvicorn server.main:app on host)
@@ -136,6 +139,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
+      # be URL-encoded here. The app also builds the URL from individual vars
+      # (with auto-encoding) so you can omit DATABASE_URL entirely.
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
     command: alembic upgrade head
     networks:
@@ -148,9 +154,13 @@ services:
 
 # -----------------------
 # Persistent Volumes and Network
+# Pin names explicitly so docker-compose and production-deploy.sh
+# always reference the exact same Docker objects.
 # -----------------------
 volumes:
   prod_pgdata:
+    name: softpower_production_prod_pgdata
 
 networks:
   prod_net:
+    name: softpower_net

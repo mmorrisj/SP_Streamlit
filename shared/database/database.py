@@ -81,8 +81,9 @@ class DatabaseManager:
                 "Set them in your .env file or environment."
             )
 
-        # Construct URL from components
-        url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+        # Construct URL from components (URL-encode user/password for special chars)
+        from urllib.parse import quote_plus
+        url = f"postgresql://{quote_plus(db_user)}:{quote_plus(db_pass)}@{db_host}:{db_port}/{db_name}"
         logger.info(f"Database URL: postgresql://{db_user}:***@{db_host}:{db_port}/{db_name}")
         return url
 
