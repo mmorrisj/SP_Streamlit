@@ -9,6 +9,10 @@
 
 set -e
 
+# Prevent MSYS/Git Bash on Windows from mangling Unix paths in docker -e flags
+# (e.g. /var/lib/postgresql → C:/Program Files/Git/var/lib/postgresql)
+export MSYS_NO_PATHCONV=1
+
 # Colors (CentOS 7 compatible)
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -89,7 +93,7 @@ if [ -z "$DB_IMAGE" ]; then
     if [ -n "$PRODUCTION_REGISTRY" ]; then
         DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg16"
     else
-        DB_IMAGE="pgvector/pgvector:0.8.1-pg16"
+        DB_IMAGE="mmorrisj/pgvector:0.8.1-pg16"
     fi
 fi
 
@@ -176,7 +180,7 @@ wait_for_api() {
     log_info "Waiting for API to be healthy..."
     local max_attempts=30
     for i in $(seq 1 $max_attempts); do
-        if curl -sf http://0.0.0.0:${API_PORT}/api/health > /dev/null 2>&1; then
+        if curl -sf http://127.0.0.1:${API_PORT}/api/health > /dev/null 2>&1; then
             log_ok "API is healthy"
             return 0
         fi
@@ -417,6 +421,8 @@ cmd_start() {
             --restart unless-stopped \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
+            --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+            --cap-add SETGID --cap-add SETUID \
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
@@ -546,6 +552,8 @@ cmd_start() {
             --restart unless-stopped \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
+            --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+            --cap-add SETGID --cap-add SETUID \
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
@@ -588,6 +596,7 @@ cmd_start() {
             --restart unless-stopped \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
+            --cap-add SETGID --cap-add SETUID \
             "$REDIS_IMAGE"
 
         # Wait for Redis to be ready
@@ -1154,6 +1163,8 @@ cmd_rebuild_db() {
         --restart unless-stopped \
         --security-opt no-new-privileges:true \
         --cap-drop ALL \
+        --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+        --cap-add SETGID --cap-add SETUID \
         -e POSTGRES_USER="$POSTGRES_USER" \
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
