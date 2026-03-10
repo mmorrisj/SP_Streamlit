@@ -85,7 +85,7 @@ mkdir -p "$CACHE_DIR"
 # ============================================
 # Step 1: Build slim Docker image
 # ============================================
-echo -e "${BLUE}[1/8]${NC} Preparing Docker images..."
+echo -e "${BLUE}[1/7]${NC} Preparing Docker images..."
 echo ""
 
 # Database: Use official pgvector image (PostgreSQL 16 + pgvector extension)
@@ -117,7 +117,7 @@ echo ""
 # ============================================
 # Step 2: Download heavy ML package wheels
 # ============================================
-echo -e "${BLUE}[2/8]${NC} ML package wheels..."
+echo -e "${BLUE}[2/7]${NC} ML package wheels..."
 echo ""
 
 WHEELS_DIR="$PACKAGE_DIR/wheels"
@@ -179,7 +179,7 @@ echo ""
 # ============================================
 # Step 3: Download HuggingFace model
 # ============================================
-echo -e "${BLUE}[3/8]${NC} Sentence-transformers model..."
+echo -e "${BLUE}[3/7]${NC} Sentence-transformers model..."
 echo ""
 
 MODEL_DIR="$PACKAGE_DIR/hf_model"
@@ -277,7 +277,7 @@ echo ""
 # ============================================
 # Step 4: Export images as tar files
 # ============================================
-echo -e "${BLUE}[4/8]${NC} Exporting Docker images to tar files..."
+echo -e "${BLUE}[4/7]${NC} Exporting Docker images to tar files..."
 echo ""
 
 mkdir -p "$PACKAGE_DIR/images"

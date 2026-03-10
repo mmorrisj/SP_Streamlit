@@ -95,6 +95,7 @@ COPY server/ ./server/
 COPY services/chat/ ./services/chat/
 COPY services/dashboard/ ./services/dashboard/
 COPY scripts/create_admin.py ./scripts/create_admin.py
+COPY scripts/generate_report.py ./scripts/generate_report.py
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
