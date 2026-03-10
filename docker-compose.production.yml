@@ -85,7 +85,7 @@ services:
   # Single consolidated container from Docker Hub
   # -----------------------
   app:
-    image: mmorrisj/softpower-analytics:1.6.2
+    image: mmorrisj/softpower-analytics:1.7.0
     container_name: sp_prod_app
     restart: unless-stopped
     security_opt:
@@ -126,6 +126,7 @@ services:
       HF_HUB_OFFLINE: "1"
       HF_HOME: /app/.cache/huggingface
       SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
+      TIKTOKEN_CACHE_DIR: /app/.cache/tiktoken
       REDIS_URL: redis://sp_prod_redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
@@ -146,7 +147,7 @@ services:
   # Alembic Migrations (run once with --profile migrate)
   # -----------------------
   migrate:
-    image: mmorrisj/softpower-analytics:1.6.2
+    image: mmorrisj/softpower-analytics:1.7.0
     container_name: sp_prod_migrate
     security_opt:
       - no-new-privileges:true
