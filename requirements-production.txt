@@ -29,6 +29,7 @@ langchain-core>=1.0
 
 # AI/LLM
 openai>=2.14.0
+tiktoken>=0.7.0
 boto3
 
 # API Service (FastAPI)
