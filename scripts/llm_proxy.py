@@ -166,7 +166,7 @@ def proxy_query(input: QueryInput):
                     {"role": "system", "content": input.sys_prompt},
                     {"role": "user", "content": input.prompt},
                 ],
-                temperature=0.7,
+                temperature=0.3,
             )
             content = completion.choices[0].message.content
             return _parse_response(content)
@@ -196,7 +196,7 @@ def proxy_query(input: QueryInput):
                     {"role": "system", "content": input.sys_prompt},
                     {"role": "user", "content": input.prompt},
                 ],
-                temperature=0.7,
+                temperature=0.3,
                 max_tokens=4000,
             )
             content = completion.choices[0].message.content
@@ -221,7 +221,7 @@ def proxy_query(input: QueryInput):
             {"role": "system", "content": input.sys_prompt},
             {"role": "user", "content": input.prompt},
         ],
-        temperature=0.7,
+        temperature=0.3,
     )
     content = completion.choices[0].message.content
     return _parse_response(content)

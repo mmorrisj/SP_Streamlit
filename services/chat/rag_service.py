@@ -1,22 +1,32 @@
 """
 RAG Service for Chat functionality.
 Provides semantic search and LLM-powered response generation.
+
+SOTA techniques:
+- HyDE (Hypothetical Document Embeddings) for query expansion
+- Cross-encoder reranking for precision after retrieval
+- Hybrid search (BM25 + vector) via PostgreSQL tsvector + RRF fusion
+- Token-aware context packing (fills model context window intelligently)
 """
 import os
 import re
 import json
 import yaml
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Generator, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
+import tiktoken
 from openai import AzureOpenAI, OpenAI
 from sqlalchemy import text
 import torch
 
 from shared.database.database import get_engine
 from shared.utils.model_cache import get_hf_embeddings
+
+logger = logging.getLogger(__name__)
 
 # Load RAG configuration from config.yaml
 CONFIG_PATH = Path(__file__).parent.parent.parent / "shared" / "config" / "config.yaml"
@@ -30,7 +40,45 @@ ENTITY_MATCH_LIMIT = RAG_CONFIG.get('entity_match_limit', 15)
 ENTITY_BOOST_FACTOR = RAG_CONFIG.get('entity_boost_factor', 0.15)
 FUZZY_MATCH_THRESHOLD = RAG_CONFIG.get('fuzzy_match_threshold', 0.7)
 SEMANTIC_MATCH_THRESHOLD = RAG_CONFIG.get('semantic_match_threshold', 0.6)
+
+# Token-aware context packing
+MAX_CONTEXT_TOKENS = RAG_CONFIG.get('max_context_tokens', 80000)
+MAX_FULL_TEXT_DOCS = RAG_CONFIG.get('max_full_text_docs', 8)
+TRUNCATED_DOC_CHARS = RAG_CONFIG.get('truncated_doc_chars', 500)
+
+# Reranking configuration
+ENABLE_RERANKING = RAG_CONFIG.get('enable_reranking', True)
+RERANK_MODEL = RAG_CONFIG.get('rerank_model', 'BAAI/bge-reranker-v2-m3')
+RERANK_TOP_K = RAG_CONFIG.get('rerank_top_k', 15)
+RERANK_CANDIDATE_K = RAG_CONFIG.get('rerank_candidate_k', 50)
+
+# HyDE configuration
+ENABLE_HYDE = RAG_CONFIG.get('enable_hyde', True)
+HYDE_MODEL = RAG_CONFIG.get('hyde_model', 'gpt-4o-mini')
+
+# Hybrid search configuration
+ENABLE_HYBRID_SEARCH = RAG_CONFIG.get('enable_hybrid_search', True)
+HYBRID_BM25_WEIGHT = RAG_CONFIG.get('hybrid_bm25_weight', 0.3)
+HYBRID_VECTOR_WEIGHT = RAG_CONFIG.get('hybrid_vector_weight', 0.7)
+
+# Backward compat
 MAX_CONTEXT_CHARS = RAG_CONFIG.get('max_context_chars', 4000)
+
+# Token encoder for context packing
+_token_encoder = None
+
+def _get_token_encoder():
+    global _token_encoder
+    if _token_encoder is None:
+        try:
+            _token_encoder = tiktoken.encoding_for_model("gpt-4o")
+        except Exception:
+            _token_encoder = tiktoken.get_encoding("cl100k_base")
+    return _token_encoder
+
+def count_tokens(text_str: str) -> int:
+    """Count tokens in a string using tiktoken."""
+    return len(_get_token_encoder().encode(text_str))
 
 
 # =============================================================================
@@ -682,6 +730,113 @@ def get_embedding_function():
     return _embedding_function
 
 
+# =============================================================================
+# Reranking - Cross-encoder for precision after initial retrieval
+# =============================================================================
+
+_reranker = None
+
+def get_reranker():
+    """Get or create the cross-encoder reranker (lazy loading)."""
+    global _reranker
+    if _reranker is None and ENABLE_RERANKING:
+        try:
+            from sentence_transformers import CrossEncoder
+            _reranker = CrossEncoder(RERANK_MODEL, max_length=512)
+            logger.info(f"Loaded reranker model: {RERANK_MODEL}")
+        except Exception as e:
+            logger.warning(f"Failed to load reranker ({RERANK_MODEL}): {e}. Reranking disabled.")
+            return None
+    return _reranker
+
+
+def rerank_results(
+    query: str,
+    results: List[Dict[str, Any]],
+    top_k: int = RERANK_TOP_K
+) -> List[Dict[str, Any]]:
+    """
+    Rerank search results using a cross-encoder model.
+
+    Takes (query, document) pairs, scores them with a cross-encoder,
+    and returns the top-k results sorted by cross-encoder score.
+    """
+    reranker = get_reranker()
+    if reranker is None or not results:
+        return results[:top_k]
+
+    # Build (query, document) pairs for scoring
+    pairs = []
+    for doc in results:
+        content = doc.get('content', '')[:1500]  # Limit input length for cross-encoder
+        pairs.append((query, content))
+
+    try:
+        scores = reranker.predict(pairs, show_progress_bar=False)
+        for doc, score in zip(results, scores):
+            doc['rerank_score'] = float(score)
+            # Keep original vector score for reference
+            doc['vector_score'] = doc.get('relevance_score', 0)
+            doc['relevance_score'] = float(score)
+
+        results.sort(key=lambda x: x['relevance_score'], reverse=True)
+        return results[:top_k]
+    except Exception as e:
+        logger.warning(f"Reranking failed: {e}. Using original ranking.")
+        return results[:top_k]
+
+
+# =============================================================================
+# HyDE - Hypothetical Document Embeddings for query expansion
+# =============================================================================
+
+def generate_hyde_document(query: str) -> Optional[str]:
+    """
+    Generate a hypothetical document that would answer the query.
+
+    Uses a cheap LLM to generate a plausible answer, then embeds that
+    answer instead of the raw query. This bridges the vocabulary gap
+    between questions and documents.
+    """
+    if not ENABLE_HYDE:
+        return None
+
+    try:
+        client, client_type = get_llm_client()
+
+        hyde_prompt = (
+            "Write a short, factual paragraph (3-5 sentences) that would appear in a "
+            "diplomatic intelligence document answering this question. Include specific "
+            "names, dates, and details as if reporting real events. Do not hedge or "
+            "qualify — write as if stating established facts.\n\n"
+            f"Question: {query}"
+        )
+
+        if client_type == "azure":
+            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", HYDE_MODEL)
+            response = client.chat.completions.create(
+                model=deployment,
+                messages=[{"role": "user", "content": hyde_prompt}],
+                temperature=0.7,  # Higher temp for diverse hypothetical generation
+                max_tokens=300
+            )
+        else:
+            response = client.chat.completions.create(
+                model=HYDE_MODEL,
+                messages=[{"role": "user", "content": hyde_prompt}],
+                temperature=0.7,
+                max_tokens=300
+            )
+
+        hyde_doc = response.choices[0].message.content
+        logger.info(f"HyDE generated {len(hyde_doc)} char hypothetical document")
+        return hyde_doc
+
+    except Exception as e:
+        logger.warning(f"HyDE generation failed: {e}. Using original query.")
+        return None
+
+
 def get_llm_client():
     """Get OpenAI client (Azure or direct)."""
     # Try Azure first
@@ -710,10 +865,14 @@ def semantic_search(
     recipient: Optional[str] = None,
     category: Optional[str] = None,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    use_hyde: bool = True
 ) -> List[Dict[str, Any]]:
     """
     Perform semantic search on document embeddings with optional filters.
+
+    Supports HyDE (Hypothetical Document Embeddings) for query expansion
+    and hybrid BM25+vector search via Reciprocal Rank Fusion.
 
     Args:
         query: Search query text
@@ -723,98 +882,208 @@ def semantic_search(
         category: Filter by category
         start_date: Filter by start date (YYYY-MM-DD)
         end_date: Filter by end date (YYYY-MM-DD)
+        use_hyde: Whether to apply HyDE query expansion
 
     Returns:
         List of matching documents with metadata and relevance scores
     """
-    # Generate query embedding
     embeddings = get_embedding_function()
-    query_embedding = embeddings.embed_query(query)
 
-    # Format embedding as PostgreSQL vector literal
-    # pgvector expects format like '[0.1,0.2,0.3,...]'
+    # HyDE: generate hypothetical document and embed it for better retrieval
+    hyde_doc = None
+    if use_hyde and ENABLE_HYDE:
+        hyde_doc = generate_hyde_document(query)
+
+    if hyde_doc:
+        # Embed the hypothetical answer (bridges question-document gap)
+        query_embedding = embeddings.embed_query(hyde_doc)
+    else:
+        query_embedding = embeddings.embed_query(query)
+
     embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
-    # Build the SQL query with vector similarity search
-    # Using pgvector's <=> operator for cosine distance
-    # Note: embedding is interpolated directly since parameter binding doesn't work with ::vector cast
-    sql = f"""
-        WITH ranked_docs AS (
-            SELECT
-                e.document as content,
-                e.cmetadata,
-                e.embedding <=> '{embedding_str}'::vector AS distance,
-                1 - (e.embedding <=> '{embedding_str}'::vector) AS similarity
-            FROM langchain_pg_embedding e
-            JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-            WHERE c.name = 'chunk_embeddings'
-        )
-        SELECT
-            r.content,
-            r.cmetadata,
-            r.similarity,
-            d.doc_id,
-            d.title,
-            d.source_name,
-            d.date,
-            d.initiating_country,
-            d.recipient_country,
-            d.category,
-            d.salience
-        FROM ranked_docs r
-        LEFT JOIN documents d ON r.cmetadata->>'doc_id' = d.doc_id
-        WHERE 1=1
-    """
+    # Build filter conditions (shared between vector and BM25 queries)
+    filter_sql = ""
+    params = {"limit": k}
 
-    params = {
-        "limit": k
-    }
-
-    # Add filters
     if influencer:
-        sql += " AND d.initiating_country = :influencer"
+        filter_sql += " AND d.initiating_country = :influencer"
         params["influencer"] = influencer
-
     if recipient:
-        sql += " AND d.recipient_country = :recipient"
+        filter_sql += " AND d.recipient_country = :recipient"
         params["recipient"] = recipient
-
     if category:
-        sql += " AND d.category = :category"
+        filter_sql += " AND d.category = :category"
         params["category"] = category
-
     if start_date:
-        sql += " AND d.date >= :start_date"
+        filter_sql += " AND d.date >= :start_date"
         params["start_date"] = start_date
-
     if end_date:
-        sql += " AND d.date <= :end_date"
+        filter_sql += " AND d.date <= :end_date"
         params["end_date"] = end_date
 
-    sql += " ORDER BY r.distance ASC LIMIT :limit"
-
-    results = []
     engine = get_engine()
+    results = []
 
     with engine.connect() as conn:
-        rows = conn.execute(text(sql), params).mappings().all()
-
-        for idx, row in enumerate(rows, 1):
-            results.append({
-                "citation_number": idx,
-                "doc_id": row.get("doc_id"),
-                "content": row.get("content", ""),
-                "title": row.get("title"),
-                "source_name": row.get("source_name"),
-                "date": str(row.get("date")) if row.get("date") else None,
-                "initiating_country": row.get("initiating_country"),
-                "recipient_country": row.get("recipient_country"),
-                "category": row.get("category"),
-                "salience": row.get("salience"),
-                "relevance_score": float(row.get("similarity", 0))
-            })
+        # --- Hybrid Search: BM25 + Vector via Reciprocal Rank Fusion ---
+        if ENABLE_HYBRID_SEARCH:
+            results = _hybrid_search(
+                conn, query, embedding_str, filter_sql, params, k
+            )
+        else:
+            # Pure vector search (original behavior)
+            sql = f"""
+                WITH ranked_docs AS (
+                    SELECT
+                        e.document as content,
+                        e.cmetadata,
+                        e.embedding <=> '{embedding_str}'::vector AS distance,
+                        1 - (e.embedding <=> '{embedding_str}'::vector) AS similarity
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.name = 'chunk_embeddings'
+                )
+                SELECT
+                    r.content, r.cmetadata, r.similarity,
+                    d.doc_id, d.title, d.source_name, d.date,
+                    d.initiating_country, d.recipient_country,
+                    d.category, d.salience
+                FROM ranked_docs r
+                LEFT JOIN documents d ON r.cmetadata->>'doc_id' = d.doc_id
+                WHERE 1=1 {filter_sql}
+                ORDER BY r.distance ASC LIMIT :limit
+            """
+            rows = conn.execute(text(sql), params).mappings().all()
+            for idx, row in enumerate(rows, 1):
+                results.append(_row_to_result(row, idx))
 
     return results
+
+
+def _hybrid_search(
+    conn,
+    query: str,
+    embedding_str: str,
+    filter_sql: str,
+    params: dict,
+    k: int
+) -> List[Dict[str, Any]]:
+    """
+    Reciprocal Rank Fusion combining BM25 (tsvector) and vector similarity.
+
+    Falls back to pure vector search if tsvector column doesn't exist.
+    """
+    rrf_k = 60  # RRF constant (standard value)
+
+    try:
+        # Combined query: vector search + BM25 via tsvector on documents table
+        # Uses RRF: score = sum(1 / (k + rank_i)) for each retrieval system
+        hybrid_sql = f"""
+            WITH vector_ranked AS (
+                SELECT
+                    e.document as content,
+                    e.cmetadata,
+                    1 - (e.embedding <=> '{embedding_str}'::vector) AS similarity,
+                    ROW_NUMBER() OVER (ORDER BY e.embedding <=> '{embedding_str}'::vector ASC) AS v_rank
+                FROM langchain_pg_embedding e
+                JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                WHERE c.name = 'chunk_embeddings'
+                ORDER BY e.embedding <=> '{embedding_str}'::vector ASC
+                LIMIT :vector_limit
+            ),
+            bm25_ranked AS (
+                SELECT
+                    d.doc_id,
+                    ts_rank_cd(d.search_vector, plainto_tsquery('english', :bm25_query)) AS bm25_score,
+                    ROW_NUMBER() OVER (
+                        ORDER BY ts_rank_cd(d.search_vector, plainto_tsquery('english', :bm25_query)) DESC
+                    ) AS b_rank
+                FROM documents d
+                WHERE d.search_vector @@ plainto_tsquery('english', :bm25_query)
+                ORDER BY bm25_score DESC
+                LIMIT :bm25_limit
+            )
+            SELECT
+                v.content, v.cmetadata, v.similarity,
+                d.doc_id, d.title, d.source_name, d.date,
+                d.initiating_country, d.recipient_country,
+                d.category, d.salience,
+                (
+                    :vector_weight * (1.0 / (:rrf_k + v.v_rank)) +
+                    COALESCE(:bm25_weight * (1.0 / (:rrf_k + b.b_rank)), 0)
+                ) AS rrf_score
+            FROM vector_ranked v
+            LEFT JOIN documents d ON v.cmetadata->>'doc_id' = d.doc_id
+            LEFT JOIN bm25_ranked b ON d.doc_id = b.doc_id
+            WHERE 1=1 {filter_sql}
+            ORDER BY rrf_score DESC
+            LIMIT :limit
+        """
+
+        hybrid_params = {
+            **params,
+            "bm25_query": query,
+            "vector_limit": k * 3,
+            "bm25_limit": k * 3,
+            "rrf_k": rrf_k,
+            "vector_weight": HYBRID_VECTOR_WEIGHT,
+            "bm25_weight": HYBRID_BM25_WEIGHT,
+        }
+
+        rows = conn.execute(text(hybrid_sql), hybrid_params).mappings().all()
+        results = []
+        for idx, row in enumerate(rows, 1):
+            result = _row_to_result(row, idx)
+            result['rrf_score'] = float(row.get('rrf_score', 0))
+            results.append(result)
+        return results
+
+    except Exception as e:
+        # tsvector column likely doesn't exist yet — fall back to pure vector
+        logger.info(f"Hybrid search unavailable ({e}), falling back to vector-only search")
+        conn.rollback()
+
+        sql = f"""
+            WITH ranked_docs AS (
+                SELECT
+                    e.document as content,
+                    e.cmetadata,
+                    e.embedding <=> '{embedding_str}'::vector AS distance,
+                    1 - (e.embedding <=> '{embedding_str}'::vector) AS similarity
+                FROM langchain_pg_embedding e
+                JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                WHERE c.name = 'chunk_embeddings'
+            )
+            SELECT
+                r.content, r.cmetadata, r.similarity,
+                d.doc_id, d.title, d.source_name, d.date,
+                d.initiating_country, d.recipient_country,
+                d.category, d.salience
+            FROM ranked_docs r
+            LEFT JOIN documents d ON r.cmetadata->>'doc_id' = d.doc_id
+            WHERE 1=1 {filter_sql}
+            ORDER BY r.distance ASC LIMIT :limit
+        """
+        rows = conn.execute(text(sql), params).mappings().all()
+        return [_row_to_result(row, idx) for idx, row in enumerate(rows, 1)]
+
+
+def _row_to_result(row, idx: int) -> Dict[str, Any]:
+    """Convert a database row to a standardized result dict."""
+    return {
+        "citation_number": idx,
+        "doc_id": row.get("doc_id"),
+        "content": row.get("content", ""),
+        "title": row.get("title"),
+        "source_name": row.get("source_name"),
+        "date": str(row.get("date")) if row.get("date") else None,
+        "initiating_country": row.get("initiating_country"),
+        "recipient_country": row.get("recipient_country"),
+        "category": row.get("category"),
+        "salience": row.get("salience"),
+        "relevance_score": float(row.get("similarity", 0))
+    }
 
 
 def intelligent_search(
@@ -933,8 +1202,8 @@ def intelligent_search(
             # Entity search is optional, don't fail the main search
             metadata["confidence_notes"].append(f"Entity search skipped: {str(e)}")
 
-    # Perform the actual search (fetch extra if we're doing entity boost)
-    fetch_k = k + 5 if entity_doc_ids else k
+    # Fetch more candidates than needed for reranking pipeline
+    fetch_k = RERANK_CANDIDATE_K if ENABLE_RERANKING else (k + 5 if entity_doc_ids else k)
     results = semantic_search(
         query=query,
         k=fetch_k,
@@ -942,23 +1211,31 @@ def intelligent_search(
         recipient=recipient,
         category=category,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        use_hyde=True
     )
 
-    # Apply entity boost: increase relevance score for documents mentioning matched entities
+    # Apply entity boost before reranking (so entity docs survive the cut)
     if entity_doc_ids and results:
         for doc in results:
             if doc.get("doc_id") in entity_doc_ids:
                 doc["relevance_score"] = min(1.0, doc["relevance_score"] + entity_boost_factor)
                 doc["entity_boosted"] = True
 
-        # Re-sort by boosted relevance and take top k
         results.sort(key=lambda x: x["relevance_score"], reverse=True)
+
+    # Cross-encoder reranking: precision stage
+    if ENABLE_RERANKING:
+        results = rerank_results(query, results, top_k=RERANK_TOP_K)
+        metadata["confidence_notes"].append(
+            f"Reranking: {RERANK_MODEL}, top {RERANK_TOP_K} from {fetch_k} candidates"
+        )
+    else:
         results = results[:k]
 
-        # Re-number citations after re-sorting
-        for idx, doc in enumerate(results, 1):
-            doc["citation_number"] = idx
+    # Re-number citations after reranking/re-sorting
+    for idx, doc in enumerate(results, 1):
+        doc["citation_number"] = idx
 
     # Store matched entities in metadata for context injection
     metadata["_matched_entities_full"] = matched_entities
@@ -974,6 +1251,10 @@ def build_context_prompt(
     """
     Build the context section of the prompt from retrieved documents and entities.
 
+    Uses token-aware packing: top-ranked docs get full text, remaining docs
+    get truncated summaries, all packed to fill the model's context window
+    up to MAX_CONTEXT_TOKENS.
+
     Args:
         query: The user's query
         documents: Retrieved documents for context
@@ -983,12 +1264,14 @@ def build_context_prompt(
         Formatted context string for the LLM prompt
     """
     context_parts = []
+    token_budget = MAX_CONTEXT_TOKENS
 
     # Inject entity context if available
     if matched_entities:
         entity_context = build_entity_context(matched_entities)
         if entity_context:
             context_parts.append(entity_context)
+            token_budget -= count_tokens(entity_context)
 
     if not documents:
         if context_parts:
@@ -997,7 +1280,10 @@ def build_context_prompt(
         return "No relevant documents found in the database."
 
     doc_parts = []
-    for doc in documents:
+    tokens_used = 0
+
+    for i, doc in enumerate(documents):
+        # Build document header (always included)
         doc_info = f"[{doc['citation_number']}] "
         if doc.get('title'):
             doc_info += f"{doc['title']}"
@@ -1012,8 +1298,36 @@ def build_context_prompt(
         if doc.get('entity_boosted'):
             doc_info += " [Entity-relevant]"
 
-        doc_info += f"\n{doc.get('content', '')[:1500]}"  # Truncate long content
+        # Token-aware content inclusion: full text for top docs, truncated for rest
+        content = doc.get('content', '')
+        if i < MAX_FULL_TEXT_DOCS:
+            # Top-ranked docs get full content
+            doc_info += f"\n{content}"
+        else:
+            # Lower-ranked docs get truncated content
+            doc_info += f"\n{content[:TRUNCATED_DOC_CHARS]}"
+            if len(content) > TRUNCATED_DOC_CHARS:
+                doc_info += "..."
+
+        doc_tokens = count_tokens(doc_info)
+
+        # Stop if we'd exceed the token budget
+        if tokens_used + doc_tokens > token_budget:
+            # Try with truncated content as last resort
+            if i < MAX_FULL_TEXT_DOCS and len(content) > TRUNCATED_DOC_CHARS:
+                doc_info_truncated = doc_info.split('\n')
+                doc_info_truncated = '\n'.join(doc_info_truncated[:-1]) + f"\n{content[:TRUNCATED_DOC_CHARS]}..."
+                trunc_tokens = count_tokens(doc_info_truncated)
+                if tokens_used + trunc_tokens <= token_budget:
+                    doc_parts.append(doc_info_truncated)
+                    tokens_used += trunc_tokens
+                    continue
+            break
+
         doc_parts.append(doc_info)
+        tokens_used += doc_tokens
+
+    logger.info(f"Context packing: {len(doc_parts)}/{len(documents)} docs, ~{tokens_used} tokens used of {token_budget} budget")
 
     context_parts.append("\n\n---\n\n".join(doc_parts))
     return "\n\n".join(context_parts)

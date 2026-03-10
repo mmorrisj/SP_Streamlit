@@ -202,7 +202,7 @@ def fetch_gai_response(sys_prompt,prompt,model):
             }
         ],
         max_completion_tokens=5000,
-        temperature=1.0,
+        temperature=0.3,
         top_p=1.0,
         frequency_penalty=0.0,
         presence_penalty=0.0,
@@ -275,7 +275,7 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
+                temperature=0.3,
                 max_tokens=4000
             )
 
@@ -332,7 +332,7 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.7,
+                temperature=0.3,
             )
             content = completion.choices[0].message.content
 

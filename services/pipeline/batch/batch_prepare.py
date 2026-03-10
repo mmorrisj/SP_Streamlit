@@ -70,8 +70,10 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
     get_batch_file_path,
     get_model_for_job_type,
-    DEFAULT_TEMPERATURE
+    DEFAULT_TEMPERATURE,
+    TEMPERATURE_BY_JOB_TYPE
 )
+from services.pipeline.batch.schemas import get_response_format_for_job_type
 from services.pipeline.batch.batch_tracker import BatchJobTracker
 from services.pipeline.batch.utils.custom_id import generate_custom_id
 from services.pipeline.batch.utils.jsonl_utils import write_jsonl, split_jsonl_by_file_size, count_jsonl_lines
@@ -2631,6 +2633,8 @@ def generate_batch_requests(
         List of batch request dictionaries in OpenAI format
     """
     batch_requests = []
+    temperature = TEMPERATURE_BY_JOB_TYPE.get(job_type, DEFAULT_TEMPERATURE)
+    response_format = get_response_format_for_job_type(job_type)
 
     if job_type == JOB_TYPE_CLUSTER_DECONFLICT:
         for cluster in records:
@@ -2644,8 +2648,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2662,8 +2666,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2680,8 +2684,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2698,8 +2702,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2716,8 +2720,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2734,8 +2738,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2752,8 +2756,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2773,8 +2777,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2794,8 +2798,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2815,8 +2819,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2833,8 +2837,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2850,8 +2854,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2870,8 +2874,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
@@ -2887,8 +2891,8 @@ def generate_batch_requests(
                 "body": {
                     "model": model,
                     "messages": prompt_data["messages"],
-                    "temperature": DEFAULT_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": temperature,
+                    "response_format": response_format
                 }
             })
 
