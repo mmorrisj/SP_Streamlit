@@ -737,13 +737,23 @@ def get_embedding_function():
 _reranker = None
 
 def get_reranker():
-    """Get or create the cross-encoder reranker (lazy loading)."""
+    """Get or create the cross-encoder reranker (lazy loading).
+
+    Tries the baked-in model path first (Docker image), then falls back to
+    downloading from HuggingFace Hub (local dev).
+    """
     global _reranker
     if _reranker is None and ENABLE_RERANKING:
         try:
             from sentence_transformers import CrossEncoder
-            _reranker = CrossEncoder(RERANK_MODEL, max_length=512)
-            logger.info(f"Loaded reranker model: {RERANK_MODEL}")
+            # Try baked-in path first (set during Docker build)
+            baked_path = '/app/.cache/huggingface/models/bge-reranker-v2-m3'
+            if os.path.isfile(os.path.join(baked_path, 'config.json')):
+                _reranker = CrossEncoder(baked_path, max_length=512)
+                logger.info(f"Loaded reranker model from baked-in path: {baked_path}")
+            else:
+                _reranker = CrossEncoder(RERANK_MODEL, max_length=512)
+                logger.info(f"Loaded reranker model: {RERANK_MODEL}")
         except Exception as e:
             logger.warning(f"Failed to load reranker ({RERANK_MODEL}): {e}. Reranking disabled.")
             return None

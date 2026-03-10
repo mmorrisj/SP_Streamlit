@@ -185,13 +185,14 @@ echo ""
 MODEL_DIR="$PACKAGE_DIR/hf_model"
 MODEL_CACHE="$CACHE_DIR/hf_model"
 MODEL_MARKER="models/all-MiniLM-L6-v2/modules.json"
+RERANKER_MARKER="models/bge-reranker-v2-m3/config.json"
 mkdir -p "$MODEL_DIR"
 
-if [ -f "$MODEL_DIR/$MODEL_MARKER" ]; then
-    echo -e "  ${GREEN}Model already in package dir${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
+if [ -f "$MODEL_DIR/$MODEL_MARKER" ] && [ -f "$MODEL_DIR/$RERANKER_MARKER" ]; then
+    echo -e "  ${GREEN}Models already in package dir${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
     echo "  Skipping download (use --clean to force)"
 
-elif [ -f "$MODEL_CACHE/$MODEL_MARKER" ]; then
+elif [ -f "$MODEL_CACHE/$MODEL_MARKER" ] && [ -f "$MODEL_CACHE/$RERANKER_MARKER" ]; then
     echo -e "  ${GREEN}Copying from cache${NC} ($(du -sh "$MODEL_CACHE" | cut -f1))"
     cp -r "$MODEL_CACHE"/. "$MODEL_DIR/"
     echo "  Use --clean to force re-download"
@@ -216,21 +217,33 @@ else
         softpower-app-production:latest \
         bash -c "pip install --no-cache-dir --no-index --find-links /wheels \
             torch sentence-transformers langchain-huggingface && \
+        pip install --no-cache-dir tiktoken && \
         python3 -c '
 import os, shutil
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
-# Download model into HF Hub cache (/export/hub/...)
+# --- Embedding model ---
 model = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\")
-
-# Save a clean, symlink-free copy for production portability
 direct_path = \"/export/models/all-MiniLM-L6-v2\"
 os.makedirs(direct_path, exist_ok=True)
 model.save(direct_path)
-print(f\"Direct model saved to {direct_path}\")
-print(f\"  Contents: {os.listdir(direct_path)}\")
+print(f\"Embedding model saved to {direct_path}\")
 
-# Also resolve symlinks in the HF Hub cache so it survives transfers
+# --- Cross-encoder reranker model ---
+reranker = CrossEncoder(\"BAAI/bge-reranker-v2-m3\", max_length=512)
+reranker_path = \"/export/models/bge-reranker-v2-m3\"
+os.makedirs(reranker_path, exist_ok=True)
+reranker.save(reranker_path)
+print(f\"Reranker model saved to {reranker_path}\")
+
+# --- Tiktoken encoding cache ---
+import tiktoken
+os.environ[\"TIKTOKEN_CACHE_DIR\"] = \"/export/tiktoken\"
+os.makedirs(\"/export/tiktoken\", exist_ok=True)
+enc = tiktoken.encoding_for_model(\"gpt-4o\")
+print(f\"Tiktoken encoding cached: {enc.name}\")
+
+# Resolve symlinks in HF Hub cache so it survives transfers
 hub_dir = \"/export/hub\"
 if os.path.isdir(hub_dir):
     for root, dirs, files in os.walk(hub_dir):
@@ -243,10 +256,14 @@ if os.path.isdir(hub_dir):
                     shutil.copy2(target, fpath)
     print(\"HF Hub cache symlinks resolved to real files\")
 
-# Verify the model files are present
+# Verify all model files are present
 assert os.path.isfile(os.path.join(direct_path, \"modules.json\")), \
     f\"FATAL: modules.json not found in {direct_path}\"
-print(\"Verification passed: modules.json present\")
+assert os.path.isfile(os.path.join(reranker_path, \"config.json\")), \
+    f\"FATAL: config.json not found in {reranker_path}\"
+assert os.path.isdir(\"/export/tiktoken\"), \
+    \"FATAL: tiktoken cache directory not found\"
+print(\"Verification passed: all models and caches present\")
 print(\"Model export complete\")
 '"
 
@@ -264,14 +281,21 @@ fi
 
 # Verify model files are present (regardless of source)
 if [ ! -f "$MODEL_DIR/$MODEL_MARKER" ]; then
-    echo -e "  ${RED}ERROR: Model export failed - modules.json not found${NC}"
+    echo -e "  ${RED}ERROR: Embedding model export failed - modules.json not found${NC}"
     echo "  Expected: $MODEL_DIR/$MODEL_MARKER"
     echo "  Directory contents:"
     find "$MODEL_DIR" -maxdepth 3 -type f | head -20
     exit 1
 fi
+if [ ! -f "$MODEL_DIR/$RERANKER_MARKER" ]; then
+    echo -e "  ${RED}ERROR: Reranker model export failed - config.json not found${NC}"
+    echo "  Expected: $MODEL_DIR/$RERANKER_MARKER"
+    echo "  Directory contents:"
+    find "$MODEL_DIR" -maxdepth 3 -type f | head -20
+    exit 1
+fi
 
-echo -e "  ${GREEN}Model verified${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
+echo -e "  ${GREEN}Models verified${NC} ($(du -sh "$MODEL_DIR" | cut -f1))"
 echo ""
 
 # ============================================

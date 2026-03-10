@@ -645,12 +645,16 @@ cmd_start() {
                 log_info "Set MODEL_DIR=/path/to/hf_model to override"
                 exit 1
             fi
-            # Check for the model marker file (modules.json from model.save())
+            # Check for the model marker files
             if [ ! -f "$MODEL_DIR/models/all-MiniLM-L6-v2/modules.json" ]; then
-                log_error "Model files missing: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
+                log_error "Embedding model missing: $MODEL_DIR/models/all-MiniLM-L6-v2/modules.json"
                 log_info "The hf_model/ directory exists but appears empty or incomplete"
                 log_info "Re-run production-build.sh to regenerate the model export"
                 exit 1
+            fi
+            if [ ! -f "$MODEL_DIR/models/bge-reranker-v2-m3/config.json" ]; then
+                log_warn "Reranker model missing: $MODEL_DIR/models/bge-reranker-v2-m3/config.json"
+                log_info "Reranking will be disabled. Re-run production-build.sh to include it."
             fi
             log_ok "Model dir: $MODEL_DIR (verified)"
 
@@ -697,6 +701,7 @@ cmd_start() {
             -e HF_HUB_OFFLINE="$HF_HUB_OFFLINE" \
             -e HF_HOME="/app/.cache/huggingface" \
             -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface/hub" \
+            -e TIKTOKEN_CACHE_DIR="/app/.cache/tiktoken" \
             -e REDIS_URL="redis://${REDIS_CONTAINER}:6379/0" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
             -e OPENAI_PROJ_API="${OPENAI_PROJ_API:-}" \

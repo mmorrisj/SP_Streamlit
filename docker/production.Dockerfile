@@ -89,6 +89,12 @@ RUN pip install --no-cache-dir \
 ENV HF_HOME=/app/.cache/huggingface
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/hub
 
+# Pre-cache tiktoken encoding files.
+# tiktoken downloads encoding data from Azure blob storage on first use;
+# this fails when TRANSFORMERS_OFFLINE=1 blocks network access.
+ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
+RUN python3 -c "import tiktoken; enc = tiktoken.encoding_for_model('gpt-4o'); print(f'Tiktoken cached: {enc.name}')"
+
 # Copy application code (no pipeline — not needed in production image)
 COPY shared/ ./shared/
 COPY server/ ./server/
@@ -122,6 +128,8 @@ ENV NODE_ENV=production
 # Ensure HuggingFace uses the cached model, not network
 ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
+# TIKTOKEN_CACHE_DIR set earlier in build; repeated here for runtime clarity
+ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 
 EXPOSE 8000 8501
 

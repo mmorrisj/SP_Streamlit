@@ -107,6 +107,30 @@ assert os.path.isfile(os.path.join(save_path, 'modules.json')), 'Model save veri
 print(f'Model baked in at {save_path}') \
 "
 
+# Download and bake in the cross-encoder reranker model.
+# Used by rag_service.py for precision reranking after vector retrieval.
+# Without this, reranking silently disables in offline mode.
+RUN python3 -c "\
+import os; \
+from sentence_transformers import CrossEncoder; \
+model = CrossEncoder('BAAI/bge-reranker-v2-m3', max_length=512); \
+save_path = '/app/.cache/huggingface/models/bge-reranker-v2-m3'; \
+os.makedirs(save_path, exist_ok=True); \
+model.save(save_path); \
+assert os.path.isfile(os.path.join(save_path, 'config.json')), 'Reranker save verification failed'; \
+print(f'Reranker model baked in at {save_path}') \
+"
+
+# Pre-cache tiktoken encoding files.
+# tiktoken downloads encoding data from Azure blob storage on first use;
+# this fails when TRANSFORMERS_OFFLINE=1 blocks network access.
+ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
+RUN python3 -c "\
+import tiktoken; \
+enc = tiktoken.encoding_for_model('gpt-4o'); \
+print(f'Tiktoken encoding cached: {enc.name}') \
+"
+
 # Copy application code (pipeline/ingestion excluded)
 COPY shared/ ./shared/
 COPY server/ ./server/
@@ -128,6 +152,8 @@ RUN ls -la client/dist/ \
     && ls -la server/main.py \
     && ls -la services/dashboard/app.py \
     && ls -la /app/.cache/huggingface/models/all-MiniLM-L6-v2/modules.json \
+    && ls -la /app/.cache/huggingface/models/bge-reranker-v2-m3/config.json \
+    && test -d /app/.cache/tiktoken \
     && echo "All application files verified"
 
 # Create non-root user for runtime security (Scout health check requirement)
@@ -138,9 +164,11 @@ RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuse
 
 ENV PYTHONPATH=/app
 ENV NODE_ENV=production
-# Model is baked in — no network access to HuggingFace needed at runtime
+# Models are baked in — no network access to HuggingFace/Azure needed at runtime
 ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
+# TIKTOKEN_CACHE_DIR set earlier in build; repeated here for runtime clarity
+ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 
 EXPOSE 8000 8501
 
