@@ -389,7 +389,16 @@ export default function InfluencerPage() {
           <div className="chart-card full-width">
             <h3>Top Sources</h3>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={overview.source_breakdown} layout="vertical">
+              <BarChart
+                data={overview.source_breakdown}
+                layout="vertical"
+                onClick={(e) => {
+                  if (e?.activeLabel) {
+                    openDrilldown({ dimension: 'source', value: e.activeLabel as string, chart_type: 'bar' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+              >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" />
                 <YAxis dataKey="source" type="category" width={180} tick={{ fontSize: 11 }} />
@@ -584,7 +593,16 @@ export default function InfluencerPage() {
               <div className="chart-card">
                 <h3>Top Sources by Coverage</h3>
                 <ResponsiveContainer width="100%" height={Math.max(280, sourcesData.sources.length * 28)}>
-                  <BarChart data={sourcesData.sources.slice(0, 15)} layout="vertical">
+                  <BarChart
+                    data={sourcesData.sources.slice(0, 15)}
+                    layout="vertical"
+                    onClick={(e) => {
+                      if (e?.activeLabel) {
+                        openDrilldown({ dimension: 'source', value: e.activeLabel as string, chart_type: 'bar' })
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
                     <YAxis dataKey="source_name" type="category" width={160} tick={{ fontSize: 10 }} />

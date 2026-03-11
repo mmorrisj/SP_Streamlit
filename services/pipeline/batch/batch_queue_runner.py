@@ -110,7 +110,7 @@ def submit_batch(job: BatchJob, client, tracker: BatchJobTracker, session) -> bo
         return False
 
 
-def check_batch_completion(job: BatchJob, client, tracker: BatchJobTracker, session) -> Tuple[str, bool]:
+def check_batch_completion(job: BatchJob, client, tracker: BatchJobTracker, session, stall_timeout_minutes: int = 120) -> Tuple[str, bool]:
     """
     Check if batch has completed and download results if so.
 
@@ -175,11 +175,25 @@ def check_batch_completion(job: BatchJob, client, tracker: BatchJobTracker, sess
 
             return (status, True)
 
-        # Still in progress
+        # Still in progress — check for stall
         else:
             if status != job.status:
                 tracker.update_status(job.id, BatchJobStatus.IN_PROGRESS)
                 session.commit()
+
+            # Stall detection: if submitted_at is older than stall_timeout and 0 requests completed
+            if stall_timeout_minutes and job.submitted_at:
+                elapsed_minutes = (datetime.utcnow() - job.submitted_at).total_seconds() / 60
+                requests_completed = (job.progress_metadata or {}).get('requests_completed', 0)
+                if elapsed_minutes >= stall_timeout_minutes and requests_completed == 0:
+                    stall_msg = (
+                        f"Stalled: {elapsed_minutes:.0f} min elapsed with 0/{(job.progress_metadata or {}).get('requests_total', job.batch_size)} "
+                        f"requests completed (timeout={stall_timeout_minutes}min). OpenAI batch: {job.openai_batch_id}"
+                    )
+                    print(f"    ⚠ STALL DETECTED: {stall_msg}")
+                    tracker.update_status(job.id, BatchJobStatus.FAILED, error_message=stall_msg)
+                    session.commit()
+                    return ('stalled', True)
 
             return ('in_progress', False)
 
@@ -205,6 +219,8 @@ def main():
                        help='Polling interval in seconds (default: 300 = 5 minutes)')
     parser.add_argument('--retry-failed', action='store_true',
                        help='Reset failed batches to preparing so they get re-submitted')
+    parser.add_argument('--stall-timeout', type=int, default=120,
+                       help='Minutes with 0%% progress before marking a batch as failed (default: 120, 0=disabled)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Show what would be submitted without actually submitting')
 
@@ -218,6 +234,7 @@ def main():
     print(f"Job type: {args.job_type or 'all'}")
     print(f"Country: {args.country or 'all'}")
     print(f"Retry failed: {args.retry_failed}")
+    print(f"Stall timeout: {args.stall_timeout} minutes (0=disabled)")
     print(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
     print("=" * 80)
     print()
@@ -315,12 +332,16 @@ def main():
 
                         slots_freed = 0
                         for job in active_batches:
-                            status, changed = check_batch_completion(job, client, tracker, session)
+                            status, changed = check_batch_completion(job, client, tracker, session, args.stall_timeout)
 
                             if changed:
                                 if status == 'completed':
                                     print(f"  ✓ COMPLETED: {job.initiating_country} ({job.batch_size} requests)")
                                     total_completed += 1
+                                    slots_freed += 1
+                                elif status == 'stalled':
+                                    print(f"  ✗ STALLED→FAILED: {job.initiating_country} (marked failed, use --retry-failed to resubmit)")
+                                    total_failed += 1
                                     slots_freed += 1
                                 else:
                                     print(f"  ✗ FAILED: {job.initiating_country} ({status})")

@@ -37,6 +37,7 @@ import {
   fetchBilateralEntities,
   fetchBilateralSources,
 } from '../api/client'
+import { useDrilldown } from '../hooks/useDrilldown'
 import type {
   BilateralEvent,
   BilateralEntity,
@@ -346,6 +347,12 @@ function CategoryCard({ summary, expanded, onToggle }: {
 export default function BilateralPage() {
   const { influencer, recipient } = useParams<{ influencer: string; recipient: string }>()
 
+  const openDrilldown = useDrilldown({
+    initiating_country: influencer,
+    recipient_country: recipient,
+    page_source: 'Bilateral',
+  })
+
   // Section nav state
   const [activeSection, setActiveSection] = useState('overview')
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -603,6 +610,12 @@ export default function BilateralPage() {
                   cy="50%"
                   outerRadius={100}
                   label={(props: any) => props.category}
+                  onClick={(entry: any) => {
+                    if (entry?.category) {
+                      openDrilldown({ dimension: 'category', value: entry.category, chart_type: 'pie' })
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
                 >
                   {categoryPieData.map((entry, i) => (
                     <Cell key={i} fill={entry.fill || COLORS[i % COLORS.length]} />
@@ -615,7 +628,16 @@ export default function BilateralPage() {
           <div className="bl-chart-card bl-chart-half">
             <h3>Top Categories</h3>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={overview.top_categories} layout="vertical">
+              <BarChart
+                data={overview.top_categories}
+                layout="vertical"
+                onClick={(e) => {
+                  if (e?.activeLabel) {
+                    openDrilldown({ dimension: 'category', value: e.activeLabel as string, chart_type: 'bar' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+              >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" />
                 <YAxis type="category" dataKey="category" width={100} tick={{ fontSize: 11 }} />
@@ -897,6 +919,12 @@ export default function BilateralPage() {
                       .sort((a, b) => b[1] - a[1])
                       .map(([category, count]) => ({ category, count }))}
                     layout="vertical"
+                    onClick={(e) => {
+                      if (e?.activeLabel) {
+                        openDrilldown({ dimension: 'category', value: e.activeLabel as string, chart_type: 'bar' })
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
                   >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
@@ -947,7 +975,16 @@ export default function BilateralPage() {
             <div className="bl-chart-card">
               <h3>Top 15 Sources</h3>
               <ResponsiveContainer width="100%" height={Math.max(300, sourcesData.sources.slice(0, 15).length * 32)}>
-                <BarChart data={sourcesData.sources.slice(0, 15)} layout="vertical">
+                <BarChart
+                  data={sourcesData.sources.slice(0, 15)}
+                  layout="vertical"
+                  onClick={(e) => {
+                    if (e?.activeLabel) {
+                      openDrilldown({ dimension: 'source', value: e.activeLabel as string, chart_type: 'bar' })
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
+                >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
                   <YAxis type="category" dataKey="source" width={160} tick={{ fontSize: 11 }} />

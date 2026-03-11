@@ -109,6 +109,8 @@ def run_batch_job(
     max_concurrent: int,
     poll_interval: int,
     dry_run: bool,
+    retry_failed: bool = False,
+    stall_timeout: int = 120,
     start_date: str = None,
     end_date: str = None,
     include_dates: bool = False,
@@ -151,6 +153,10 @@ def run_batch_job(
     ]
     if country:
         queue_cmd.extend(["--country", country])
+    if retry_failed:
+        queue_cmd.append("--retry-failed")
+    if stall_timeout != 120:
+        queue_cmd.extend(["--stall-timeout", str(stall_timeout)])
     run_command(
         queue_cmd,
         f"Batch Queue Runner ({job_type}) - {country or 'all'}",
@@ -433,6 +439,7 @@ def main() -> None:
 
     parser.add_argument("--max-concurrent", type=int, default=5, help="Batch queue max concurrent jobs")
     parser.add_argument("--poll-interval", type=int, default=300, help="Batch queue poll interval (seconds)")
+    parser.add_argument("--stall-timeout", type=int, default=120, help="Minutes with 0%% progress before marking a batch stalled/failed (0=disabled)")
 
     parser.add_argument("--force-clustering", action="store_true", help="Force re-cluster already clustered dates")
     parser.add_argument(
@@ -537,6 +544,7 @@ def main() -> None:
     parser.add_argument("--skip-entity-cooccurrence", action="store_true")
     parser.add_argument("--skip-entity-relationships", action="store_true")
     parser.add_argument("--skip-bilateral-summaries", action="store_true")
+    parser.add_argument("--retry-failed", action="store_true", help="Reset failed batch jobs to preparing and resubmit")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
 
     args = parser.parse_args()
@@ -612,6 +620,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         include_dates=True,
@@ -645,6 +655,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                     )
                 else:
                     run_iterative_canonical_deconflict(country=country, dry_run=args.dry_run)
@@ -677,6 +689,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         extra_prepare_args=materiality_args,
                     )
                 else:
@@ -697,6 +711,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         include_dates=True,
@@ -718,6 +734,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         include_dates=True,
@@ -739,6 +757,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         include_dates=True,
@@ -765,6 +785,8 @@ def main() -> None:
                             max_concurrent=args.max_concurrent,
                             poll_interval=args.poll_interval,
                             dry_run=args.dry_run,
+                            retry_failed=args.retry_failed,
+                            stall_timeout=args.stall_timeout,
                             start_date=args.start_date,
                             end_date=args.end_date,
                             include_dates=True,
@@ -792,6 +814,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         include_dates=True,
@@ -828,6 +852,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         include_dates=True,
@@ -865,6 +891,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                     )
                 else:
                     run_iterative_canonical_entity_deconflict(country=country, dry_run=args.dry_run)
@@ -888,6 +916,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         extra_prepare_args=[
                             "--min-articles",
                             str(args.entity_description_min_docs),
@@ -933,6 +963,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         extra_prepare_args=relationship_args,
                     )
                 else:
@@ -957,6 +989,8 @@ def main() -> None:
                         max_concurrent=args.max_concurrent,
                         poll_interval=args.poll_interval,
                         dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
                         extra_prepare_args=bilateral_args,
                     )
                 else:

@@ -13,6 +13,7 @@ from sqlalchemy import func, Text
 from pathlib import Path
 import yaml
 import json
+import uuid
 import tempfile
 import boto3
 from botocore.exceptions import ClientError
@@ -715,7 +716,7 @@ def get_events(
         return EventsResponse(events=event_list, total=total)
 
 @app.get("/api/events/{event_id:uuid}")
-def get_event_detail(event_id: str):
+def get_event_detail(event_id: uuid.UUID):
     """Get full detail for a single event, combining CanonicalEvent + EventSummary data."""
     with get_session() as session:
         event = session.query(CanonicalEvent).filter(

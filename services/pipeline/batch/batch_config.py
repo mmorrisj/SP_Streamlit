@@ -52,8 +52,8 @@ OPENAI_COMPLETION_WINDOW = "24h"
 # high-volume extraction tasks use cost-effective models.
 # Override any job's model via env var: BATCH_MODEL_<JOB_TYPE>=model-name
 _EXTRACTION_MODEL = os.getenv("BATCH_MODEL_EXTRACTION", "gpt-4o-mini")
-_REASONING_MODEL = os.getenv("BATCH_MODEL_REASONING", "gpt-4o")
-_GENERATION_MODEL = os.getenv("BATCH_MODEL_GENERATION", "gpt-4o")
+_REASONING_MODEL = os.getenv("BATCH_MODEL_REASONING", "gpt-4o-mini")
+_GENERATION_MODEL = os.getenv("BATCH_MODEL_GENERATION", "gpt-4o-mini")
 
 DEFAULT_MODELS = {
     # Extraction tasks (high volume, structured output) — cost-effective model

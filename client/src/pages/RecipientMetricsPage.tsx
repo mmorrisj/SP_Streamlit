@@ -17,6 +17,7 @@ import {
 } from 'recharts'
 import { ArrowLeft, FileText, Globe, TrendingUp, Calendar } from 'lucide-react'
 import { fetchRecipientMetrics } from '../api/client'
+import { useDrilldown } from '../hooks/useDrilldown'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c3daf7']
@@ -30,6 +31,11 @@ const CATEGORY_COLORS: Record<string, string> = {
 export default function RecipientMetricsPage() {
   const { country } = useParams<{ country: string }>()
   const navigate = useNavigate()
+
+  const openDrilldown = useDrilldown({
+    recipient_country: country,
+    page_source: 'Recipient Metrics',
+  })
 
   const { data: metrics, isLoading, error } = useQuery({
     queryKey: ['recipientMetrics', country],
@@ -160,7 +166,16 @@ export default function RecipientMetricsPage() {
             Which influencers are engaging with {metrics.recipient}
           </p>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={metrics.influencer_breakdown} layout="vertical">
+            <BarChart
+              data={metrics.influencer_breakdown}
+              layout="vertical"
+              onClick={(e) => {
+                if (e?.activeLabel) {
+                  openDrilldown({ dimension: 'initiating_country', value: e.activeLabel as string, chart_type: 'bar' })
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="influencer" type="category" width={100} tick={{ fontSize: 12 }} />
@@ -183,6 +198,12 @@ export default function RecipientMetricsPage() {
                 cy="50%"
                 outerRadius={100}
                 label={(entry: any) => `${entry.category}`}
+                onClick={(entry: any) => {
+                  if (entry?.category) {
+                    openDrilldown({ dimension: 'category', value: entry.category, chart_type: 'pie' })
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
               >
                 {metrics.category_breakdown.map((entry) => (
                   <Cell
@@ -201,7 +222,16 @@ export default function RecipientMetricsPage() {
       <div className="chart-card">
         <h3>🔍 Top 15 Subcategories</h3>
         <ResponsiveContainer width="100%" height={450}>
-          <BarChart data={metrics.subcategory_breakdown.slice(0, 15)} layout="vertical">
+          <BarChart
+            data={metrics.subcategory_breakdown.slice(0, 15)}
+            layout="vertical"
+            onClick={(e) => {
+              if (e?.activeLabel) {
+                openDrilldown({ dimension: 'subcategory', value: e.activeLabel as string, chart_type: 'bar' })
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" />
             <YAxis dataKey="subcategory" type="category" width={150} tick={{ fontSize: 11 }} />
@@ -215,7 +245,16 @@ export default function RecipientMetricsPage() {
       <div className="chart-card" style={{ marginTop: '2rem' }}>
         <h3>📰 Top 20 News Sources</h3>
         <ResponsiveContainer width="100%" height={500}>
-          <BarChart data={metrics.source_breakdown.slice(0, 20)} layout="vertical">
+          <BarChart
+            data={metrics.source_breakdown.slice(0, 20)}
+            layout="vertical"
+            onClick={(e) => {
+              if (e?.activeLabel) {
+                openDrilldown({ dimension: 'source', value: e.activeLabel as string, chart_type: 'bar' })
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" />
             <YAxis dataKey="source" type="category" width={150} tick={{ fontSize: 11 }} />
