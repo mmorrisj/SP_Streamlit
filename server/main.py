@@ -3906,6 +3906,24 @@ async def download_batch_results(request: BatchStatusRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Results download failed: {str(e)}")
 
+@app.post("/batch/cancel")
+async def cancel_batch(request: BatchStatusRequest):
+    """Cancel an in-progress batch job on OpenAI."""
+    from openai import OpenAI
+    api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+
+    try:
+        client = OpenAI(api_key=api_key)
+        batch = client.batches.cancel(request.batch_id)
+        return {
+            "batch_id": batch.id,
+            "status": batch.status,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch cancel failed: {str(e)}")
+
 
 # ----- S3 Endpoints -----
 

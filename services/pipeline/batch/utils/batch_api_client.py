@@ -145,6 +145,25 @@ class BatchAPIClient:
         response.raise_for_status()
         return response.json()
 
+    def cancel_batch(self, batch_id: str) -> Dict[str, Any]:
+        """
+        Cancel an in-progress batch job on OpenAI.
+
+        Args:
+            batch_id: OpenAI batch ID
+
+        Returns:
+            Dictionary with batch_id and status
+
+        Raises:
+            requests.RequestException: If cancel fails
+        """
+        url = f"{self.base_url}/batch/cancel"
+        payload = {"batch_id": batch_id}
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def download_results(self, batch_id: str) -> Dict[str, Any]:
         """
         Download batch processing results.

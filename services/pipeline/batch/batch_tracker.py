@@ -197,11 +197,22 @@ class BatchJobTracker:
         if not batch_job:
             raise ValueError(f"Batch job not found: {batch_job_id}")
 
+        old_completed = (batch_job.progress_metadata or {}).get('requests_completed', 0)
+        old_progress_change = (batch_job.progress_metadata or {}).get('last_progress_change_at')
+
+        now_iso = datetime.utcnow().isoformat()
+        # Track when progress last changed (completed count increased)
+        if requests_completed > old_completed:
+            last_progress_change_at = now_iso
+        else:
+            last_progress_change_at = old_progress_change or now_iso
+
         batch_job.progress_metadata = {
             'requests_total': requests_total,
             'requests_completed': requests_completed,
             'requests_failed': requests_failed,
-            'updated_at': datetime.utcnow().isoformat()
+            'updated_at': now_iso,
+            'last_progress_change_at': last_progress_change_at,
         }
 
         self.session.commit()

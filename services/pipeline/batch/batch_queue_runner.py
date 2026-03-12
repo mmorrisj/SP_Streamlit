@@ -181,16 +181,35 @@ def check_batch_completion(job: BatchJob, client, tracker: BatchJobTracker, sess
                 tracker.update_status(job.id, BatchJobStatus.IN_PROGRESS)
                 session.commit()
 
-            # Stall detection: if submitted_at is older than stall_timeout and 0 requests completed
+            # Stall detection: no progress for stall_timeout minutes
             if stall_timeout_minutes and job.submitted_at:
-                elapsed_minutes = (datetime.utcnow() - job.submitted_at).total_seconds() / 60
-                requests_completed = (job.progress_metadata or {}).get('requests_completed', 0)
-                if elapsed_minutes >= stall_timeout_minutes and requests_completed == 0:
+                meta = job.progress_metadata or {}
+                requests_completed = meta.get('requests_completed', 0)
+                requests_total = meta.get('requests_total', job.batch_size)
+
+                # Use last_progress_change_at if available, else fall back to submitted_at
+                last_change_str = meta.get('last_progress_change_at')
+                if last_change_str:
+                    last_change = datetime.fromisoformat(last_change_str)
+                else:
+                    last_change = job.submitted_at
+
+                stall_minutes = (datetime.utcnow() - last_change).total_seconds() / 60
+                if stall_minutes >= stall_timeout_minutes:
                     stall_msg = (
-                        f"Stalled: {elapsed_minutes:.0f} min elapsed with 0/{(job.progress_metadata or {}).get('requests_total', job.batch_size)} "
-                        f"requests completed (timeout={stall_timeout_minutes}min). OpenAI batch: {job.openai_batch_id}"
+                        f"Stalled: no progress for {stall_minutes:.0f} min "
+                        f"({requests_completed}/{requests_total} completed, "
+                        f"timeout={stall_timeout_minutes}min). OpenAI batch: {job.openai_batch_id}"
                     )
                     print(f"    ⚠ STALL DETECTED: {stall_msg}")
+
+                    # Cancel the OpenAI batch so it doesn't linger
+                    try:
+                        client.cancel_batch(job.openai_batch_id)
+                        print(f"    ⚠ Cancelled OpenAI batch: {job.openai_batch_id}")
+                    except Exception as cancel_err:
+                        print(f"    ⚠ Could not cancel OpenAI batch: {cancel_err}")
+
                     tracker.update_status(job.id, BatchJobStatus.FAILED, error_message=stall_msg)
                     session.commit()
                     return ('stalled', True)
