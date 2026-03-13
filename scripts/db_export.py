@@ -10,6 +10,9 @@ Usage:
     # Export using .env defaults (local PostgreSQL)
     python scripts/db_export.py --output-dir ./db_export_20260226
 
+    # Export as a single dump file (no chunking)
+    python scripts/db_export.py --output-dir ./db_export_20260226 --single-file
+
     # Export with custom chunk size
     python scripts/db_export.py --output-dir ./db_export_20260226 --chunk-mb 500
 
@@ -318,7 +321,10 @@ def sha256_file(filepath):
 def export_database(args):
     """Main export logic."""
     output_dir = Path(args.output_dir).resolve()
-    chunk_bytes = args.chunk_mb * 1024 * 1024
+    if args.single_file:
+        chunk_bytes = 2**63  # effectively no chunking
+    else:
+        chunk_bytes = args.chunk_mb * 1024 * 1024
     conn = get_connection_params(args)
 
     # Determine Docker container
@@ -342,7 +348,10 @@ def export_database(args):
     print(f"  Database:  {conn['dbname']}")
     print(f"  User:      {conn['user']}")
     print(f"  Output:    {output_dir}")
-    print(f"  Chunk size: {args.chunk_mb} MB")
+    if args.single_file:
+        print(f"  Mode:      single file (no chunking)")
+    else:
+        print(f"  Chunk size: {args.chunk_mb} MB")
     print()
 
     # Check pg_dump availability
@@ -441,7 +450,7 @@ def export_database(args):
         "database_name": conn["dbname"],
         "pg_dump_version": pg_version,
         "total_size_bytes": total_chunk_size,
-        "chunk_size_mb": args.chunk_mb,
+        "chunk_size_mb": None if args.single_file else args.chunk_mb,
         "tables": tables,
         "chunks": chunks,
     }
@@ -483,12 +492,17 @@ Examples:
 
   # Export with 500MB chunks
   python scripts/db_export.py --output-dir ./db_export --chunk-mb 500
+
+  # Export as a single dump file (no chunking)
+  python scripts/db_export.py --output-dir ./db_export --single-file
         """,
     )
     parser.add_argument("--output-dir", required=True,
                         help="Directory to write chunk files and manifest")
     parser.add_argument("--chunk-mb", type=int, default=DEFAULT_CHUNK_MB,
                         help=f"Max chunk size in MB (default: {DEFAULT_CHUNK_MB})")
+    parser.add_argument("--single-file", action="store_true",
+                        help="Output a single dump file instead of chunks")
 
     # Connection params (override .env)
     parser.add_argument("--host", help="Database host (default: from .env or localhost)")
