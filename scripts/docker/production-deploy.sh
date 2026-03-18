@@ -652,8 +652,8 @@ cmd_start() {
                 log_info "Re-run production-build.sh to regenerate the model export"
                 exit 1
             fi
-            if [ ! -f "$MODEL_DIR/models/bge-reranker-v2-m3/config.json" ]; then
-                log_warn "Reranker model missing: $MODEL_DIR/models/bge-reranker-v2-m3/config.json"
+            if [ ! -f "$MODEL_DIR/models/ms-marco-MiniLM-L-6-v2/config.json" ]; then
+                log_warn "Reranker model missing: $MODEL_DIR/models/ms-marco-MiniLM-L-6-v2/config.json"
                 log_info "Reranking will be disabled. Re-run production-build.sh to include it."
             fi
             log_ok "Model dir: $MODEL_DIR (verified)"

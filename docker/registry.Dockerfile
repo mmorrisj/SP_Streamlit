@@ -10,7 +10,7 @@
 #   - No pipeline/ingestion code
 #   - Pull-and-run: no manual setup steps required
 #
-# Image size: ~2GB
+# Image size: ~1.5-2GB
 # ============================================
 
 # ============================================
@@ -86,39 +86,41 @@ RUN pip install --no-cache-dir \
         "jaraco.context>=6.1.0" \
         "supervisor>=4.2.5"
 
-# Download and bake in the HuggingFace sentence-transformers model.
-# Saved via model.save() for a clean, symlink-free layout that survives
-# image layers and registry transfer without manual volume setup.
+# Download and bake in ML models in a single layer to avoid HF hub cache bloat.
+# Both the embedding model and reranker are saved via model.save() for a clean,
+# symlink-free layout, then the HF hub cache is purged — all in one RUN step
+# so intermediate downloads don't persist as separate Docker layers.
 #
-# HF_HOME is the root for the HuggingFace Hub cache.
-# SENTENCE_TRANSFORMERS_HOME points to hub/ so the sentence-transformers
-# library finds cached models at $SENTENCE_TRANSFORMERS_HOME/models--<org>--<name>/
+# Reranker: cross-encoder/ms-marco-MiniLM-L-6-v2 (~90MB) replaces
+# BAAI/bge-reranker-v2-m3 (~2.2GB) to keep the image small.
+# Performance is comparable for RAG reranking use cases.
 ENV HF_HOME=/app/.cache/huggingface
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/hub
 
 RUN python3 -c "\
-import os; \
-from sentence_transformers import SentenceTransformer; \
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
-save_path = '/app/.cache/huggingface/models/all-MiniLM-L6-v2'; \
-os.makedirs(save_path, exist_ok=True); \
-model.save(save_path); \
-assert os.path.isfile(os.path.join(save_path, 'modules.json')), 'Model save verification failed'; \
-print(f'Model baked in at {save_path}') \
-"
-
-# Download and bake in the cross-encoder reranker model.
-# Used by rag_service.py for precision reranking after vector retrieval.
-# Without this, reranking silently disables in offline mode.
-RUN python3 -c "\
-import os; \
-from sentence_transformers import CrossEncoder; \
-model = CrossEncoder('BAAI/bge-reranker-v2-m3', max_length=512); \
-save_path = '/app/.cache/huggingface/models/bge-reranker-v2-m3'; \
-os.makedirs(save_path, exist_ok=True); \
-model.save(save_path); \
-assert os.path.isfile(os.path.join(save_path, 'config.json')), 'Reranker save verification failed'; \
-print(f'Reranker model baked in at {save_path}') \
+import os, shutil; \
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+\
+# 1. Embedding model \
+emb = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
+emb_path = '/app/.cache/huggingface/models/all-MiniLM-L6-v2'; \
+os.makedirs(emb_path, exist_ok=True); \
+emb.save(emb_path); \
+assert os.path.isfile(os.path.join(emb_path, 'modules.json')), 'Embedding model save failed'; \
+print(f'Embedding model baked in at {emb_path}'); \
+\
+# 2. Reranker model (lightweight MiniLM variant) \
+reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512); \
+reranker_path = '/app/.cache/huggingface/models/ms-marco-MiniLM-L-6-v2'; \
+os.makedirs(reranker_path, exist_ok=True); \
+reranker.save(reranker_path); \
+assert os.path.isfile(os.path.join(reranker_path, 'config.json')), 'Reranker save failed'; \
+print(f'Reranker model baked in at {reranker_path}'); \
+\
+# 3. Purge HF hub cache (downloads already saved to final paths above) \
+hub_cache = '/app/.cache/huggingface/hub'; \
+if os.path.isdir(hub_cache): shutil.rmtree(hub_cache); \
+print('HF hub cache purged'); \
 "
 
 # Pre-cache tiktoken encoding files.
@@ -152,7 +154,7 @@ RUN ls -la client/dist/ \
     && ls -la server/main.py \
     && ls -la services/dashboard/app.py \
     && ls -la /app/.cache/huggingface/models/all-MiniLM-L6-v2/modules.json \
-    && ls -la /app/.cache/huggingface/models/bge-reranker-v2-m3/config.json \
+    && ls -la /app/.cache/huggingface/models/ms-marco-MiniLM-L-6-v2/config.json \
     && test -d /app/.cache/tiktoken \
     && echo "All application files verified"
 
