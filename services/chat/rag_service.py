@@ -48,7 +48,7 @@ TRUNCATED_DOC_CHARS = RAG_CONFIG.get('truncated_doc_chars', 500)
 
 # Reranking configuration
 ENABLE_RERANKING = RAG_CONFIG.get('enable_reranking', True)
-RERANK_MODEL = RAG_CONFIG.get('rerank_model', 'BAAI/bge-reranker-v2-m3')
+RERANK_MODEL = RAG_CONFIG.get('rerank_model', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
 RERANK_TOP_K = RAG_CONFIG.get('rerank_top_k', 15)
 RERANK_CANDIDATE_K = RAG_CONFIG.get('rerank_candidate_k', 50)
 
@@ -747,7 +747,7 @@ def get_reranker():
         try:
             from sentence_transformers import CrossEncoder
             # Try baked-in path first (set during Docker build)
-            baked_path = '/app/.cache/huggingface/models/bge-reranker-v2-m3'
+            baked_path = '/app/.cache/huggingface/models/ms-marco-MiniLM-L-6-v2'
             if os.path.isfile(os.path.join(baked_path, 'config.json')):
                 _reranker = CrossEncoder(baked_path, max_length=512)
                 logger.info(f"Loaded reranker model from baked-in path: {baked_path}")

@@ -60,7 +60,7 @@ rag:
   max_full_text_docs: 8          # Top-N docs get full text; rest get truncated
   truncated_doc_chars: 500       # Chars per doc beyond top-N
   enable_reranking: true         # Cross-encoder reranking after retrieval
-  rerank_model: 'BAAI/bge-reranker-v2-m3'  # Local cross-encoder (no API cost)
+  rerank_model: 'cross-encoder/ms-marco-MiniLM-L-6-v2'  # Local cross-encoder (no API cost, ~90MB vs 2.2GB)
   rerank_top_k: 15               # How many docs to keep after reranking
   rerank_candidate_k: 50         # How many docs to fetch before reranking
   enable_hyde: true              # Hypothetical Document Embeddings for query expansion
