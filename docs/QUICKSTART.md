@@ -14,88 +14,39 @@ docker-compose down       # Stop
 docker-compose logs -f    # View logs
 ```
 
-### Docker Only (No Compose - for systems with Docker but not docker-compose)
+### Production Docker (No Compose)
 ```bash
-# One-time setup
-./deploy-docker-only.sh start        # Linux/macOS
-.\deploy-docker-only.ps1 start       # Windows
+# First-time deploy
+./scripts/docker/production-deploy.sh start
+./scripts/docker/production-deploy.sh migrate
 
-./deploy-docker-only.sh migrate      # Run migrations
-
-# Daily usage
-./deploy-docker-only.sh start        # Start
-./deploy-docker-only.sh stop         # Stop
-./deploy-docker-only.sh logs         # View logs
-```
-
-### Non-Docker (Production / No Docker Available)
-```bash
-# One-time setup
-python3 -m venv venv
-source venv/bin/activate  # Windows: .\venv\Scripts\activate
-pip install -r requirements.txt
-
-# Install Node.js dependencies for React client
-cd client
-npm install
-cd ..
-
-# Configure PostgreSQL (see SETUP_NON_DOCKER.md)
-# Create database and user, install pgvector extension
-
-# Run migrations
-alembic upgrade head
-
-# Build React client for production
-cd client
-npm run build
-cd ..
-
-# Daily usage - Development mode (separate React dev server with hot reload)
-./start_services.sh all   # Linux/macOS - Start all services
-.\start_services.ps1 all  # Windows - Start all services
-
-# Daily usage - Production mode (FastAPI serves built React app)
-./start_services.sh prod   # Linux/macOS
-.\start_services.ps1 prod  # Windows
-
-./start_services.sh stop  # Stop services
+# Or restore from backup
+./scripts/docker/production-deploy.sh start
+./scripts/docker/production-deploy.sh restore backup.dump
 ```
 
 ## Access Points
 
-### Docker Compose Mode & Docker Only Mode
+### Docker Compose Mode
 - **React App**: http://localhost:8000 (served by FastAPI)
 - **API**: http://localhost:8000/api/*
 - **Streamlit Dashboard**: http://localhost:8501
 - **Database**: localhost:5432
 
-### Non-Docker Development Mode (./start_services.sh all)
-- **React App**: http://localhost:5000 (Vite dev server with hot reload)
-- **API**: http://localhost:5001
-- **Streamlit Dashboard**: http://localhost:8501
-- **Database**: localhost:5432
-
-### Non-Docker Production Mode (./start_services.sh prod)
-- **React App**: http://localhost:8000 (production build served by FastAPI)
+### Production Docker Mode
+- **React App**: http://localhost:8000 (served by FastAPI)
 - **API**: http://localhost:8000/api/*
 - **Streamlit Dashboard**: http://localhost:8501
 - **Database**: localhost:5432
 
 ## Running Pipeline Scripts
 
-All modes use similar commands:
-
 ```bash
 # Docker Compose mode - run inside container
 docker-compose exec api python services/pipeline/events/batch_cluster_events.py --country China
 
-# Docker Only mode - run inside container
-docker exec softpower_api_prod python services/pipeline/events/batch_cluster_events.py --country China
-
-# Non-Docker mode - run from venv
-source venv/bin/activate
-python services/pipeline/events/batch_cluster_events.py --country China
+# Production Docker mode - run inside container
+docker exec softpower_app python services/pipeline/events/batch_cluster_events.py --country China
 ```
 
 ## Troubleshooting
@@ -103,8 +54,7 @@ python services/pipeline/events/batch_cluster_events.py --country China
 **Database connection failed?**
 ```bash
 # Check PostgreSQL is running
-docker ps                           # Docker mode
-sudo systemctl status postgresql    # Non-Docker Linux
+docker ps
 ```
 
 **Port already in use?**
@@ -116,15 +66,13 @@ STREAMLIT_PORT=8502
 
 **Module import errors?**
 ```bash
-# Make sure you're in project root and venv is activated
+# Make sure you're in project root
 pwd  # Should show .../SP_Streamlit
-source venv/bin/activate  # Non-Docker only
 ```
 
 ## Full Documentation
-- **Docker Compose setup**: See [CLAUDE.md](CLAUDE.md) Docker sections
-- **Docker Only setup** (no compose): See [DOCKER_NO_COMPOSE.md](DOCKER_NO_COMPOSE.md)
-- **Docker command reference**: See [DOCKER_COMMAND_REFERENCE.md](DOCKER_COMMAND_REFERENCE.md)
-- **Non-Docker setup**: See [SETUP_NON_DOCKER.md](SETUP_NON_DOCKER.md)
-- **Docker Hub deployment**: See [DOCKER_HUB_DEPLOYMENT.md](DOCKER_HUB_DEPLOYMENT.md)
-- **Pipeline commands**: See [CLAUDE.md](CLAUDE.md) Pipeline sections
+- **Docker Compose setup**: See [../CLAUDE.md](../CLAUDE.md) Docker sections
+- **Docker workflow**: See [../DOCKER_WORKFLOW.md](../DOCKER_WORKFLOW.md)
+- **Production install**: See [deployment/PRODUCTION_INSTALL.md](deployment/PRODUCTION_INSTALL.md)
+- **Docker Hub deployment**: See [DOCKERHUB_README.md](DOCKERHUB_README.md)
+- **Pipeline commands**: See [../CLAUDE.md](../CLAUDE.md) Pipeline sections

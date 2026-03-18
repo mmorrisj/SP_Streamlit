@@ -15,30 +15,6 @@ docker-compose up -d
 python -c "from shared.database.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
 ```
 
-**Option 2: Non-Docker (Bare Metal / Production)**
-```bash
-# Automated startup (all services)
-./scripts/start_services.sh all          # Linux/macOS
-.\scripts\start_services.ps1 -Service all  # Windows
-
-# Manual startup (individual services)
-# Terminal 1 - FastAPI (serves React UI + API + S3/Batch proxy)
-source venv/bin/activate
-cd server
-uvicorn main:app --host 0.0.0.0 --port 5001 --reload
-
-# Terminal 2 - Streamlit
-source venv/bin/activate
-cd services/dashboard
-streamlit run app.py
-
-# Stop non-Docker services
-./scripts/start_services.sh stop         # Linux/macOS
-.\scripts\start_services.ps1 -Stop       # Windows
-
-# See SETUP_NON_DOCKER.md for full installation guide
-```
-
 ### Database Management
 ```bash
 # Initialize database (creates all tables)
@@ -227,28 +203,21 @@ SP_Streamlit/
 │
 ├── docker/                     # Docker configurations
 │   ├── registry.Dockerfile    # Production consolidated app (Docker Hub)
-│   ├── production.Dockerfile   # Production consolidated app
 │   ├── pgvector.Dockerfile    # Custom pgvector database image
 │   ├── api.Dockerfile         # Dev API service Dockerfile
 │   ├── dashboard.Dockerfile   # Dev dashboard Dockerfile
 │   └── supervisord.conf       # Process manager config
 │
 ├── scripts/                    # All installation and deployment scripts
-│   ├── start_services.sh      # Non-Docker startup (Linux/macOS)
-│   ├── start_services.ps1     # Non-Docker startup (Windows)
 │   ├── run_tests.sh/ps1       # Test runner scripts
 │   └── docker/                # Docker-specific scripts
-│       ├── production-build.sh  # Production package builder
 │       ├── production-deploy.sh # Production deployment script
 │       ├── push-to-registry.sh # Registry push
-│       ├── pack-production.py   # Binary encoding for transfer
-│       └── unpack-production.py # Binary decoding on target
 │
 ├── alembic/                    # Database migrations
 ├── docker-compose.yml          # Docker orchestration
 ├── requirements.txt            # Unified Python dependencies
 ├── QUICKSTART.md               # Quick start guide
-├── SETUP_NON_DOCKER.md         # Non-Docker installation guide
 └── CLAUDE.md                   # This file
 ```
 
@@ -291,36 +260,20 @@ The application runs as a multi-container Docker stack:
 - Shared network `softpower_net` allows inter-container communication
 - Volume `postgres_data` persists database data
 
-### Deployment Modes
+### Deployment
 
-The project supports **both Docker and non-Docker deployments** with automatic environment detection:
-
-**Docker Mode** (detected via `DOCKER_ENV=true` environment variable):
+The project deploys via Docker with `DOCKER_ENV=true` environment variable:
 - All services run in containers
 - Database host: `softpower_db` (container name)
 - API URL: `http://host.docker.internal:5001`
 - Start with: `docker-compose up -d`
 
-**Non-Docker Mode** (default when `DOCKER_ENV` is not set):
-- Services run directly on host system
-- Database host: `localhost` (from `.env`)
-- API URL: `http://localhost:5001` (from `.env`)
-- Start with: `./scripts/start_services.sh all` or `.\scripts\start_services.ps1 -Service all`
-
 **Environment Variable Hierarchy**:
 ```
 1. Docker: docker-compose.yml overrides (DB_HOST=softpower_db, DOCKER_ENV=true)
-2. Non-Docker: .env file values (DB_HOST=localhost)
+2. .env file values (fallback)
 3. Code defaults: Hardcoded fallbacks in shared/database/database.py
 ```
-
-**Benefits of Dual Support**:
-- ✅ Flexibility: Choose deployment method based on infrastructure
-- ✅ Development: Docker for full stack, non-Docker for faster iteration
-- ✅ Production: Bare metal on VPS/EC2 without Docker overhead
-- ✅ Debugging: Direct Python debugging without container layers
-
-**See [SETUP_NON_DOCKER.md](SETUP_NON_DOCKER.md) for complete non-Docker installation guide.**
 
 ### Database Architecture
 
@@ -498,7 +451,7 @@ if __name__ == "__main__":
 ```python
 import yaml
 
-with open('backend/config.yaml', 'r') as f:
+with open('shared/config/config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 # Common config sections:
@@ -528,7 +481,7 @@ docs = session.execute(
 ).fetchall()
 
 # Working with consolidated event summaries
-from backend.models_consolidated import EventSummary, PeriodType
+from shared.models.models import EventSummary, PeriodType
 
 daily_events = session.query(EventSummary).filter(
     EventSummary.period_type == PeriodType.DAILY,
@@ -546,13 +499,13 @@ for event in daily_events:
 
 S3 operations use a two-tier architecture:
 
-1. **FastAPI Server** (`backend/api.py`): Runs on host with AWS credentials, provides S3 proxy endpoints
-2. **API Client** (`backend/api_client.py`): Used by scripts to access S3 via FastAPI
+1. **FastAPI Server** (`server/main.py`): Runs on host with AWS credentials, provides S3 proxy endpoints
+2. **API Client**: Used by scripts to access S3 via FastAPI
 3. **S3 Config** (`services/pipeline/embeddings/s3.py`): Provides config-based bucket/prefix helpers
 
 ```python
 from services.pipeline.embeddings.s3 import get_bucket_name, get_s3_prefix
-from backend.api_client import get_s3_api_client
+from services.pipeline.embeddings.s3 import get_s3_api_client
 
 # Get bucket from config.yaml (or S3_BUCKET env var)
 bucket = get_bucket_name()
@@ -602,11 +555,11 @@ alembic current
 ```
 
 **Important**: When adding new model fields:
-1. Update the model in `backend/models.py` or `backend/models_consolidated.py`
+1. Update the model in `shared/models/models.py`
 2. Run `alembic revision --autogenerate -m "description"`
 3. Review the generated migration file for correctness
 4. Test migration with `alembic upgrade head`
-5. Update any related prompts in `backend/scripts/prompts.py`
+5. Update any related prompts in `shared/utils/prompts.py`
 6. Modify extraction/processing scripts to handle the new field
 
 ### Performance Considerations
@@ -615,7 +568,7 @@ alembic current
 - Use `session.execute()` with raw SQL for complex analytical queries
 - Batch operations: `session.bulk_insert_mappings()` or `session.bulk_update_mappings()`
 - Avoid N+1 queries: use `joinedload()` or `selectinload()` for relationships
-- Monitor pool status: `from backend.database import get_pool_status; print(get_pool_status())`
+- Monitor pool status: `from shared.database.database import get_pool_status; print(get_pool_status())`
 
 **S3 Operations**:
 - Use binary streaming for large parquet files
@@ -630,38 +583,22 @@ alembic current
 ### Environment Setup
 
 ```bash
-# Install Python dependencies
-pip install -r requirements.txt
-pip install -r backend/requirements.txt
-
 # Set up environment variables
 cp .env.example .env  # Edit with your credentials
 
-# Option 1: Docker setup (recommended)
+# Docker setup
 docker-compose up -d
 docker-compose --profile migrate up  # Run migrations
 
-# Option 2: Local setup
-# Start PostgreSQL with pgvector (via Docker)
-docker-compose up -d db
-
-# Initialize database
-python -c "from backend.database import init_database; init_database()"
-alembic upgrade head
-
 # Verify connection
-python -c "from backend.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
-
-# Run Streamlit locally
-cd streamlit
-streamlit run app.py
+python -c "from shared.database.database import health_check; print('Connected' if health_check() else 'Failed')"
 ```
 
 ### Testing Database Connection
 
 ```python
 # Quick health check
-from backend.database import health_check, get_pool_status
+from shared.database.database import health_check, get_pool_status
 
 if health_check():
     print("✅ Database connected")
@@ -670,8 +607,8 @@ else:
     print("❌ Database connection failed")
 
 # Query example
-from backend.database import get_session
-from backend.models import Document
+from shared.database.database import get_session
+from shared.models.models import Document
 
 with get_session() as session:
     count = session.query(Document).count()
@@ -682,7 +619,7 @@ with get_session() as session:
 
 ### Adding New Document Fields
 
-1. Update model in `backend/models.py`:
+1. Update model in `shared/models/models.py`:
    ```python
    class Document(Base):
        __tablename__ = "documents"
@@ -701,9 +638,9 @@ with get_session() as session:
    alembic upgrade head
    ```
 
-4. Update extraction logic in `backend/scripts/atom_extraction.py`
+4. Update extraction logic in `services/pipeline/analysis/atom_extraction.py`
 
-5. Update prompts if needed in `backend/scripts/prompts.py`
+5. Update prompts if needed in `shared/utils/prompts.py`
 
 ### Adding New Dashboard Pages
 
@@ -729,8 +666,8 @@ with get_session() as session:
 The consolidated event summary model supports multiple time periods:
 
 ```python
-from backend.models_consolidated import EventSummary, PeriodType, EventStatus
-from backend.database import get_session
+from shared.models.models import EventSummary, PeriodType, EventStatus
+from shared.database.database import get_session
 
 with get_session() as session:
     # Query daily events
@@ -756,11 +693,11 @@ with get_session() as session:
 **Database connection issues**:
 ```python
 # Check pool status
-from backend.database import get_pool_status
+from shared.database.database import get_pool_status
 print(get_pool_status())
 
 # Force reconnection
-from backend.database import db_manager
+from shared.database.database import db_manager
 db_manager.recreate_connection()
 ```
 
@@ -773,7 +710,7 @@ export SQL_DEBUG=true  # For connection pool debugging
 
 **Docker logs**:
 ```bash
-docker-compose logs -f backend      # FastAPI logs
+docker-compose logs -f api           # FastAPI logs
 docker-compose logs -f streamlit    # Streamlit logs
 docker-compose logs -f db           # PostgreSQL logs
 ```

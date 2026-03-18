@@ -1,6 +1,6 @@
-# Production Installation Guide (CentOS 7)
+# Production Installation Guide
 
-Complete guide for deploying SoftPower Analytics on production CentOS 7 systems using only Docker (no Docker Compose required).
+Complete guide for deploying SoftPower Analytics on production systems using Docker (no Docker Compose required).
 
 ---
 
@@ -15,7 +15,7 @@ The deployment uses **2 Docker containers**:
 
 ```
 ┌────────────────────────────────────────────────┐
-│           Production CentOS 7 Host             │
+│              Production Host                   │
 │                                                │
 │  ┌─────────────┐    ┌──────────────────────┐   │
 │  │ softpower_db│    │  softpower_app       │   │
@@ -32,20 +32,7 @@ The deployment uses **2 Docker containers**:
 
 ---
 
-## Two Deployment Paths
-
-| | Path A: Registry Images | Path B: Slim Images |
-|---|---|---|
-| **Source** | Docker Hub (`mmorrisj/softpower-analytics`) | `production-build.sh` package |
-| **ML packages** | Baked into image | Installed from wheels via `setup` |
-| **HuggingFace model** | Baked into image | External `hf_model/` directory (volume mount) |
-| **Image size** | ~2 GB (ready to run) | ~700 MB slim + ~1.5 GB wheels |
-| **Steps** | Load → configure → start → restore | Load → setup → configure → start → restore |
-| **Best for** | Enterprise with pre-approved Docker Hub images | Air-gapped with no registry access |
-
----
-
-## Path A: Registry Images (Recommended for Enterprise)
+## Registry Images (Docker Hub)
 
 Use this path when you have loaded Docker Hub images (`mmorrisj/softpower-analytics` and `mmorrisj/pgvector`) into the enterprise environment.
 
@@ -180,75 +167,10 @@ docker exec softpower_db psql -U matthew50 -d softpower-db -c "CREATE EXTENSION 
 
 ---
 
-## Path B: Slim Images (Air-Gapped via production-build.sh)
-
-Use this path when deploying from a `production-build.sh` transfer package.
-
-### Quick Build (Internet-Connected Machine)
-
-```bash
-cd SP_Streamlit
-
-# Standard output: tar.gz archive
-./scripts/docker/production-build.sh
-
-# Transfer-safe output: directory of .txt files (for systems that block binaries)
-./scripts/docker/production-build.sh --pack
-```
-
-### Package Contents
-
-```
-softpower-production-YYYYMMDD/
-├── images/
-│   ├── pgvector-pg16.tar            # ~400 MB  PostgreSQL + pgvector
-│   └── softpower-app-production.tar # ~700 MB  FastAPI + Streamlit (slim)
-├── wheels/                          # ~1.5 GB  ML package wheels
-├── hf_model/                        # ~90 MB   sentence-transformers model
-├── requirements-production-heavy.txt
-├── production-deploy.sh
-├── .env.example
-├── softpower-backup.dump            # Database backup (if available)
-└── README.txt
-```
-
-### Installation Steps
-
-```bash
-# 1. Extract package
-cd /opt
-tar xzf softpower-production-YYYYMMDD.tar.gz
-cd softpower-production-YYYYMMDD
-
-# If using --pack mode:
-python3 unpack-production.py --apply
-
-# 2. Load Docker images
-./production-deploy.sh load ./images
-
-# 3. Install ML packages from wheels (one-time)
-./production-deploy.sh setup
-
-# 4. Configure environment
-cp .env.example .env
-vi .env
-
-# 5. Start services
-./production-deploy.sh start
-
-# 6. Initialize database
-./production-deploy.sh migrate
-# Or restore from backup:
-./production-deploy.sh restore softpower-backup.dump
-```
-
----
-
 ## Management Commands
 
 ```bash
 ./production-deploy.sh load [dir]       # Load Docker images from tar files
-./production-deploy.sh setup            # Install ML wheels into app image (slim only, one-time)
 ./production-deploy.sh start            # Start all services
 ./production-deploy.sh stop             # Stop all services (preserves data)
 ./production-deploy.sh restart          # Stop then start all services
@@ -284,48 +206,6 @@ uvicorn server.main:app --host 0.0.0.0 --port 7001
 ```bash
 # In .env:
 LLM_PROXY_PORT=0
-```
-
----
-
-## CentOS 7 Specific Considerations
-
-### SELinux
-
-```bash
-# Check status
-getenforce
-
-# Set to permissive if blocking Docker
-sudo setenforce 0
-
-# Or add proper SELinux contexts
-sudo chcon -Rt svirt_sandbox_file_t /opt/softpower-production-*
-```
-
-### Firewall
-
-```bash
-sudo firewall-cmd --permanent --add-port=8000/tcp    # Web app
-sudo firewall-cmd --permanent --add-port=8501/tcp    # Streamlit
-sudo firewall-cmd --reload
-```
-
-### Storage
-
-CentOS 7 may have limited `/var` space:
-
-```bash
-# Check disk space
-df -h
-
-# Move Docker data directory if needed
-sudo systemctl stop docker
-sudo mkdir -p /opt/docker
-sudo vi /etc/docker/daemon.json
-# Add: {"data-root": "/opt/docker"}
-sudo rsync -aP /var/lib/docker/ /opt/docker/
-sudo systemctl start docker
 ```
 
 ---
@@ -387,15 +267,9 @@ docker network inspect softpower_net
 
 ### ML Packages Not Working
 
-For **registry images**, ML packages are baked in. Verify:
+ML packages are baked into the registry image. Verify:
 ```bash
 docker run --rm mmorrisj/softpower-analytics:1.5.5 python -c "import torch; print(torch.__version__)"
-```
-
-For **slim images**, re-run setup:
-```bash
-./production-deploy.sh setup
-docker run --rm softpower-app-production:latest python -c "import torch; print(torch.__version__)"
 ```
 
 ### Shared Memory Errors (PostgreSQL)
@@ -420,8 +294,6 @@ docker network create softpower_net
 
 ## Updating the Application
 
-### Registry images (from Docker Hub)
-
 ```bash
 # 1. Load new image version
 docker load -i softpower-analytics-X.Y.Z.tar
@@ -435,23 +307,10 @@ APP_IMAGE=mmorrisj/softpower-analytics:X.Y.Z
 ./production-deploy.sh migrate    # Apply any new migrations
 ```
 
-### Slim images (from production-build.sh)
-
-```bash
-# 1. Transfer new package to production system
-# 2. On production system:
-./production-deploy.sh stop
-./production-deploy.sh load ./images      # Load updated slim image
-./production-deploy.sh setup              # Re-install ML packages
-./production-deploy.sh start
-./production-deploy.sh migrate            # Apply any new migrations
-```
-
 ---
 
 ## Verification Checklist
 
-### Registry Images (Path A)
 - [ ] Docker installed and running
 - [ ] Both Docker images loaded (`mmorrisj/softpower-analytics:1.5.5`, `mmorrisj/pgvector:0.8.1-pg16`)
 - [ ] `.env` configured with credentials and `APP_IMAGE`/`DB_IMAGE`
@@ -463,22 +322,6 @@ APP_IMAGE=mmorrisj/softpower-analytics:X.Y.Z
 - [ ] Streamlit accessible in browser
 - [ ] Firewall allows ports 8000, 8501
 - [ ] (Optional) LLM proxy running on host port 7001
-
-### Slim Images (Path B)
-- [ ] Docker installed and running
-- [ ] Both Docker images loaded (`pgvector`, `softpower-app-production`)
-- [ ] ML packages installed via `setup` command
-- [ ] HuggingFace model directory present (`hf_model/`)
-- [ ] `.env` configured with credentials
-- [ ] Database container running (port 5432)
-- [ ] App container running (ports 8000, 8501)
-- [ ] Database migrations applied
-- [ ] Health check passes: `curl http://localhost:8000/api/health`
-- [ ] Web app accessible in browser
-- [ ] Streamlit accessible in browser
-- [ ] Firewall allows ports 8000, 8501
-- [ ] (Optional) LLM proxy running on host port 7001
-- [ ] (Optional) Database backup restored
 
 ---
 

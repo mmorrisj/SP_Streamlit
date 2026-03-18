@@ -51,20 +51,6 @@ Supports both Docker Hub registry images and locally-built slim images.
 ./scripts/docker/production-deploy.sh restore backup.dump
 ```
 
-### Non-Docker (Bare Metal)
-
-```bash
-pip install -r requirements.txt
-cd client && npm install && npm run build && cd ..
-alembic upgrade head
-
-# Start all services
-./scripts/start_services.sh all          # Linux/macOS
-.\scripts\start_services.ps1 -Service all  # Windows
-```
-
-See [SETUP_NON_DOCKER.md](docs/deployment/SETUP_NON_DOCKER.md) for full installation guide.
-
 ---
 
 ## Production Deploy Commands
@@ -88,21 +74,11 @@ All production Docker operations go through a single script:
 | `rebuild-db [file]` | Drop database, recreate schema, optionally restore |
 | `psql [sql]` | Interactive psql or execute SQL |
 | `logs [container]` | Tail container logs |
-| `load [dir]` | Load images from tar files (airgap) |
-| `setup` | Install ML wheels into slim image (one-time) |
+| `load [dir]` | Load images from tar files |
 
 ### First-Time Deploy (Registry Images)
 
 ```bash
-./scripts/docker/production-deploy.sh start
-./scripts/docker/production-deploy.sh migrate
-```
-
-### First-Time Deploy (Airgap / Slim Images)
-
-```bash
-./scripts/docker/production-deploy.sh load ./images
-./scripts/docker/production-deploy.sh setup
 ./scripts/docker/production-deploy.sh start
 ./scripts/docker/production-deploy.sh migrate
 ```
@@ -368,4 +344,3 @@ print(get_pool_status())
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | Quick deployment guide |
 | [docs/DOCKERHUB_README.md](docs/DOCKERHUB_README.md) | Docker Hub image documentation |
 | [DOCKER_WORKFLOW.md](DOCKER_WORKFLOW.md) | Docker workflow and build guide |
-| [docs/deployment/SETUP_NON_DOCKER.md](docs/deployment/SETUP_NON_DOCKER.md) | Non-Docker installation |

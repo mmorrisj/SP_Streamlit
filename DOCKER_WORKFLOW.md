@@ -24,13 +24,12 @@ This means the host-side FastAPI must be running for any LLM features (report ge
 ### Development (internet-connected machine) — build from source
 
 ```bash
-sudo docker build -f docker/production.Dockerfile -t softpower-analytics:latest .
+sudo docker build -f docker/registry.Dockerfile -t softpower-analytics:latest .
 ```
 
 **What happens during the build:**
 - Stage 1: `node:20-slim` installs npm deps and runs `npm run build` (compiles React to static files)
-- Stage 2: `python:3.13-slim` installs system packages and **lightweight** pip dependencies only
-- Heavy ML packages (torch, sentence-transformers, langchain-huggingface) are **not** included — they are shipped as wheels and installed on the target via `./production-deploy.sh setup`
+- Stage 2: `python:3.13-slim` installs system packages and all pip dependencies (including ML packages)
 - The built React files are copied from Stage 1 into Stage 2
 - Node.js is **not** present in the final image — React runs as pre-built static files
 
@@ -40,55 +39,6 @@ sudo docker build -f docker/production.Dockerfile -t softpower-analytics:latest 
 
 **If the build fails with TypeScript errors:**
 Fix the source files in `client/src/`, then re-run the build command. Only the changed layers rebuild.
-
-### Air-gapped system — load pre-built images
-
-The production system has no internet access, so you **cannot** `docker build`. Instead, load images that were built and exported from an internet-connected machine.
-
-**Option A: Pull from a registry accessible to the production network**
-
-If a Docker registry is reachable from the production system (e.g., an internal/corporate registry):
-
-```bash
-# Pull the app image (pushed earlier via push-to-registry.sh)
-sudo docker pull <REGISTRY>/softpower-app-production:latest
-
-# Tag it to match the expected name
-sudo docker tag <REGISTRY>/softpower-app-production:latest softpower-analytics:latest
-
-# Pull the database image
-sudo docker pull <REGISTRY>/pgvector:0.8.1-pg16
-```
-
-**Option B: Load from tar files (transferred via S3, SCP, or physical media)**
-
-On the internet-connected machine, export the images first (see Section 9). Then on the production system:
-
-```bash
-# Load the app image
-sudo docker load -i softpower-app-production.tar
-# or if saved with a different name:
-sudo docker load -i softpower-analytics.tar
-
-# Load the database image
-sudo docker load -i pgvector-pg16.tar
-
-# Verify both loaded
-sudo docker images | grep -E "softpower|pgvector"
-```
-
-**Option C: Use the automated deployment package**
-
-If the package was created with `production-build.sh`:
-
-```bash
-tar xzf softpower-production-YYYYMMDD.tar.gz
-cd softpower-production-YYYYMMDD
-./production-deploy.sh load ./images
-./production-deploy.sh setup              # Install ML packages from wheels (~1.5GB)
-```
-
-The `setup` command installs torch, sentence-transformers, and langchain-huggingface from pre-downloaded wheel files into the app image via `docker commit`. This is a one-time operation.
 
 ## 2. Run the Container
 
@@ -189,7 +139,7 @@ After editing source files, rebuild and restart:
 
 ```bash
 sudo docker rm -f softpower_analytics && \
-sudo docker build -f docker/production.Dockerfile -t softpower-analytics:latest . && \
+sudo docker build -f docker/registry.Dockerfile -t softpower-analytics:latest . && \
 sudo docker run -d \
   --name softpower_analytics \
   -p 8005:8000 \
@@ -354,21 +304,12 @@ sudo docker load -i softpower-analytics.tar
 sudo docker load -i pgvector-pg16.tar
 ```
 
-### Option C: Automated build + package script
-
-```bash
-./scripts/docker/production-build.sh
-```
-
-This builds the image, exports both tars, and creates a self-contained deployment package.
-
 ## 11. File Reference
 
 | File | Purpose |
 |------|---------|
 | **Dockerfiles** | |
 | `docker/registry.Dockerfile` | Production image — self-contained with ML packages + HuggingFace model (~2GB) |
-| `docker/production.Dockerfile` | Air-gapped image — slim, ML packages installed from wheels on target |
 | `docker/api.Dockerfile` | Dev API service (multi-stage: Node build + Python FastAPI) |
 | `docker/dashboard.Dockerfile` | Dev Streamlit dashboard service |
 | `docker/pgvector.Dockerfile` | Custom PostgreSQL 16 + pgvector (compiled from source) |
@@ -381,10 +322,7 @@ This builds the image, exports both tars, and creates a self-contained deploymen
 | `requirements-production-heavy.txt` | Heavy ML deps installed from wheels on production target |
 | **Scripts** | |
 | `scripts/docker/push-to-registry.sh` | Build + push images to Docker Hub (registry or production mode) |
-| `scripts/docker/production-build.sh` | Automated build + wheel download + package creation |
 | `scripts/docker/production-deploy.sh` | Deployment management on production target system |
-| `scripts/docker/pack-production.py` | Encode binaries for transfer through DLP-restricted networks |
-| `scripts/docker/unpack-production.py` | Decode binaries after transfer |
 | `scripts/llm_proxy.py` | Lightweight LLM+S3 proxy (only needs fastapi+uvicorn+openai+boto3) |
 | **Documentation** | |
 | `docs/DOCKERHUB_README.md` | Docker Hub container registry README |
