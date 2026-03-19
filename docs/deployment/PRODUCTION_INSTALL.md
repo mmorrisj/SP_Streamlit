@@ -11,7 +11,7 @@ The deployment uses **2 Docker containers**:
 | Container | Image | Ports | Purpose |
 |-----------|-------|-------|---------|
 | `softpower_db` | `mmorrisj/pgvector:0.8.1-pg16` | 5432 | PostgreSQL 16 + pgvector |
-| `softpower_app` | `mmorrisj/softpower-analytics:1.5.5` | 8000, 8501 | FastAPI + Streamlit (via supervisord) |
+| `softpower_app` | `mmorrisj/softpower-analytics:1.7.2` | 8000, 8501 | FastAPI + Streamlit (via supervisord) |
 
 ```
 ┌────────────────────────────────────────────────┐
@@ -60,17 +60,17 @@ docker ps
 
 If images were transferred as tar files:
 ```bash
-docker load -i softpower-analytics-1.5.5.tar
+docker load -i softpower-analytics-1.7.2.tar
 docker load -i pgvector-0.8.1-pg16.tar
 ```
 
 If images were pulled from an enterprise registry mirror:
 ```bash
-docker pull registry.enterprise.local/mmorrisj/softpower-analytics:1.5.5
+docker pull registry.enterprise.local/mmorrisj/softpower-analytics:1.7.2
 docker pull registry.enterprise.local/mmorrisj/pgvector:0.8.1-pg16
 
 # Tag to expected names
-docker tag registry.enterprise.local/mmorrisj/softpower-analytics:1.5.5 mmorrisj/softpower-analytics:1.5.5
+docker tag registry.enterprise.local/mmorrisj/softpower-analytics:1.7.2 mmorrisj/softpower-analytics:1.7.2
 docker tag registry.enterprise.local/mmorrisj/pgvector:0.8.1-pg16 mmorrisj/pgvector:0.8.1-pg16
 ```
 
@@ -78,7 +78,7 @@ Verify both images are loaded:
 ```bash
 docker images | grep -E "softpower|pgvector"
 # Expected:
-#   mmorrisj/softpower-analytics   1.5.5    ...   ~2GB
+#   mmorrisj/softpower-analytics   1.7.2    ...   ~2GB
 #   mmorrisj/pgvector              0.8.1-pg16  ...   ~400MB
 ```
 
@@ -92,7 +92,7 @@ POSTGRES_PASSWORD=your_secure_password
 POSTGRES_DB=softpower-db
 
 # Registry image configuration
-APP_IMAGE=mmorrisj/softpower-analytics:1.5.5
+APP_IMAGE=mmorrisj/softpower-analytics:1.7.2
 DB_IMAGE=mmorrisj/pgvector:0.8.1-pg16
 
 # LLM proxy (set to 0 to disable)
@@ -269,7 +269,7 @@ docker network inspect softpower_net
 
 ML packages are baked into the registry image. Verify:
 ```bash
-docker run --rm mmorrisj/softpower-analytics:1.5.5 python -c "import torch; print(torch.__version__)"
+docker run --rm mmorrisj/softpower-analytics:1.7.2 python -c "import torch; print(torch.__version__)"
 ```
 
 ### Shared Memory Errors (PostgreSQL)
@@ -312,7 +312,7 @@ APP_IMAGE=mmorrisj/softpower-analytics:X.Y.Z
 ## Verification Checklist
 
 - [ ] Docker installed and running
-- [ ] Both Docker images loaded (`mmorrisj/softpower-analytics:1.5.5`, `mmorrisj/pgvector:0.8.1-pg16`)
+- [ ] Both Docker images loaded (`mmorrisj/softpower-analytics:1.7.2`, `mmorrisj/pgvector:0.8.1-pg16`)
 - [ ] `.env` configured with credentials and `APP_IMAGE`/`DB_IMAGE`
 - [ ] Database container running (port 5432)
 - [ ] App container running (ports 8000, 8501)
