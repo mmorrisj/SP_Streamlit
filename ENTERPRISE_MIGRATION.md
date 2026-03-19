@@ -25,7 +25,7 @@ sudo docker load -i softpower-analytics.tar
 sudo docker load -i pgvector-pg16.tar
 
 # If pulling from a registry:
-sudo docker pull mmorrisj/softpower-analytics:1.7.0
+sudo docker pull mmorrisj/softpower-analytics:1.7.2
 sudo docker pull mmorrisj/pgvector:0.8.1-pg16
 
 # Verify images are available
@@ -309,7 +309,7 @@ sudo docker run --rm \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sp_prod_db:5432/${POSTGRES_DB}" \
-    mmorrisj/softpower-analytics:1.7.0 \
+    mmorrisj/softpower-analytics:1.7.2 \
     alembic upgrade head
 ```
 
@@ -378,7 +378,7 @@ sudo docker run --rm -it \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sp_prod_db:5432/${POSTGRES_DB}" \
-    mmorrisj/softpower-analytics:1.7.0 \
+    mmorrisj/softpower-analytics:1.7.2 \
     python -c "
 from shared.database.database import get_session
 from shared.models.models import User, UserRole
@@ -488,7 +488,7 @@ sudo docker run -d \
     -e JWT_EXPIRATION_HOURS="${JWT_EXPIRATION_HOURS:-24}" \
     -p "${API_PORT:-8000}:8000" \
     -p "${STREAMLIT_PORT:-8501}:8501" \
-    mmorrisj/softpower-analytics:1.7.0
+    mmorrisj/softpower-analytics:1.7.2
 ```
 
 ### 7.3 Wait for the app to become healthy
@@ -636,7 +636,7 @@ sudo docker logs sp_prod_app 2>&1 | grep -E "ERROR|FATAL|Traceback"
    ```bash
    sudo docker run --rm --network softpower_net \
        --add-host=host.docker.internal:host-gateway \
-       mmorrisj/softpower-analytics:1.7.0 \
+       mmorrisj/softpower-analytics:1.7.2 \
        python -c "import os; print('API_URL =', os.getenv('API_URL', 'NOT SET'))"
    ```
 3. Verify the LiteLLM endpoint is reachable from the host:
