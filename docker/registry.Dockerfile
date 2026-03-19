@@ -118,8 +118,7 @@ assert os.path.isfile(os.path.join(reranker_path, 'config.json')), 'Reranker sav
 print(f'Reranker model baked in at {reranker_path}'); \
 \
 # 3. Purge HF hub cache (downloads already saved to final paths above) \
-hub_cache = '/app/.cache/huggingface/hub'; \
-if os.path.isdir(hub_cache): shutil.rmtree(hub_cache); \
+shutil.rmtree('/app/.cache/huggingface/hub', ignore_errors=True); \
 print('HF hub cache purged'); \
 "
 
