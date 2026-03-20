@@ -1659,6 +1659,10 @@ def generate_report(
     top_n: int = 10,
     model: str = "gpt-4o-mini",
     quarterly: bool = False,
+    include_events: bool = True,
+    include_entities: bool = True,
+    include_metrics: bool = True,
+    include_persons: bool = True,
 ) -> Dict[str, Any]:
     """
     Main report generation orchestrator.
@@ -1724,28 +1728,54 @@ def generate_report(
                     )
 
         # Step 3: Compute metrics
-        print("[Report] Computing metrics...")
-        metrics = compute_metrics(
-            session, country, start_date, end_date, recipient, events_by_category,
-            valid_recipients=config.recipients
-        )
+        if include_metrics:
+            print("[Report] Computing metrics...")
+            metrics = compute_metrics(
+                session, country, start_date, end_date, recipient, events_by_category,
+                valid_recipients=config.recipients
+            )
+        else:
+            print("[Report] Skipping metrics (disabled)")
+            metrics = {
+                'total_documents': 0, 'total_events': 0,
+                'category_distribution': [], 'subcategory_distribution': [],
+                'recipient_distribution': [], 'materiality_histogram': []
+            }
 
         # Step 3b: Get top entities
-        print("[Report] Loading top entities...")
-        entities_by_type = get_top_entities(
-            session, country, start_date, end_date, recipient, top_n=5
-        )
-        total_entities = sum(len(ents) for ents in entities_by_type.values())
-        print(f"[Report] Found {total_entities} entities across {len(entities_by_type)} types")
+        if include_entities or include_persons:
+            print("[Report] Loading top entities...")
+            entities_by_type = get_top_entities(
+                session, country, start_date, end_date, recipient, top_n=5
+            )
+            # Filter based on toggles
+            if not include_persons:
+                entities_by_type.pop('PERSON', None)
+            if not include_entities:
+                for etype in ['ORGANIZATION', 'COMPANY', 'LOCATION']:
+                    entities_by_type.pop(etype, None)
+            total_entities = sum(len(ents) for ents in entities_by_type.values())
+            print(f"[Report] Found {total_entities} entities across {len(entities_by_type)} types")
+        else:
+            print("[Report] Skipping entities (disabled)")
+            entities_by_type = {}
 
         # Step 3c: Compute materiality trends
-        print("[Report] Computing materiality trends...")
-        materiality_trends = compute_materiality_trends(
-            session, country, start_date, end_date, recipient,
-            valid_recipients=config.recipients
-        )
-        print(f"[Report] Materiality trends: {len(materiality_trends['overall_series'])} months, "
-              f"{len(materiality_trends['significant_changes'])} significant changes")
+        if include_metrics:
+            print("[Report] Computing materiality trends...")
+            materiality_trends = compute_materiality_trends(
+                session, country, start_date, end_date, recipient,
+                valid_recipients=config.recipients
+            )
+            print(f"[Report] Materiality trends: {len(materiality_trends['overall_series'])} months, "
+                  f"{len(materiality_trends['significant_changes'])} significant changes")
+        else:
+            materiality_trends = {
+                'trend_start': (start_date - timedelta(days=90)).isoformat(),
+                'recipient_series': {},
+                'overall_series': [],
+                'significant_changes': []
+            }
 
         # Load entity document details for citation support
         print("[Report] Loading entity source documents...")
@@ -1844,78 +1874,81 @@ def generate_report(
     print(f"[Report] Total citations: {len(all_sources)}")
 
     # Step 5: Generate event narratives (use cached EventSummary when available)
-    # Pre-load cached narratives from EventSummary table
-    cached_narratives = {}
-    try:
-        from shared.models.models import EventSummary as ES, PeriodType as PT
-        all_event_names = [e['event_name'] for evts in events_by_category.values() for e in evts]
-        if all_event_names:
-            cached_rows = session.execute(text("""
-                SELECT DISTINCT ON (event_name)
-                    event_name, narrative_summary
-                FROM event_summaries
-                WHERE initiating_country = :country
-                  AND event_name = ANY(:names)
-                  AND is_deleted = false
-                  AND narrative_summary IS NOT NULL
-                ORDER BY event_name, period_start DESC
-            """), {"country": country, "names": all_event_names}).fetchall()
-            for row in cached_rows:
-                ns = row.narrative_summary or {}
-                if ns.get("overview"):
-                    cached_narratives[row.event_name] = ns
-            print(f"[Report] Found {len(cached_narratives)}/{len(all_event_names)} cached EventSummary narratives")
-    except Exception as e:
-        print(f"[Report] Could not load cached narratives: {e}")
-
-    if llm_available:
-        print("[Report] Generating event narratives...")
-        for category, events in events_by_category.items():
-            for event in events:
-                cached = cached_narratives.get(event['event_name'])
-                if cached:
-                    event['overview'] = cached.get('overview', '')
-                    event['outcomes'] = cached.get('outcomes', '')
-                else:
-                    event_docs = documents_by_event.get(event['id'], [])
-                    narrative = generate_event_narrative(
-                        event, config, source_docs=event_docs, source_map=source_map,
-                        model=model
-                    )
-                    event['overview'] = narrative.get('overview', '')
-                    event['outcomes'] = narrative.get('outcomes', '')
-    else:
-        print("[Report] Skipping event narratives (LLM unavailable)")
-        for category, events in events_by_category.items():
-            for event in events:
-                cached = cached_narratives.get(event['event_name'])
-                if cached:
-                    event['overview'] = cached.get('overview', '')
-                    event['outcomes'] = cached.get('outcomes', '')
-                else:
-                    event['overview'] = event.get('description') or f"Event: {event['event_name']}"
-                    event['outcomes'] = "Analysis pending — LLM service unavailable."
-
-    # Step 6: Generate category narratives
     category_summaries = {}
-    if llm_available:
-        print("[Report] Generating category narratives...")
-        for category in config.categories:
-            events = events_by_category.get(category, [])
-            if not events:
-                continue
-            narrative = generate_category_narrative(
-                country, category, events, source_map,
-                documents_by_event, start_date, end_date,
-                model=model
-            )
-            category_summaries[category] = narrative
+    if include_events:
+        # Pre-load cached narratives from EventSummary table
+        cached_narratives = {}
+        try:
+            from shared.models.models import EventSummary as ES, PeriodType as PT
+            all_event_names = [e['event_name'] for evts in events_by_category.values() for e in evts]
+            if all_event_names:
+                cached_rows = session.execute(text("""
+                    SELECT DISTINCT ON (event_name)
+                        event_name, narrative_summary
+                    FROM event_summaries
+                    WHERE initiating_country = :country
+                      AND event_name = ANY(:names)
+                      AND is_deleted = false
+                      AND narrative_summary IS NOT NULL
+                    ORDER BY event_name, period_start DESC
+                """), {"country": country, "names": all_event_names}).fetchall()
+                for row in cached_rows:
+                    ns = row.narrative_summary or {}
+                    if ns.get("overview"):
+                        cached_narratives[row.event_name] = ns
+                print(f"[Report] Found {len(cached_narratives)}/{len(all_event_names)} cached EventSummary narratives")
+        except Exception as e:
+            print(f"[Report] Could not load cached narratives: {e}")
+
+        if llm_available:
+            print("[Report] Generating event narratives...")
+            for category, events in events_by_category.items():
+                for event in events:
+                    cached = cached_narratives.get(event['event_name'])
+                    if cached:
+                        event['overview'] = cached.get('overview', '')
+                        event['outcomes'] = cached.get('outcomes', '')
+                    else:
+                        event_docs = documents_by_event.get(event['id'], [])
+                        narrative = generate_event_narrative(
+                            event, config, source_docs=event_docs, source_map=source_map,
+                            model=model
+                        )
+                        event['overview'] = narrative.get('overview', '')
+                        event['outcomes'] = narrative.get('outcomes', '')
+        else:
+            print("[Report] Skipping event narratives (LLM unavailable)")
+            for category, events in events_by_category.items():
+                for event in events:
+                    cached = cached_narratives.get(event['event_name'])
+                    if cached:
+                        event['overview'] = cached.get('overview', '')
+                        event['outcomes'] = cached.get('outcomes', '')
+                    else:
+                        event['overview'] = event.get('description') or f"Event: {event['event_name']}"
+                        event['outcomes'] = "Analysis pending — LLM service unavailable."
+
+        # Step 6: Generate category narratives
+        if llm_available:
+            print("[Report] Generating category narratives...")
+            for category in config.categories:
+                events = events_by_category.get(category, [])
+                if not events:
+                    continue
+                narrative = generate_category_narrative(
+                    country, category, events, source_map,
+                    documents_by_event, start_date, end_date,
+                    model=model
+                )
+                category_summaries[category] = narrative
+        else:
+            print("[Report] Skipping category narratives (LLM unavailable)")
+            for category in config.categories:
+                events = events_by_category.get(category, [])
+                if events:
+                    category_summaries[category] = f"Key developments in {category} during this period included {len(events)} events."
     else:
-        print("[Report] Skipping category narratives (LLM unavailable)")
-        for category in config.categories:
-            events = events_by_category.get(category, [])
-            if events:
-                category_summaries[category] = f"Key developments in {category} during this period included {len(events)} significant events."
+        print("[Report] Skipping event/category narratives (disabled)")
 
     # Step 7: Generate overall synthesis
     if llm_available:
@@ -2005,7 +2038,9 @@ def generate_report(
 
     # Step 9: Build categories output (sorted by materiality desc)
     categories_output = []
-    for category in config.categories:
+    if not include_events:
+        print("[Report] Skipping categories output (events disabled)")
+    for category in (config.categories if include_events else []):
         events = events_by_category.get(category, [])
         if not events:
             continue
@@ -2251,6 +2286,10 @@ def generate_report_stream(
     top_n: int = 10,
     model: str = "gpt-4o-mini",
     quarterly: bool = False,
+    include_events: bool = True,
+    include_entities: bool = True,
+    include_metrics: bool = True,
+    include_persons: bool = True,
 ):
     """
     Streaming version of generate_report().
@@ -2314,33 +2353,57 @@ def generate_report_stream(
                         session, event['doc_ids']
                     )
 
-        print("[Report SSE] Computing metrics...")
-        metrics = compute_metrics(
-            session, country, start_date, end_date, recipient, events_by_category,
-            valid_recipients=config.recipients
-        )
+        if include_metrics:
+            print("[Report SSE] Computing metrics...")
+            metrics = compute_metrics(
+                session, country, start_date, end_date, recipient, events_by_category,
+                valid_recipients=config.recipients
+            )
+        else:
+            metrics = {
+                'total_documents': 0, 'total_events': 0,
+                'category_distribution': [], 'subcategory_distribution': [],
+                'recipient_distribution': [], 'materiality_histogram': []
+            }
 
-        print("[Report SSE] Loading entities...")
-        entities_by_type = get_top_entities(
-            session, country, start_date, end_date, recipient, top_n=5
-        )
+        if include_entities or include_persons:
+            print("[Report SSE] Loading entities...")
+            entities_by_type = get_top_entities(
+                session, country, start_date, end_date, recipient, top_n=5
+            )
+            if not include_persons:
+                entities_by_type.pop('PERSON', None)
+            if not include_entities:
+                for etype in ['ORGANIZATION', 'COMPANY', 'LOCATION']:
+                    entities_by_type.pop(etype, None)
+        else:
+            entities_by_type = {}
 
         # Materiality trends
-        print("[Report SSE] Computing materiality trends...")
-        materiality_trends = compute_materiality_trends(
-            session, country, start_date, end_date, recipient,
-            valid_recipients=config.recipients
-        )
+        if include_metrics:
+            print("[Report SSE] Computing materiality trends...")
+            materiality_trends = compute_materiality_trends(
+                session, country, start_date, end_date, recipient,
+                valid_recipients=config.recipients
+            )
+        else:
+            materiality_trends = {
+                'trend_start': (start_date - timedelta(days=90)).isoformat(),
+                'recipient_series': {},
+                'overall_series': [],
+                'significant_changes': []
+            }
 
         # Load entity document details for citation support
-        print("[Report SSE] Loading entity source documents...")
         entity_docs_by_id = {}
-        for etype, entities in entities_by_type.items():
-            for entity in entities:
-                if entity.get('doc_ids'):
-                    entity_docs_by_id[entity['id']] = get_document_details(
-                        session, entity['doc_ids'][:5]
-                    )
+        if entities_by_type:
+            print("[Report SSE] Loading entity source documents...")
+            for etype, entities in entities_by_type.items():
+                for entity in entities:
+                    if entity.get('doc_ids'):
+                        entity_docs_by_id[entity['id']] = get_document_details(
+                            session, entity['doc_ids'][:5]
+                        )
 
         # Historical lookback (quarterly only)
         lookback_groups = []
@@ -2392,7 +2455,7 @@ def generate_report_stream(
 
     # Build skeleton (sorted by materiality desc)
     categories_output = []
-    for category in config.categories:
+    for category in (config.categories if include_events else []):
         events = events_by_category.get(category, [])
         if not events:
             continue
@@ -2489,84 +2552,87 @@ def generate_report_stream(
 
     # --- LLM generation (Steps 5-8) ---
 
-    # Pre-load cached narratives from EventSummary table
-    stream_cached_narratives = {}
-    try:
-        all_evt_names = [e['event_name'] for evts in events_by_category.values() for e in evts]
-        if all_evt_names:
-            cached_rows = session.execute(text("""
-                SELECT DISTINCT ON (event_name)
-                    event_name, narrative_summary
-                FROM event_summaries
-                WHERE initiating_country = :country
-                  AND event_name = ANY(:names)
-                  AND is_deleted = false
-                  AND narrative_summary IS NOT NULL
-                ORDER BY event_name, period_start DESC
-            """), {"country": country, "names": all_evt_names}).fetchall()
-            for row in cached_rows:
-                ns = row.narrative_summary or {}
-                if ns.get("overview"):
-                    stream_cached_narratives[row.event_name] = ns
-            print(f"[Report SSE] Found {len(stream_cached_narratives)}/{len(all_evt_names)} cached narratives")
-    except Exception as e:
-        print(f"[Report SSE] Could not load cached narratives: {e}")
+    category_summaries = {}
+    if include_events:
+        # Pre-load cached narratives from EventSummary table
+        stream_cached_narratives = {}
+        try:
+            all_evt_names = [e['event_name'] for evts in events_by_category.values() for e in evts]
+            if all_evt_names:
+                cached_rows = session.execute(text("""
+                    SELECT DISTINCT ON (event_name)
+                        event_name, narrative_summary
+                    FROM event_summaries
+                    WHERE initiating_country = :country
+                      AND event_name = ANY(:names)
+                      AND is_deleted = false
+                      AND narrative_summary IS NOT NULL
+                    ORDER BY event_name, period_start DESC
+                """), {"country": country, "names": all_evt_names}).fetchall()
+                for row in cached_rows:
+                    ns = row.narrative_summary or {}
+                    if ns.get("overview"):
+                        stream_cached_narratives[row.event_name] = ns
+                print(f"[Report SSE] Found {len(stream_cached_narratives)}/{len(all_evt_names)} cached narratives")
+        except Exception as e:
+            print(f"[Report SSE] Could not load cached narratives: {e}")
 
-    # Step 5: Event narratives (use cache first, LLM as fallback)
-    print("[Report SSE] Generating event narratives...")
-    for cat_data in categories_output:
-        category = cat_data['category']
-        events = events_by_category.get(category, [])
-        for evt_idx, event in enumerate(events):
-            cached = stream_cached_narratives.get(event['event_name'])
-            if cached:
-                overview = cached.get('overview', '')
-                outcomes = cached.get('outcomes', '')
-            elif llm_available:
-                event_docs = documents_by_event.get(event['id'], [])
-                narrative = generate_event_narrative(
-                    event, config, source_docs=event_docs, source_map=source_map,
+        # Step 5: Event narratives (use cache first, LLM as fallback)
+        print("[Report SSE] Generating event narratives...")
+        for cat_data in categories_output:
+            category = cat_data['category']
+            events = events_by_category.get(category, [])
+            for evt_idx, event in enumerate(events):
+                cached = stream_cached_narratives.get(event['event_name'])
+                if cached:
+                    overview = cached.get('overview', '')
+                    outcomes = cached.get('outcomes', '')
+                elif llm_available:
+                    event_docs = documents_by_event.get(event['id'], [])
+                    narrative = generate_event_narrative(
+                        event, config, source_docs=event_docs, source_map=source_map,
+                        model=model
+                    )
+                    overview = narrative.get('overview', '')
+                    outcomes = narrative.get('outcomes', '')
+                else:
+                    overview = event.get('description') or f"Event: {event['event_name']}"
+                    outcomes = "Analysis pending — LLM service unavailable."
+
+                yield {
+                    "type": "event_narrative",
+                    "payload": {
+                        "category": category,
+                        "event_index": evt_idx,
+                        "overview": overview,
+                        "outcomes": outcomes
+                    }
+                }
+
+        # Step 6: Category narratives
+        print("[Report SSE] Generating category narratives...")
+        for cat_data in categories_output:
+            category = cat_data['category']
+            events = events_by_category.get(category, [])
+            if not events:
+                continue
+
+            if llm_available:
+                narrative = generate_category_narrative(
+                    country, category, events, source_map,
+                    documents_by_event, start_date, end_date,
                     model=model
                 )
-                overview = narrative.get('overview', '')
-                outcomes = narrative.get('outcomes', '')
             else:
-                overview = event.get('description') or f"Event: {event['event_name']}"
-                outcomes = "Analysis pending — LLM service unavailable."
+                narrative = f"Key developments in {category} during this period included {len(events)} events."
 
+            category_summaries[category] = narrative
             yield {
-                "type": "event_narrative",
-                "payload": {
-                    "category": category,
-                    "event_index": evt_idx,
-                    "overview": overview,
-                    "outcomes": outcomes
-                }
+                "type": "category_narrative",
+                "payload": {"category": category, "narrative": narrative}
             }
-
-    # Step 6: Category narratives
-    print("[Report SSE] Generating category narratives...")
-    category_summaries = {}
-    for cat_data in categories_output:
-        category = cat_data['category']
-        events = events_by_category.get(category, [])
-        if not events:
-            continue
-
-        if llm_available:
-            narrative = generate_category_narrative(
-                country, category, events, source_map,
-                documents_by_event, start_date, end_date,
-                model=model
-            )
-        else:
-            narrative = f"Key developments in {category} during this period included {len(events)} significant events."
-
-        category_summaries[category] = narrative
-        yield {
-            "type": "category_narrative",
-            "payload": {"category": category, "narrative": narrative}
-        }
+    else:
+        print("[Report SSE] Skipping event/category narratives (disabled)")
 
     # Step 7: Overall synthesis
     print("[Report SSE] Generating overall synthesis...")

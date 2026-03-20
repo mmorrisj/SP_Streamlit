@@ -3495,6 +3495,11 @@ class ReportRequest(BaseModel):
     top_events: int = 10
     model: str = "gpt-4o-mini"
     quarterly: bool = False
+    # Section toggles (all default true)
+    include_events: bool = True
+    include_entities: bool = True
+    include_metrics: bool = True
+    include_persons: bool = True
 
 @app.get("/api/report/config", response_model=ReportConfigResponse)
 def get_report_config():
@@ -3542,6 +3547,10 @@ def generate_report_endpoint(request: ReportRequest):
         top_n=request.top_events,
         model=request.model,
         quarterly=request.quarterly,
+        include_events=request.include_events,
+        include_entities=request.include_entities,
+        include_metrics=request.include_metrics,
+        include_persons=request.include_persons,
     )
     return result
 
@@ -3574,6 +3583,10 @@ def generate_report_stream_endpoint(request: ReportRequest):
                 top_n=request.top_events,
                 model=request.model,
                 quarterly=request.quarterly,
+                include_events=request.include_events,
+                include_entities=request.include_entities,
+                include_metrics=request.include_metrics,
+                include_persons=request.include_persons,
             ):
                 event_type = event.get("type", "unknown")
                 payload = json.dumps(event.get("payload", {}))

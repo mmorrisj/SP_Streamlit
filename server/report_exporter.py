@@ -328,66 +328,68 @@ def export_report_to_docx(report_data: dict) -> io.BytesIO:
     # ── Metrics Charts ──────────────────────────────────────────
 
     metrics = report_data.get('metrics', {})
+    has_metrics = metrics.get('total_documents', 0) > 0 or metrics.get('total_events', 0) > 0
 
-    _add_heading(doc, 'Metrics Overview', level=1,
-                 color=RGBColor(0x1A, 0x36, 0x5D))
+    if has_metrics:
+        _add_heading(doc, 'Metrics Overview', level=1,
+                     color=RGBColor(0x1A, 0x36, 0x5D))
 
-    # Summary stats
-    stats_para = doc.add_paragraph()
-    r = stats_para.add_run(
-        f"Total Documents: {metrics.get('total_documents', 0):,}  |  "
-        f"Total Events: {metrics.get('total_events', 0)}"
-    )
-    _set_font(r, size=10, bold=True, color=RGBColor(0x33, 0x33, 0x33))
+        # Summary stats
+        stats_para = doc.add_paragraph()
+        r = stats_para.add_run(
+            f"Total Documents: {metrics.get('total_documents', 0):,}  |  "
+            f"Total Events: {metrics.get('total_events', 0)}"
+        )
+        _set_font(r, size=10, bold=True, color=RGBColor(0x33, 0x33, 0x33))
 
-    # Category distribution chart
-    cat_dist = metrics.get('category_distribution', [])
-    if cat_dist:
-        buf = _make_horizontal_bar(cat_dist, 'category', 'count',
-                                   color='#1a365d',
-                                   title='Category Distribution')
-        if buf:
-            doc.add_picture(buf, width=Inches(5.5))
+        # Category distribution chart
+        cat_dist = metrics.get('category_distribution', [])
+        if cat_dist:
+            buf = _make_horizontal_bar(cat_dist, 'category', 'count',
+                                       color='#1a365d',
+                                       title='Category Distribution')
+            if buf:
+                doc.add_picture(buf, width=Inches(5.5))
 
-    # Materiality histogram
-    mat_hist = metrics.get('materiality_histogram', [])
-    if mat_hist:
-        buf = _make_materiality_histogram(mat_hist)
-        if buf:
-            doc.add_picture(buf, width=Inches(5.5))
+        # Materiality histogram
+        mat_hist = metrics.get('materiality_histogram', [])
+        if mat_hist:
+            buf = _make_materiality_histogram(mat_hist)
+            if buf:
+                doc.add_picture(buf, width=Inches(5.5))
 
-    # Recipient distribution
-    recip_dist = metrics.get('recipient_distribution', [])
-    if recip_dist:
-        buf = _make_horizontal_bar(recip_dist, 'recipient', 'count',
-                                   color='#059669',
-                                   title='Top Recipient Countries')
-        if buf:
-            doc.add_picture(buf, width=Inches(5.5))
+        # Recipient distribution
+        recip_dist = metrics.get('recipient_distribution', [])
+        if recip_dist:
+            buf = _make_horizontal_bar(recip_dist, 'recipient', 'count',
+                                       color='#059669',
+                                       title='Top Recipient Countries')
+            if buf:
+                doc.add_picture(buf, width=Inches(5.5))
 
-    # Materiality trends
-    trends = report_data.get('materiality_trends', {})
-    if trends and trends.get('overall_series'):
-        buf = _make_materiality_trends(trends)
-        if buf:
-            doc.add_picture(buf, width=Inches(5.5))
+        # Materiality trends
+        trends = report_data.get('materiality_trends', {})
+        if trends and trends.get('overall_series'):
+            buf = _make_materiality_trends(trends)
+            if buf:
+                doc.add_picture(buf, width=Inches(5.5))
 
-            # Significant changes
-            changes = trends.get('significant_changes', [])
-            if changes:
-                p = doc.add_paragraph()
-                r = p.add_run('Significant Changes: ')
-                _set_font(r, size=9, bold=True, color=RGBColor(0x33, 0x33, 0x33))
-                for sc in changes:
-                    arrow = '▲' if sc['direction'] == 'increase' else '▼'
-                    sc_color = RGBColor(0xDC, 0x26, 0x26) if sc['direction'] == 'increase' else RGBColor(0x05, 0x96, 0x69)
-                    r = p.add_run(
-                        f"  {sc['recipient']}: {arrow} {abs(sc['delta']):.1f} "
-                        f"({_format_date(sc['month'])})  "
-                    )
-                    _set_font(r, size=8, color=sc_color)
+                # Significant changes
+                changes = trends.get('significant_changes', [])
+                if changes:
+                    p = doc.add_paragraph()
+                    r = p.add_run('Significant Changes: ')
+                    _set_font(r, size=9, bold=True, color=RGBColor(0x33, 0x33, 0x33))
+                    for sc in changes:
+                        arrow = '▲' if sc['direction'] == 'increase' else '▼'
+                        sc_color = RGBColor(0xDC, 0x26, 0x26) if sc['direction'] == 'increase' else RGBColor(0x05, 0x96, 0x69)
+                        r = p.add_run(
+                            f"  {sc['recipient']}: {arrow} {abs(sc['delta']):.1f} "
+                            f"({_format_date(sc['month'])})  "
+                        )
+                        _set_font(r, size=8, color=sc_color)
 
-    doc.add_page_break()
+        doc.add_page_break()
 
     # ── Category Sections ───────────────────────────────────────
 

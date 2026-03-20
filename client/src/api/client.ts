@@ -935,6 +935,11 @@ export interface ReportRequest {
   top_events?: number
   model?: string
   quarterly?: boolean
+  // Section toggles (all default true)
+  include_events?: boolean
+  include_entities?: boolean
+  include_metrics?: boolean
+  include_persons?: boolean
 }
 
 export const fetchReportConfig = async (): Promise<ReportConfig> => {

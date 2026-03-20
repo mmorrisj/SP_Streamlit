@@ -74,6 +74,10 @@ export default function ReportPage() {
   const [recipient, setRecipient] = useState<string>('All')
   const [topEvents, setTopEvents] = useState<number>(10)
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
+  const [includeEvents, setIncludeEvents] = useState(true)
+  const [includeEntities, setIncludeEntities] = useState(true)
+  const [includeMetrics, setIncludeMetrics] = useState(true)
+  const [includePersons, setIncludePersons] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
 
   // Report generation from context (persists across navigation)
@@ -129,9 +133,13 @@ export default function ReportPage() {
       recipient: recipient === 'All' ? 'All' : recipient,
       top_events: topEvents,
       model: selectedModel,
+      include_events: includeEvents,
+      include_entities: includeEntities,
+      include_metrics: includeMetrics,
+      include_persons: includePersons,
     }
     startGeneration(request)
-  }, [country, startDate, endDate, recipient, topEvents, selectedModel, startGeneration])
+  }, [country, startDate, endDate, recipient, topEvents, selectedModel, includeEvents, includeEntities, includeMetrics, includePersons, startGeneration])
 
   const handleQuarterlyGenerate = useCallback(() => {
     // Auto-calculate 3-month range ending at endDate
@@ -150,9 +158,13 @@ export default function ReportPage() {
       top_events: topEvents,
       model: selectedModel,
       quarterly: true,
+      include_events: includeEvents,
+      include_entities: includeEntities,
+      include_metrics: includeMetrics,
+      include_persons: includePersons,
     }
     startGeneration(request)
-  }, [country, endDate, recipient, topEvents, selectedModel, startGeneration])
+  }, [country, endDate, recipient, topEvents, selectedModel, includeEvents, includeEntities, includeMetrics, includePersons, startGeneration])
 
   const handleCancel = () => {
     cancelGeneration()
@@ -321,6 +333,26 @@ export default function ReportPage() {
               <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
               <option value="gpt-4.1">GPT-4.1</option>
             </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.8rem', color: '#666', fontWeight: 500 }}>Sections:</span>
+            {([
+              ['Key Events', includeEvents, setIncludeEvents],
+              ['Entities', includeEntities, setIncludeEntities],
+              ['Persons', includePersons, setIncludePersons],
+              ['Metrics', includeMetrics, setIncludeMetrics],
+            ] as [string, boolean, (v: boolean) => void][]).map(([label, checked, setter]) => (
+              <label key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: '#374151', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => setter(e.target.checked)}
+                  style={{ accentColor: '#1a365d' }}
+                />
+                {label}
+              </label>
+            ))}
           </div>
 
           <button
