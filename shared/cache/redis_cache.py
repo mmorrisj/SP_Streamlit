@@ -73,10 +73,27 @@ class CacheClient:
         if not _redis_available:
             return False
         try:
-            _redis_client.setex(key, ttl, json.dumps(value, default=str))
+            # Convert Pydantic models to dicts before serializing
+            serializable = self._to_serializable(value)
+            _redis_client.setex(key, ttl, json.dumps(serializable, default=str))
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _to_serializable(value: Any) -> Any:
+        """Convert Pydantic models (and nested structures) to JSON-serializable form."""
+        # Pydantic v2
+        if hasattr(value, 'model_dump'):
+            return value.model_dump()
+        # Pydantic v1
+        if hasattr(value, 'dict'):
+            return value.dict()
+        if isinstance(value, list):
+            return [CacheClient._to_serializable(item) for item in value]
+        if isinstance(value, dict):
+            return {k: CacheClient._to_serializable(v) for k, v in value.items()}
+        return value
 
     def delete_pattern(self, pattern: str) -> int:
         """Delete all keys matching a glob pattern (e.g. 'api:metrics:*')."""
