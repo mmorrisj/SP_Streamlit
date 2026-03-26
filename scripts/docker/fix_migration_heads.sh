@@ -17,7 +17,9 @@ set -e
 
 # Load .env if available
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
+    set -a
+    . .env
+    set +a
 fi
 
 # Defaults matching production-deploy.sh
