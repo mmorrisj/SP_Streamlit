@@ -17,18 +17,24 @@ set -e
 
 # Load .env if available (line-by-line to safely skip comments)
 if [ -f .env ]; then
-    while IFS='=' read -r key value; do
-        # Skip comments and blank lines
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|\#*) continue ;;
+        esac
+        case "$line" in
+            *=*) ;;
+            *) continue ;;
+        esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        key="$(echo "$key" | xargs)"
         case "$key" in
             \#*|'') continue ;;
         esac
-        # Strip surrounding quotes from value
-        value="${value%\"}"
-        value="${value#\"}"
-        value="${value%\'}"
-        value="${value#\'}"
-        # Strip inline comments (space + #)
-        value="${value%% \#*}"
+        case "$value" in
+            \"*\") value="${value#\"}"; value="${value%\"}" ;;
+            \'*\') value="${value#\'}"; value="${value%\'}" ;;
+        esac
         export "$key=$value"
     done < .env
 fi

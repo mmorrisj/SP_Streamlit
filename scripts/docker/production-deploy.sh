@@ -25,17 +25,31 @@ NC='\033[0m'
 # ============================================
 
 # Load from .env if available, otherwise use defaults
-# (line-by-line parser to safely skip comments and handle quotes)
 if [ -f .env ]; then
-    while IFS='=' read -r key value; do
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip blank lines and comments
+        case "$line" in
+            ''|\#*) continue ;;
+        esac
+        # Skip lines without an = sign
+        case "$line" in
+            *=*) ;;
+            *) continue ;;
+        esac
+        # Split on first = only
+        key="${line%%=*}"
+        value="${line#*=}"
+        # Strip leading/trailing whitespace from key
+        key="$(echo "$key" | xargs)"
+        # Skip keys that start with # (indented comments)
         case "$key" in
             \#*|'') continue ;;
         esac
-        value="${value%\"}"
-        value="${value#\"}"
-        value="${value%\'}"
-        value="${value#\'}"
-        value="${value%% \#*}"
+        # Strip surrounding quotes from value
+        case "$value" in
+            \"*\") value="${value#\"}"; value="${value%\"}" ;;
+            \'*\') value="${value#\'}"; value="${value%\'}" ;;
+        esac
         export "$key=$value"
     done < .env
 fi
