@@ -26,7 +26,9 @@ NC='\033[0m'
 
 # Load from .env if available, otherwise use defaults
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
+    set -a
+    . .env
+    set +a
 fi
 
 POSTGRES_USER="${POSTGRES_USER:-}"
