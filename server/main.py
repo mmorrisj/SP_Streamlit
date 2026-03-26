@@ -3801,6 +3801,89 @@ def proxy_gai_query(input: QueryInput):
             return {"response": content}
 
 
+class StreamQueryInput(BaseModel):
+    model: str = "gpt-4o-mini"
+    sys_prompt: str
+    prompt: str
+    temperature: float = 0.4
+    max_tokens: int = 4000
+
+
+@app.post("/proxy_query_stream")
+def proxy_gai_query_stream(input: StreamQueryInput):
+    """
+    Streaming LLM query endpoint. Same routing logic as /proxy_query
+    but returns Server-Sent Events for real-time streaming.
+    """
+    from openai import AzureOpenAI as _AzureOpenAI, OpenAI as _OpenAI
+
+    messages = [
+        {"role": "system", "content": input.sys_prompt},
+        {"role": "user", "content": input.prompt},
+    ]
+
+    def _get_stream():
+        # LiteLLM
+        litellm_url = os.getenv('LITELLM_URL', '').strip()
+        litellm_key = os.getenv('LITELLM_API_KEY', '').strip()
+        litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
+
+        if litellm_url and litellm_key:
+            client = _OpenAI(base_url=litellm_url, api_key=litellm_key)
+            return client.chat.completions.create(
+                model=litellm_model, messages=messages, stream=True,
+                temperature=input.temperature, max_tokens=input.max_tokens
+            )
+
+        env = os.getenv('ENV', 'development').lower()
+
+        # Azure (production)
+        if env == 'production':
+            azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', '').strip()
+            azure_key = os.getenv('AZURE_OPENAI_API_KEY', '').strip()
+            if azure_endpoint and azure_key:
+                client = _AzureOpenAI(
+                    azure_endpoint=azure_endpoint, api_key=azure_key,
+                    api_version="2024-08-01-preview"
+                )
+                deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT', input.model)
+                return client.chat.completions.create(
+                    model=deployment, messages=messages, stream=True,
+                    temperature=input.temperature, max_tokens=input.max_tokens
+                )
+
+        # OpenAI (fallback)
+        api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise HTTPException(status_code=500, detail="No OpenAI API key configured")
+
+        client = _OpenAI(api_key=api_key)
+        extra_params = {}
+        if not input.model.startswith("gpt-5"):
+            extra_params["temperature"] = input.temperature
+        return client.chat.completions.create(
+            model=input.model, messages=messages, stream=True,
+            max_tokens=input.max_tokens, **extra_params
+        )
+
+    def event_generator():
+        try:
+            stream = _get_stream()
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    yield f"data: {json.dumps({'content': content})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 # ----- OpenAI Batch API Proxy -----
 
 @app.post("/batch/upload_file")
