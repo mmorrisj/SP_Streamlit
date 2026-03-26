@@ -6,9 +6,10 @@
 # - Keep preprocessing concerns separate from webapp/streamlit runtime image
 # ============================================
 
+# Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # Digest-pinned for Docker Scout base image compliance.
-# Update digest with: docker pull python:3.13-slim && docker inspect python:3.13-slim --format='{{index .RepoDigests 0}}'
-FROM python:3.13-slim@sha256:f50f56f1471fc430b394ee75fc826be2d212e35d85ed1171ac79abbba485dce9
+# Update digest with: docker pull python:3.13-slim-trixie && docker inspect python:3.13-slim-trixie --format='{{index .RepoDigests 0}}'
+FROM python:3.13-slim-trixie
 
 WORKDIR /app
 

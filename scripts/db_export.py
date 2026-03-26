@@ -103,7 +103,7 @@ def build_pg_dump_cmd(conn, docker_container=None):
     ]
 
     if docker_container:
-        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg17")
         network = os.getenv("NETWORK_NAME", "softpower_net")
         pg_dump_args.extend([
             f"--host={docker_container}",
@@ -134,7 +134,7 @@ def build_psql_cmd(conn, docker_container=None):
     softpower_net network instead of docker exec (enterprise compatibility).
     """
     if docker_container:
-        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg17")
         network = os.getenv("NETWORK_NAME", "softpower_net")
         return [
             "docker", "run", "--rm",
@@ -165,7 +165,7 @@ def get_pg_dump_version(docker_container=None):
     """Get the pg_dump version string."""
     try:
         if docker_container:
-            db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+            db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg17")
             cmd = ["docker", "run", "--rm", db_image, "pg_dump", "--version"]
         else:
             cmd = ["pg_dump", "--version"]

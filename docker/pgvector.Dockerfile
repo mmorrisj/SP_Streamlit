@@ -8,13 +8,13 @@
 # unfixed CVEs due to stale base image.
 #
 # Usage:
-#   docker build -f docker/pgvector.Dockerfile -t mmorrisj/pgvector:0.8.1-pg16 .
-#   docker push mmorrisj/pgvector:0.8.1-pg16
+#   docker build -f docker/pgvector.Dockerfile -t mmorrisj/pgvector:0.8.1-pg17 .
+#   docker push mmorrisj/pgvector:0.8.1-pg17
 # ============================================
 
-# Bookworm (Debian 12, glibc 2.36) for CentOS 7 kernel 3.10 compatibility.
-# Trixie (Debian 13, glibc 2.38+) requires clone3 syscall (kernel 5.3+).
-FROM postgres:16-bookworm
+# Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
+# PostgreSQL 17 for performance improvements (incremental backup, vacuum, JSON_TABLE).
+FROM postgres:17-bookworm
 
 # pgvector version and immutable commit SHA for supply-chain pinning.
 # SHA must match the tag; verify with:
@@ -30,7 +30,7 @@ RUN apt-get update \
         build-essential \
         git \
         ca-certificates \
-        postgresql-server-dev-16 \
+        postgresql-server-dev-17 \
     && git clone --branch v${PGVECTOR_VERSION} --depth 1 \
         https://github.com/pgvector/pgvector.git /tmp/pgvector \
     && cd /tmp/pgvector \
@@ -45,7 +45,7 @@ RUN apt-get update \
 RUN pg_config --sharedir | xargs -I{} ls {}/extension/vector.control
 
 # Remove build tools and unneeded runtime packages to reduce attack surface.
-RUN apt-get purge -y build-essential git ca-certificates postgresql-server-dev-16 \
+RUN apt-get purge -y build-essential git ca-certificates postgresql-server-dev-17 \
     gnupg gpg gpg-wks-client gpg-wks-server \
     && apt-get autoremove -y \
     && (dpkg --purge --force-all $(dpkg -l | grep '^rc' | awk '{print $2}') 2>/dev/null || true) \

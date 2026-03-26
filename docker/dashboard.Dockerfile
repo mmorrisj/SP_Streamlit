@@ -1,5 +1,5 @@
-# Bookworm (Debian 12) for CentOS 7 kernel 3.10 compatibility.
-FROM python:3.13-slim-bookworm
+# Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
+FROM python:3.13-slim-trixie
 
 WORKDIR /app
 

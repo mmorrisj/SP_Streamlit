@@ -162,7 +162,7 @@ def build_psql_cmd(conn, docker_container=None, dbname_override=None):
     """
     dbname = dbname_override or conn["dbname"]
     if docker_container:
-        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg17")
         return [
             "docker", "run", "--rm",
             "--network", os.getenv("NETWORK_NAME", "softpower_net"),
@@ -289,7 +289,7 @@ def build_pg_restore_cmd(conn, dump_path, docker_container=None, jobs=1):
         pg_restore_args.append(f"--jobs={jobs}")
 
     if docker_container:
-        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg17")
         pg_restore_args.extend([
             f"--host={docker_container}",
             "--port=5432",

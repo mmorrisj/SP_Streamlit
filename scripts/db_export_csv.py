@@ -94,7 +94,7 @@ def build_psql_cmd(conn, docker_container=None):
     softpower_net network instead of docker exec (enterprise compatibility).
     """
     if docker_container:
-        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg17")
         network = os.getenv("NETWORK_NAME", "softpower_net")
         return [
             "docker", "run", "--rm",

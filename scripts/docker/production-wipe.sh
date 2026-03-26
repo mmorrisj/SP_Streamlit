@@ -67,9 +67,9 @@ fi
 
 if [ -z "$DB_IMAGE" ]; then
     if [ -n "$PRODUCTION_REGISTRY" ]; then
-        DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg16"
+        DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg17"
     else
-        DB_IMAGE="mmorrisj/pgvector:0.8.1-pg16"
+        DB_IMAGE="mmorrisj/pgvector:0.8.1-pg17"
     fi
 fi
 
