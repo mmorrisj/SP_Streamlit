@@ -811,6 +811,7 @@ cmd_migrate() {
     fi
 
     # Always use ephemeral container (enterprise compatibility — no docker exec)
+    # Writes any missing merge migrations before running alembic upgrade head.
     docker run --rm \
         --network "$NETWORK_NAME" \
         -e DOCKER_ENV=true \
@@ -821,7 +822,39 @@ cmd_migrate() {
         -e POSTGRES_DB="$POSTGRES_DB" \
         -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
         "$APP_IMAGE" \
-        alembic upgrade head
+        python3 -c "
+import os, subprocess, sys
+
+# --- Merge migration: 006_search_vector + 20260224_aiddata_tables ---
+merge_path = '/app/alembic/versions/821886869aed_merge_search_vector_and_aiddata_branches.py'
+if not os.path.exists(merge_path):
+    with open(merge_path, 'w') as f:
+        f.write('''\"\"\"merge search_vector and aiddata branches
+
+Revision ID: 821886869aed
+Revises: 006_search_vector, 20260224_aiddata_tables
+Create Date: 2026-03-26 13:33:52.540352
+
+\"\"\"
+from typing import Sequence, Union
+from alembic import op
+import sqlalchemy as sa
+
+revision = \"821886869aed\"
+down_revision = (\"006_search_vector\", \"20260224_aiddata_tables\")
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    pass
+
+def downgrade():
+    pass
+''')
+    print('Injected merge migration for multiple heads fix')
+
+sys.exit(subprocess.call(['alembic', 'upgrade', 'head'], cwd='/app'))
+"
 
     log_ok "Migrations complete"
     echo ""
