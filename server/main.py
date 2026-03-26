@@ -3626,6 +3626,24 @@ def export_report_endpoint(report_data: dict):
     )
 
 
+@app.post("/api/report/export/reviewer")
+def export_reviewer_endpoint(report_data: dict):
+    """Export a reviewer validation copy with inline source links."""
+    from server.report_exporter import export_reviewer_to_docx
+
+    docx_bytes = export_reviewer_to_docx(report_data)
+
+    country = report_data.get('country', 'Report')
+    period_start = report_data.get('period_start', '')
+    filename = f"{country}_Report_{period_start}_reviewer.docx"
+
+    return StreamingResponse(
+        docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
 @app.post("/api/report/validate/stream")
 async def validate_report_stream_endpoint(request: Request):
     """

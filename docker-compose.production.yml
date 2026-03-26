@@ -130,6 +130,14 @@ services:
       REDIS_URL: redis://sp_prod_redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+    volumes:
+      # Mount local code for development (override image code)
+      - ./server:/app/server
+      - ./scripts:/app/scripts
+      - ./services:/app/services
+      - ./shared:/app/shared
+      # Persist reports to host
+      - ./reports:/app/reports
     ports:
       - "${API_PORT:-8000}:8000"   # FastAPI (React UI + API)
       - "${STREAMLIT_PORT:-8501}:8501"   # Streamlit Dashboard
@@ -185,3 +193,4 @@ volumes:
 networks:
   prod_net:
     name: softpower_net
+    external: true

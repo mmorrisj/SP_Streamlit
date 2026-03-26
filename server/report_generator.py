@@ -1778,8 +1778,9 @@ def generate_report(
             }
 
         # Load entity document details for citation support
-        print("[Report] Loading entity source documents...")
         entity_docs_by_id = {}
+        if entities_by_type:
+            print("[Report] Loading entity source documents...")
         for etype, entities in entities_by_type.items():
             for entity in entities:
                 if entity.get('doc_ids'):
@@ -1974,8 +1975,11 @@ def generate_report(
             lookback_narrative = ""
 
     # Step 7b: Generate entity summaries
-    print("[Report] Generating entity summaries...")
     entities_output = []
+    if entities_by_type:
+        print("[Report] Generating entity summaries...")
+    else:
+        print("[Report] Skipping entity summaries (none requested)")
     for etype, entities in entities_by_type.items():
         entity_list = []
         for entity in entities:

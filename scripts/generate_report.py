@@ -111,6 +111,18 @@ Examples:
         help="LLM model for narrative generation (default: gpt-4o-mini)",
     )
 
+    # Content inclusion flags (opt-in)
+    parser.add_argument(
+        "--entities",
+        action="store_true",
+        help="Include key entities (organizations, companies, locations) in report",
+    )
+    parser.add_argument(
+        "--persons",
+        action="store_true",
+        help="Include key persons section in report",
+    )
+
     # Validation flags
     parser.add_argument(
         "--validate", "-V",
@@ -155,6 +167,11 @@ Examples:
         "--docx-only",
         action="store_true",
         help="Only output DOCX, skip JSON export",
+    )
+    parser.add_argument(
+        "--reviewer",
+        action="store_true",
+        help="Also generate a reviewer validation DOCX with inline source links",
     )
     parser.add_argument(
         "--quiet", "-q",
@@ -207,6 +224,8 @@ def generate(args) -> dict:
             model=args.model,
             poll_interval=args.poll_interval,
             quiet=args.quiet,
+            include_entities=args.entities,
+            include_persons=args.persons,
         )
     else:
         from server.report_generator import generate_report
@@ -218,6 +237,8 @@ def generate(args) -> dict:
             recipient=args.recipient,
             top_n=args.top_events,
             model=args.model,
+            include_entities=args.entities,
+            include_persons=args.persons,
         )
 
     total_events = report.get("metrics", {}).get("total_events", 0)
@@ -272,6 +293,17 @@ def export_docx(report: dict, path: Path, quiet: bool = False):
     with open(path, "wb") as f:
         f.write(buf.read())
     log(f"[CLI] DOCX saved: {path}", quiet)
+
+
+def export_reviewer_docx(report: dict, path: Path, quiet: bool = False):
+    """Write reviewer validation DOCX to disk."""
+    from server.report_exporter import export_reviewer_to_docx
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    buf = export_reviewer_to_docx(report)
+    with open(path, "wb") as f:
+        f.write(buf.read())
+    log(f"[CLI] Reviewer DOCX saved: {path}", quiet)
 
 
 def export_validation_docx(
@@ -357,6 +389,11 @@ def main():
 
     if not args.json_only:
         export_docx(report, docx_path, args.quiet)
+
+        # Reviewer validation DOCX (inline source links for review)
+        if args.reviewer:
+            reviewer_path = output_dir / f"{base_name}_reviewer.docx"
+            export_reviewer_docx(report, reviewer_path, args.quiet)
 
         # Validation DOCX (when validation was run)
         if args.validate:

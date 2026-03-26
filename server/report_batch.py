@@ -535,6 +535,8 @@ def generate_report_batch(
     model: str = "gpt-4o-mini",
     poll_interval: int = 60,
     quiet: bool = False,
+    include_entities: bool = True,
+    include_persons: bool = True,
 ) -> Dict[str, Any]:
     """Batch-mode report generation.
 
@@ -622,12 +624,21 @@ def generate_report_batch(
         )
 
         # Step 3b: Entities
-        log("[Report/Batch] Loading top entities...")
-        entities_by_type = get_top_entities(
-            session, country, start_date, end_date, recipient, top_n=5
-        )
-        total_entities = sum(len(ents) for ents in entities_by_type.values())
-        log(f"[Report/Batch] Found {total_entities} entities across {len(entities_by_type)} types")
+        if include_entities or include_persons:
+            log("[Report/Batch] Loading top entities...")
+            entities_by_type = get_top_entities(
+                session, country, start_date, end_date, recipient, top_n=5
+            )
+            if not include_persons:
+                entities_by_type.pop('PERSON', None)
+            if not include_entities:
+                for etype in ['ORGANIZATION', 'COMPANY', 'LOCATION']:
+                    entities_by_type.pop(etype, None)
+            total_entities = sum(len(ents) for ents in entities_by_type.values())
+            log(f"[Report/Batch] Found {total_entities} entities across {len(entities_by_type)} types")
+        else:
+            entities_by_type = {}
+            log("[Report/Batch] Skipping entities (not requested)")
 
         # Step 3c: Materiality trends
         log("[Report/Batch] Computing materiality trends...")

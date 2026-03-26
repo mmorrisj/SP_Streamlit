@@ -1,10 +1,13 @@
 """
 Word document exporter for Publication reports.
-Converts report JSON data into a formatted .docx file with charts.
+Converts report JSON data into a formatted .docx file using the GAI Summary Template.
 """
 
 import io
+import copy
+import re
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Any
 
 from docx import Document
@@ -19,6 +22,18 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 
+
+# ── Paths ──────────────────────────────────────────────────────
+
+TEMPLATE_PATH = (
+    Path(__file__).parent.parent
+    / 'services' / 'publication' / 'templates' / 'GAI_Summary_Template.docx'
+)
+
+ATOM_ICON_PATH = (
+    Path(__file__).parent.parent
+    / 'services' / 'publication' / 'templates' / 'atom.png'
+)
 
 # ── Colour palette ──────────────────────────────────────────────
 
@@ -44,6 +59,14 @@ ENTITY_TYPE_COLORS = {
 }
 
 TREND_COLORS = ['#2563eb', '#7c3aed', '#059669', '#ea580c', '#dc2626']
+
+# Map placeholder keys to category names in report data
+CATEGORY_PLACEHOLDER_MAP = {
+    '{{economic_event_section}}': 'Economic',
+    '{{diplomatic_event_section}}': 'Diplomacy',
+    '{{social_event_section}}': 'Social',
+    '{{military_event_section}}': 'Military',
+}
 
 
 # ── Chart helpers ───────────────────────────────────────────────
@@ -215,414 +238,430 @@ def _add_heading(doc: Document, text: str, level: int = 2,
     return heading
 
 
-# ── Main export function ────────────────────────────────────────
+# ── Template placeholder helpers ────────────────────────────────
+
+def _replace_text_in_runs(paragraph, placeholder: str, replacement: str):
+    """Replace placeholder text across runs in a paragraph, preserving formatting."""
+    # First try simple per-run replacement
+    for run in paragraph.runs:
+        if placeholder in run.text:
+            run.text = run.text.replace(placeholder, replacement)
+            return True
+
+    # Handle placeholder split across multiple runs
+    full_text = ''.join(run.text for run in paragraph.runs)
+    if placeholder not in full_text:
+        return False
+
+    # Rebuild: find which runs contain parts of the placeholder
+    # Simple approach: concatenate all run text, replace, then redistribute
+    runs = paragraph.runs
+    if not runs:
+        return False
+
+    # Build a mapping of character positions to runs
+    combined = ''
+    run_boundaries = []
+    for run in runs:
+        start = len(combined)
+        combined += run.text
+        run_boundaries.append((start, len(combined), run))
+
+    new_text = combined.replace(placeholder, replacement)
+
+    # Clear all runs and put all text in the first run
+    # (preserves first run's formatting)
+    if runs:
+        runs[0].text = new_text
+        for run in runs[1:]:
+            run.text = ''
+    return True
+
+
+def _replace_in_element_tree(element, placeholder: str, replacement: str):
+    """Replace placeholder in all text nodes of an XML element tree."""
+    ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+    for t_elem in element.iter(f'{ns}t'):
+        if t_elem.text and placeholder in t_elem.text:
+            t_elem.text = t_elem.text.replace(placeholder, replacement)
+
+
+def _replace_placeholders_in_doc(doc: Document, placeholder: str, replacement: str):
+    """Replace a placeholder in all body paragraphs, headers, footers, and tables."""
+    # Body paragraphs
+    for paragraph in doc.paragraphs:
+        _replace_text_in_runs(paragraph, placeholder, replacement)
+
+    # Tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    _replace_text_in_runs(paragraph, placeholder, replacement)
+
+    # Headers and footers
+    for section in doc.sections:
+        for header_footer in [
+            section.header, section.footer,
+            section.first_page_header, section.first_page_footer,
+        ]:
+            try:
+                for paragraph in header_footer.paragraphs:
+                    _replace_text_in_runs(paragraph, placeholder, replacement)
+                # Also handle text in drawing/shape elements via XML
+                _replace_in_element_tree(header_footer._element, placeholder, replacement)
+            except Exception:
+                pass
+
+
+def _find_paragraph_index(doc: Document, placeholder: str) -> int:
+    """Find the index of a paragraph containing the given placeholder text."""
+    for i, p in enumerate(doc.paragraphs):
+        if placeholder in p.text:
+            return i
+    return -1
+
+
+def _make_body_paragraph(doc: Document, text: str, style_name: str = 'Body Text - OSE',
+                         bold: bool = False, italic: bool = False,
+                         font_size: float = None, font_name: str = None,
+                         color: RGBColor = None) -> OxmlElement:
+    """Create a new paragraph element with the given text and style."""
+    p = OxmlElement('w:p')
+
+    # Paragraph properties - apply style
+    pPr = OxmlElement('w:pPr')
+    pStyle = OxmlElement('w:pStyle')
+    # Normalize style name to match internal ID (no spaces, no dashes issue)
+    # python-docx stores style IDs without spaces; look up the actual style
+    try:
+        style = doc.styles[style_name]
+        pStyle.set(qn('w:val'), style.style_id)
+    except KeyError:
+        pStyle.set(qn('w:val'), 'Normal')
+    pPr.append(pStyle)
+    p.append(pPr)
+
+    # Run
+    r = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+    if bold:
+        b = OxmlElement('w:b')
+        rPr.append(b)
+    if italic:
+        i_elem = OxmlElement('w:i')
+        rPr.append(i_elem)
+    if font_size:
+        sz = OxmlElement('w:sz')
+        sz.set(qn('w:val'), str(int(font_size * 2)))
+        rPr.append(sz)
+        szCs = OxmlElement('w:szCs')
+        szCs.set(qn('w:val'), str(int(font_size * 2)))
+        rPr.append(szCs)
+    if font_name:
+        rFonts = OxmlElement('w:rFonts')
+        rFonts.set(qn('w:ascii'), font_name)
+        rFonts.set(qn('w:hAnsi'), font_name)
+        rPr.append(rFonts)
+    if color:
+        c = OxmlElement('w:color')
+        c.set(qn('w:val'), f'{color[0]:02X}{color[1]:02X}{color[2]:02X}'
+              if isinstance(color, tuple) else str(color))
+        rPr.append(c)
+    r.append(rPr)
+
+    t = OxmlElement('w:t')
+    t.text = text
+    t.set(qn('xml:space'), 'preserve')
+    r.append(t)
+
+    p.append(r)
+    return p
+
+
+def _insert_event_content(doc: Document, placeholder: str, cat_data: dict,
+                          citations_by_event: List[Dict]):
+    """Replace an event section placeholder with event content paragraphs.
+
+    Inserts event paragraphs (name, overview, outcomes) at the position of the
+    placeholder paragraph, then removes the placeholder.
+    """
+    # Find the placeholder paragraph element
+    body = doc.element.body
+    target_p = None
+    for p_elem in body.iterchildren(qn('w:p')):
+        # Get full text of paragraph
+        texts = [t.text or '' for t in p_elem.iter(qn('w:t'))]
+        full_text = ''.join(texts)
+        if placeholder in full_text:
+            target_p = p_elem
+            break
+
+    if target_p is None:
+        return
+
+    if not cat_data or not cat_data.get('events'):
+        # No events - replace placeholder with "No events reported."
+        new_p = _make_body_paragraph(
+            doc, 'No events reported for this category.',
+            style_name='Body Text - OSE', italic=True
+        )
+        target_p.addprevious(new_p)
+        body.remove(target_p)
+        return
+
+    # Build citation lookup for this category
+    cat_name = cat_data.get('category', '')
+    cat_citations = {}
+    for group in citations_by_event:
+        if group.get('category') == cat_name:
+            for evt_cit in group.get('events', []):
+                cat_citations[evt_cit['event_name']] = evt_cit.get('citations', [])
+
+    events = cat_data.get('events', [])
+    elements_to_insert = []
+
+    for event in events:
+        event_name = event.get('event_name', 'Unnamed Event')
+        overview = event.get('overview', '')
+        outcomes = event.get('outcomes', '')
+
+        # Event name as bold paragraph
+        name_p = _make_body_paragraph(
+            doc, event_name,
+            style_name='Body Text - OSE', bold=True, font_size=11
+        )
+        elements_to_insert.append(name_p)
+
+        # Overview
+        if overview:
+            overview_p = _make_body_paragraph(
+                doc, overview, style_name='Body Text - OSE', font_size=10
+            )
+            elements_to_insert.append(overview_p)
+
+        # Outcomes
+        if outcomes:
+            outcomes_p = _make_body_paragraph(
+                doc, outcomes, style_name='Body Text - OSE', font_size=10
+            )
+            elements_to_insert.append(outcomes_p)
+
+        # Spacer paragraph
+        spacer = _make_body_paragraph(doc, '', style_name='Body Text - OSE')
+        elements_to_insert.append(spacer)
+
+    # Insert all elements before the placeholder, then remove placeholder
+    for elem in elements_to_insert:
+        target_p.addprevious(elem)
+    body.remove(target_p)
+
+
+# ── Main export function (template-based) ──────────────────────
 
 def export_report_to_docx(report_data: dict) -> io.BytesIO:
     """
-    Convert a report JSON dict into a formatted .docx BytesIO buffer.
+    Convert a report JSON dict into a formatted .docx BytesIO buffer,
+    using the GAI Summary Template.
     """
-    doc = Document()
+    doc = Document(str(TEMPLATE_PATH))
 
-    # Set default font
-    style = doc.styles['Normal']
-    style.font.name = 'Calibri'
-    style.font.size = Pt(11)
-
-    country = report_data.get('country', 'Report')
+    country = report_data.get('country', 'Unknown')
     period_start = report_data.get('period_start', '')
     period_end = report_data.get('period_end', '')
-    recipient_filter = report_data.get('recipient_filter', 'All')
-
-    # ── Title Page ──────────────────────────────────────────────
-
-    # Add some spacing
-    for _ in range(4):
-        doc.add_paragraph()
-
-    title_para = doc.add_paragraph()
-    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_run = title_para.add_run(report_data.get('title', f'{country} Report'))
-    _set_font(title_run, size=24, bold=True, color=RGBColor(0x1A, 0x36, 0x5D))
-
-    subtitle_para = doc.add_paragraph()
-    subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    sub_run = subtitle_para.add_run(
-        f"{_format_date(period_start)} — {_format_date(period_end)}"
-    )
-    _set_font(sub_run, size=14, color=RGBColor(0x64, 0x74, 0x8B))
-
-    if recipient_filter and recipient_filter != 'All':
-        recip_para = doc.add_paragraph()
-        recip_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = recip_para.add_run(f"Recipient Focus: {recipient_filter}")
-        _set_font(r, size=12, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
-
-    gen_para = doc.add_paragraph()
-    gen_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    gen_run = gen_para.add_run(
-        f"Generated: {_format_datetime(report_data.get('generated_at', ''))}"
-    )
-    _set_font(gen_run, size=9, color=RGBColor(0x94, 0xA3, 0xB8))
-
-    doc.add_page_break()
-
-    # ── Executive Summary ───────────────────────────────────────
-
-    overall_summary = report_data.get('overall_summary')
-    if overall_summary:
-        _add_heading(doc, 'Executive Summary', level=1,
-                     color=RGBColor(0x1A, 0x36, 0x5D))
-        p = doc.add_paragraph(overall_summary)
-        p.style.font.size = Pt(11)
-        doc.add_paragraph()  # spacer
-
-    # ── Historical Context (Quarterly Reports) ──────────────────
-
-    historical_context = report_data.get('historical_context')
-    if historical_context and historical_context.get('groups'):
-        _add_heading(doc, 'Historical Context', level=1,
-                     color=RGBColor(0x1A, 0x36, 0x5D))
-
-        lookback_start = historical_context.get('lookback_start', '')
-        lookback_end = historical_context.get('lookback_end', '')
-        p = doc.add_paragraph()
-        r = p.add_run(
-            f"Lookback period: {_format_date(lookback_start)} to {_format_date(lookback_end)}"
-        )
-        _set_font(r, size=9, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
-
-        narrative = historical_context.get('narrative')
-        if narrative:
-            for para_text in narrative.split('\n\n'):
-                if para_text.strip():
-                    p = doc.add_paragraph(para_text.strip())
-                    for run in p.runs:
-                        _set_font(run, size=10)
-
-        # Grouped lookback events
-        for group in historical_context.get('groups', []):
-            p = doc.add_paragraph()
-            r = p.add_run(f"Prior events related to: {group['report_event_name']}")
-            _set_font(r, size=10, bold=True, color=RGBColor(0x47, 0x55, 0x69))
-
-            for lb_evt in group.get('lookback_events', []):
-                p = doc.add_paragraph()
-                r = p.add_run(f"  {lb_evt['event_name']}")
-                _set_font(r, size=9, bold=True)
-                detail_parts = []
-                if lb_evt.get('first_mention_date') and lb_evt.get('last_mention_date'):
-                    detail_parts.append(
-                        f"{_format_date(lb_evt['first_mention_date'])} to "
-                        f"{_format_date(lb_evt['last_mention_date'])}"
-                    )
-                if lb_evt.get('article_count'):
-                    detail_parts.append(f"{lb_evt['article_count']} articles")
-                if lb_evt.get('materiality_score') is not None:
-                    detail_parts.append(f"materiality: {lb_evt['materiality_score']}/10")
-                if detail_parts:
-                    r = p.add_run(f"  ({', '.join(detail_parts)})")
-                    _set_font(r, size=8, color=RGBColor(0x64, 0x74, 0x8B))
-
-        doc.add_paragraph()  # spacer
-
-    # ── Metrics Charts ──────────────────────────────────────────
-
-    metrics = report_data.get('metrics', {})
-    has_metrics = metrics.get('total_documents', 0) > 0 or metrics.get('total_events', 0) > 0
-
-    if has_metrics:
-        _add_heading(doc, 'Metrics Overview', level=1,
-                     color=RGBColor(0x1A, 0x36, 0x5D))
-
-        # Summary stats
-        stats_para = doc.add_paragraph()
-        r = stats_para.add_run(
-            f"Total Documents: {metrics.get('total_documents', 0):,}  |  "
-            f"Total Events: {metrics.get('total_events', 0)}"
-        )
-        _set_font(r, size=10, bold=True, color=RGBColor(0x33, 0x33, 0x33))
-
-        # Category distribution chart
-        cat_dist = metrics.get('category_distribution', [])
-        if cat_dist:
-            buf = _make_horizontal_bar(cat_dist, 'category', 'count',
-                                       color='#1a365d',
-                                       title='Category Distribution')
-            if buf:
-                doc.add_picture(buf, width=Inches(5.5))
-
-        # Materiality histogram
-        mat_hist = metrics.get('materiality_histogram', [])
-        if mat_hist:
-            buf = _make_materiality_histogram(mat_hist)
-            if buf:
-                doc.add_picture(buf, width=Inches(5.5))
-
-        # Recipient distribution
-        recip_dist = metrics.get('recipient_distribution', [])
-        if recip_dist:
-            buf = _make_horizontal_bar(recip_dist, 'recipient', 'count',
-                                       color='#059669',
-                                       title='Top Recipient Countries')
-            if buf:
-                doc.add_picture(buf, width=Inches(5.5))
-
-        # Materiality trends
-        trends = report_data.get('materiality_trends', {})
-        if trends and trends.get('overall_series'):
-            buf = _make_materiality_trends(trends)
-            if buf:
-                doc.add_picture(buf, width=Inches(5.5))
-
-                # Significant changes
-                changes = trends.get('significant_changes', [])
-                if changes:
-                    p = doc.add_paragraph()
-                    r = p.add_run('Significant Changes: ')
-                    _set_font(r, size=9, bold=True, color=RGBColor(0x33, 0x33, 0x33))
-                    for sc in changes:
-                        arrow = '▲' if sc['direction'] == 'increase' else '▼'
-                        sc_color = RGBColor(0xDC, 0x26, 0x26) if sc['direction'] == 'increase' else RGBColor(0x05, 0x96, 0x69)
-                        r = p.add_run(
-                            f"  {sc['recipient']}: {arrow} {abs(sc['delta']):.1f} "
-                            f"({_format_date(sc['month'])})  "
-                        )
-                        _set_font(r, size=8, color=sc_color)
-
-        doc.add_page_break()
-
-    # ── Category Sections ───────────────────────────────────────
-
+    date_str = f"{_format_date(period_start)} to {_format_date(period_end)}"
+    title = report_data.get('title', f'{country} Soft-Power Initiatives')
+    overall_summary = report_data.get('overall_summary', '')
     categories = report_data.get('categories', [])
-    for cat_data in categories:
-        cat_name = cat_data['category']
-        cat_color = CATEGORY_COLORS.get(cat_name, RGBColor(0x1A, 0x36, 0x5D))
-
-        _add_heading(doc, cat_name, level=1, color=cat_color)
-
-        # Category narrative
-        narrative = cat_data.get('narrative')
-        if narrative:
-            p = doc.add_paragraph(narrative)
-            for run in p.runs:
-                _set_font(run, size=10)
-
-        # Events
-        for event in cat_data.get('events', []):
-            # Event heading
-            event_heading = doc.add_heading(level=3)
-            r = event_heading.add_run(event['event_name'])
-            r.font.size = Pt(12)
-            r.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
-
-            # Event metadata line
-            meta_para = doc.add_paragraph()
-            meta_items = [
-                f"Materiality: {event.get('materiality_score', 'N/A')}/10",
-                f"Articles: {event.get('article_count', 0)}",
-                f"{_format_date(event.get('first_mention_date'))} – {_format_date(event.get('last_mention_date'))}",
-            ]
-            r = meta_para.add_run('  |  '.join(meta_items))
-            _set_font(r, size=8, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
-
-            # Overview
-            overview = event.get('overview')
-            if overview:
-                p = doc.add_paragraph()
-                r = p.add_run('Overview: ')
-                _set_font(r, size=10, bold=True)
-                r = p.add_run(overview)
-                _set_font(r, size=10)
-
-            # Outcomes
-            outcomes = event.get('outcomes')
-            if outcomes:
-                p = doc.add_paragraph()
-                r = p.add_run('Outcomes: ')
-                _set_font(r, size=10, bold=True)
-                r = p.add_run(outcomes)
-                _set_font(r, size=10)
-
-            # Materiality Assessment
-            justification = event.get('material_justification')
-            if justification:
-                p = doc.add_paragraph()
-                r = p.add_run('Materiality Assessment: ')
-                _set_font(r, size=9, bold=True, color=RGBColor(0x66, 0x66, 0x66))
-                r = p.add_run(justification)
-                _set_font(r, size=9, italic=True, color=RGBColor(0x55, 0x55, 0x55))
-
-            # Key Entities
-            entities = event.get('key_entities', [])
-            if entities:
-                p = doc.add_paragraph()
-                r = p.add_run('Key Entities: ')
-                _set_font(r, size=9, bold=True, color=RGBColor(0x66, 0x66, 0x66))
-                for i, ent in enumerate(entities):
-                    ent_type = (ent.get('entity_type') or 'UNKNOWN').upper()
-                    hex_color = ENTITY_TYPE_COLORS.get(ent_type, '#666666')
-                    rgb = RGBColor(
-                        int(hex_color[1:3], 16),
-                        int(hex_color[3:5], 16),
-                        int(hex_color[5:7], 16)
-                    )
-                    separator = ', ' if i < len(entities) - 1 else ''
-                    r = p.add_run(f"{ent['name']} ({ent_type}){separator}")
-                    _set_font(r, size=8, color=rgb)
-
-            # Spacer
-            doc.add_paragraph()
-
-    # ── Key Entities Section ────────────────────────────────────
-
-    entity_groups = report_data.get('entities', [])
-    if entity_groups:
-        doc.add_page_break()
-        _add_heading(doc, 'Key Entities', level=1,
-                     color=RGBColor(0x1A, 0x36, 0x5D))
-
-        for group in entity_groups:
-            _add_heading(doc, group.get('type_label', 'ENTITIES'), level=2,
-                         color=RGBColor(0x47, 0x55, 0x69))
-
-            for entity in group.get('entities', []):
-                # Entity name and role
-                p = doc.add_paragraph()
-                r = p.add_run(entity['name'])
-                _set_font(r, size=10, bold=True)
-                role = entity.get('role', 'Unknown')
-                if role and role not in ('Unknown', 'OTHER'):
-                    display_role = role.replace('_', ' ').title()
-                    r = p.add_run(f'  —  {display_role}')
-                    _set_font(r, size=9, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
-
-                # Document count and mention days
-                meta_parts = [
-                    f"Documents: {entity.get('total_documents', 0)}",
-                    f"Mention Days: {entity.get('total_mention_days', 0)}",
-                ]
-                meta_para = doc.add_paragraph()
-                r = meta_para.add_run('  |  '.join(meta_parts))
-                _set_font(r, size=8, color=RGBColor(0x94, 0xA3, 0xB8))
-
-                # Categories and recipients
-                categories = entity.get('primary_categories') or {}
-                recipients = entity.get('primary_recipients') or {}
-                if categories or recipients:
-                    tags_para = doc.add_paragraph()
-                    top_cats = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:4]
-                    for cat, count in top_cats:
-                        r = tags_para.add_run(f'{cat} ({count})  ')
-                        _set_font(r, size=8, color=RGBColor(0x25, 0x63, 0xEB))
-                    top_recips = sorted(recipients.items(), key=lambda x: x[1], reverse=True)[:3]
-                    for recip, count in top_recips:
-                        r = tags_para.add_run(f'{recip} ({count})  ')
-                        _set_font(r, size=8, color=RGBColor(0xEA, 0x58, 0x0C))
-
-                # Summary
-                summary = entity.get('summary')
-                if summary:
-                    p = doc.add_paragraph(summary)
-                    for run in p.runs:
-                        _set_font(run, size=9)
-
-                doc.add_paragraph()  # spacer
-
-    # ── Methodology ─────────────────────────────────────────────
-
-    doc.add_page_break()
-    _add_heading(doc, 'Methodology', level=1,
-                 color=RGBColor(0x1A, 0x36, 0x5D))
-
-    methodology_paras = [
-        (
-            "This report is produced through an automated analytical pipeline that ingests "
-            "open-source media reporting from a curated set of international news sources. "
-            "Documents are collected, classified by thematic category and geographic relevance, "
-            "and stored in a structured database for systematic analysis."
-        ),
-        (
-            "Key Event Selection.  "
-            "Individual articles are clustered into canonical events using embedding-based "
-            "similarity analysis combined with temporal proximity. Events appearing in at least "
-            "two independent source documents within the reporting period are surfaced for "
-            "inclusion. Events are ranked by materiality score and filtered to the most "
-            "substantive developments per thematic category."
-        ),
-        (
-            "Materiality Scoring.  "
-            "Each event is assigned a materiality score on a 1\u201310 scale reflecting its "
-            "assessed policy relevance. Scoring criteria include the scope of actors involved, "
-            "the scale of commitments or outcomes documented, coverage breadth across independent "
-            "sources, and the degree to which the event represents a departure from established "
-            "patterns. Scores are generated through a combination of algorithmic assessment and "
-            "language model analysis of source material."
-        ),
-        (
-            "Validation.  "
-            "All narrative content, source attributions, and materiality assessments in this "
-            "report are subject to review by subject matter experts (SMEs). Inline citations "
-            "link each factual claim to its originating source document to support verification "
-            "and traceability."
-        ),
-    ]
-
-    for para_text in methodology_paras:
-        p = doc.add_paragraph()
-        r = p.add_run(para_text)
-        _set_font(r, size=10)
-        p.paragraph_format.space_after = Pt(6)
-
-    # ── End Notes / Citations ───────────────────────────────────
-
     citations_by_event = report_data.get('citations_by_event', [])
-    if citations_by_event:
-        doc.add_page_break()
-        _add_heading(doc, 'End Notes', level=1,
-                     color=RGBColor(0x1A, 0x36, 0x5D))
+    model_used = report_data.get('model_used', 'GPT-4o')
+    generated_at = report_data.get('generated_at', '')
 
-        citation_num = 0
-        for group in citations_by_event:
-            cat_name = group['category']
-            cat_color = CATEGORY_COLORS.get(cat_name, RGBColor(0x1A, 0x36, 0x5D))
-            _add_heading(doc, cat_name, level=2, color=cat_color)
+    # Build intro paragraph text
+    intro_text = (
+        f"During the period from {date_str}, Near Eastern and North African "
+        f"media covered the {country}\u2019s soft power initiatives throughout "
+        f"the region. OSE leveraged Generative Artificial Intelligence (GAI) "
+        f"to summarize key economic, diplomatic, social, military initiatives "
+        f"and outcomes covered by Near Eastern media during this timeframe."
+    )
 
-            for event_cit in group.get('events', []):
-                # Event sub-heading
-                p = doc.add_paragraph()
-                r = p.add_run(event_cit['event_name'])
-                _set_font(r, size=10, bold=True)
-                r = p.add_run(
-                    f"  (Materiality: {event_cit.get('materiality_score', 'N/A')}/10, "
-                    f"{event_cit.get('date_range', '')})"
-                )
-                _set_font(r, size=8, italic=True, color=RGBColor(0x64, 0x74, 0x8B))
+    # ── 1. Replace simple placeholders ──────────────────────────
+    _replace_placeholders_in_doc(doc, '{{summary_title}}', title)
+    _replace_placeholders_in_doc(doc, '{{country}}', country)
+    _replace_placeholders_in_doc(doc, '{{date}}', date_str)
 
-                # Individual citations
-                for cit in event_cit.get('citations', []):
-                    num = cit.get('citation_number', '')
-                    headline = cit.get('headline', 'Untitled')
-                    source = cit.get('source_name', 'Unknown')
-                    pub_date = _format_date(cit.get('published_date'))
-                    hyperlink = cit.get('repo_hyperlink', '')
+    # Replace the intro paragraph (P1) with our generated text
+    if len(doc.paragraphs) > 1:
+        intro_p = doc.paragraphs[1]
+        if '{{date}}' not in intro_p.text and 'During the period' in intro_p.text:
+            # Already replaced via placeholder substitution above
+            pass
+        # If the intro still has template boilerplate, replace it
+        if 'Near Eastern and North African media' in intro_p.text:
+            # Clear and rewrite with actual summary if available
+            if overall_summary:
+                for run in intro_p.runs:
+                    run.text = ''
+                if intro_p.runs:
+                    intro_p.runs[0].text = overall_summary
+                else:
+                    intro_p.add_run(overall_summary)
 
-                    p = doc.add_paragraph()
-                    r = p.add_run(f'[{num}] ')
-                    _set_font(r, size=8, bold=True, color=RGBColor(0x25, 0x63, 0xEB))
-                    r = p.add_run(f'{headline}')
-                    _set_font(r, size=8, bold=True)
-                    r = p.add_run(f'  — {source}, {pub_date}')
-                    _set_font(r, size=8, color=RGBColor(0x64, 0x74, 0x8B))
-                    if hyperlink:
-                        r = p.add_run('  ')
-                        _add_hyperlink(p, '[ATOM]', hyperlink)
+    # ── 2. Replace event section placeholders ───────────────────
+    category_map = {cat['category']: cat for cat in categories}
+
+    for placeholder, cat_name in CATEGORY_PLACEHOLDER_MAP.items():
+        cat_data = category_map.get(cat_name)
+        _insert_event_content(doc, placeholder, cat_data, citations_by_event)
+
+    # ── 3. Update methodology table ─────────────────────────────
+    _update_methodology_table(doc, report_data)
+
+    # ── 4. Add sources page ─────────────────────────────────────
+    _add_sources_section(doc, report_data)
+
+    # ── 5. Clean up empty placeholder paragraphs ────────────────
+    _cleanup_empty_paragraphs(doc)
 
     # ── Write to buffer ─────────────────────────────────────────
-
     output = io.BytesIO()
     doc.save(output)
     output.seek(0)
     return output
+
+
+def _update_methodology_table(doc: Document, report_data: dict):
+    """Update the methodology/scope table with report-specific details."""
+    if not doc.tables:
+        return
+
+    table = doc.tables[0]
+    country = report_data.get('country', 'Unknown')
+    period_start = report_data.get('period_start', '')
+    period_end = report_data.get('period_end', '')
+    model_used = report_data.get('model_used', 'GPT-4o')
+    date_str = f"{_format_date(period_start)} to {_format_date(period_end)}"
+
+    # The methodology table is in row 1, col 0
+    if len(table.rows) < 2:
+        return
+
+    cell = table.rows[1].cells[0]
+
+    # Replace placeholders in the existing methodology text
+    for paragraph in cell.paragraphs:
+        _replace_text_in_runs(paragraph, '{{country}}', country)
+        # Replace model reference
+        _replace_text_in_runs(paragraph, '[ChatGPT 4.o, 28 February]',
+                              f'[{model_used}]')
+        # Replace date references
+        _replace_text_in_runs(
+            paragraph,
+            'covering the period from August 2024 to January 2025',
+            f'covering the period {date_str}'
+        )
+
+
+def _add_sources_section(doc: Document, report_data: dict):
+    """Add sources/citations at the end of the document."""
+    citations_by_event = report_data.get('citations_by_event', [])
+    if not citations_by_event:
+        return
+
+    # Find or create the Sources heading - check if it already exists
+    # The template has a "Sources" heading on page 3
+    sources_found = False
+    for i, p in enumerate(doc.paragraphs):
+        if p.text.strip() == 'Sources':
+            sources_found = True
+            # Insert citations after this paragraph
+            _insert_citations_after(doc, i, citations_by_event)
+            break
+
+    if not sources_found:
+        # Add a page break and Sources heading
+        doc.add_page_break()
+        h = doc.add_paragraph()
+        r = h.add_run('Sources')
+        _set_font(r, size=14, bold=True)
+
+        _write_citations(doc, citations_by_event)
+
+
+def _insert_citations_after(doc: Document, para_index: int,
+                            citations_by_event: List[Dict]):
+    """Insert citation paragraphs after the given paragraph index."""
+    body = doc.element.body
+    p_elements = list(body.iterchildren(qn('w:p')))
+
+    if para_index >= len(p_elements):
+        return
+
+    ref_element = p_elements[para_index]
+    elements_to_insert = []
+
+    citation_num = 0
+    for group in citations_by_event:
+        cat_name = group.get('category', '')
+
+        for event_cit in group.get('events', []):
+            event_name = event_cit.get('event_name', '')
+
+            for cit in event_cit.get('citations', []):
+                citation_num += 1
+                num = cit.get('citation_number', citation_num)
+                headline = cit.get('headline', 'Untitled')
+                source = cit.get('source_name', 'Unknown')
+                pub_date = _format_date(cit.get('published_date'))
+
+                text = f'[{num}] {headline} \u2014 {source}, {pub_date}'
+
+                cit_p = _make_body_paragraph(
+                    doc, text, style_name='Body Text - OSE', font_size=9
+                )
+                elements_to_insert.append(cit_p)
+
+    # Insert after the reference element
+    insert_after = ref_element
+    for elem in elements_to_insert:
+        insert_after.addnext(elem)
+        insert_after = elem
+
+
+def _write_citations(doc: Document, citations_by_event: List[Dict]):
+    """Write citations directly to the end of the document."""
+    citation_num = 0
+    for group in citations_by_event:
+        for event_cit in group.get('events', []):
+            for cit in event_cit.get('citations', []):
+                citation_num += 1
+                num = cit.get('citation_number', citation_num)
+                headline = cit.get('headline', 'Untitled')
+                source = cit.get('source_name', 'Unknown')
+                pub_date = _format_date(cit.get('published_date'))
+                hyperlink = cit.get('repo_hyperlink', '')
+
+                p = doc.add_paragraph()
+                r = p.add_run(f'[{num}] ')
+                _set_font(r, size=9, bold=True)
+                r = p.add_run(headline)
+                _set_font(r, size=9)
+                r = p.add_run(f' \u2014 {source}, {pub_date}')
+                _set_font(r, size=9, color=RGBColor(0x64, 0x74, 0x8B))
+                if hyperlink:
+                    r = p.add_run('  ')
+                    _add_hyperlink(p, '[ATOM]', hyperlink)
+
+
+def _cleanup_empty_paragraphs(doc: Document):
+    """Remove leftover empty placeholder paragraphs."""
+    body = doc.element.body
+    for p_elem in list(body.iterchildren(qn('w:p'))):
+        texts = [t.text or '' for t in p_elem.iter(qn('w:t'))]
+        full_text = ''.join(texts).strip()
+        if full_text.startswith('{{') and full_text.endswith('}}'):
+            body.remove(p_elem)
 
 
 # ── Utility ─────────────────────────────────────────────────────
@@ -645,6 +684,398 @@ def _format_datetime(dt_str: str | None) -> str:
         return dt.strftime('%B %d, %Y at %I:%M %p')
     except (ValueError, TypeError):
         return str(dt_str)
+
+
+# ── Reviewer validation export ─────────────────────────────────
+
+def _extract_citation_numbers(text: str) -> List[int]:
+    """Extract all citation numbers like [1], [2], [3] from narrative text."""
+    return [int(m) for m in re.findall(r'\[(\d+)\]', text)]
+
+
+def _build_citation_lookup(citations_by_event: List[Dict]) -> Dict[int, Dict]:
+    """Build a flat lookup: citation_number -> citation dict."""
+    lookup = {}
+    for group in citations_by_event:
+        for event_cit in group.get('events', []):
+            for cit in event_cit.get('citations', []):
+                num = cit.get('citation_number')
+                if num is not None:
+                    lookup[num] = cit
+    return lookup
+
+
+def _add_image_hyperlink(paragraph, image_path: str, url: str,
+                         width: Inches = Inches(0.15)):
+    """Add a clickable image (atom.png) as a hyperlink in a paragraph.
+
+    Creates an inline image wrapped in a hyperlink element so clicking
+    the icon opens the ATOM repo URL.
+    """
+    # Create the hyperlink relationship
+    part = paragraph.part
+    r_id = part.relate_to(
+        url,
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink',
+        is_external=True,
+    )
+
+    # Create the image relationship
+    from docx.image.image import Image as DocxImage
+    image = DocxImage.from_file(image_path)
+    img_r_id = part.relate_to(
+        part.package.get_or_add_image_part(image_path).partname,
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
+    )
+
+    # Image dimensions
+    width_emu = int(width)
+    aspect = image.px_height / image.px_width if image.px_width else 1
+    height_emu = int(width_emu * aspect)
+
+    # Build the hyperlink > run > drawing > inline > graphic XML
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+
+    run = OxmlElement('w:r')
+
+    drawing = OxmlElement('w:drawing')
+    inline = OxmlElement('wp:inline')
+    inline.set('distT', '0')
+    inline.set('distB', '0')
+    inline.set('distL', '0')
+    inline.set('distR', '0')
+
+    extent = OxmlElement('wp:extent')
+    extent.set('cx', str(width_emu))
+    extent.set('cy', str(height_emu))
+    inline.append(extent)
+
+    effect_extent = OxmlElement('wp:effectExtent')
+    effect_extent.set('l', '0')
+    effect_extent.set('t', '0')
+    effect_extent.set('r', '0')
+    effect_extent.set('b', '0')
+    inline.append(effect_extent)
+
+    docPr = OxmlElement('wp:docPr')
+    docPr.set('id', str(id(paragraph) % 100000))
+    docPr.set('name', 'ATOM Link')
+    docPr.set('descr', 'Open in ATOM')
+    inline.append(docPr)
+
+    graphic = OxmlElement('a:graphic')
+    graphic.set(qn('xmlns:a'), 'http://schemas.openxmlformats.org/drawingml/2006/main')
+
+    graphic_data = OxmlElement('a:graphicData')
+    graphic_data.set('uri', 'http://schemas.openxmlformats.org/drawingml/2006/picture')
+
+    ns_pic = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
+    pic = OxmlElement('pic:pic')
+    pic.set(qn('xmlns:pic'), ns_pic)
+
+    nvPicPr = OxmlElement('pic:nvPicPr')
+    cNvPr = OxmlElement('pic:cNvPr')
+    cNvPr.set('id', '0')
+    cNvPr.set('name', 'atom.png')
+    nvPicPr.append(cNvPr)
+    cNvPicPr = OxmlElement('pic:cNvPicPr')
+    nvPicPr.append(cNvPicPr)
+    pic.append(nvPicPr)
+
+    blipFill = OxmlElement('pic:blipFill')
+    blip = OxmlElement('a:blip')
+    blip.set(qn('r:embed'), img_r_id)
+    blipFill.append(blip)
+    stretch = OxmlElement('a:stretch')
+    fillRect = OxmlElement('a:fillRect')
+    stretch.append(fillRect)
+    blipFill.append(stretch)
+    pic.append(blipFill)
+
+    spPr = OxmlElement('pic:spPr')
+    xfrm = OxmlElement('a:xfrm')
+    off = OxmlElement('a:off')
+    off.set('x', '0')
+    off.set('y', '0')
+    xfrm.append(off)
+    ext = OxmlElement('a:ext')
+    ext.set('cx', str(width_emu))
+    ext.set('cy', str(height_emu))
+    xfrm.append(ext)
+    spPr.append(xfrm)
+    prstGeom = OxmlElement('a:prstGeom')
+    prstGeom.set('prst', 'rect')
+    spPr.append(prstGeom)
+    pic.append(spPr)
+
+    graphic_data.append(pic)
+    graphic.append(graphic_data)
+    inline.append(graphic)
+    drawing.append(inline)
+    run.append(drawing)
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+
+
+def _add_source_line_with_atom(doc: Document, paragraph, cit: Dict,
+                               atom_icon_path: str):
+    """Add a single source citation line with an ATOM icon hyperlink.
+
+    Format: [N] Headline — Source, Date  [ATOM icon]
+    """
+    num = cit.get('citation_number', '')
+    headline = cit.get('headline', 'Untitled')
+    source = cit.get('source_name', 'Unknown')
+    pub_date = _format_date(cit.get('published_date'))
+    hyperlink = cit.get('repo_hyperlink', '')
+
+    r = paragraph.add_run(f'[{num}] ')
+    _set_font(r, size=8, bold=True, color=RGBColor(0x25, 0x63, 0xEB))
+
+    r = paragraph.add_run(headline)
+    _set_font(r, size=8)
+
+    r = paragraph.add_run(f' \u2014 {source}, {pub_date}  ')
+    _set_font(r, size=8, color=RGBColor(0x64, 0x74, 0x8B))
+
+    if hyperlink:
+        _add_hyperlink(paragraph, '[ATOM]', hyperlink, font_size=8,
+                       color_hex='2563EB')
+
+
+def _insert_event_content_reviewer(doc: Document, placeholder: str,
+                                   cat_data: dict,
+                                   citations_by_event: List[Dict],
+                                   citation_lookup: Dict[int, Dict]):
+    """Replace event section placeholder with event content + inline source blocks.
+
+    After each overview and outcomes paragraph, inserts a compact source listing
+    showing only the citations referenced in that paragraph, with ATOM hyperlinks
+    so reviewers can click through to validate each claim.
+    """
+    body = doc.element.body
+    target_p = None
+    for p_elem in body.iterchildren(qn('w:p')):
+        texts = [t.text or '' for t in p_elem.iter(qn('w:t'))]
+        full_text = ''.join(texts)
+        if placeholder in full_text:
+            target_p = p_elem
+            break
+
+    if target_p is None:
+        return
+
+    if not cat_data or not cat_data.get('events'):
+        new_p = _make_body_paragraph(
+            doc, 'No events reported for this category.',
+            style_name='Body Text - OSE', italic=True
+        )
+        target_p.addprevious(new_p)
+        body.remove(target_p)
+        return
+
+    events = cat_data.get('events', [])
+
+    # We need to build paragraphs using python-docx's high-level API so we
+    # can use add_run() etc., then move the underlying XML elements into
+    # position.  Trick: append to end of doc, collect elements, reposition.
+    created_elements = []
+
+    for event in events:
+        event_name = event.get('event_name', 'Unnamed Event')
+        overview = event.get('overview', '')
+        outcomes = event.get('outcomes', '')
+
+        # ── Event name (bold)
+        p = doc.add_paragraph()
+        r = p.add_run(event_name)
+        _set_font(r, size=11, bold=True)
+        try:
+            style = doc.styles['Body Text - OSE']
+            p.style = style
+        except KeyError:
+            pass
+        created_elements.append(p._p)
+
+        # ── Overview + source block
+        if overview:
+            p = doc.add_paragraph()
+            r = p.add_run(overview)
+            _set_font(r, size=10)
+            try:
+                p.style = doc.styles['Body Text - OSE']
+            except KeyError:
+                pass
+            created_elements.append(p._p)
+
+            # Source block for overview citations
+            cited_nums = _extract_citation_numbers(overview)
+            if cited_nums:
+                src_p = doc.add_paragraph()
+                src_p.paragraph_format.left_indent = Pt(18)
+                src_p.paragraph_format.space_before = Pt(2)
+                src_p.paragraph_format.space_after = Pt(6)
+                r = src_p.add_run('Sources: ')
+                _set_font(r, size=8, bold=True, color=RGBColor(0x47, 0x55, 0x69))
+                src_p.add_run('\n')  # newline before source list
+
+                for cn in cited_nums:
+                    cit = citation_lookup.get(cn)
+                    if cit:
+                        _add_source_line_with_atom(doc, src_p, cit,
+                                                   str(ATOM_ICON_PATH))
+                        src_p.add_run('\n')
+                created_elements.append(src_p._p)
+
+        # ── Outcomes + source block
+        if outcomes:
+            p = doc.add_paragraph()
+            r = p.add_run(outcomes)
+            _set_font(r, size=10)
+            try:
+                p.style = doc.styles['Body Text - OSE']
+            except KeyError:
+                pass
+            created_elements.append(p._p)
+
+            cited_nums = _extract_citation_numbers(outcomes)
+            if cited_nums:
+                src_p = doc.add_paragraph()
+                src_p.paragraph_format.left_indent = Pt(18)
+                src_p.paragraph_format.space_before = Pt(2)
+                src_p.paragraph_format.space_after = Pt(6)
+                r = src_p.add_run('Sources: ')
+                _set_font(r, size=8, bold=True, color=RGBColor(0x47, 0x55, 0x69))
+                src_p.add_run('\n')
+
+                for cn in cited_nums:
+                    cit = citation_lookup.get(cn)
+                    if cit:
+                        _add_source_line_with_atom(doc, src_p, cit,
+                                                   str(ATOM_ICON_PATH))
+                        src_p.add_run('\n')
+                created_elements.append(src_p._p)
+
+        # Spacer
+        spacer = doc.add_paragraph()
+        created_elements.append(spacer._p)
+
+    # Move all created elements to before the placeholder, then remove it
+    for elem in created_elements:
+        target_p.addprevious(elem)
+    body.remove(target_p)
+
+
+def export_reviewer_to_docx(report_data: dict) -> io.BytesIO:
+    """
+    Export a reviewer validation version of the report.
+
+    Same template-based layout as the publication report, but after each
+    overview and outcomes paragraph, a compact source listing is inserted
+    showing the cited sources with clickable ATOM hyperlinks so a reviewer
+    can quickly open each source document to validate the narrative content.
+    """
+    doc = Document(str(TEMPLATE_PATH))
+
+    country = report_data.get('country', 'Unknown')
+    period_start = report_data.get('period_start', '')
+    period_end = report_data.get('period_end', '')
+    date_str = f"{_format_date(period_start)} to {_format_date(period_end)}"
+    title = report_data.get('title', f'{country} Soft-Power Initiatives')
+    overall_summary = report_data.get('overall_summary', '')
+    categories = report_data.get('categories', [])
+    citations_by_event = report_data.get('citations_by_event', [])
+    model_used = report_data.get('model_used', 'GPT-4o')
+
+    # Build flat citation lookup
+    citation_lookup = _build_citation_lookup(citations_by_event)
+
+    # ── 1. Replace simple placeholders
+    _replace_placeholders_in_doc(doc, '{{summary_title}}',
+                                 f'REVIEWER COPY \u2014 {title}')
+    _replace_placeholders_in_doc(doc, '{{country}}', country)
+    _replace_placeholders_in_doc(doc, '{{date}}', date_str)
+
+    # Replace intro with overall summary
+    if len(doc.paragraphs) > 1:
+        intro_p = doc.paragraphs[1]
+        if 'Near Eastern and North African media' in intro_p.text:
+            if overall_summary:
+                for run in intro_p.runs:
+                    run.text = ''
+                if intro_p.runs:
+                    intro_p.runs[0].text = overall_summary
+                else:
+                    intro_p.add_run(overall_summary)
+
+    # ── 2. Replace event section placeholders with reviewer content
+    category_map = {cat['category']: cat for cat in categories}
+
+    for placeholder, cat_name in CATEGORY_PLACEHOLDER_MAP.items():
+        cat_data = category_map.get(cat_name)
+        _insert_event_content_reviewer(doc, placeholder, cat_data,
+                                       citations_by_event, citation_lookup)
+
+    # ── 3. Update methodology table
+    _update_methodology_table(doc, report_data)
+
+    # ── 4. Add full sources list with ATOM links
+    _add_sources_section_reviewer(doc, report_data, citation_lookup)
+
+    # ── 5. Clean up
+    _cleanup_empty_paragraphs(doc)
+
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output
+
+
+def _add_sources_section_reviewer(doc: Document, report_data: dict,
+                                  citation_lookup: Dict[int, Dict]):
+    """Add the full sources list with ATOM hyperlinks for the reviewer copy."""
+    citations_by_event = report_data.get('citations_by_event', [])
+    if not citations_by_event:
+        return
+
+    # Find the Sources heading in the template
+    sources_idx = None
+    for i, p in enumerate(doc.paragraphs):
+        if p.text.strip() == 'Sources':
+            sources_idx = i
+            break
+
+    if sources_idx is not None:
+        # Write citations after the Sources heading using high-level API,
+        # then reposition the XML elements.
+        body = doc.element.body
+        p_elements = list(body.iterchildren(qn('w:p')))
+        ref_element = p_elements[sources_idx]
+
+        insert_after = ref_element
+        for group in citations_by_event:
+            for event_cit in group.get('events', []):
+                for cit in event_cit.get('citations', []):
+                    p = doc.add_paragraph()
+                    _add_source_line_with_atom(doc, p, cit,
+                                               str(ATOM_ICON_PATH))
+                    # Move to correct position
+                    insert_after.addnext(p._p)
+                    insert_after = p._p
+    else:
+        # No Sources heading - append at end
+        doc.add_page_break()
+        h = doc.add_paragraph()
+        r = h.add_run('Sources')
+        _set_font(r, size=14, bold=True)
+
+        for group in citations_by_event:
+            for event_cit in group.get('events', []):
+                for cit in event_cit.get('citations', []):
+                    p = doc.add_paragraph()
+                    _add_source_line_with_atom(doc, p, cit,
+                                               str(ATOM_ICON_PATH))
 
 
 # ── Validation status colours ────────────────────────────────────
