@@ -5,11 +5,11 @@ Fix Alembic multiple heads error by creating a merge migration.
 Run this on any system where `alembic upgrade head` fails with:
   "Multiple head revisions are present; please specify a target revision"
 
-Usage:
+Usage (bare metal):
     python scripts/fix_migration_heads.py
 
-This creates the merge migration file in alembic/versions/ and then
-runs `alembic upgrade head` to apply all pending migrations.
+Usage (docker run - no exec needed):
+    See scripts/docker/fix_migration_heads.sh
 """
 
 import os
