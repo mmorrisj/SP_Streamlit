@@ -15,11 +15,22 @@
 
 set -e
 
-# Load .env if available
+# Load .env if available (line-by-line to safely skip comments)
 if [ -f .env ]; then
-    set -a
-    . .env
-    set +a
+    while IFS='=' read -r key value; do
+        # Skip comments and blank lines
+        case "$key" in
+            \#*|'') continue ;;
+        esac
+        # Strip surrounding quotes from value
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        # Strip inline comments (space + #)
+        value="${value%% \#*}"
+        export "$key=$value"
+    done < .env
 fi
 
 # Defaults matching production-deploy.sh

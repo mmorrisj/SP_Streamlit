@@ -25,10 +25,19 @@ NC='\033[0m'
 # ============================================
 
 # Load from .env if available, otherwise use defaults
+# (line-by-line parser to safely skip comments and handle quotes)
 if [ -f .env ]; then
-    set -a
-    . .env
-    set +a
+    while IFS='=' read -r key value; do
+        case "$key" in
+            \#*|'') continue ;;
+        esac
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        value="${value%% \#*}"
+        export "$key=$value"
+    done < .env
 fi
 
 POSTGRES_USER="${POSTGRES_USER:-}"
