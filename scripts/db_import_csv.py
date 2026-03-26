@@ -130,7 +130,7 @@ def build_psql_cmd(conn, docker_container=None, dbname_override=None):
     dbname = dbname_override or conn["dbname"]
     if docker_container:
         # Ephemeral container connects over network (no docker exec needed)
-        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg16")
+        db_image = os.getenv("DB_IMAGE", "pgvector/pgvector:0.8.1-pg17")
         return [
             "docker", "run", "--rm", "-i",
             "--network", "softpower_net",

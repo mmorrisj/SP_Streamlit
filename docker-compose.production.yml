@@ -23,7 +23,7 @@ services:
   # PostgreSQL + pgvector
   # -----------------------
   db:
-    image: mmorrisj/pgvector:0.8.1-pg16
+    image: mmorrisj/pgvector:0.8.1-pg17
     container_name: sp_prod_db
     restart: unless-stopped
     shm_size: "1gb"

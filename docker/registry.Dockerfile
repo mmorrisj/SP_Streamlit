@@ -16,9 +16,9 @@
 # ============================================
 # Stage 1: Build React Frontend
 # ============================================
-# Bookworm (Debian 12, glibc 2.36) for CentOS 7 kernel 3.10 compatibility.
-# Trixie (Debian 13, glibc 2.38+) requires clone3 syscall (kernel 5.3+).
-FROM node:20-bookworm-slim AS frontend-builder
+# Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
+# Node 22 is the current LTS (supported through April 2027).
+FROM node:22-bookworm-slim AS frontend-builder
 
 WORKDIR /app/client
 
@@ -33,9 +33,9 @@ RUN npm run build \
 # ============================================
 # Stage 2: Python Runtime (FastAPI + Streamlit + ML)
 # ============================================
-# Bookworm (Debian 12, glibc 2.36) for CentOS 7 kernel 3.10 compatibility.
-# Trixie (Debian 13, glibc 2.38+) requires clone3 syscall (kernel 5.3+).
-FROM python:3.13-slim-bookworm
+# Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
+# Trixie (Debian 13, glibc 2.38) is safe — clone3 syscall requires kernel 5.3+.
+FROM python:3.13-slim-trixie
 
 WORKDIR /app
 

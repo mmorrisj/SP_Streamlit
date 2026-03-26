@@ -19,12 +19,13 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
 import tiktoken
-from openai import AzureOpenAI, OpenAI
 from sqlalchemy import text
 import torch
+import requests as http_requests
 
 from shared.database.database import get_engine
 from shared.utils.model_cache import get_hf_embeddings
+from shared.utils.utils import gai
 
 logger = logging.getLogger(__name__)
 
@@ -812,8 +813,6 @@ def generate_hyde_document(query: str) -> Optional[str]:
         return None
 
     try:
-        client, client_type = get_llm_client()
-
         hyde_prompt = (
             "Write a short, factual paragraph (3-5 sentences) that would appear in a "
             "diplomatic intelligence document answering this question. Include specific "
@@ -822,50 +821,27 @@ def generate_hyde_document(query: str) -> Optional[str]:
             f"Question: {query}"
         )
 
-        if client_type == "azure":
-            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", HYDE_MODEL)
-            response = client.chat.completions.create(
-                model=deployment,
-                messages=[{"role": "user", "content": hyde_prompt}],
-                temperature=0.7,  # Higher temp for diverse hypothetical generation
-                max_tokens=300
-            )
-        else:
-            response = client.chat.completions.create(
-                model=HYDE_MODEL,
-                messages=[{"role": "user", "content": hyde_prompt}],
-                temperature=0.7,
-                max_tokens=300
-            )
-
-        hyde_doc = response.choices[0].message.content
-        logger.info(f"HyDE generated {len(hyde_doc)} char hypothetical document")
-        return hyde_doc
+        hyde_doc = gai("You are a diplomatic intelligence analyst.", hyde_prompt, model=HYDE_MODEL)
+        if isinstance(hyde_doc, str) and hyde_doc:
+            logger.info(f"HyDE generated {len(hyde_doc)} char hypothetical document")
+            return hyde_doc
+        return None
 
     except Exception as e:
         logger.warning(f"HyDE generation failed: {e}. Using original query.")
         return None
 
 
-def get_llm_client():
-    """Get OpenAI client (Azure or direct)."""
-    # Try Azure first
-    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    azure_key = os.getenv("AZURE_OPENAI_API_KEY")
-
-    if azure_endpoint and azure_key:
-        return AzureOpenAI(
-            azure_endpoint=azure_endpoint,
-            api_key=azure_key,
-            api_version="2024-08-01-preview"
-        ), "azure"
-
-    # Fall back to OpenAI
-    openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_PROJ_API")
-    if openai_key:
-        return OpenAI(api_key=openai_key), "openai"
-
-    raise ValueError("No LLM API credentials found. Set AZURE_OPENAI_ENDPOINT/AZURE_OPENAI_API_KEY or OPENAI_API_KEY.")
+def _get_proxy_stream_url():
+    """Get the streaming proxy URL from environment."""
+    api_url = os.getenv('API_URL', '').strip()
+    if not api_url:
+        fastapi_url = os.getenv('FASTAPI_URL', '').strip()
+        if fastapi_url:
+            api_url = fastapi_url.split('/proxy_query')[0].split('/material_query')[0]
+        else:
+            api_url = 'http://localhost:8000'
+    return f"{api_url.rstrip('/')}/proxy_query_stream"
 
 
 def semantic_search(
@@ -1394,7 +1370,10 @@ def generate_response_stream(
     matched_entities: Optional[List[MatchedEntity]] = None
 ) -> Generator[str, None, None]:
     """
-    Generate a streaming response using the LLM.
+    Generate a streaming response using the LLM via the proxy endpoint.
+
+    Routes through /proxy_query_stream so LLM credentials and network
+    access are handled by the FastAPI server, not the container directly.
 
     Args:
         query: User's question
@@ -1405,8 +1384,6 @@ def generate_response_stream(
     Yields:
         Response text chunks
     """
-    client, client_type = get_llm_client()
-
     # Build the context from documents and entities
     context = build_context_prompt(query, documents, matched_entities)
 
@@ -1425,33 +1402,29 @@ Provide a detailed, analytically rigorous response following AP style guidelines
 - Avoid generic characterizations—every statement should be substantive and verifiable
 - If the sources lack specific information, state exactly what is missing rather than using vague language"""
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_message}
-    ]
-
     try:
-        if client_type == "azure":
-            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", model)
-            stream = client.chat.completions.create(
-                model=deployment,
-                messages=messages,
-                stream=True,
-                temperature=0.4,  # Lower temperature for more precise, factual responses
-                max_tokens=4000
-            )
-        else:
-            stream = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                stream=True,
-                temperature=0.4,  # Lower temperature for more precise, factual responses
-                max_tokens=4000
-            )
+        stream_url = _get_proxy_stream_url()
+        payload = {
+            "sys_prompt": SYSTEM_PROMPT,
+            "prompt": user_message,
+            "model": model,
+            "temperature": 0.4,
+            "max_tokens": 4000
+        }
 
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        with http_requests.post(stream_url, json=payload, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data: "):
+                    continue
+                data = json.loads(line[6:])
+                if data.get("error"):
+                    yield f"\n\n[Error generating response: {data['error']}]"
+                    return
+                if data.get("done"):
+                    return
+                if "content" in data:
+                    yield data["content"]
 
     except Exception as e:
         yield f"\n\n[Error generating response: {str(e)}]"

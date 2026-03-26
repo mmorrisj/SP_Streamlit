@@ -13,7 +13,7 @@ set -e
 # (e.g. /var/lib/postgresql → C:/Program Files/Git/var/lib/postgresql)
 export MSYS_NO_PATHCONV=1
 
-# Colors (CentOS 7 compatible)
+# Colors (ANSI escape sequences)
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -26,7 +26,32 @@ NC='\033[0m'
 
 # Load from .env if available, otherwise use defaults
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip blank lines and comments
+        case "$line" in
+            ''|\#*) continue ;;
+        esac
+        # Skip lines without an = sign
+        case "$line" in
+            *=*) ;;
+            *) continue ;;
+        esac
+        # Split on first = only
+        key="${line%%=*}"
+        value="${line#*=}"
+        # Strip leading/trailing whitespace from key
+        key="$(echo "$key" | xargs)"
+        # Skip keys that start with # (indented comments)
+        case "$key" in
+            \#*|'') continue ;;
+        esac
+        # Strip surrounding quotes from value
+        case "$value" in
+            \"*\") value="${value#\"}"; value="${value%\"}" ;;
+            \'*\') value="${value#\'}"; value="${value%\'}" ;;
+        esac
+        export "$key=$value"
+    done < .env
 fi
 
 POSTGRES_USER="${POSTGRES_USER:-}"
@@ -91,9 +116,9 @@ fi
 # Build image names from PRODUCTION_REGISTRY if not explicitly set
 if [ -z "$DB_IMAGE" ]; then
     if [ -n "$PRODUCTION_REGISTRY" ]; then
-        DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg16"
+        DB_IMAGE="${PRODUCTION_REGISTRY}/pgvector:0.8.1-pg17"
     else
-        DB_IMAGE="mmorrisj/pgvector:0.8.1-pg16"
+        DB_IMAGE="mmorrisj/pgvector:0.8.1-pg17"
     fi
 fi
 
@@ -800,6 +825,7 @@ cmd_migrate() {
     fi
 
     # Always use ephemeral container (enterprise compatibility — no docker exec)
+    # Writes any missing merge migrations before running alembic upgrade head.
     docker run --rm \
         --network "$NETWORK_NAME" \
         -e DOCKER_ENV=true \
@@ -810,7 +836,39 @@ cmd_migrate() {
         -e POSTGRES_DB="$POSTGRES_DB" \
         -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
         "$APP_IMAGE" \
-        alembic upgrade head
+        python3 -c "
+import os, subprocess, sys
+
+# --- Merge migration: 006_search_vector + 20260224_aiddata_tables ---
+merge_path = '/app/alembic/versions/821886869aed_merge_search_vector_and_aiddata_branches.py'
+if not os.path.exists(merge_path):
+    with open(merge_path, 'w') as f:
+        f.write('''\"\"\"merge search_vector and aiddata branches
+
+Revision ID: 821886869aed
+Revises: 006_search_vector, 20260224_aiddata_tables
+Create Date: 2026-03-26 13:33:52.540352
+
+\"\"\"
+from typing import Sequence, Union
+from alembic import op
+import sqlalchemy as sa
+
+revision = \"821886869aed\"
+down_revision = (\"006_search_vector\", \"20260224_aiddata_tables\")
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    pass
+
+def downgrade():
+    pass
+''')
+    print('Injected merge migration for multiple heads fix')
+
+sys.exit(subprocess.call(['alembic', 'upgrade', 'head'], cwd='/app'))
+"
 
     log_ok "Migrations complete"
     echo ""
