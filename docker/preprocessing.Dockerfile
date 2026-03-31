@@ -46,7 +46,7 @@ import os, shutil; \
 from sentence_transformers import SentenceTransformer, CrossEncoder; \
 \
 # 1. Embedding model (revision-pinned to prevent unexpected custom code updates) \
-emb = SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, revision='PASTE_COMMIT_HASH_HERE'); \
+emb = SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, revision='e5cf08aadaa33385f5990def41f7a23405aec398'); \
 emb_path = '/app/.cache/huggingface/models/nomic-embed-text-v1.5'; \
 os.makedirs(emb_path, exist_ok=True); \
 emb.save(emb_path); \
