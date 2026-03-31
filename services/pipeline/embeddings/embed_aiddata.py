@@ -32,7 +32,7 @@ from shared.models.models import AidDataProject
 from shared.utils.model_cache import get_hf_embeddings
 
 COLLECTION_NAME = 'chunk_embeddings'
-MAX_DESCRIPTION_CHARS = 1800  # ~512 tokens for all-MiniLM-L6-v2
+MAX_DESCRIPTION_CHARS = 1800  # well within nomic-embed-text-v1.5's 8192-token context
 
 
 # ---------------------------------------------------------------------------

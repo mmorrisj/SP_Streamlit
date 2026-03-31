@@ -16,7 +16,7 @@ python-docx
 pyyaml
 requests
 matplotlib>=3.9.0
-
+einops
 # Database & Migrations
 alembic==1.12.1
 pgvector>=0.2.5,<0.4

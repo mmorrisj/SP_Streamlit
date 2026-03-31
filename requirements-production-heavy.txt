@@ -22,3 +22,4 @@ langchain-huggingface>=1.0
 # LangChain PostgreSQL vector store (migrated from langchain-community)
 # Pulls: langchain-core, psycopg
 langchain-postgres>=0.0.16,<0.1.0
+einops

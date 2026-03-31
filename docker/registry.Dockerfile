@@ -5,12 +5,12 @@
 #
 # Designed for deployment via Docker Hub mirror:
 #   - ML packages (torch, sentence-transformers) baked in
-#   - HuggingFace model (all-MiniLM-L6-v2) baked in
+#   - HuggingFace model (nomic-ai/nomic-embed-text-v1.5) baked in
 #   - React frontend built and included
 #   - No pipeline/ingestion code
 #   - Pull-and-run: no manual setup steps required
 #
-# Image size: ~1.5-2GB
+# Image size: ~1.7-2.2GB
 # ============================================
 
 # ============================================
@@ -91,9 +91,11 @@ RUN pip install --no-cache-dir \
 # symlink-free layout, then the HF hub cache is purged — all in one RUN step
 # so intermediate downloads don't persist as separate Docker layers.
 #
-# Reranker: cross-encoder/ms-marco-MiniLM-L-6-v2 (~90MB) replaces
-# BAAI/bge-reranker-v2-m3 (~2.2GB) to keep the image small.
-# Performance is comparable for RAG reranking use cases.
+# Embedding: nomic-ai/nomic-embed-text-v1.5 (~280MB)
+#   - 768-dim vectors, 8192-token context window (vs 256-token MiniLM limit)
+#   - Requires trust_remote_code=True (custom NomicBert pooling code)
+#   - Apache 2.0 license, enterprise-safe
+# Reranker: cross-encoder/ms-marco-MiniLM-L-6-v2 (~90MB)
 ENV HF_HOME=/app/.cache/huggingface
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/hub
 
@@ -101,9 +103,10 @@ RUN python3 -c "\
 import os, shutil; \
 from sentence_transformers import SentenceTransformer, CrossEncoder; \
 \
-# 1. Embedding model \
-emb = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
-emb_path = '/app/.cache/huggingface/models/all-MiniLM-L6-v2'; \
+# 1. Embedding model (nomic-embed-text-v1.5: 768-dim, 8192-token context) \
+# revision-pinned to prevent unexpected custom code updates on rebuild \
+emb = SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, revision='PASTE_COMMIT_HASH_HERE'); \
+emb_path = '/app/.cache/huggingface/models/nomic-embed-text-v1.5'; \
 os.makedirs(emb_path, exist_ok=True); \
 emb.save(emb_path); \
 assert os.path.isfile(os.path.join(emb_path, 'modules.json')), 'Embedding model save failed'; \
@@ -152,7 +155,7 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/softpower.conf
 RUN ls -la client/dist/ \
     && ls -la server/main.py \
     && ls -la services/dashboard/app.py \
-    && ls -la /app/.cache/huggingface/models/all-MiniLM-L6-v2/modules.json \
+    && ls -la /app/.cache/huggingface/models/nomic-embed-text-v1.5/modules.json \
     && ls -la /app/.cache/huggingface/models/ms-marco-MiniLM-L-6-v2/config.json \
     && test -d /app/.cache/tiktoken \
     && echo "All application files verified"

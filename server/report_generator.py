@@ -15,6 +15,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import json
+import re
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
@@ -1906,7 +1907,12 @@ def generate_report(
             for category, events in events_by_category.items():
                 for event in events:
                     cached = cached_narratives.get(event['event_name'])
-                    if cached:
+                    # Only use cache if it contains inline citations [N]
+                    has_citations = (
+                        cached
+                        and re.search(r'\[\d+\]', cached.get('overview', ''))
+                    )
+                    if has_citations:
                         event['overview'] = cached.get('overview', '')
                         event['outcomes'] = cached.get('outcomes', '')
                     else:
@@ -2588,7 +2594,12 @@ def generate_report_stream(
             events = events_by_category.get(category, [])
             for evt_idx, event in enumerate(events):
                 cached = stream_cached_narratives.get(event['event_name'])
-                if cached:
+                # Only use cache if it contains inline citations [N]
+                has_citations = (
+                    cached
+                    and re.search(r'\[\d+\]', cached.get('overview', ''))
+                )
+                if has_citations:
                     overview = cached.get('overview', '')
                     outcomes = cached.get('outcomes', '')
                 elif llm_available:

@@ -33,7 +33,7 @@ from shared.database.database import get_engine
 from services.pipeline.ingestion.dsr import embed_documents_direct
 
 
-def find_missing_embeddings(collection_name='chunk_embeddings'):
+def find_missing_embeddings(collection_name='chunk_embeddings', country=None):
     """
     Find documents that don't have embeddings in pgvector.
 
@@ -47,12 +47,15 @@ def find_missing_embeddings(collection_name='chunk_embeddings'):
     print("Finding Documents Missing Embeddings")
     print(f"{'='*80}")
     print(f"Collection: {collection_name}")
+    if country:
+        print(f"Country filter: {country}")
 
     engine = get_engine()
 
     with engine.connect() as conn:
         # Find documents without embeddings that have distilled_text
-        result = conn.execute(text("""
+        country_filter = "AND d.initiating_country = :country" if country else ""
+        result = conn.execute(text(f"""
             SELECT
                 d.doc_id,
                 d.title,
@@ -71,8 +74,9 @@ def find_missing_embeddings(collection_name='chunk_embeddings'):
             )
             AND d.distilled_text IS NOT NULL
             AND d.distilled_text != ''
+            {country_filter}
             ORDER BY d.date DESC
-        """), {"collection_name": collection_name})
+        """), {"collection_name": collection_name, "country": country})
 
         missing_docs = result.fetchall()
 
@@ -201,6 +205,11 @@ Examples:
         action='store_true',
         help='Skip confirmation prompt (for non-interactive execution)'
     )
+    parser.add_argument(
+        '--country',
+        type=str,
+        help='Only embed documents for this initiating country (enables parallel runs)'
+    )
 
     args = parser.parse_args()
 
@@ -211,7 +220,7 @@ Examples:
         sys.exit(0)
 
     # Find missing embeddings
-    missing_doc_ids = find_missing_embeddings(args.collection)
+    missing_doc_ids = find_missing_embeddings(args.collection, country=args.country)
 
     if not missing_doc_ids:
         print("\nAll documents have embeddings!")

@@ -25,15 +25,9 @@ from matplotlib.ticker import MaxNLocator
 
 # ── Paths ──────────────────────────────────────────────────────
 
-TEMPLATE_PATH = (
-    Path(__file__).parent.parent
-    / 'services' / 'publication' / 'templates' / 'GAI_Summary_Template.docx'
-)
+TEMPLATE_PATH = Path(__file__).parent / 'templates' / 'GAI_Summary_Template.docx'
 
-ATOM_ICON_PATH = (
-    Path(__file__).parent.parent
-    / 'services' / 'publication' / 'templates' / 'atom.png'
-)
+ATOM_ICON_PATH = Path(__file__).parent / 'templates' / 'atom.png'
 
 # ── Colour palette ──────────────────────────────────────────────
 
@@ -379,29 +373,64 @@ def _make_body_paragraph(doc: Document, text: str, style_name: str = 'Body Text 
     return p
 
 
+def _add_narrative_with_citation_links(doc: Document, paragraph, text: str,
+                                       citation_lookup: Dict[int, Dict],
+                                       font_size: int = 10):
+    """Add narrative text to a paragraph, turning [N] citations into hyperlinks.
+
+    Splits text on citation patterns like [1], [2], etc. Plain text segments
+    are rendered as normal runs; citation numbers become blue underlined
+    hyperlinks pointing to the citation's repo_hyperlink (ATOM URL).
+    """
+    # Split on citation pattern, keeping the delimiters
+    parts = re.split(r'(\[\d+\])', text)
+
+    for part in parts:
+        m = re.match(r'^\[(\d+)\]$', part)
+        if m:
+            num = int(m.group(1))
+            cit = citation_lookup.get(num)
+            url = cit.get('repo_hyperlink', '') if cit else ''
+            if url:
+                _add_hyperlink(paragraph, part, url,
+                               font_size=font_size, color_hex='2563EB')
+            else:
+                # No URL — render as styled text (not a link)
+                r = paragraph.add_run(part)
+                _set_font(r, size=font_size, bold=True,
+                          color=RGBColor(0x25, 0x63, 0xEB))
+        else:
+            if part:
+                r = paragraph.add_run(part)
+                _set_font(r, size=font_size)
+
+
+def _find_placeholder_element(doc: Document, placeholder: str):
+    """Find the XML paragraph element containing the given placeholder text."""
+    body = doc.element.body
+    for p_elem in body.iterchildren(qn('w:p')):
+        texts = [t.text or '' for t in p_elem.iter(qn('w:t'))]
+        full_text = ''.join(texts)
+        if placeholder in full_text:
+            return p_elem
+    return None
+
+
 def _insert_event_content(doc: Document, placeholder: str, cat_data: dict,
                           citations_by_event: List[Dict]):
     """Replace an event section placeholder with event content paragraphs.
 
     Inserts event paragraphs (name, overview, outcomes) at the position of the
-    placeholder paragraph, then removes the placeholder.
+    placeholder paragraph, then removes the placeholder. Citation references
+    like [1], [2] are rendered as clickable hyperlinks to ATOM.
     """
-    # Find the placeholder paragraph element
     body = doc.element.body
-    target_p = None
-    for p_elem in body.iterchildren(qn('w:p')):
-        # Get full text of paragraph
-        texts = [t.text or '' for t in p_elem.iter(qn('w:t'))]
-        full_text = ''.join(texts)
-        if placeholder in full_text:
-            target_p = p_elem
-            break
+    target_p = _find_placeholder_element(doc, placeholder)
 
     if target_p is None:
         return
 
     if not cat_data or not cat_data.get('events'):
-        # No events - replace placeholder with "No events reported."
         new_p = _make_body_paragraph(
             doc, 'No events reported for this category.',
             style_name='Body Text - OSE', italic=True
@@ -410,49 +439,58 @@ def _insert_event_content(doc: Document, placeholder: str, cat_data: dict,
         body.remove(target_p)
         return
 
-    # Build citation lookup for this category
-    cat_name = cat_data.get('category', '')
-    cat_citations = {}
-    for group in citations_by_event:
-        if group.get('category') == cat_name:
-            for evt_cit in group.get('events', []):
-                cat_citations[evt_cit['event_name']] = evt_cit.get('citations', [])
+    # Build flat citation lookup
+    citation_lookup = _build_citation_lookup(citations_by_event)
 
     events = cat_data.get('events', [])
-    elements_to_insert = []
+
+    # Use high-level API to build paragraphs (needed for hyperlinks),
+    # then reposition the XML elements before the placeholder.
+    created_elements = []
 
     for event in events:
         event_name = event.get('event_name', 'Unnamed Event')
         overview = event.get('overview', '')
         outcomes = event.get('outcomes', '')
 
-        # Event name as bold paragraph
-        name_p = _make_body_paragraph(
-            doc, event_name,
-            style_name='Body Text - OSE', bold=True, font_size=11
-        )
-        elements_to_insert.append(name_p)
+        # Event name (bold)
+        p = doc.add_paragraph()
+        r = p.add_run(event_name)
+        _set_font(r, size=11, bold=True)
+        try:
+            p.style = doc.styles['Body Text - OSE']
+        except KeyError:
+            pass
+        created_elements.append(p._p)
 
-        # Overview
+        # Overview with citation hyperlinks
         if overview:
-            overview_p = _make_body_paragraph(
-                doc, overview, style_name='Body Text - OSE', font_size=10
-            )
-            elements_to_insert.append(overview_p)
+            p = doc.add_paragraph()
+            try:
+                p.style = doc.styles['Body Text - OSE']
+            except KeyError:
+                pass
+            _add_narrative_with_citation_links(doc, p, overview,
+                                               citation_lookup, font_size=10)
+            created_elements.append(p._p)
 
-        # Outcomes
+        # Outcomes with citation hyperlinks
         if outcomes:
-            outcomes_p = _make_body_paragraph(
-                doc, outcomes, style_name='Body Text - OSE', font_size=10
-            )
-            elements_to_insert.append(outcomes_p)
+            p = doc.add_paragraph()
+            try:
+                p.style = doc.styles['Body Text - OSE']
+            except KeyError:
+                pass
+            _add_narrative_with_citation_links(doc, p, outcomes,
+                                               citation_lookup, font_size=10)
+            created_elements.append(p._p)
 
-        # Spacer paragraph
-        spacer = _make_body_paragraph(doc, '', style_name='Body Text - OSE')
-        elements_to_insert.append(spacer)
+        # Spacer
+        spacer = doc.add_paragraph()
+        created_elements.append(spacer._p)
 
-    # Insert all elements before the placeholder, then remove placeholder
-    for elem in elements_to_insert:
+    # Move created elements to before the placeholder, then remove it
+    for elem in created_elements:
         target_p.addprevious(elem)
     body.remove(target_p)
 
@@ -499,14 +537,16 @@ def export_report_to_docx(report_data: dict) -> io.BytesIO:
             pass
         # If the intro still has template boilerplate, replace it
         if 'Near Eastern and North African media' in intro_p.text:
-            # Clear and rewrite with actual summary if available
+            # Clear and rewrite with overall summary + citation hyperlinks
             if overall_summary:
+                citation_lookup = _build_citation_lookup(citations_by_event)
+                # Remove all existing runs
                 for run in intro_p.runs:
-                    run.text = ''
-                if intro_p.runs:
-                    intro_p.runs[0].text = overall_summary
-                else:
-                    intro_p.add_run(overall_summary)
+                    run._r.getparent().remove(run._r)
+                _add_narrative_with_citation_links(
+                    doc, intro_p, overall_summary,
+                    citation_lookup, font_size=10
+                )
 
     # ── 2. Replace event section placeholders ───────────────────
     category_map = {cat['category']: cat for cat in categories}
@@ -852,16 +892,11 @@ def _insert_event_content_reviewer(doc: Document, placeholder: str,
 
     After each overview and outcomes paragraph, inserts a compact source listing
     showing only the citations referenced in that paragraph, with ATOM hyperlinks
-    so reviewers can click through to validate each claim.
+    so reviewers can click through to validate each claim. Citation numbers in
+    the narrative text are also rendered as clickable hyperlinks.
     """
     body = doc.element.body
-    target_p = None
-    for p_elem in body.iterchildren(qn('w:p')):
-        texts = [t.text or '' for t in p_elem.iter(qn('w:t'))]
-        full_text = ''.join(texts)
-        if placeholder in full_text:
-            target_p = p_elem
-            break
+    target_p = _find_placeholder_element(doc, placeholder)
 
     if target_p is None:
         return
@@ -876,10 +911,6 @@ def _insert_event_content_reviewer(doc: Document, placeholder: str,
         return
 
     events = cat_data.get('events', [])
-
-    # We need to build paragraphs using python-docx's high-level API so we
-    # can use add_run() etc., then move the underlying XML elements into
-    # position.  Trick: append to end of doc, collect elements, reposition.
     created_elements = []
 
     for event in events:
@@ -892,21 +923,20 @@ def _insert_event_content_reviewer(doc: Document, placeholder: str,
         r = p.add_run(event_name)
         _set_font(r, size=11, bold=True)
         try:
-            style = doc.styles['Body Text - OSE']
-            p.style = style
+            p.style = doc.styles['Body Text - OSE']
         except KeyError:
             pass
         created_elements.append(p._p)
 
-        # ── Overview + source block
+        # ── Overview with citation hyperlinks + source block
         if overview:
             p = doc.add_paragraph()
-            r = p.add_run(overview)
-            _set_font(r, size=10)
             try:
                 p.style = doc.styles['Body Text - OSE']
             except KeyError:
                 pass
+            _add_narrative_with_citation_links(doc, p, overview,
+                                               citation_lookup, font_size=10)
             created_elements.append(p._p)
 
             # Source block for overview citations
@@ -918,7 +948,7 @@ def _insert_event_content_reviewer(doc: Document, placeholder: str,
                 src_p.paragraph_format.space_after = Pt(6)
                 r = src_p.add_run('Sources: ')
                 _set_font(r, size=8, bold=True, color=RGBColor(0x47, 0x55, 0x69))
-                src_p.add_run('\n')  # newline before source list
+                src_p.add_run('\n')
 
                 for cn in cited_nums:
                     cit = citation_lookup.get(cn)
@@ -928,15 +958,15 @@ def _insert_event_content_reviewer(doc: Document, placeholder: str,
                         src_p.add_run('\n')
                 created_elements.append(src_p._p)
 
-        # ── Outcomes + source block
+        # ── Outcomes with citation hyperlinks + source block
         if outcomes:
             p = doc.add_paragraph()
-            r = p.add_run(outcomes)
-            _set_font(r, size=10)
             try:
                 p.style = doc.styles['Body Text - OSE']
             except KeyError:
                 pass
+            _add_narrative_with_citation_links(doc, p, outcomes,
+                                               citation_lookup, font_size=10)
             created_elements.append(p._p)
 
             cited_nums = _extract_citation_numbers(outcomes)

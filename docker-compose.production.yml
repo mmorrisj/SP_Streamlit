@@ -134,7 +134,6 @@ services:
       # Mount local code for development (override image code)
       - ./server:/app/server
       - ./scripts:/app/scripts
-      - ./services:/app/services
       - ./shared:/app/shared
       # Persist reports to host
       - ./reports:/app/reports

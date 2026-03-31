@@ -178,7 +178,7 @@ with tab2:
 
     **Technical Details**:
     - **Algorithm**: DBSCAN (Density-Based Spatial Clustering)
-    - **Embeddings**: sentence-transformers/all-MiniLM-L6-v2
+    - **Embeddings**: nomic-ai/nomic-embed-text-v1.5
     - **Similarity Threshold**: 0.15 epsilon (configurable)
     - **Lookback Windows**: 3 days (breaking), 14 days (developing), 90 days (recurring)
 
@@ -218,7 +218,7 @@ with tab2:
 
     **Stage 2: Semantic Clustering (DBSCAN)**
     - **Algorithm**: DBSCAN with sentence-transformer embeddings
-    - **Embedding Model**: all-MiniLM-L6-v2 (384-dimensional vectors)
+    - **Embedding Model**: nomic-embed-text-v1.5 (768-dimensional vectors)
     - **Parameters**:
       - Epsilon (ε) = 0.15 (strict similarity threshold)
       - Min samples = 2 (minimum cluster size)
@@ -333,7 +333,7 @@ with tab3:
         ],
         "Purpose": [
             "Extract categories, countries, events, salience",
-            "Embedding model (all-MiniLM-L6-v2)",
+            "Embedding model (nomic-embed-text-v1.5)",
             "Synthesize daily events into AP-style narratives",
             "Aggregate weekly patterns and trends",
             "Strategic overview of monthly developments",
@@ -744,7 +744,7 @@ with tab5:
             "PostgreSQL 15",
             "pgvector",
             "OpenAI GPT-4 (via CLAUDE_KEY)",
-            "sentence-transformers/all-MiniLM-L6-v2",
+            "nomic-ai/nomic-embed-text-v1.5",
             "scikit-learn DBSCAN",
             "AWS S3",
             "Docker Compose"

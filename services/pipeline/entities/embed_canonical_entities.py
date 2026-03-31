@@ -5,7 +5,7 @@ This script finds all canonical entities where embedding_vector IS NULL
 and generates embeddings using the same SentenceTransformer model used
 during Stage 1C (llm_deconflict_entity_clusters.py).
 
-Model: sentence-transformers/all-MiniLM-L6-v2
+Model: nomic-ai/nomic-embed-text-v1.5
 
 This is needed when canonical entities were created via a batch process
 that skipped embedding generation, or when entities need re-embedding
@@ -162,7 +162,7 @@ def embed_entities_for_country(
 
     # Load the sentence transformer model
     if verbose:
-        print("  Loading sentence transformer model (all-MiniLM-L6-v2)...")
+        print("  Loading sentence transformer model (nomic-embed-text-v1.5)...")
 
     from shared.utils.model_cache import load_embedding_model
     model = load_embedding_model()
@@ -245,7 +245,7 @@ def main():
     print("CANONICAL ENTITY EMBEDDING GENERATION")
     print("=" * 80)
     print(f"Countries: {', '.join(countries)}")
-    print("Model: sentence-transformers/all-MiniLM-L6-v2")
+    print("Model: nomic-ai/nomic-embed-text-v1.5")
     if args.status:
         print("[STATUS MODE]")
     elif args.dry_run:

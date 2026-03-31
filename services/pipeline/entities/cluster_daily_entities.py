@@ -63,7 +63,7 @@ CLUSTER_BATCH_SIZE = 150  # ~150 entities per batch for LLM
 def load_embedding_model():
     """Load SentenceTransformer model for entity name embeddings."""
     from shared.utils.model_cache import load_embedding_model as _load
-    print("Loading embedding model (all-MiniLM-L6-v2)...")
+    print("Loading embedding model (nomic-embed-text-v1.5)...")
     model = _load()
     print("✓ Model loaded\n")
     return model
