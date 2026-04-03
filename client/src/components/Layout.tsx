@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, LogOut, Shield, X, Loader2, Zap, TrendingUp, Flame } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
 import './Layout.css'
@@ -29,7 +29,7 @@ const influencers = [
 
 
 export default function Layout() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { status, streamPhase, progressPct, cancelGeneration } = useReportGeneration()
 
   return (
@@ -132,10 +132,6 @@ export default function Layout() {
             <span className="user-name">{user?.display_name || user?.username}</span>
             <span className="user-role">{user?.role}</span>
           </div>
-          <button onClick={logout} className="logout-button">
-            <LogOut size={18} />
-            <span>Logout</span>
-          </button>
         </div>
       </aside>
       <main className="main-content">

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Create initial admin user for the Soft Power Analytics Dashboard.
+Promote a user to admin role for the Soft Power Analytics Dashboard.
+
+With enterprise JWT auth, users are auto-provisioned when they first access
+the application. This script lets you pre-create or promote a user to admin.
 
 Usage:
-    # Interactive (prompts for password - most secure):
-    python scripts/create_admin.py --username admin
+    # Promote an existing user to admin:
+    python scripts/create_admin.py --username john.doe
 
-    # Non-interactive (for scripted deployments):
-    python scripts/create_admin.py --username admin --password YourSecurePassword
+    # Pre-create an admin user (before their first login via the gateway):
+    python scripts/create_admin.py --username john.doe --enterprise-id "abc-123"
 
-    # Reset password for existing user (e.g. after pg_restore):
-    python scripts/create_admin.py --username admin --password NewPass --reset-password
-
-    # Skip force-password-change requirement:
-    python scripts/create_admin.py --username admin --password Pass --no-force-password-change
+    # Set a specific role:
+    python scripts/create_admin.py --username john.doe --role analyst
 """
 import sys
 import os
@@ -24,20 +24,25 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database.database import get_session
 from shared.models.models import User, UserRole
-from server.auth import hash_password
 
 
-def create_admin(username: str, password: str, force_password_change: bool = False,
-                  reset_password: bool = False):
+def promote_user(username: str, role: str = "admin", enterprise_id: str = None,
+                 display_name: str = None):
     """
-    Create an admin user in the database.
+    Promote or pre-create a user with the specified role.
 
     Args:
-        username: Admin username
-        password: Admin password
-        force_password_change: Whether to force password change on first login
-        reset_password: If True, reset password for existing users
+        username: Username (should match enterprise JWT preferred_username/email)
+        role: Role to assign (admin, analyst, viewer)
+        enterprise_id: Enterprise JWT 'sub' claim (optional, for pre-provisioning)
+        display_name: Display name (optional)
     """
+    try:
+        user_role = UserRole(role)
+    except ValueError:
+        print(f"Error: Invalid role '{role}'. Must be one of: admin, analyst, viewer")
+        sys.exit(1)
+
     with get_session() as session:
         # Check if user already exists
         existing = session.query(User).filter(User.username == username).first()
@@ -46,89 +51,76 @@ def create_admin(username: str, password: str, force_password_change: bool = Fal
                 print(f"User '{username}' was previously deleted. Reactivating...")
                 existing.is_deleted = False
                 existing.deleted_at = None
-                existing.password_hash = hash_password(password)
-                existing.role = UserRole.ADMIN
+                existing.role = user_role
                 existing.is_active = True
-                existing.force_password_change = force_password_change
+                if enterprise_id:
+                    existing.enterprise_id = enterprise_id
+                if display_name:
+                    existing.display_name = display_name
                 session.commit()
-                print(f"User '{username}' has been reactivated as admin.")
+                print(f"User '{username}' reactivated with role: {role}")
                 return
 
-            if reset_password:
-                existing.password_hash = hash_password(password)
-                existing.force_password_change = force_password_change
-                session.commit()
-                print(f"Password reset for user '{username}'.")
-                return
-
-            print(f"User '{username}' already exists.")
-            print("  Hint: use --reset-password to update the password")
+            old_role = existing.role.value
+            existing.role = user_role
+            if enterprise_id:
+                existing.enterprise_id = enterprise_id
+            if display_name:
+                existing.display_name = display_name
+            session.commit()
+            print(f"User '{username}' updated: {old_role} -> {role}")
             return
 
-        # Create new admin user
-        admin = User(
+        # Pre-create user (they'll be matched by username on first gateway login)
+        user = User(
             username=username,
-            password_hash=hash_password(password),
-            role=UserRole.ADMIN,
-            display_name="Administrator",
-            force_password_change=force_password_change,
+            enterprise_id=enterprise_id,
+            role=user_role,
+            display_name=display_name or username,
             is_active=True
         )
-        session.add(admin)
+        session.add(user)
         session.commit()
 
-        print(f"Admin user '{username}' created successfully!")
-        print("  Role: admin")
-        print(f"  Force password change: {force_password_change}")
+        print(f"User '{username}' pre-created with role: {role}")
+        if enterprise_id:
+            print(f"  Enterprise ID: {enterprise_id}")
+        print("  They will be matched on first login via the enterprise gateway.")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Create an admin user for the Soft Power Analytics Dashboard"
+        description="Promote or pre-create a user for the Soft Power Analytics Dashboard"
     )
     parser.add_argument(
         "--username",
+        required=True,
+        help="Username (should match enterprise JWT preferred_username or email claim)"
+    )
+    parser.add_argument(
+        "--role",
         default="admin",
-        help="Admin username (default: admin)"
+        choices=["admin", "analyst", "viewer"],
+        help="Role to assign (default: admin)"
     )
     parser.add_argument(
-        "--password",
+        "--enterprise-id",
         default=None,
-        help="Admin password (required in production; prompts if omitted)"
+        help="Enterprise JWT 'sub' claim for pre-provisioning (optional)"
     )
     parser.add_argument(
-        "--force-password-change",
-        action="store_true",
-        default=True,
-        help="Require password change on first login (default: True)"
-    )
-    parser.add_argument(
-        "--no-force-password-change",
-        action="store_false",
-        dest="force_password_change",
-        help="Do NOT require password change on first login"
-    )
-    parser.add_argument(
-        "--reset-password",
-        action="store_true",
-        default=False,
-        help="Reset password if user already exists (useful after pg_restore)"
+        "--display-name",
+        default=None,
+        help="Display name (optional)"
     )
 
     args = parser.parse_args()
 
-    if args.password is None:
-        import getpass
-        args.password = getpass.getpass("Enter admin password: ")
-        if not args.password:
-            print("Error: Password cannot be empty.")
-            sys.exit(1)
-
-    create_admin(
+    promote_user(
         username=args.username,
-        password=args.password,
-        force_password_change=args.force_password_change,
-        reset_password=args.reset_password
+        role=args.role,
+        enterprise_id=args.enterprise_id,
+        display_name=args.display_name
     )
 
 

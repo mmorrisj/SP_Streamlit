@@ -1520,17 +1520,20 @@ class UserRole(PyEnum):
 
 class User(Base):
     """
-    User model for authentication and authorization.
-    Admin-provisioned users with role-based access control.
+    User model for authorization and role management.
+    Users are auto-provisioned on first login via enterprise JWT gateway.
+    Admins can manage roles via the User Management page.
     """
     __tablename__ = "users"
 
     # Primary key
     id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Authentication
+    # Enterprise identity - the 'sub' claim from the enterprise JWT
+    enterprise_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
+
+    # Username (from enterprise JWT preferred_username or email claim)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Role-based access control
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.VIEWER, nullable=False)
@@ -1540,12 +1543,10 @@ class User(Base):
 
     # Account status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    force_password_change: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Audit fields
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow)
-    created_by: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=True))
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     # Soft delete
@@ -1554,6 +1555,7 @@ class User(Base):
 
     __table_args__ = (
         Index("ix_user_username", "username"),
+        Index("ix_user_enterprise_id", "enterprise_id"),
         Index("ix_user_role", "role"),
         Index("ix_user_active", "is_active", "is_deleted"),
     )
@@ -1565,10 +1567,10 @@ class User(Base):
         return {
             'id': str(self.id),
             'username': self.username,
+            'enterprise_id': self.enterprise_id,
             'role': self.role.value,
             'display_name': self.display_name,
             'is_active': self.is_active,
-            'force_password_change': self.force_password_change,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None,
         }

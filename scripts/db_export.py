@@ -385,6 +385,21 @@ def export_database(args):
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Clean dev-bypass users before export (they shouldn't go to enterprise)
+    if not args.skip_dev_cleanup:
+        try:
+            from scripts.clean_dev_users import clean_dev_users
+            print("  Cleaning dev-bypass users before export...")
+            removed = clean_dev_users(apply=True)
+            if removed:
+                print()
+        except Exception as e:
+            print(f"  Warning: dev user cleanup failed ({e}), continuing export...")
+            print()
+    else:
+        print("  Skipping dev user cleanup (--skip-dev-cleanup)")
+        print()
+
     # Check for existing export
     manifest_path = output_dir / "manifest.json"
     if manifest_path.exists():
@@ -510,6 +525,10 @@ Examples:
     parser.add_argument("--user", help="Database user (default: from .env)")
     parser.add_argument("--password", help="Database password (default: from .env)")
     parser.add_argument("--dbname", help="Database name (default: from .env)")
+
+    # Dev user cleanup
+    parser.add_argument("--skip-dev-cleanup", action="store_true",
+                        help="Skip removing dev-bypass users before export")
 
     # Docker
     parser.add_argument("--docker-container",

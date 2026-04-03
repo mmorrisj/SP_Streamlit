@@ -1,16 +1,16 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../api/client'
-import { Plus, Edit2, Trash2, Key, Shield, Eye, BarChart3, X } from 'lucide-react'
+import { Edit2, Trash2, Shield, Eye, BarChart3, X } from 'lucide-react'
 import './UserManagementPage.css'
 
 interface User {
   id: string
   username: string
+  enterprise_id: string | null
   role: string
   display_name: string | null
   is_active: boolean
-  force_password_change: boolean
   created_at: string
   last_login: string | null
 }
@@ -28,9 +28,7 @@ const ROLE_COLORS = {
 }
 
 export default function UserManagementPage() {
-  const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
-  const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null)
 
   const queryClient = useQueryClient()
 
@@ -39,16 +37,6 @@ export default function UserManagementPage() {
     queryFn: async () => {
       const { data } = await api.get('/admin/users')
       return data.users as User[]
-    }
-  })
-
-  const createMutation = useMutation({
-    mutationFn: async (userData: Record<string, unknown>) => {
-      await api.post('/admin/users', userData)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-      setShowCreateModal(false)
     }
   })
 
@@ -71,15 +59,6 @@ export default function UserManagementPage() {
     }
   })
 
-  const resetPasswordMutation = useMutation({
-    mutationFn: async ({ userId, password }: { userId: string, password: string }) => {
-      await api.post(`/admin/users/${userId}/reset-password`, { new_password: password })
-    },
-    onSuccess: () => {
-      setResetPasswordUser(null)
-    }
-  })
-
   if (isLoading) {
     return <div className="page"><div className="loading">Loading users...</div></div>
   }
@@ -90,15 +69,8 @@ export default function UserManagementPage() {
         <div className="header-content">
           <div>
             <h1>User Management</h1>
-            <p>Manage system users and permissions</p>
+            <p>Manage user roles and permissions. Users are auto-provisioned when they first access the application via the enterprise gateway.</p>
           </div>
-          <button
-            className="create-button"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <Plus size={18} />
-            Create User
-          </button>
         </div>
       </header>
 
@@ -141,16 +113,9 @@ export default function UserManagementPage() {
                       <button
                         onClick={() => setEditingUser(user)}
                         className="action-btn edit"
-                        title="Edit"
+                        title="Edit Role / Status"
                       >
                         <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => setResetPasswordUser(user)}
-                        className="action-btn reset"
-                        title="Reset Password"
-                      >
-                        <Key size={16} />
                       </button>
                       <button
                         onClick={() => {
@@ -172,22 +137,8 @@ export default function UserManagementPage() {
         </table>
       </div>
 
-      {showCreateModal && (
-        <UserFormModal
-          title="Create User"
-          onClose={() => {
-            setShowCreateModal(false)
-            createMutation.reset()
-          }}
-          onSubmit={(data) => createMutation.mutate(data)}
-          isLoading={createMutation.isPending}
-          error={createMutation.error as Error | null}
-        />
-      )}
-
       {editingUser && (
-        <UserFormModal
-          title="Edit User"
+        <UserEditModal
           user={editingUser}
           onClose={() => {
             setEditingUser(null)
@@ -198,63 +149,37 @@ export default function UserManagementPage() {
           error={updateMutation.error as Error | null}
         />
       )}
-
-      {resetPasswordUser && (
-        <ResetPasswordModal
-          username={resetPasswordUser.username}
-          onClose={() => {
-            setResetPasswordUser(null)
-            resetPasswordMutation.reset()
-          }}
-          onSubmit={(password) => resetPasswordMutation.mutate({
-            userId: resetPasswordUser.id,
-            password
-          })}
-          isLoading={resetPasswordMutation.isPending}
-          error={resetPasswordMutation.error as Error | null}
-        />
-      )}
     </div>
   )
 }
 
-interface UserFormModalProps {
-  title: string
-  user?: User
+interface UserEditModalProps {
+  user: User
   onClose: () => void
   onSubmit: (data: Record<string, unknown>) => void
   isLoading: boolean
   error: Error | null
 }
 
-function UserFormModal({ title, user, onClose, onSubmit, isLoading, error }: UserFormModalProps) {
-  const [username, setUsername] = useState(user?.username || '')
-  const [password, setPassword] = useState('')
-  const [displayName, setDisplayName] = useState(user?.display_name || '')
-  const [role, setRole] = useState(user?.role || 'viewer')
-  const [isActive, setIsActive] = useState(user?.is_active ?? true)
-  const [forcePasswordChange, setForcePasswordChange] = useState(user?.force_password_change ?? true)
+function UserEditModal({ user, onClose, onSubmit, isLoading, error }: UserEditModalProps) {
+  const [displayName, setDisplayName] = useState(user.display_name || '')
+  const [role, setRole] = useState(user.role)
+  const [isActive, setIsActive] = useState(user.is_active)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const data: Record<string, unknown> = {
+    onSubmit({
       role,
       display_name: displayName || null,
       is_active: isActive,
-      force_password_change: forcePasswordChange
-    }
-    if (!user) {
-      data.username = username
-      data.password = password
-    }
-    onSubmit(data)
+    })
   }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{title}</h2>
+          <h2>Edit User: {user.username}</h2>
           <button className="close-btn" onClick={onClose}><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -264,29 +189,6 @@ function UserFormModal({ title, user, onClose, onSubmit, isLoading, error }: Use
             </div>
           )}
 
-          {!user && (
-            <>
-              <div className="form-group">
-                <label>Username</label>
-                <input
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  required
-                  minLength={3}
-                />
-              </div>
-              <div className="form-group">
-                <label>Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                />
-              </div>
-            </>
-          )}
           <div className="form-group">
             <label>Display Name</label>
             <input
@@ -313,67 +215,10 @@ function UserFormModal({ title, user, onClose, onSubmit, isLoading, error }: Use
               Active
             </label>
           </div>
-          <div className="form-group checkbox-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={forcePasswordChange}
-                onChange={e => setForcePasswordChange(e.target.checked)}
-              />
-              Force Password Change on Next Login
-            </label>
-          </div>
           <div className="modal-actions">
             <button type="button" className="cancel-btn" onClick={onClose}>Cancel</button>
             <button type="submit" className="submit-btn" disabled={isLoading}>
               {isLoading ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-interface ResetPasswordModalProps {
-  username: string
-  onClose: () => void
-  onSubmit: (password: string) => void
-  isLoading: boolean
-  error: Error | null
-}
-
-function ResetPasswordModal({ username, onClose, onSubmit, isLoading, error }: ResetPasswordModalProps) {
-  const [password, setPassword] = useState('')
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Reset Password</h2>
-          <button className="close-btn" onClick={onClose}><X size={20} /></button>
-        </div>
-        <p className="modal-subtitle">Set a new password for <strong>{username}</strong></p>
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(password) }}>
-          {error && (
-            <div className="modal-error">
-              {(error as unknown as { response?: { data?: { detail?: string } } }).response?.data?.detail || error.message}
-            </div>
-          )}
-          <div className="form-group">
-            <label>New Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="cancel-btn" onClick={onClose}>Cancel</button>
-            <button type="submit" className="submit-btn" disabled={isLoading}>
-              {isLoading ? 'Resetting...' : 'Reset Password'}
             </button>
           </div>
         </form>

@@ -34,8 +34,8 @@ from shared.models.models import (
     CanonicalEntity, BilateralRelationshipSummary, CountryCategorySummary
 )
 from server.auth import (
-    hash_password, verify_password, create_access_token,
-    verify_token, get_token_from_header
+    verify_enterprise_token, extract_user_info, get_dev_user_info,
+    ENTERPRISE_JWT_HEADER, DEV_AUTH_BYPASS, DEV_AUTH_ROLE
 )
 
 app = FastAPI(title="Soft Power API", version="1.0.0")
@@ -184,59 +184,97 @@ class FiltersResponse(BaseModel):
 
 # ===== AUTHENTICATION MODELS =====
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: dict
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-class UserCreateRequest(BaseModel):
-    username: str
-    password: str
-    role: str = "viewer"
-    display_name: Optional[str] = None
-    force_password_change: bool = True
-
 class UserUpdateRequest(BaseModel):
     role: Optional[str] = None
     display_name: Optional[str] = None
     is_active: Optional[bool] = None
-    force_password_change: Optional[bool] = None
-
-class ResetPasswordRequest(BaseModel):
-    new_password: str
 
 class UserResponse(BaseModel):
     id: str
     username: str
+    enterprise_id: Optional[str]
     role: str
     display_name: Optional[str]
     is_active: bool
-    force_password_change: bool
     created_at: Optional[str]
     last_login: Optional[str]
 
 
 # ===== AUTHENTICATION DEPENDENCIES =====
 
-def get_current_user(authorization: str = Header(None)) -> dict:
-    """Dependency to get current user from JWT token."""
-    token = get_token_from_header(authorization)
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+def get_current_user(request: Request) -> dict:
+    """
+    Dependency to get current user from enterprise JWT gateway.
 
-    payload = verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    The enterprise platform provides a JWT in the 'x-kiosk-gateway-jwt' header
+    on every request. This dependency validates it and auto-provisions users.
 
-    return payload
+    For local development, set DEV_AUTH_BYPASS=true in .env to skip JWT
+    validation entirely.  MUST be unset/false in production.
+    """
+    if DEV_AUTH_BYPASS:
+        # Local dev mode – skip JWT validation, use synthetic dev user
+        user_info = get_dev_user_info()
+    else:
+        token = request.headers.get(ENTERPRISE_JWT_HEADER)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated - missing enterprise JWT header")
+
+        payload = verify_enterprise_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid or expired enterprise token")
+
+        # Extract user info from enterprise JWT claims
+        user_info = extract_user_info(payload)
+
+    # Auto-provision or update user in local database
+    with get_session() as session:
+        user = None
+        # Look up by enterprise_id first, then by username
+        if user_info["enterprise_id"]:
+            user = session.query(User).filter(
+                User.enterprise_id == user_info["enterprise_id"],
+                User.is_deleted == False
+            ).first()
+
+        if not user:
+            user = session.query(User).filter(
+                User.username == user_info["username"],
+                User.is_deleted == False
+            ).first()
+
+        if user:
+            # Update last login and sync enterprise_id if needed
+            user.last_login = datetime.now(timezone.utc)
+            if user_info["enterprise_id"] and not user.enterprise_id:
+                user.enterprise_id = user_info["enterprise_id"]
+            if user_info["display_name"] and not user.display_name:
+                user.display_name = user_info["display_name"]
+            if not user.is_active:
+                raise HTTPException(status_code=403, detail="Account is deactivated")
+        else:
+            # Auto-provision new user
+            # Dev bypass gets DEV_AUTH_ROLE; enterprise users get default viewer
+            default_role = UserRole(DEV_AUTH_ROLE) if DEV_AUTH_BYPASS else UserRole.VIEWER
+            user = User(
+                enterprise_id=user_info["enterprise_id"],
+                username=user_info["username"],
+                display_name=user_info["display_name"],
+                role=default_role,
+            )
+            session.add(user)
+
+        session.commit()
+        # Refresh to get the committed state
+        session.refresh(user)
+
+        return {
+            "user_id": str(user.id),
+            "username": user.username,
+            "role": user.role.value,
+            "display_name": user.display_name,
+            "enterprise_id": user.enterprise_id,
+        }
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """Dependency to require admin role."""
@@ -4378,83 +4416,20 @@ async def get_chat_filters():
 
 # ===== AUTHENTICATION ENDPOINTS =====
 
-@app.post("/api/auth/login", response_model=LoginResponse)
-def login(request: LoginRequest):
-    """Authenticate user and return JWT token."""
-    with get_session() as session:
-        user = session.query(User).filter(
-            User.username == request.username,
-            User.is_active == True,
-            User.is_deleted == False
-        ).first()
+@app.get("/api/auth/me")
+def get_me(current_user: dict = Depends(get_current_user)):
+    """
+    Return the current user's info based on the enterprise JWT.
 
-        if not user or not verify_password(request.password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-
-        # Update last login
-        user.last_login = datetime.now(timezone.utc)
-        session.commit()
-
-        # Create token
-        token = create_access_token(
-            user_id=str(user.id),
-            username=user.username,
-            role=user.role.value
-        )
-
-        return LoginResponse(
-            access_token=token,
-            user={
-                "id": str(user.id),
-                "username": user.username,
-                "role": user.role.value,
-                "display_name": user.display_name,
-                "force_password_change": user.force_password_change
-            }
-        )
-
-@app.get("/api/auth/verify")
-def verify_auth(current_user: dict = Depends(get_current_user)):
-    """Verify current token and return user info."""
-    with get_session() as session:
-        user = session.query(User).filter(
-            User.id == current_user["user_id"],
-            User.is_active == True,
-            User.is_deleted == False
-        ).first()
-
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-
-        return {
-            "id": str(user.id),
-            "username": user.username,
-            "role": user.role.value,
-            "display_name": user.display_name,
-            "force_password_change": user.force_password_change
-        }
-
-@app.post("/api/auth/change-password")
-def change_password(
-    request: ChangePasswordRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Change user's own password."""
-    with get_session() as session:
-        user = session.query(User).filter(User.id == current_user["user_id"]).first()
-
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        if not verify_password(request.current_password, user.password_hash):
-            raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-        user.password_hash = hash_password(request.new_password)
-        user.force_password_change = False
-        user.updated_at = datetime.now(timezone.utc)
-        session.commit()
-
-        return {"message": "Password changed successfully"}
+    The get_current_user dependency handles JWT validation and auto-provisioning,
+    so this endpoint simply returns the result.
+    """
+    return {
+        "id": current_user["user_id"],
+        "username": current_user["username"],
+        "role": current_user["role"],
+        "display_name": current_user["display_name"],
+    }
 
 
 # ===== ADMIN USER MANAGEMENT ENDPOINTS =====
@@ -4466,44 +4441,13 @@ def list_users(current_user: dict = Depends(require_admin)):
         users = session.query(User).filter(User.is_deleted == False).all()
         return {"users": [u.to_dict() for u in users]}
 
-@app.post("/api/admin/users")
-def create_user(
-    request: UserCreateRequest,
-    current_user: dict = Depends(require_admin)
-):
-    """Create a new user (admin only)."""
-    with get_session() as session:
-        # Check if username exists
-        existing = session.query(User).filter(User.username == request.username).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Username already exists")
-
-        # Validate role
-        try:
-            role = UserRole(request.role)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid role: {request.role}")
-
-        user = User(
-            username=request.username,
-            password_hash=hash_password(request.password),
-            role=role,
-            display_name=request.display_name,
-            force_password_change=request.force_password_change,
-            created_by=current_user["user_id"]
-        )
-        session.add(user)
-        session.commit()
-
-        return {"message": "User created", "user": user.to_dict()}
-
 @app.put("/api/admin/users/{user_id}")
 def update_user(
     user_id: str,
     request: UserUpdateRequest,
     current_user: dict = Depends(require_admin)
 ):
-    """Update a user (admin only)."""
+    """Update a user's role or status (admin only)."""
     with get_session() as session:
         user = session.query(User).filter(User.id == user_id, User.is_deleted == False).first()
         if not user:
@@ -4519,32 +4463,11 @@ def update_user(
             user.display_name = request.display_name
         if request.is_active is not None:
             user.is_active = request.is_active
-        if request.force_password_change is not None:
-            user.force_password_change = request.force_password_change
 
         user.updated_at = datetime.now(timezone.utc)
         session.commit()
 
         return {"message": "User updated", "user": user.to_dict()}
-
-@app.post("/api/admin/users/{user_id}/reset-password")
-def reset_user_password(
-    user_id: str,
-    request: ResetPasswordRequest,
-    current_user: dict = Depends(require_admin)
-):
-    """Reset a user's password (admin only)."""
-    with get_session() as session:
-        user = session.query(User).filter(User.id == user_id, User.is_deleted == False).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user.password_hash = hash_password(request.new_password)
-        user.force_password_change = True
-        user.updated_at = datetime.now(timezone.utc)
-        session.commit()
-
-        return {"message": "Password reset successfully"}
 
 @app.delete("/api/admin/users/{user_id}")
 def delete_user(

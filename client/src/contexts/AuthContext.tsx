@@ -6,80 +6,46 @@ export interface User {
   username: string
   role: 'admin' | 'analyst' | 'viewer'
   display_name: string | null
-  force_password_change: boolean
 }
 
 interface AuthContextType {
   user: User | null
-  token: string | null
   isLoading: boolean
   isAuthenticated: boolean
-  login: (username: string, password: string) => Promise<void>
-  logout: () => void
-  updateUser: (user: User) => void
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    // Check for existing token on mount
-    const storedToken = localStorage.getItem('auth_token')
-    if (storedToken) {
-      verifyToken(storedToken)
-    } else {
-      setIsLoading(false)
-    }
-  }, [])
-
-  const verifyToken = async (storedToken: string) => {
+  const fetchUser = async () => {
     try {
-      api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`
-      const { data } = await api.get('/auth/verify')
-      setToken(storedToken)
+      // The enterprise gateway injects the JWT header on every request.
+      // We just call /auth/me to get the current user identity and role.
+      const { data } = await api.get('/auth/me')
       setUser(data)
     } catch {
-      localStorage.removeItem('auth_token')
-      delete api.defaults.headers.common['Authorization']
+      // If the enterprise JWT is missing or invalid, the user isn't authenticated.
+      // This shouldn't happen in normal operation since the gateway handles auth.
+      setUser(null)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const login = async (username: string, password: string) => {
-    const { data } = await api.post('/auth/login', { username, password })
-    const { access_token, user: userData } = data
-
-    localStorage.setItem('auth_token', access_token)
-    api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
-    setToken(access_token)
-    setUser(userData)
-  }
-
-  const logout = () => {
-    localStorage.removeItem('auth_token')
-    delete api.defaults.headers.common['Authorization']
-    setToken(null)
-    setUser(null)
-  }
-
-  const updateUser = (updatedUser: User) => {
-    setUser(updatedUser)
-  }
+  useEffect(() => {
+    fetchUser()
+  }, [])
 
   return (
     <AuthContext.Provider value={{
       user,
-      token,
       isLoading,
       isAuthenticated: !!user,
-      login,
-      logout,
-      updateUser
+      refreshUser: fetchUser,
     }}>
       {children}
     </AuthContext.Provider>
