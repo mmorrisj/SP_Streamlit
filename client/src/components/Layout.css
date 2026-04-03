@@ -107,11 +107,18 @@
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.user-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  margin-bottom: 0.5rem;
+}
+
 .user-info {
   display: flex;
   flex-direction: column;
-  padding: 0.75rem 1rem;
-  margin-bottom: 0.5rem;
+  padding: 0.75rem 0;
 }
 
 .user-name {

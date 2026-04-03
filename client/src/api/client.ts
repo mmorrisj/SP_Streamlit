@@ -1264,4 +1264,275 @@ export const fetchDrilldown = async (request: DrilldownRequest): Promise<Drilldo
   return data
 }
 
+// ============================================================================
+// Entity Profile
+// ============================================================================
+
+export interface EntityRelationshipData {
+  related_entity_id: string
+  related_entity_name: string
+  related_entity_type: string | null
+  relationship_type: string
+  direction: 'outgoing' | 'incoming'
+  co_occurrence_count: number
+  first_co_occurrence: string | null
+  last_co_occurrence: string | null
+  relationship_description: string | null
+}
+
+export interface AssociatedEventData {
+  id: string
+  event_name: string
+  date: string | null
+  material_score: number | null
+  story_phase: string | null
+  initiating_country: string | null
+}
+
+export interface EntityProfile {
+  id: string
+  canonical_name: string
+  entity_type: string | null
+  primary_role: string | null
+  entity_description: string | null
+  initiating_country: string
+  country_affiliations: string[]
+  alternative_names: string[]
+  total_documents: number
+  total_mention_days: number
+  first_mention_date: string | null
+  last_mention_date: string | null
+  primary_categories: Record<string, number>
+  primary_recipients: Record<string, number>
+  key_activities: Record<string, unknown> | null
+  relationships: EntityRelationshipData[]
+  associated_events: AssociatedEventData[]
+  monthly_activity: { month: string; count: number }[]
+}
+
+export const fetchEntityProfile = async (entityId: string): Promise<EntityProfile> => {
+  const { data } = await api.get(`/entity/${entityId}`)
+  return data
+}
+
+// ============================================================================
+// Research Project & Document Collection
+// ============================================================================
+
+export interface ProjectDocument {
+  id: string
+  project_id: string
+  doc_id: string
+  title: string | null
+  source_name: string | null
+  date: string | null
+  initiating_country: string | null
+  recipient_country: string | null
+  category: string | null
+  excerpt: string | null
+  source_query: string | null
+  notes: string | null
+  added_at: string | null
+}
+
+export interface ResearchProject {
+  id: string
+  user_id: string
+  name: string
+  description: string | null
+  status: 'active' | 'archived'
+  document_count: number
+  created_at: string | null
+  updated_at: string | null
+  documents?: ProjectDocument[]
+}
+
+export interface AddProjectDocumentRequest {
+  doc_id: string
+  title?: string | null
+  source_name?: string | null
+  date?: string | null
+  initiating_country?: string | null
+  recipient_country?: string | null
+  category?: string | null
+  excerpt?: string | null
+  source_query?: string | null
+  notes?: string | null
+}
+
+export const fetchProjects = async (): Promise<ResearchProject[]> => {
+  const { data } = await api.get('/projects')
+  return data.projects || []
+}
+
+export const createProject = async (body: { name: string; description?: string }): Promise<ResearchProject> => {
+  const { data } = await api.post('/projects', body)
+  return data
+}
+
+export const fetchProject = async (projectId: string): Promise<ResearchProject> => {
+  const { data } = await api.get(`/projects/${projectId}`)
+  return data
+}
+
+export const updateProject = async (projectId: string, body: { name?: string; description?: string; status?: string }): Promise<ResearchProject> => {
+  const { data } = await api.put(`/projects/${projectId}`, body)
+  return data
+}
+
+export const deleteProject = async (projectId: string): Promise<void> => {
+  await api.delete(`/projects/${projectId}`)
+}
+
+export const addProjectDocument = async (projectId: string, body: AddProjectDocumentRequest): Promise<ProjectDocument> => {
+  const { data } = await api.post(`/projects/${projectId}/documents`, body)
+  return data
+}
+
+export const removeProjectDocument = async (projectId: string, docId: string): Promise<void> => {
+  await api.delete(`/projects/${projectId}/documents/${encodeURIComponent(docId)}`)
+}
+
+export const updateProjectDocumentNotes = async (projectId: string, docId: string, notes: string): Promise<ProjectDocument> => {
+  const { data } = await api.put(`/projects/${projectId}/documents/${encodeURIComponent(docId)}`, { notes })
+  return data
+}
+
+// ============================================================================
+// Competing Influence Overlay
+// ============================================================================
+
+export interface CompetingInfluenceSummary {
+  influencer: string
+  doc_count: number
+  event_count: number
+  top_category: string | null
+  avg_materiality: number | null
+}
+
+export interface CompetingInfluenceEvent {
+  id: string
+  event_name: string
+  date: string | null
+  material_score: number | null
+  story_phase: string | null
+}
+
+export interface CompetingInfluenceData {
+  recipient: string
+  total_documents: number
+  influencer_summary: CompetingInfluenceSummary[]
+  monthly_by_influencer: Record<string, unknown>[]
+  category_matrix: Record<string, unknown>[]
+  recent_events: Record<string, CompetingInfluenceEvent[]>
+}
+
+export const fetchCompetingInfluence = async (
+  recipient: string,
+  params?: { start_date?: string; end_date?: string }
+): Promise<CompetingInfluenceData> => {
+  const { data } = await api.get(`/competing-influence/${encodeURIComponent(recipient)}`, { params })
+  return data
+}
+
+// ============================================================================
+// Alert interfaces and API functions
+// ============================================================================
+
+export interface AlertRule {
+  id: string
+  user_id: string
+  name: string
+  description: string | null
+  condition_type: 'materiality_spike' | 'volume_surge' | 'new_entity' | 'new_event'
+  condition_params: Record<string, unknown>
+  channels: string[]
+  channel_config: Record<string, unknown>
+  severity: 'info' | 'warning' | 'critical'
+  is_enabled: boolean
+  cooldown_minutes: number
+  last_evaluated_at: string | null
+  last_triggered_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface AlertHistory {
+  id: string
+  alert_rule_id: string
+  triggered_at: string | null
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  message: string
+  context_data: Record<string, unknown>
+  channels_notified: string[]
+  acknowledged: boolean
+  acknowledged_by: string | null
+  acknowledged_at: string | null
+}
+
+export interface AlertRuleCreateRequest {
+  name: string
+  description?: string
+  condition_type: string
+  condition_params: Record<string, unknown>
+  channels?: string[]
+  channel_config?: Record<string, unknown>
+  severity?: string
+  cooldown_minutes?: number
+}
+
+export interface AlertRuleUpdateRequest {
+  name?: string
+  description?: string
+  condition_type?: string
+  condition_params?: Record<string, unknown>
+  channels?: string[]
+  channel_config?: Record<string, unknown>
+  severity?: string
+  cooldown_minutes?: number
+  is_enabled?: boolean
+}
+
+export const fetchAlertRules = async (): Promise<AlertRule[]> => {
+  const { data } = await api.get('/alerts/rules')
+  return data.rules || []
+}
+
+export const createAlertRule = async (request: AlertRuleCreateRequest): Promise<AlertRule> => {
+  const { data } = await api.post('/alerts/rules', request)
+  return data
+}
+
+export const updateAlertRule = async (ruleId: string, request: AlertRuleUpdateRequest): Promise<AlertRule> => {
+  const { data } = await api.put(`/alerts/rules/${ruleId}`, request)
+  return data
+}
+
+export const deleteAlertRule = async (ruleId: string): Promise<void> => {
+  await api.delete(`/alerts/rules/${ruleId}`)
+}
+
+export const fetchAlertHistory = async (params?: {
+  limit?: number
+  offset?: number
+}): Promise<{ alerts: AlertHistory[]; total: number }> => {
+  const { data } = await api.get('/alerts/history', { params })
+  return data
+}
+
+export const acknowledgeAlert = async (alertId: string): Promise<void> => {
+  await api.post(`/alerts/history/${alertId}/acknowledge`)
+}
+
+export const fetchUnreadAlertCount = async (): Promise<number> => {
+  const { data } = await api.get('/alerts/unread-count')
+  return data.count || 0
+}
+
+export const testAlertRule = async (ruleId: string): Promise<{ triggered: boolean; alert?: AlertHistory; message?: string }> => {
+  const { data } = await api.post(`/alerts/test/${ruleId}`)
+  return data
+}
+
 export default api

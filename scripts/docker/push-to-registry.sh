@@ -17,7 +17,8 @@
 #     Pushes:
 #       softpower-app-production  (slim — ML installed separately via setup)
 #
-# Note: pgvector is sourced from the company's existing mirror — no push needed.
+# Note: pgvector image is built separately via docker/pgvector.Dockerfile and
+#   must be pushed manually when updated (see that file for build/push commands).
 #
 # Usage:
 #   ./scripts/docker/push-to-registry.sh [mode] [username] [version]

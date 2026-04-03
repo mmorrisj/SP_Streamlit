@@ -1,9 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Send, Download, Filter, Loader2, ExternalLink, X, ChevronDown, ChevronUp, FileBarChart } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Send, Download, Filter, Loader2, ExternalLink, X, ChevronDown, ChevronUp, FileBarChart, Plus, Check, FolderOpen } from 'lucide-react'
+import { toast } from 'sonner'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import ChatReportModal from '../components/ChatReportModal'
+import ProjectDrawer from '../components/ProjectDrawer'
+import { addProjectDocument, fetchProject } from '../api/client'
+import type { AddProjectDocumentRequest } from '../api/client'
 import './Pages.css'
 import './ChatPage.css'
 
@@ -49,11 +53,65 @@ interface ChatFilters {
 }
 
 export default function ChatPage() {
+  const queryClient = useQueryClient()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [expandedSources, setExpandedSources] = useState<number | null>(null)
+
+  // Research project state
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(
+    () => localStorage.getItem('activeProjectId')
+  )
+  const [projectMode, setProjectMode] = useState(false)
+  const [collectedDocIds, setCollectedDocIds] = useState<Set<string>>(new Set())
+
+  // Track active project's doc IDs for the + button state
+  const { data: activeProjectData } = useQuery({
+    queryKey: ['project', activeProjectId],
+    queryFn: () => fetchProject(activeProjectId!),
+    enabled: !!activeProjectId,
+  })
+
+  useEffect(() => {
+    if (activeProjectData?.documents) {
+      setCollectedDocIds(new Set(activeProjectData.documents.map(d => d.doc_id)))
+    } else {
+      setCollectedDocIds(new Set())
+    }
+  }, [activeProjectData])
+
+  const handleSelectProject = (id: string | null) => {
+    setActiveProjectId(id)
+    if (id) {
+      localStorage.setItem('activeProjectId', id)
+    } else {
+      localStorage.removeItem('activeProjectId')
+      setProjectMode(false)
+    }
+  }
+
+  const handleCollectSource = async (src: ChatSource, queryText: string) => {
+    if (!activeProjectId || !src.doc_id) return
+    const body: AddProjectDocumentRequest = {
+      doc_id: src.doc_id,
+      title: src.title,
+      source_name: src.source_name,
+      date: src.date,
+      initiating_country: src.initiating_country,
+      recipient_country: src.recipient_country,
+      category: src.category,
+      excerpt: src.content?.slice(0, 500),
+      source_query: queryText,
+    }
+    await addProjectDocument(activeProjectId, body)
+    setCollectedDocIds(prev => new Set(prev).add(src.doc_id!))
+    queryClient.invalidateQueries({ queryKey: ['project', activeProjectId] })
+    queryClient.invalidateQueries({ queryKey: ['projects'] })
+    toast.success('Source added to project')
+  }
 
   // Report modal state
   const [reportModalOpen, setReportModalOpen] = useState(false)
@@ -112,9 +170,17 @@ export default function ChatPage() {
     abortControllerRef.current = new AbortController()
 
     try {
-      const response = await fetch('/api/chat/stream', {
+      const chatUrl = projectMode && activeProjectId
+        ? `/api/projects/${activeProjectId}/chat/stream`
+        : '/api/chat/stream'
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const token = localStorage.getItem('token')
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const response = await fetch(chatUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           message: userMessage,
           influencer: selectedInfluencer || undefined,
@@ -455,6 +521,16 @@ export default function ChatPage() {
           </div>
           <div className="chat-header-actions">
             <button
+              className={`filter-toggle ${drawerOpen ? 'active' : ''}`}
+              onClick={() => setDrawerOpen(!drawerOpen)}
+            >
+              <FolderOpen size={18} />
+              Projects
+              {activeProjectData?.document_count ? (
+                <span className="filter-badge">{activeProjectData.document_count}</span>
+              ) : null}
+            </button>
+            <button
               className={`filter-toggle ${showFilters ? 'active' : ''}`}
               onClick={() => setShowFilters(!showFilters)}
             >
@@ -565,6 +641,18 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+
+      {/* Project mode indicator */}
+      {projectMode && activeProjectData && (
+        <div className="project-mode-banner">
+          <FolderOpen size={14} />
+          <span>Project mode: searching only within <strong>{activeProjectData.name}</strong> ({activeProjectData.document_count} docs)</span>
+          <button onClick={() => setProjectMode(false)} className="exit-project-mode">Exit</button>
+        </div>
+      )}
+
+      {/* Chat + Drawer layout */}
+      <div className="chat-with-drawer">
 
       {/* Messages Container */}
       <div className="chat-container">
@@ -682,15 +770,34 @@ export default function ChatPage() {
                                 {src.content.length > 300 ? src.content.slice(0, 300) + '...' : src.content}
                               </p>
                             )}
-                            {src.doc_id && (
-                              <a
-                                href={`/documents?doc_id=${src.doc_id}`}
-                                className="source-link"
-                              >
-                                <ExternalLink size={14} />
-                                View Document
-                              </a>
-                            )}
+                            <div className="source-actions">
+                              {src.doc_id && (
+                                <a
+                                  href={`/documents?doc_id=${src.doc_id}`}
+                                  className="source-link"
+                                >
+                                  <ExternalLink size={14} />
+                                  View Document
+                                </a>
+                              )}
+                              {src.doc_id && activeProjectId && (
+                                <button
+                                  className={`collect-btn ${collectedDocIds.has(src.doc_id) ? 'collected' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (!collectedDocIds.has(src.doc_id!)) {
+                                      const userQuery = idx > 0 ? messages[idx - 1]?.content : ''
+                                      handleCollectSource(src, userQuery)
+                                    }
+                                  }}
+                                  title={collectedDocIds.has(src.doc_id) ? 'Already in project' : 'Add to project'}
+                                  disabled={collectedDocIds.has(src.doc_id)}
+                                >
+                                  {collectedDocIds.has(src.doc_id) ? <Check size={14} /> : <Plus size={14} />}
+                                  {collectedDocIds.has(src.doc_id) ? 'Collected' : 'Collect'}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -731,6 +838,26 @@ export default function ChatPage() {
           </button>
         </form>
       </div>
+
+      {/* Project Drawer */}
+      <ProjectDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        activeProjectId={activeProjectId}
+        onSelectProject={handleSelectProject}
+        projectMode={projectMode}
+        onToggleProjectMode={() => setProjectMode(!projectMode)}
+        onGenerateReport={() => {
+          // Open report modal with project context
+          setReportModalContext({
+            query: `Generate report from project "${activeProjectData?.name}"`,
+            filters: {},
+          })
+          setReportModalOpen(true)
+        }}
+      />
+
+      </div>{/* end chat-with-drawer */}
 
       {/* Report Modal */}
       <ChatReportModal

@@ -30,6 +30,9 @@ import CountryComparison from './pages/CountryComparison'
 import MaterialityHeatmap from './pages/MaterialityHeatmap'
 import ChatPage from './pages/ChatPage'
 import DrilldownPage from './pages/DrilldownPage'
+import AlertsPage from './pages/AlertsPage'
+import CompetingInfluencePage from './pages/CompetingInfluencePage'
+import EntityProfilePage from './pages/EntityProfilePage'
 
 const queryClient = new QueryClient()
 
@@ -71,6 +74,9 @@ function App() {
               <Route path="chat" element={<ChatPage />} />
               <Route path="report" element={<ReportPage />} />
               <Route path="drilldown" element={<DrilldownPage />} />
+              <Route path="alerts" element={<AlertsPage />} />
+              <Route path="competing/:recipient" element={<CompetingInfluencePage />} />
+              <Route path="entity/:entityId" element={<EntityProfilePage />} />
 
               {/* Admin-only routes */}
               <Route path="admin/users" element={

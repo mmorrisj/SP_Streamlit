@@ -4,6 +4,9 @@ from alembic import context
 
 # Import your database connection and models - now from project root
 from shared.models.models import Base
+# Import additional model modules so Alembic discovers all tables
+import shared.models.alert_models  # noqa: F401
+import shared.models.research_project_models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

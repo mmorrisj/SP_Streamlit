@@ -844,6 +844,231 @@ def _get_proxy_stream_url():
     return f"{api_url.rstrip('/')}/proxy_query_stream"
 
 
+# =============================================================================
+# Layered Context: Strategic summaries + Event discovery
+# =============================================================================
+
+def gather_strategic_context(
+    influencer: Optional[str] = None,
+    recipient: Optional[str] = None,
+    category: Optional[str] = None,
+) -> str:
+    """
+    Deterministic SQL lookups for pre-analyzed strategic summaries.
+
+    Queries BilateralRelationshipSummary, CountryCategorySummary, and
+    PeriodSummary based on known keys. No vector search needed — these
+    are established analytical products.
+
+    Returns:
+        Formatted string of strategic context for prompt injection.
+    """
+    engine = get_engine()
+    parts = []
+
+    with engine.connect() as conn:
+        # 1. Bilateral relationship summary (if both countries specified)
+        if influencer and recipient:
+            row = conn.execute(text("""
+                SELECT relationship_summary, material_score_avg,
+                       total_documents, count_by_category
+                FROM bilateral_relationship_summaries
+                WHERE initiating_country = :inf
+                  AND recipient_country = :rec
+                  AND is_deleted = false
+                LIMIT 1
+            """), {"inf": influencer, "rec": recipient}).mappings().first()
+
+            if row and row.get("relationship_summary"):
+                summary = row["relationship_summary"]
+                section = f"BILATERAL RELATIONSHIP: {influencer} → {recipient}\n"
+                if isinstance(summary, dict):
+                    if summary.get("overview"):
+                        section += f"Overview: {summary['overview']}\n"
+                    if summary.get("key_themes"):
+                        themes = summary["key_themes"]
+                        if isinstance(themes, list):
+                            section += "Key Themes: " + "; ".join(str(t) for t in themes[:5]) + "\n"
+                    if summary.get("trend_analysis"):
+                        section += f"Trend: {summary['trend_analysis'][:500]}\n"
+                    if summary.get("current_status"):
+                        section += f"Current Status: {summary['current_status'][:300]}\n"
+                if row.get("material_score_avg"):
+                    section += f"Materiality Score: {row['material_score_avg']:.2f}\n"
+                if row.get("total_documents"):
+                    section += f"Total Documents: {row['total_documents']}\n"
+                parts.append(section)
+
+        # 2. Country-category summary (if country + category specified)
+        if influencer and category:
+            row = conn.execute(text("""
+                SELECT category_summary, total_documents, count_by_recipient
+                FROM country_category_summaries
+                WHERE initiating_country = :inf
+                  AND category = :cat
+                  AND is_deleted = false
+                LIMIT 1
+            """), {"inf": influencer, "cat": category}).mappings().first()
+
+            if row and row.get("category_summary"):
+                summary = row["category_summary"]
+                section = f"CATEGORY STRATEGY: {influencer} — {category}\n"
+                if isinstance(summary, dict):
+                    if summary.get("overview"):
+                        section += f"Overview: {summary['overview'][:500]}\n"
+                    if summary.get("key_strategies"):
+                        strats = summary["key_strategies"]
+                        if isinstance(strats, list):
+                            section += "Strategies: " + "; ".join(str(s) for s in strats[:5]) + "\n"
+                    if summary.get("effectiveness_assessment"):
+                        section += f"Effectiveness: {summary['effectiveness_assessment'][:300]}\n"
+                parts.append(section)
+
+        # 3. If only recipient specified (no specific influencer), get all bilateral summaries for that recipient
+        if recipient and not influencer:
+            rows = conn.execute(text("""
+                SELECT initiating_country, relationship_summary, material_score_avg, total_documents
+                FROM bilateral_relationship_summaries
+                WHERE recipient_country = :rec
+                  AND is_deleted = false
+                ORDER BY total_documents DESC
+                LIMIT 5
+            """), {"rec": recipient}).mappings().all()
+
+            if rows:
+                section = f"BILATERAL RELATIONSHIPS WITH {recipient}:\n"
+                for r in rows:
+                    summary = r.get("relationship_summary", {})
+                    overview = ""
+                    if isinstance(summary, dict):
+                        overview = summary.get("current_status") or summary.get("overview", "")
+                        if isinstance(overview, str):
+                            overview = overview[:200]
+                    section += f"- {r['initiating_country']}: {r.get('total_documents', 0)} docs"
+                    if r.get("material_score_avg"):
+                        section += f", materiality {r['material_score_avg']:.2f}"
+                    if overview:
+                        section += f" — {overview}"
+                    section += "\n"
+                parts.append(section)
+
+    if not parts:
+        return ""
+
+    return "STRATEGIC CONTEXT (Pre-Analyzed):\n\n" + "\n---\n".join(parts)
+
+
+def search_event_summaries(
+    query: str,
+    k: int = 10,
+    influencer: Optional[str] = None,
+    recipient: Optional[str] = None,
+    collections: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Semantic search across event summary embedding collections.
+
+    Searches daily/weekly/monthly event summary embeddings and returns
+    the top matches with event metadata. Results are merged across
+    collections using reciprocal rank fusion.
+
+    Args:
+        query: Search query
+        k: Number of results to return
+        influencer: Filter by initiating country
+        recipient: Filter by recipient (checked against event_name text)
+        collections: Which collections to search (default: daily + weekly)
+
+    Returns:
+        List of event summary results with metadata
+    """
+    if collections is None:
+        collections = ["daily_event_embeddings", "weekly_event_embeddings"]
+
+    embeddings = get_embedding_function()
+    query_embedding = embeddings.embed_query(query)
+    embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+
+    engine = get_engine()
+    all_results = []
+
+    with engine.connect() as conn:
+        for collection_name in collections:
+            filter_sql = ""
+            params = {"limit": k, "collection_name": collection_name}
+
+            if influencer:
+                filter_sql += " AND e.cmetadata->>'initiating_country' = :influencer"
+                params["influencer"] = influencer
+
+            sql = f"""
+                SELECT
+                    e.document as content,
+                    e.cmetadata,
+                    1 - (e.embedding <=> '{embedding_str}'::vector) AS similarity
+                FROM langchain_pg_embedding e
+                JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                WHERE c.name = :collection_name
+                {filter_sql}
+                ORDER BY e.embedding <=> '{embedding_str}'::vector ASC
+                LIMIT :limit
+            """
+
+            try:
+                rows = conn.execute(text(sql), params).mappings().all()
+
+                for row in rows:
+                    meta = row.get("cmetadata", {}) or {}
+                    if isinstance(meta, str):
+                        meta = json.loads(meta)
+
+                    # Filter by recipient if specified (check event_name text)
+                    if recipient and recipient.lower() not in (meta.get("event_name", "").lower()):
+                        continue
+
+                    all_results.append({
+                        "content": row.get("content", ""),
+                        "event_name": meta.get("event_name", ""),
+                        "initiating_country": meta.get("initiating_country", ""),
+                        "period_type": meta.get("period_type", ""),
+                        "period_start": meta.get("period_start", ""),
+                        "period_end": meta.get("period_end", ""),
+                        "summary_id": meta.get("summary_id", ""),
+                        "similarity": float(row.get("similarity", 0)),
+                        "source_type": "event_summary",
+                        "collection": collection_name,
+                    })
+            except Exception as e:
+                logger.warning("Event summary search failed for %s: %s", collection_name, e)
+
+    # Sort by similarity and take top k
+    all_results.sort(key=lambda x: x["similarity"], reverse=True)
+    return all_results[:k]
+
+
+def format_event_context(event_results: List[Dict[str, Any]]) -> str:
+    """Format event summary search results into a prompt context section."""
+    if not event_results:
+        return ""
+
+    parts = []
+    for i, event in enumerate(event_results, 1):
+        entry = f"[E{i}] {event['event_name']}"
+        if event.get("initiating_country"):
+            entry += f" ({event['initiating_country']})"
+        if event.get("period_start"):
+            entry += f" — {event['period_start']}"
+            if event.get("period_end") and event["period_end"] != event["period_start"]:
+                entry += f" to {event['period_end']}"
+        entry += f" [{event.get('period_type', 'daily')}]"
+        entry += f"\n{event['content'][:600]}"
+        if len(event.get("content", "")) > 600:
+            entry += "..."
+        parts.append(entry)
+
+    return "RELEVANT EVENT SUMMARIES (Consolidated Analysis):\n\n" + "\n\n---\n\n".join(parts)
+
+
 def semantic_search(
     query: str,
     k: int = 10,
@@ -852,7 +1077,8 @@ def semantic_search(
     category: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    use_hyde: bool = True
+    use_hyde: bool = True,
+    doc_id_filter: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Perform semantic search on document embeddings with optional filters.
@@ -907,6 +1133,12 @@ def semantic_search(
     if end_date:
         filter_sql += " AND d.date <= :end_date"
         params["end_date"] = end_date
+    if doc_id_filter:
+        # Scope search to specific document IDs (for research project mode)
+        placeholders = ", ".join(f":did_{i}" for i in range(len(doc_id_filter)))
+        filter_sql += f" AND d.doc_id IN ({placeholders})"
+        for i, did in enumerate(doc_id_filter):
+            params[f"did_{i}"] = did
 
     engine = get_engine()
     results = []
@@ -1082,7 +1314,10 @@ def intelligent_search(
     end_date: Optional[str] = None,
     apply_intelligence: bool = True,
     enable_entity_boost: bool = True,
-    entity_boost_factor: float = ENTITY_BOOST_FACTOR
+    entity_boost_factor: float = ENTITY_BOOST_FACTOR,
+    doc_id_filter: Optional[List[str]] = None,
+    include_strategic_context: bool = True,
+    include_event_context: bool = True,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Perform intelligent semantic search with automatic filter inference and entity boost.
@@ -1119,9 +1354,14 @@ def intelligent_search(
         "matched_entities": []
     }
 
+    if doc_id_filter:
+        metadata["applied_filters"]["project_scoped"] = True
+        metadata["applied_filters"]["project_doc_count"] = len(doc_id_filter)
+        metadata["confidence_notes"].append(
+            f"Project-scoped search: restricted to {len(doc_id_filter)} collected documents"
+        )
+
     if apply_intelligence:
-        # Analyze query and merge with explicit filters
-        inferred_inf, inferred_rec, inferred_cat, inferred_start, inferred_end, notes = apply_query_intelligence(
             query,
             explicit_influencer=influencer,
             explicit_recipient=recipient,
@@ -1198,7 +1438,8 @@ def intelligent_search(
         category=category,
         start_date=start_date,
         end_date=end_date,
-        use_hyde=True
+        use_hyde=True,
+        doc_id_filter=doc_id_filter,
     )
 
     # Apply entity boost before reranking (so entity docs survive the cut)
@@ -1226,16 +1467,59 @@ def intelligent_search(
     # Store matched entities in metadata for context injection
     metadata["_matched_entities_full"] = matched_entities
 
+    # Layered context: gather strategic summaries and event summaries
+    # These are injected into the prompt by build_context_prompt()
+    if include_strategic_context:
+        try:
+            sc = gather_strategic_context(
+                influencer=influencer,
+                recipient=recipient,
+                category=category,
+            )
+            if sc:
+                metadata["_strategic_context"] = sc
+                metadata["confidence_notes"].append(
+                    "Strategic context injected: pre-analyzed bilateral/category summaries"
+                )
+        except Exception as e:
+            logger.warning("Strategic context gathering failed: %s", e)
+
+    if include_event_context and not doc_id_filter:
+        # Skip event search when project-scoped (doc_id_filter set)
+        try:
+            event_results = search_event_summaries(
+                query=query,
+                k=8,
+                influencer=influencer,
+                recipient=recipient,
+            )
+            if event_results:
+                ec = format_event_context(event_results)
+                metadata["_event_context"] = ec
+                metadata["confidence_notes"].append(
+                    f"Event context injected: {len(event_results)} relevant event summaries"
+                )
+        except Exception as e:
+            logger.warning("Event summary search failed: %s", e)
+
     return results, metadata
 
 
 def build_context_prompt(
     query: str,
     documents: List[Dict[str, Any]],
-    matched_entities: Optional[List[MatchedEntity]] = None
+    matched_entities: Optional[List[MatchedEntity]] = None,
+    strategic_context: Optional[str] = None,
+    event_context: Optional[str] = None,
 ) -> str:
     """
     Build the context section of the prompt from retrieved documents and entities.
+
+    Uses layered context injection:
+    1. Strategic context (pre-analyzed bilateral/category summaries) — deterministic
+    2. Event summaries (discovered via embedding search) — consolidated analysis
+    3. Entity context (matched entities from query) — actor profiles
+    4. Source documents (chunk_embeddings) — primary evidence for citations
 
     Uses token-aware packing: top-ranked docs get full text, remaining docs
     get truncated summaries, all packed to fill the model's context window
@@ -1245,6 +1529,8 @@ def build_context_prompt(
         query: The user's query
         documents: Retrieved documents for context
         matched_entities: Optional list of matched entities for context injection
+        strategic_context: Pre-formatted strategic summary text
+        event_context: Pre-formatted event summary text
 
     Returns:
         Formatted context string for the LLM prompt
@@ -1252,7 +1538,17 @@ def build_context_prompt(
     context_parts = []
     token_budget = MAX_CONTEXT_TOKENS
 
-    # Inject entity context if available
+    # Layer 1: Strategic context (bilateral/category summaries)
+    if strategic_context:
+        context_parts.append(strategic_context)
+        token_budget -= count_tokens(strategic_context)
+
+    # Layer 2: Event summaries (discovered via embedding search)
+    if event_context:
+        context_parts.append(event_context)
+        token_budget -= count_tokens(event_context)
+
+    # Layer 3: Entity context (matched entity profiles)
     if matched_entities:
         entity_context = build_entity_context(matched_entities)
         if entity_context:
@@ -1363,11 +1659,182 @@ You have access to a curated database of diplomatic documents, news articles, an
 - Do not speculate or fill gaps with generic statements"""
 
 
+def generate_comparative_assessment_stream(
+    recipient: str,
+    documents: List[Dict[str, Any]],
+    metrics_context: str,
+    model: str = "gpt-4o-mini",
+    matched_entities: Optional[List[MatchedEntity]] = None,
+    strategic_context: Optional[str] = None,
+    event_context: Optional[str] = None,
+) -> Generator[str, None, None]:
+    """
+    Generate a streaming comparative assessment of all influencers' activity
+    in a single recipient country. Uses RAG sources + pre-computed metrics.
+
+    Args:
+        recipient: The recipient country being analyzed
+        documents: Retrieved documents for context (from RAG search)
+        metrics_context: Pre-formatted string of aggregated metrics from the page
+        model: LLM model to use
+        matched_entities: Optional matched entities for context injection
+        strategic_context: Pre-analyzed bilateral/category summary text
+        event_context: Discovered event summary text
+
+    Yields:
+        Response text chunks
+    """
+    context = build_context_prompt(
+        f"Compare influencer activities in {recipient}",
+        documents,
+        matched_entities,
+        strategic_context=strategic_context,
+        event_context=event_context,
+    )
+
+    user_message = f"""AGGREGATED METRICS FOR {recipient}:
+
+{metrics_context}
+
+---
+
+CONTEXT DOCUMENTS:
+{context}
+
+---
+
+RESEARCH QUESTION: Provide a comparative assessment of how China, Russia, Iran, Turkey, and the United States compete for influence in {recipient}.
+
+INSTRUCTIONS:
+Provide a structured comparative assessment following AP style guidelines. This assessment accompanies charts and tables the analyst has already reviewed, so your role is to interpret the data and add depth from the source documents. Your analysis must:
+- Lead with the most significant competitive dynamic — which influencer dominates overall and why
+- Compare influencers directly: who leads in which category and by what margin, referencing the metrics provided
+- Identify where influencers compete head-to-head vs. occupy distinct niches
+- Note any recent shifts in the competitive balance, citing specific events or developments from the source documents
+- Reference the quantitative data provided (document counts, event counts, materiality scores) to ground your comparisons
+- Cite source documents inline using [1], [2], etc. for specific claims beyond the aggregate metrics
+- Conclude with a brief forward-looking assessment of competitive trends
+- Avoid generic characterizations — every comparison must be grounded in the data or sources provided"""
+
+    try:
+        stream_url = _get_proxy_stream_url()
+        payload = {
+            "sys_prompt": SYSTEM_PROMPT,
+            "prompt": user_message,
+            "model": model,
+            "temperature": 0.4,
+            "max_tokens": 4000,
+        }
+
+        with http_requests.post(stream_url, json=payload, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data: "):
+                    continue
+                data = json.loads(line[6:])
+                if data.get("error"):
+                    yield f"\n\n[Error generating assessment: {data['error']}]"
+                    return
+                if data.get("done"):
+                    return
+                if "content" in data:
+                    yield data["content"]
+
+    except Exception as e:
+        yield f"\n\n[Error generating assessment: {str(e)}]"
+
+
+def generate_entity_assessment_stream(
+    entity_name: str,
+    documents: List[Dict[str, Any]],
+    metrics_context: str,
+    model: str = "gpt-4o-mini",
+    matched_entities: Optional[List[MatchedEntity]] = None,
+    strategic_context: Optional[str] = None,
+    event_context: Optional[str] = None,
+) -> Generator[str, None, None]:
+    """
+    Generate a streaming assessment of an entity's influence and activities.
+
+    Args:
+        entity_name: The entity being assessed
+        documents: Retrieved documents scoped to this entity
+        metrics_context: Pre-formatted string of entity metrics
+        model: LLM model to use
+        matched_entities: Optional matched entities for context injection
+        strategic_context: Pre-analyzed bilateral/category summary text
+        event_context: Discovered event summary text
+
+    Yields:
+        Response text chunks
+    """
+    context = build_context_prompt(
+        f"Assess {entity_name} influence and activities",
+        documents,
+        matched_entities,
+        strategic_context=strategic_context,
+        event_context=event_context,
+    )
+
+    user_message = f"""ENTITY PROFILE:
+
+{metrics_context}
+
+---
+
+CONTEXT DOCUMENTS:
+{context}
+
+---
+
+RESEARCH QUESTION: Provide a comprehensive assessment of {entity_name}'s role, influence, and activities in soft power dynamics.
+
+INSTRUCTIONS:
+Provide a structured assessment following AP style guidelines. This accompanies metrics and charts the analyst has already reviewed. Your analysis must:
+- Summarize the entity's primary role and significance, grounding claims in the source documents
+- Identify their dominant areas of activity, referencing the category breakdown provided
+- Describe their geographic engagement pattern across recipient countries with specific examples
+- Highlight key relationships and partnerships with other entities, citing source evidence
+- Note temporal patterns — periods of high or low activity and any recent developments
+- Reference the quantitative data provided (document counts, active days, category distribution)
+- Cite source documents inline using [1], [2], etc. for specific claims
+- Avoid generic characterizations — every claim must be grounded in data or sources"""
+
+    try:
+        stream_url = _get_proxy_stream_url()
+        payload = {
+            "sys_prompt": SYSTEM_PROMPT,
+            "prompt": user_message,
+            "model": model,
+            "temperature": 0.4,
+            "max_tokens": 4000,
+        }
+
+        with http_requests.post(stream_url, json=payload, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data: "):
+                    continue
+                data = json.loads(line[6:])
+                if data.get("error"):
+                    yield f"\n\n[Error generating assessment: {data['error']}]"
+                    return
+                if data.get("done"):
+                    return
+                if "content" in data:
+                    yield data["content"]
+
+    except Exception as e:
+        yield f"\n\n[Error generating assessment: {str(e)}]"
+
+
 def generate_response_stream(
     query: str,
     documents: List[Dict[str, Any]],
     model: str = "gpt-4o-mini",
-    matched_entities: Optional[List[MatchedEntity]] = None
+    matched_entities: Optional[List[MatchedEntity]] = None,
+    strategic_context: Optional[str] = None,
+    event_context: Optional[str] = None,
 ) -> Generator[str, None, None]:
     """
     Generate a streaming response using the LLM via the proxy endpoint.
@@ -1380,12 +1847,18 @@ def generate_response_stream(
         documents: Retrieved documents for context
         model: LLM model to use
         matched_entities: Optional list of matched entities for context injection
+        strategic_context: Pre-analyzed bilateral/category summary text
+        event_context: Discovered event summary text
 
     Yields:
         Response text chunks
     """
-    # Build the context from documents and entities
-    context = build_context_prompt(query, documents, matched_entities)
+    # Build the layered context from all sources
+    context = build_context_prompt(
+        query, documents, matched_entities,
+        strategic_context=strategic_context,
+        event_context=event_context,
+    )
 
     user_message = f"""CONTEXT DOCUMENTS:
 {context}
@@ -1434,7 +1907,9 @@ def generate_response(
     query: str,
     documents: List[Dict[str, Any]],
     model: str = "gpt-4o-mini",
-    matched_entities: Optional[List[MatchedEntity]] = None
+    matched_entities: Optional[List[MatchedEntity]] = None,
+    strategic_context: Optional[str] = None,
+    event_context: Optional[str] = None,
 ) -> str:
     """
     Generate a non-streaming response using the LLM.
@@ -1444,12 +1919,18 @@ def generate_response(
         documents: Retrieved documents for context
         model: LLM model to use
         matched_entities: Optional list of matched entities for context injection
+        strategic_context: Pre-analyzed bilateral/category summary text
+        event_context: Discovered event summary text
 
     Returns:
         Complete response text
     """
     response_parts = []
-    for chunk in generate_response_stream(query, documents, model, matched_entities):
+    for chunk in generate_response_stream(
+        query, documents, model, matched_entities,
+        strategic_context=strategic_context,
+        event_context=event_context,
+    ):
         response_parts.append(chunk)
     return "".join(response_parts)
 

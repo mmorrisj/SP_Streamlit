@@ -85,8 +85,31 @@ export default function RecipientMetricsPage() {
           <ArrowLeft size={16} />
           Back to Overall Metrics
         </button>
-        <h1>{metrics.recipient} - Recipient Metrics</h1>
-        <p>Engagement from all influencers targeting {metrics.recipient}</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1>{metrics.recipient} - Recipient Metrics</h1>
+            <p>Engagement from all influencers targeting {metrics.recipient}</p>
+          </div>
+          <button
+            onClick={() => navigate(`/competing/${encodeURIComponent(metrics.recipient)}`)}
+            style={{
+              padding: '0.6rem 1.25rem',
+              background: '#1a365d',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '0.9rem',
+              fontWeight: 500,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <Globe size={16} />
+            View Competing Influence
+          </button>
+        </div>
       </header>
 
       {/* Key Stats */}

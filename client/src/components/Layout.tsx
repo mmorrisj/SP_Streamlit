@@ -1,5 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell } from 'lucide-react'
+import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
 import './Layout.css'
@@ -17,6 +18,8 @@ const navItems = [
 const intelligenceItems = [
   { path: '/events/comparison', label: 'Country Comparison', icon: Globe },
   { path: '/events/materiality', label: 'Materiality Map', icon: Flame },
+  { path: '/competing/Egypt', label: 'Competing Influence', icon: TrendingUp },
+  { path: '/alerts', label: 'Alerts', icon: Bell },
 ]
 
 const influencers = [
@@ -128,9 +131,12 @@ export default function Layout() {
 
         {/* User section at bottom */}
         <div className="user-section">
-          <div className="user-info">
-            <span className="user-name">{user?.display_name || user?.username}</span>
-            <span className="user-role">{user?.role}</span>
+          <div className="user-info-row">
+            <div className="user-info">
+              <span className="user-name">{user?.display_name || user?.username}</span>
+              <span className="user-role">{user?.role}</span>
+            </div>
+            <AlertBell />
           </div>
         </div>
       </aside>

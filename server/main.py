@@ -31,7 +31,14 @@ from shared.models.models import (
     Document, EventSummary, CanonicalEvent, DailyEventMention,
     Category, Subcategory, InitiatingCountry, RecipientCountry,
     User, UserRole, PeriodType, EventSourceLink,
-    CanonicalEntity, BilateralRelationshipSummary, CountryCategorySummary
+    CanonicalEntity, BilateralRelationshipSummary, CountryCategorySummary,
+    EntityRelationship, DailyEntityMention,
+)
+from shared.models.alert_models import (
+    AlertRule, AlertHistory, AlertConditionType, AlertSeverity,
+)
+from shared.models.research_project_models import (
+    ResearchProject, ProjectDocument, ProjectStatus,
 )
 from server.auth import (
     verify_enterprise_token, extract_user_info, get_dev_user_info,
@@ -292,6 +299,15 @@ def require_analyst_or_above(current_user: dict = Depends(get_current_user)) -> 
 @app.on_event("startup")
 def startup_event():
     init_cache()  # Graceful: logs warning and continues if Redis unavailable
+    # Start background alert evaluation scheduler
+    from server.alert_evaluator import start_alert_scheduler
+    start_alert_scheduler()
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    from server.alert_evaluator import stop_alert_scheduler
+    stop_alert_scheduler()
 
 
 @app.get("/api/health")
@@ -4292,11 +4308,18 @@ async def chat_query(request: ChatRequest):
         enable_entity_boost=True
     )
 
-    # Get matched entities for context injection
+    # Get layered context from search metadata
     matched_entities = search_metadata.get("_matched_entities_full", [])
+    strategic_context = search_metadata.get("_strategic_context")
+    event_context = search_metadata.get("_event_context")
 
-    # Generate response with entity context injection
-    response_text = generate_response(request.message, sources, matched_entities=matched_entities)
+    # Generate response with layered context injection
+    response_text = generate_response(
+        request.message, sources,
+        matched_entities=matched_entities,
+        strategic_context=strategic_context,
+        event_context=event_context,
+    )
 
     return {
         "response": response_text,
@@ -4340,8 +4363,10 @@ async def chat_query_stream(request: ChatRequest):
         enable_entity_boost=True
     )
 
-    # Get matched entities for context injection
+    # Get layered context from search metadata
     matched_entities = search_metadata.get("_matched_entities_full", [])
+    strategic_context = search_metadata.get("_strategic_context")
+    event_context = search_metadata.get("_event_context")
 
     async def event_generator():
         # First, send search metadata (applied filters, inferences, matched entities)
@@ -4357,8 +4382,13 @@ async def chat_query_stream(request: ChatRequest):
         # Then send the sources
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-        # Then stream the response with entity context injection
-        for chunk in generate_response_stream(request.message, sources, matched_entities=matched_entities):
+        # Then stream the response with layered context injection
+        for chunk in generate_response_stream(
+            request.message, sources,
+            matched_entities=matched_entities,
+            strategic_context=strategic_context,
+            event_context=event_context,
+        ):
             yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
 
         # Signal completion
@@ -4794,6 +4824,1038 @@ Provide a concise analytical summary (3-5 paragraphs) that:
             "sample_documents": sample_documents,
             "total_documents": total_documents,
         }
+
+
+# ============================================================================
+# Entity Profile endpoints
+# ============================================================================
+
+@app.get("/api/entity/{entity_id}")
+@cache(ttl=600, prefix="entity_profile")
+def get_entity_profile(entity_id: str, current_user: dict = Depends(get_current_user)):
+    """Full entity profile with relationships, events, and activity timeline."""
+    with get_session() as session:
+        entity = session.query(CanonicalEntity).filter(
+            CanonicalEntity.id == entity_id
+        ).first()
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        # Base profile
+        profile = {
+            "id": str(entity.id),
+            "canonical_name": entity.canonical_name,
+            "entity_type": entity.entity_type.value if entity.entity_type else None,
+            "primary_role": entity.primary_role.value if entity.primary_role else None,
+            "entity_description": entity.entity_description,
+            "initiating_country": entity.initiating_country,
+            "country_affiliations": entity.country_affiliations or [],
+            "alternative_names": entity.alternative_names or [],
+            "total_documents": entity.total_documents,
+            "total_mention_days": entity.total_mention_days,
+            "first_mention_date": str(entity.first_mention_date) if entity.first_mention_date else None,
+            "last_mention_date": str(entity.last_mention_date) if entity.last_mention_date else None,
+            "primary_categories": entity.primary_categories or {},
+            "primary_recipients": entity.primary_recipients or {},
+            "key_activities": entity.key_activities,
+        }
+
+        # Relationships (both directions)
+        relationships = []
+
+        outgoing = (
+            session.query(EntityRelationship, CanonicalEntity)
+            .join(CanonicalEntity, CanonicalEntity.id == EntityRelationship.entity_to_id)
+            .filter(EntityRelationship.entity_from_id == entity_id)
+            .order_by(EntityRelationship.co_occurrence_count.desc())
+            .limit(20)
+            .all()
+        )
+        for rel, related in outgoing:
+            relationships.append({
+                "related_entity_id": str(related.id),
+                "related_entity_name": related.canonical_name,
+                "related_entity_type": related.entity_type.value if related.entity_type else None,
+                "relationship_type": rel.relationship_type,
+                "direction": "outgoing",
+                "co_occurrence_count": rel.co_occurrence_count,
+                "first_co_occurrence": str(rel.first_co_occurrence) if rel.first_co_occurrence else None,
+                "last_co_occurrence": str(rel.last_co_occurrence) if rel.last_co_occurrence else None,
+                "relationship_description": rel.relationship_description,
+            })
+
+        incoming = (
+            session.query(EntityRelationship, CanonicalEntity)
+            .join(CanonicalEntity, CanonicalEntity.id == EntityRelationship.entity_from_id)
+            .filter(EntityRelationship.entity_to_id == entity_id)
+            .order_by(EntityRelationship.co_occurrence_count.desc())
+            .limit(20)
+            .all()
+        )
+        for rel, related in incoming:
+            relationships.append({
+                "related_entity_id": str(related.id),
+                "related_entity_name": related.canonical_name,
+                "related_entity_type": related.entity_type.value if related.entity_type else None,
+                "relationship_type": rel.relationship_type,
+                "direction": "incoming",
+                "co_occurrence_count": rel.co_occurrence_count,
+                "first_co_occurrence": str(rel.first_co_occurrence) if rel.first_co_occurrence else None,
+                "last_co_occurrence": str(rel.last_co_occurrence) if rel.last_co_occurrence else None,
+                "relationship_description": rel.relationship_description,
+            })
+
+        profile["relationships"] = relationships
+
+        # Associated events
+        event_ids = entity.associated_events or []
+        associated_events = []
+        if event_ids:
+            events = (
+                session.query(CanonicalEvent)
+                .filter(CanonicalEvent.id.in_(event_ids[:20]))
+                .order_by(CanonicalEvent.last_mention_date.desc())
+                .all()
+            )
+            for ev in events:
+                associated_events.append({
+                    "id": str(ev.id),
+                    "event_name": ev.canonical_name,
+                    "date": str(ev.last_mention_date) if ev.last_mention_date else None,
+                    "material_score": float(ev.material_score) if ev.material_score else None,
+                    "story_phase": ev.story_phase,
+                    "initiating_country": ev.initiating_country,
+                })
+        profile["associated_events"] = associated_events
+
+        # Monthly activity timeline (from DailyEntityMention)
+        monthly_raw = (
+            session.query(
+                func.date_trunc('month', DailyEntityMention.mention_date).label('month'),
+                func.sum(DailyEntityMention.document_count).label('count'),
+            )
+            .filter(DailyEntityMention.canonical_entity_id == entity_id)
+            .group_by(func.date_trunc('month', DailyEntityMention.mention_date))
+            .order_by(func.date_trunc('month', DailyEntityMention.mention_date))
+            .all()
+        )
+        profile["monthly_activity"] = [
+            {"month": str(m.date()) if m else None, "count": int(c)}
+            for m, c in monthly_raw
+        ]
+
+        return profile
+
+
+@app.post("/api/entity/{entity_id}/assessment")
+async def generate_entity_assessment(
+    entity_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Stream a RAG-powered assessment of an entity's influence and activities."""
+    from services.chat.rag_service import (
+        intelligent_search, get_entity_doc_ids,
+        generate_entity_assessment_stream,
+    )
+    import json as _json
+
+    with get_session() as session:
+        entity = session.query(CanonicalEntity).filter(
+            CanonicalEntity.id == entity_id
+        ).first()
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        entity_name = entity.canonical_name
+        entity_data = {
+            "canonical_name": entity.canonical_name,
+            "entity_type": entity.entity_type.value if entity.entity_type else "unknown",
+            "primary_role": entity.primary_role.value if entity.primary_role else "unknown",
+            "initiating_country": entity.initiating_country,
+            "first_mention_date": str(entity.first_mention_date) if entity.first_mention_date else "N/A",
+            "last_mention_date": str(entity.last_mention_date) if entity.last_mention_date else "N/A",
+            "total_mention_days": entity.total_mention_days,
+            "total_documents": entity.total_documents,
+            "primary_categories": entity.primary_categories or {},
+            "primary_recipients": entity.primary_recipients or {},
+        }
+
+        # Get entity's doc_ids for scoped search
+        doc_ids = get_entity_doc_ids([str(entity.id)], limit=200)
+
+        # Get relationships for context
+        rels = (
+            session.query(EntityRelationship, CanonicalEntity)
+            .join(CanonicalEntity, CanonicalEntity.id == EntityRelationship.entity_to_id)
+            .filter(EntityRelationship.entity_from_id == entity_id)
+            .order_by(EntityRelationship.co_occurrence_count.desc())
+            .limit(10)
+            .all()
+        )
+        rel_summaries = [
+            f"{r.canonical_name} ({r.entity_type.value}) — {rel.relationship_type} ({rel.co_occurrence_count} co-occurrences)"
+            for rel, r in rels
+        ]
+
+    # Build metrics context
+    cat_lines = "\n".join(
+        f"  {cat}: {count} mentions"
+        for cat, count in sorted(entity_data["primary_categories"].items(), key=lambda x: -x[1])
+    )
+    rec_lines = "\n".join(
+        f"  {rec}: {count} mentions"
+        for rec, count in sorted(entity_data["primary_recipients"].items(), key=lambda x: -x[1])[:10]
+    )
+    rel_lines = "\n".join(f"  - {r}" for r in rel_summaries) if rel_summaries else "  None tracked"
+
+    metrics_context = f"""Name: {entity_data['canonical_name']}
+Type: {entity_data['entity_type']} | Role: {entity_data['primary_role']}
+Country: {entity_data['initiating_country']}
+Active: {entity_data['first_mention_date']} to {entity_data['last_mention_date']} ({entity_data['total_mention_days']} days)
+Documents: {entity_data['total_documents']}
+
+Category Activity:
+{cat_lines}
+
+Recipient Engagement:
+{rec_lines}
+
+Key Relationships:
+{rel_lines}"""
+
+    # RAG search scoped to entity's documents
+    sources, search_metadata = intelligent_search(
+        query=f"{entity_name} activities influence role soft power",
+        k=min(30, len(doc_ids)) if doc_ids else 30,
+        apply_intelligence=False,
+        enable_entity_boost=False,
+        doc_id_filter=doc_ids if doc_ids else None,
+    )
+
+    matched_entities = search_metadata.get("_matched_entities_full", [])
+    strategic_ctx = search_metadata.get("_strategic_context")
+    event_ctx = search_metadata.get("_event_context")
+
+    async def event_generator():
+        yield f"data: {_json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+
+        for chunk in generate_entity_assessment_stream(
+            entity_name=entity_name,
+            documents=sources,
+            metrics_context=metrics_context,
+            matched_entities=matched_entities,
+            strategic_context=strategic_ctx,
+            event_context=event_ctx,
+        ):
+            yield f"data: {_json.dumps({'type': 'content', 'content': chunk})}\n\n"
+
+        yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+# ============================================================================
+# Research Project endpoints
+# ============================================================================
+
+@app.get("/api/projects")
+def list_projects(current_user: dict = Depends(get_current_user)):
+    """List the current user's research projects."""
+    with get_session() as session:
+        projects = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .order_by(ResearchProject.created_at.desc())
+            .all()
+        )
+        return {"projects": [p.to_dict() for p in projects]}
+
+
+@app.post("/api/projects")
+def create_project(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a new research project."""
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.json())
+
+    name = body.get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    with get_session() as session:
+        project = ResearchProject(
+            user_id=current_user["user_id"],
+            name=name,
+            description=body.get("description"),
+        )
+        session.add(project)
+        session.flush()
+        return project.to_dict()
+
+
+@app.get("/api/projects/{project_id}")
+def get_project(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a project with its collected documents."""
+    with get_session() as session:
+        project = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.id == project_id,
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return project.to_dict(include_documents=True)
+
+
+@app.put("/api/projects/{project_id}")
+def update_project(
+    project_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update project name/description."""
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.json())
+
+    with get_session() as session:
+        project = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.id == project_id,
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if "name" in body:
+            project.name = body["name"]
+        if "description" in body:
+            project.description = body["description"]
+        if "status" in body:
+            project.status = ProjectStatus(body["status"])
+
+        session.flush()
+        return project.to_dict()
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Soft-delete a research project."""
+    with get_session() as session:
+        project = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.id == project_id,
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        project.is_deleted = True
+        project.deleted_at = datetime.now(timezone.utc)
+        return {"status": "deleted"}
+
+
+@app.post("/api/projects/{project_id}/documents")
+def add_project_document(
+    project_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Add a source document to a research project."""
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.json())
+
+    doc_id = body.get("doc_id")
+    if not doc_id:
+        raise HTTPException(status_code=400, detail="doc_id is required")
+
+    with get_session() as session:
+        project = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.id == project_id,
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Check if already collected
+        existing = (
+            session.query(ProjectDocument)
+            .filter(
+                ProjectDocument.project_id == project_id,
+                ProjectDocument.doc_id == doc_id,
+            )
+            .first()
+        )
+        if existing:
+            return existing.to_dict()
+
+        doc = ProjectDocument(
+            project_id=project_id,
+            doc_id=doc_id,
+            title=body.get("title"),
+            source_name=body.get("source_name"),
+            date=body.get("date"),
+            initiating_country=body.get("initiating_country"),
+            recipient_country=body.get("recipient_country"),
+            category=body.get("category"),
+            excerpt=body.get("excerpt"),
+            source_query=body.get("source_query"),
+            notes=body.get("notes"),
+        )
+        session.add(doc)
+        session.flush()
+        return doc.to_dict()
+
+
+@app.delete("/api/projects/{project_id}/documents/{doc_id}")
+def remove_project_document(
+    project_id: str,
+    doc_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Remove a document from a research project."""
+    with get_session() as session:
+        project = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.id == project_id,
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        doc = (
+            session.query(ProjectDocument)
+            .filter(
+                ProjectDocument.project_id == project_id,
+                ProjectDocument.doc_id == doc_id,
+            )
+            .first()
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not in project")
+
+        session.delete(doc)
+        return {"status": "removed"}
+
+
+@app.put("/api/projects/{project_id}/documents/{doc_id}")
+def update_project_document_notes(
+    project_id: str,
+    doc_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update notes on a collected document."""
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.json())
+
+    with get_session() as session:
+        project = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.id == project_id,
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        doc = (
+            session.query(ProjectDocument)
+            .filter(
+                ProjectDocument.project_id == project_id,
+                ProjectDocument.doc_id == doc_id,
+            )
+            .first()
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not in project")
+
+        if "notes" in body:
+            doc.notes = body["notes"]
+        session.flush()
+        return doc.to_dict()
+
+
+@app.post("/api/projects/{project_id}/chat/stream")
+async def project_chat_stream(project_id: str, request: ChatRequest, current_user: dict = Depends(get_current_user)):
+    """Chat with RAG scoped to a project's collected documents."""
+    from services.chat.rag_service import intelligent_search, generate_response_stream
+    import json as _json
+
+    with get_session() as session:
+        project = (
+            session.query(ResearchProject)
+            .filter(
+                ResearchProject.id == project_id,
+                ResearchProject.user_id == current_user["user_id"],
+                ResearchProject.is_deleted == False,
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        doc_ids = [d.doc_id for d in project.documents]
+
+    if not doc_ids:
+        raise HTTPException(status_code=400, detail="Project has no collected documents")
+
+    rag_config = CONFIG.get('rag', {})
+    chat_doc_limit = rag_config.get('chat_document_limit', 50)
+
+    sources, search_metadata = intelligent_search(
+        query=request.message,
+        k=min(chat_doc_limit, len(doc_ids)),
+        influencer=request.influencer,
+        recipient=request.recipient,
+        category=request.category,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        apply_intelligence=True,
+        enable_entity_boost=True,
+        doc_id_filter=doc_ids,
+    )
+
+    matched_entities = search_metadata.get("_matched_entities_full", [])
+    strategic_context = search_metadata.get("_strategic_context")
+    event_context = search_metadata.get("_event_context")
+
+    async def event_generator():
+        metadata_payload = {
+            'type': 'metadata',
+            'applied_filters': search_metadata['applied_filters'],
+            'inferred_filters': search_metadata['inferred_filters'],
+            'inference_notes': search_metadata['confidence_notes'],
+            'matched_entities': search_metadata.get('matched_entities', []),
+        }
+        yield f"data: {_json.dumps(metadata_payload)}\n\n"
+        yield f"data: {_json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+
+        for chunk in generate_response_stream(
+            request.message, sources,
+            matched_entities=matched_entities,
+            strategic_context=strategic_context,
+            event_context=event_context,
+        ):
+            yield f"data: {_json.dumps({'type': 'content', 'content': chunk})}\n\n"
+
+        yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+# ============================================================================
+# Competing Influence Overlay
+# ============================================================================
+
+@app.get("/api/competing-influence/{recipient}")
+@cache(ttl=600, prefix="competing_influence")
+def get_competing_influence(
+    recipient: str,
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """All 5 influencers' activity for a single recipient — timeline, categories, events."""
+    with get_session() as session:
+        if recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        # Base filters reused across queries
+        base_filters = [
+            RecipientCountry.recipient_country == recipient,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+        ]
+
+        date_filters = []
+        if start_date:
+            date_filters.append(Document.date >= start_date)
+        if end_date:
+            date_filters.append(Document.date <= end_date)
+
+        # 1. Total documents
+        total_docs = session.query(
+            func.count(func.distinct(Document.doc_id))
+        ).join(InitiatingCountry).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(*base_filters, *date_filters).scalar() or 0
+
+        # 2. Influencer summary — doc count per influencer
+        inf_docs = session.query(
+            InitiatingCountry.initiating_country,
+            func.count(func.distinct(InitiatingCountry.doc_id)).label('count')
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == InitiatingCountry.doc_id
+        ).filter(*base_filters).group_by(
+            InitiatingCountry.initiating_country
+        ).all()
+        inf_doc_map = {inf: count for inf, count in inf_docs}
+
+        # Event counts + avg materiality per influencer (from CanonicalEvent via primary_recipients JSONB)
+        inf_events = session.query(
+            CanonicalEvent.initiating_country,
+            func.count(CanonicalEvent.id).label('event_count'),
+            func.avg(CanonicalEvent.material_score).label('avg_mat'),
+        ).filter(
+            CanonicalEvent.master_event_id.is_(None),
+            CanonicalEvent.initiating_country.in_(INFLUENCERS),
+            CanonicalEvent.primary_recipients.has_key(recipient),
+        ).group_by(CanonicalEvent.initiating_country).all()
+        inf_event_map = {inf: (ec, am) for inf, ec, am in inf_events}
+
+        # Top category per influencer
+        cat_by_inf = session.query(
+            InitiatingCountry.initiating_country,
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(
+            Category, Category.doc_id == InitiatingCountry.doc_id
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == InitiatingCountry.doc_id
+        ).filter(*base_filters).group_by(
+            InitiatingCountry.initiating_country, Category.category
+        ).all()
+
+        # Build top category map
+        top_cat_map = {}
+        for inf, cat, count in cat_by_inf:
+            if inf not in top_cat_map or count > top_cat_map[inf][1]:
+                top_cat_map[inf] = (cat, count)
+
+        influencer_summary = []
+        for inf in INFLUENCERS:
+            ec, am = inf_event_map.get(inf, (0, None))
+            top_cat, _ = top_cat_map.get(inf, (None, 0))
+            influencer_summary.append({
+                "influencer": inf,
+                "doc_count": inf_doc_map.get(inf, 0),
+                "event_count": ec or 0,
+                "top_category": top_cat,
+                "avg_materiality": round(float(am), 2) if am else None,
+            })
+
+        # 3. Monthly by influencer — pivot into {month, China: N, Russia: N, ...}
+        monthly_raw = session.query(
+            func.date_trunc('month', Document.date).label('month'),
+            InitiatingCountry.initiating_country,
+            func.count(func.distinct(Document.doc_id)).label('count')
+        ).join(InitiatingCountry).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            *base_filters,
+            Document.date.isnot(None),
+            *date_filters,
+        ).group_by(
+            func.date_trunc('month', Document.date),
+            InitiatingCountry.initiating_country
+        ).order_by(func.date_trunc('month', Document.date)).all()
+
+        # Pivot
+        monthly_map = {}
+        for month, inf, count in monthly_raw:
+            m_str = str(month.date()) if month else None
+            if m_str not in monthly_map:
+                monthly_map[m_str] = {"month": m_str}
+                for i in INFLUENCERS:
+                    monthly_map[m_str][i] = 0
+            monthly_map[m_str][inf] = count
+
+        monthly_by_influencer = list(monthly_map.values())
+
+        # 4. Category matrix — {influencer, Economic: N, Social: N, ...}
+        category_matrix = []
+        cat_data = {}
+        for inf, cat, count in cat_by_inf:
+            if inf not in cat_data:
+                cat_data[inf] = {"influencer": inf}
+            cat_data[inf][cat] = count
+        for inf in INFLUENCERS:
+            if inf in cat_data:
+                category_matrix.append(cat_data[inf])
+            else:
+                category_matrix.append({"influencer": inf})
+
+        # 5. Recent events per influencer (top 3 each)
+        recent_events = {}
+        for inf in INFLUENCERS:
+            events = session.query(
+                CanonicalEvent.id,
+                CanonicalEvent.canonical_name,
+                CanonicalEvent.last_mention_date,
+                CanonicalEvent.material_score,
+                CanonicalEvent.story_phase,
+            ).filter(
+                CanonicalEvent.master_event_id.is_(None),
+                CanonicalEvent.initiating_country == inf,
+                CanonicalEvent.primary_recipients.has_key(recipient),
+            ).order_by(
+                CanonicalEvent.last_mention_date.desc()
+            ).limit(3).all()
+
+            recent_events[inf] = [
+                {
+                    "id": str(e.id),
+                    "event_name": e.canonical_name,
+                    "date": str(e.last_mention_date) if e.last_mention_date else None,
+                    "material_score": float(e.material_score) if e.material_score else None,
+                    "story_phase": e.story_phase,
+                }
+                for e in events
+            ]
+
+        return {
+            "recipient": recipient,
+            "total_documents": total_docs,
+            "influencer_summary": influencer_summary,
+            "monthly_by_influencer": monthly_by_influencer,
+            "category_matrix": category_matrix,
+            "recent_events": recent_events,
+        }
+
+
+class ComparativeAssessmentRequest(BaseModel):
+    metrics_context: str  # Pre-formatted metrics string from the frontend
+
+
+@app.post("/api/competing-influence/{recipient}/assessment")
+async def generate_comparative_assessment(
+    recipient: str,
+    request: ComparativeAssessmentRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Stream a RAG-powered comparative assessment for all influencers in a recipient."""
+    from services.chat.rag_service import (
+        intelligent_search, generate_comparative_assessment_stream,
+    )
+    import json as _json
+
+    if recipient not in RECIPIENTS:
+        raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+    rag_config = CONFIG.get('rag', {})
+
+    # Search for relevant documents across all influencers for this recipient
+    sources, search_metadata = intelligent_search(
+        query=f"Compare all influencer countries' soft power activities, investments, and diplomacy in {recipient}",
+        k=30,
+        recipient=recipient,
+        apply_intelligence=False,
+        enable_entity_boost=True,
+    )
+
+    matched_entities = search_metadata.get("_matched_entities_full", [])
+    strategic_ctx = search_metadata.get("_strategic_context")
+    event_ctx = search_metadata.get("_event_context")
+
+    async def event_generator():
+        # Send sources first so the frontend can render them
+        yield f"data: {_json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+
+        # Stream the comparative assessment with layered context
+        for chunk in generate_comparative_assessment_stream(
+            recipient=recipient,
+            documents=sources,
+            metrics_context=request.metrics_context,
+            matched_entities=matched_entities,
+            strategic_context=strategic_ctx,
+            event_context=event_ctx,
+        ):
+            yield f"data: {_json.dumps({'type': 'content', 'content': chunk})}\n\n"
+
+        yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+# ============================================================================
+# Alert endpoints
+# ============================================================================
+
+@app.get("/api/alerts/rules")
+def list_alert_rules(current_user: dict = Depends(get_current_user)):
+    """List the current user's alert rules."""
+    with get_session() as session:
+        rules = (
+            session.query(AlertRule)
+            .filter(
+                AlertRule.user_id == current_user["user_id"],
+                AlertRule.is_deleted == False,
+            )
+            .order_by(AlertRule.created_at.desc())
+            .all()
+        )
+        return {"rules": [r.to_dict() for r in rules]}
+
+
+@app.post("/api/alerts/rules")
+def create_alert_rule(
+    request: Request,
+    current_user: dict = Depends(require_analyst_or_above),
+):
+    """Create a new alert rule."""
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.json())
+
+    name = body.get("name")
+    condition_type = body.get("condition_type")
+    if not name or not condition_type:
+        raise HTTPException(status_code=400, detail="name and condition_type are required")
+
+    try:
+        ct = AlertConditionType(condition_type)
+    except ValueError:
+        valid = [t.value for t in AlertConditionType]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid condition_type. Must be one of: {valid}",
+        )
+
+    with get_session() as session:
+        rule = AlertRule(
+            user_id=current_user["user_id"],
+            name=name,
+            description=body.get("description"),
+            condition_type=ct,
+            condition_params=body.get("condition_params", {}),
+            channels=body.get("channels", ["in_app"]),
+            channel_config=body.get("channel_config", {}),
+            severity=AlertSeverity(body.get("severity", "info")),
+            cooldown_minutes=body.get("cooldown_minutes", 60),
+        )
+        session.add(rule)
+        session.flush()
+        result = rule.to_dict()
+    return result
+
+
+@app.put("/api/alerts/rules/{rule_id}")
+def update_alert_rule(
+    rule_id: str,
+    request: Request,
+    current_user: dict = Depends(require_analyst_or_above),
+):
+    """Update an existing alert rule (must be owned by user)."""
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.json())
+
+    with get_session() as session:
+        rule = (
+            session.query(AlertRule)
+            .filter(
+                AlertRule.id == rule_id,
+                AlertRule.user_id == current_user["user_id"],
+                AlertRule.is_deleted == False,
+            )
+            .first()
+        )
+        if not rule:
+            raise HTTPException(status_code=404, detail="Alert rule not found")
+
+        updatable = [
+            "name", "description", "condition_params", "channels",
+            "channel_config", "cooldown_minutes", "is_enabled",
+        ]
+        for field in updatable:
+            if field in body:
+                setattr(rule, field, body[field])
+
+        if "condition_type" in body:
+            rule.condition_type = AlertConditionType(body["condition_type"])
+        if "severity" in body:
+            rule.severity = AlertSeverity(body["severity"])
+
+        session.flush()
+        return rule.to_dict()
+
+
+@app.delete("/api/alerts/rules/{rule_id}")
+def delete_alert_rule(
+    rule_id: str,
+    current_user: dict = Depends(require_analyst_or_above),
+):
+    """Soft-delete an alert rule."""
+    with get_session() as session:
+        rule = (
+            session.query(AlertRule)
+            .filter(
+                AlertRule.id == rule_id,
+                AlertRule.user_id == current_user["user_id"],
+                AlertRule.is_deleted == False,
+            )
+            .first()
+        )
+        if not rule:
+            raise HTTPException(status_code=404, detail="Alert rule not found")
+
+        rule.is_deleted = True
+        rule.deleted_at = datetime.now(timezone.utc)
+        return {"status": "deleted"}
+
+
+@app.get("/api/alerts/history")
+def list_alert_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """List alert history for the current user's rules."""
+    with get_session() as session:
+        user_rule_ids = (
+            session.query(AlertRule.id)
+            .filter(
+                AlertRule.user_id == current_user["user_id"],
+                AlertRule.is_deleted == False,
+            )
+            .subquery()
+        )
+
+        query = (
+            session.query(AlertHistory)
+            .filter(AlertHistory.alert_rule_id.in_(user_rule_ids))
+            .order_by(AlertHistory.triggered_at.desc())
+        )
+        total = query.count()
+        alerts = query.offset(offset).limit(limit).all()
+
+        return {
+            "alerts": [a.to_dict() for a in alerts],
+            "total": total,
+        }
+
+
+@app.post("/api/alerts/history/{alert_id}/acknowledge")
+def acknowledge_alert(
+    alert_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Acknowledge an alert."""
+    with get_session() as session:
+        # Verify the alert belongs to a rule owned by this user
+        alert = (
+            session.query(AlertHistory)
+            .join(AlertRule)
+            .filter(
+                AlertHistory.id == alert_id,
+                AlertRule.user_id == current_user["user_id"],
+            )
+            .first()
+        )
+        if not alert:
+            raise HTTPException(status_code=404, detail="Alert not found")
+
+        alert.acknowledged = True
+        alert.acknowledged_by = current_user["user_id"]
+        alert.acknowledged_at = datetime.now(timezone.utc)
+        return {"status": "acknowledged"}
+
+
+@app.get("/api/alerts/unread-count")
+def get_unread_alert_count(current_user: dict = Depends(get_current_user)):
+    """Count unacknowledged alerts for the current user."""
+    with get_session() as session:
+        user_rule_ids = (
+            session.query(AlertRule.id)
+            .filter(
+                AlertRule.user_id == current_user["user_id"],
+                AlertRule.is_deleted == False,
+            )
+            .subquery()
+        )
+        count = (
+            session.query(func.count(AlertHistory.id))
+            .filter(
+                AlertHistory.alert_rule_id.in_(user_rule_ids),
+                AlertHistory.acknowledged == False,
+            )
+            .scalar()
+        )
+        return {"count": count or 0}
+
+
+@app.post("/api/alerts/test/{rule_id}")
+def test_alert_rule(
+    rule_id: str,
+    current_user: dict = Depends(require_analyst_or_above),
+):
+    """Force-evaluate a single rule for testing."""
+    from server.alert_evaluator import evaluate_rule
+    from server.alert_notifier import dispatch_alert
+
+    with get_session() as session:
+        rule = (
+            session.query(AlertRule)
+            .filter(
+                AlertRule.id == rule_id,
+                AlertRule.user_id == current_user["user_id"],
+                AlertRule.is_deleted == False,
+            )
+            .first()
+        )
+        if not rule:
+            raise HTTPException(status_code=404, detail="Alert rule not found")
+
+        alert = evaluate_rule(rule, session)
+        if alert:
+            session.add(alert)
+            session.flush()
+            try:
+                notified = dispatch_alert(alert, rule)
+                alert.channels_notified = notified
+            except Exception:
+                pass
+            rule.last_evaluated_at = datetime.now(timezone.utc)
+            rule.last_triggered_at = datetime.now(timezone.utc)
+            return {
+                "triggered": True,
+                "alert": alert.to_dict(),
+            }
+        else:
+            rule.last_evaluated_at = datetime.now(timezone.utc)
+            return {
+                "triggered": False,
+                "message": "Condition not met — no alert generated",
+            }
 
 
 # Static file serving for React SPA

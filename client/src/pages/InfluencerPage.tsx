@@ -816,11 +816,16 @@ function EntityCard({
   entity: InfluencerEntity
   topEntries: (obj: Record<string, number>, n: number) => [string, number][]
 }) {
+  const navigate = useNavigate()
   const topCats = topEntries(entity.primary_categories || {}, 3)
   const topRecs = topEntries(entity.primary_recipients || {}, 3)
 
   return (
-    <div className="entity-card">
+    <div
+      className="entity-card"
+      style={{ cursor: 'pointer' }}
+      onClick={() => navigate(`/entity/${entity.id}`)}
+    >
       <div className="entity-card-header">
         <div className="entity-name-row">
           {entity.entity_type && (

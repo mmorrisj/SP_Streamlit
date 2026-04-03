@@ -438,7 +438,7 @@ def main() -> None:
     )
 
     parser.add_argument("--max-concurrent", type=int, default=5, help="Batch queue max concurrent jobs")
-    parser.add_argument("--poll-interval", type=int, default=300, help="Batch queue poll interval (seconds)")
+    parser.add_argument("--poll-interval", type=int, default=60, help="Batch queue poll interval (seconds)")
     parser.add_argument("--stall-timeout", type=int, default=120, help="Minutes with 0%% progress before marking a batch stalled/failed (0=disabled)")
 
     parser.add_argument("--force-clustering", action="store_true", help="Force re-cluster already clustered dates")

@@ -1,0 +1,445 @@
+.entity-profile-page {
+  max-width: 1000px;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: none;
+  background: none;
+  color: #2563eb;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.4rem 0;
+  margin-bottom: 1rem;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+/* Header Card */
+.entity-header-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  margin-bottom: 1.5rem;
+}
+
+.entity-header-top {
+  margin-bottom: 1rem;
+}
+
+.entity-badges {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.type-badge {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.type-badge.type-person { background: #eff6ff; color: #2563eb; }
+.type-badge.type-organization { background: #f0fdf4; color: #059669; }
+.type-badge.type-company { background: #faf5ff; color: #7c3aed; }
+.type-badge.type-location { background: #fef3c7; color: #d97706; }
+.type-badge.type-other { background: #f3f4f6; color: #666; }
+
+.role-badge {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 10px;
+  background: #f3f4f6;
+  color: #666;
+  font-weight: 500;
+}
+
+.entity-header-card h1 {
+  font-size: 1.75rem;
+  color: #1a365d;
+  margin: 0;
+}
+
+.alt-names {
+  font-size: 0.8rem;
+  color: #999;
+  margin: 0.25rem 0 0;
+  font-style: italic;
+}
+
+.entity-desc {
+  font-size: 0.9rem;
+  color: #555;
+  line-height: 1.6;
+  margin: 0 0 1rem;
+}
+
+/* KPI Grid */
+.kpi-grid {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.kpi-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.75rem 1.25rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  min-width: 100px;
+  color: #1a365d;
+}
+
+.kpi-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.kpi-label {
+  font-size: 0.7rem;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.date-range {
+  font-size: 0.78rem;
+  color: #999;
+}
+
+/* Charts row */
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.chart-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.chart-card h3 {
+  font-size: 1rem;
+  color: #1a365d;
+  margin: 0 0 0.75rem;
+}
+
+/* Section cards */
+.section-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  margin-bottom: 1.5rem;
+}
+
+.section-card h3 {
+  font-size: 1rem;
+  color: #1a365d;
+  margin: 0 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Connections */
+.connections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.connection-card {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.connection-card:hover {
+  background: #f8f9fa;
+  border-color: #d1d5db;
+}
+
+.connection-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.type-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.type-dot.type-person { background: #2563eb; }
+.type-dot.type-organization { background: #059669; }
+.type-dot.type-company { background: #7c3aed; }
+.type-dot.type-location { background: #d97706; }
+.type-dot.type-other { background: #999; }
+
+.connection-name {
+  font-weight: 500;
+  font-size: 0.88rem;
+  color: #1a365d;
+}
+
+.connection-type {
+  font-size: 0.72rem;
+  color: #999;
+  margin-left: auto;
+  text-transform: capitalize;
+}
+
+.connection-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.72rem;
+  color: #999;
+}
+
+/* Events list */
+.events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.event-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.event-row:hover {
+  background: #f8f9fa;
+}
+
+.event-row-name {
+  font-size: 0.85rem;
+  color: #1a365d;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 1rem;
+}
+
+.event-row-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: #999;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.mat-score { font-weight: 600; color: #d97706; }
+
+.phase-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.phase-emerging { background: #dbeafe; color: #2563eb; }
+.phase-developing { background: #fef3c7; color: #d97706; }
+.phase-peak { background: #fee2e2; color: #dc2626; }
+.phase-fading { background: #e5e7eb; color: #666; }
+.phase-dormant { background: #f3f4f6; color: #999; }
+
+/* Assessment section */
+.assessment-section .assessment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.generate-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.25rem;
+  background: #1a365d;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.generate-btn:hover:not(:disabled) { background: #2d4a7c; }
+.generate-btn:disabled { opacity: 0.6; cursor: default; }
+
+.regen-btn {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  font-size: 0.8rem;
+  color: #666;
+  cursor: pointer;
+}
+
+.regen-btn:hover { background: #f3f4f6; }
+
+.assessment-placeholder {
+  color: #999;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.assessment-content {
+  line-height: 1.7;
+  color: #333;
+  font-size: 0.92rem;
+}
+
+.assessment-content p { margin: 0.75rem 0; }
+.assessment-content strong { color: #1a365d; }
+
+.assessment-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem 0;
+  color: #999;
+}
+
+.spin {
+  animation: entity-spin 1s linear infinite;
+}
+
+@keyframes entity-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Assessment Sources */
+.assessment-sources {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.sources-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: none;
+  background: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #2563eb;
+  cursor: pointer;
+}
+
+.sources-toggle-btn:hover { text-decoration: underline; }
+
+.assessment-sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.src-card {
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.src-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.src-num { font-weight: 700; color: #2563eb; font-size: 0.8rem; }
+
+.src-ttl {
+  font-weight: 500;
+  font-size: 0.83rem;
+  color: #1a365d;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.src-scr { font-size: 0.72rem; color: #059669; font-weight: 600; }
+
+.src-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: #999;
+}
+
+.src-cat { font-weight: 500; color: #7c3aed; }
+
+.src-excerpt {
+  font-size: 0.78rem;
+  color: #666;
+  margin: 0.35rem 0;
+  line-height: 1.4;
+}
+
+.src-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.src-link:hover { text-decoration: underline; }
+
+/* Loading/empty states */
+.loading-state, .empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 4rem;
+  color: #999;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .charts-row { grid-template-columns: 1fr; }
+  .kpi-grid { gap: 0.5rem; }
+}

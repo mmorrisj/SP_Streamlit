@@ -50,10 +50,11 @@ python-multipart
 pydantic
 pydantic-settings
 
-# Task Queue
+# Task Queue & Scheduling
 # -----------------------------------------------
 celery
 redis
+apscheduler>=3.10.4
 
 # Dashboard (Streamlit)
 # -----------------------------------------------
