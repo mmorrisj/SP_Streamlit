@@ -29,6 +29,30 @@ ENTERPRISE_JWT_PUBLIC_KEY_PATH = os.getenv("ENTERPRISE_JWT_PUBLIC_KEY", "")
 # The HTTP header the enterprise gateway uses to pass the JWT
 ENTERPRISE_JWT_HEADER = "x-kiosk-gateway-jwt"
 
+# ---------------------------------------------------------------------------
+# LOCAL DEV BYPASS
+# ---------------------------------------------------------------------------
+# Set DEV_AUTH_BYPASS=true in your .env to skip enterprise JWT validation
+# and auto-authenticate as a local dev admin user.
+#
+# >>> THIS MUST BE UNSET (or "false") IN PRODUCTION / ENTERPRISE ENV <<<
+#
+# When enabled, all requests are treated as coming from the dev user below.
+# Customize DEV_AUTH_USERNAME / DEV_AUTH_ROLE if you need a different identity.
+# ---------------------------------------------------------------------------
+DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "false").lower() == "true"
+DEV_AUTH_USERNAME = os.getenv("DEV_AUTH_USERNAME", "dev-admin")
+DEV_AUTH_ROLE = os.getenv("DEV_AUTH_ROLE", "admin")  # admin | analyst | viewer
+
+if DEV_AUTH_BYPASS:
+    logger.warning(
+        "╔══════════════════════════════════════════════════════════════╗\n"
+        "║  DEV_AUTH_BYPASS is ON  –  all requests auto-authenticate   ║\n"
+        "║  as '%s' (%s).  DO NOT use in production.        ║\n"
+        "╚══════════════════════════════════════════════════════════════╝",
+        DEV_AUTH_USERNAME, DEV_AUTH_ROLE,
+    )
+
 
 def _get_verification_key() -> str:
     """
@@ -102,4 +126,16 @@ def extract_user_info(payload: Dict[str, Any]) -> Dict[str, Any]:
             or payload.get("preferred_username")
             or ""
         ),
+    }
+
+
+def get_dev_user_info() -> Dict[str, Any]:
+    """
+    Return synthetic user info for local dev bypass mode.
+    Only called when DEV_AUTH_BYPASS=true.
+    """
+    return {
+        "enterprise_id": "dev-local",
+        "username": DEV_AUTH_USERNAME,
+        "display_name": DEV_AUTH_USERNAME,
     }

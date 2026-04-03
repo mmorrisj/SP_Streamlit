@@ -34,8 +34,8 @@ from shared.models.models import (
     CanonicalEntity, BilateralRelationshipSummary, CountryCategorySummary
 )
 from server.auth import (
-    verify_enterprise_token, extract_user_info,
-    ENTERPRISE_JWT_HEADER
+    verify_enterprise_token, extract_user_info, get_dev_user_info,
+    ENTERPRISE_JWT_HEADER, DEV_AUTH_BYPASS, DEV_AUTH_ROLE
 )
 
 app = FastAPI(title="Soft Power API", version="1.0.0")
@@ -208,17 +208,24 @@ def get_current_user(request: Request) -> dict:
 
     The enterprise platform provides a JWT in the 'x-kiosk-gateway-jwt' header
     on every request. This dependency validates it and auto-provisions users.
+
+    For local development, set DEV_AUTH_BYPASS=true in .env to skip JWT
+    validation entirely.  MUST be unset/false in production.
     """
-    token = request.headers.get(ENTERPRISE_JWT_HEADER)
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated - missing enterprise JWT header")
+    if DEV_AUTH_BYPASS:
+        # Local dev mode – skip JWT validation, use synthetic dev user
+        user_info = get_dev_user_info()
+    else:
+        token = request.headers.get(ENTERPRISE_JWT_HEADER)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated - missing enterprise JWT header")
 
-    payload = verify_enterprise_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired enterprise token")
+        payload = verify_enterprise_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid or expired enterprise token")
 
-    # Extract user info from enterprise JWT claims
-    user_info = extract_user_info(payload)
+        # Extract user info from enterprise JWT claims
+        user_info = extract_user_info(payload)
 
     # Auto-provision or update user in local database
     with get_session() as session:
@@ -246,12 +253,14 @@ def get_current_user(request: Request) -> dict:
             if not user.is_active:
                 raise HTTPException(status_code=403, detail="Account is deactivated")
         else:
-            # Auto-provision new user with default viewer role
+            # Auto-provision new user
+            # Dev bypass gets DEV_AUTH_ROLE; enterprise users get default viewer
+            default_role = UserRole(DEV_AUTH_ROLE) if DEV_AUTH_BYPASS else UserRole.VIEWER
             user = User(
                 enterprise_id=user_info["enterprise_id"],
                 username=user_info["username"],
                 display_name=user_info["display_name"],
-                role=UserRole.VIEWER,
+                role=default_role,
             )
             session.add(user)
 
