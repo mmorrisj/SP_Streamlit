@@ -1,5 +1,5 @@
-import { Navigate, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 interface ProtectedRouteProps {
@@ -15,7 +15,6 @@ const ROLE_HIERARCHY = {
 
 export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const { user, isLoading, isAuthenticated } = useAuth()
-  const location = useLocation()
 
   if (isLoading) {
     return (
@@ -26,12 +25,13 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />
-  }
-
-  // Check if user needs to change password
-  if (user?.force_password_change && location.pathname !== '/change-password') {
-    return <Navigate to="/change-password" replace />
+    // Enterprise gateway should always provide auth.
+    // If we reach here, something is wrong with the gateway.
+    return (
+      <div className="loading-screen">
+        <div className="loading">Authentication required. Please ensure you are accessing this application through the enterprise gateway.</div>
+      </div>
+    )
   }
 
   // Check role if required

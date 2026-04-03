@@ -5,8 +5,6 @@ import { AuthProvider } from './contexts/AuthContext'
 import { ReportGenerationProvider } from './contexts/ReportGenerationContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
-import LoginPage from './pages/LoginPage'
-import ChangePasswordPage from './pages/ChangePasswordPage'
 import UserManagementPage from './pages/UserManagementPage'
 import Dashboard from './pages/Dashboard'
 import Documents from './pages/Documents'
@@ -43,17 +41,7 @@ function App() {
           <ReportGenerationProvider>
           <Toaster position="top-right" richColors />
           <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<LoginPage />} />
-
-            {/* Protected routes that don't use Layout */}
-            <Route path="/change-password" element={
-              <ProtectedRoute>
-                <ChangePasswordPage />
-              </ProtectedRoute>
-            } />
-
-            {/* Protected routes with Layout */}
+            {/* All routes are protected by enterprise gateway auth */}
             <Route path="/" element={
               <ProtectedRoute>
                 <Layout />
