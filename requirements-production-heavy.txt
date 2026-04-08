@@ -14,6 +14,9 @@ torch>=2.6.0
 # Sentence-transformers + transitive deps (~300MB)
 # Pulls: transformers, scipy, scikit-learn, tokenizers, safetensors, nltk, Pillow
 sentence-transformers>=3.3.1
+# Pin huggingface_hub >=1.0 — older 0.x versions can't resolve local cached
+# modules for trust_remote_code in offline/airgapped environments
+huggingface_hub>=1.0
 
 # LangChain HuggingFace wrapper (for RAG embedding)
 # Pulls: langchain-core

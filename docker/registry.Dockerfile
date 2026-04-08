@@ -123,6 +123,34 @@ print(f'Reranker model baked in at {reranker_path}'); \
 # 3. Purge HF hub cache (downloads already saved to final paths above) \
 shutil.rmtree('/app/.cache/huggingface/hub', ignore_errors=True); \
 print('HF hub cache purged'); \
+\
+# 4. Patch nomic config.json: rewrite auto_map to use local module paths \
+# instead of remote repo refs. transformers >=4.45 tries to download remote \
+# code even from local model dirs when auto_map references a different repo. \
+import json; \
+cfg_path = os.path.join(embed_path, 'config.json'); \
+with open(cfg_path) as f: cfg = json.load(f); \
+if 'auto_map' in cfg: \
+    cfg['auto_map'] = { \
+        'AutoConfig': 'configuration_hf_nomic_bert.NomicBertConfig', \
+        'AutoModel': 'modeling_hf_nomic_bert.NomicBertModel' \
+    }; \
+    with open(cfg_path, 'w') as f: json.dump(cfg, f, indent=2); \
+    print('Patched nomic config.json auto_map for offline loading'); \
+\
+# 5. Copy modeling module from HF cache if not present in saved model dir \
+modeling_src = None; \
+for root, dirs, files in os.walk('/app/.cache'): \
+    if 'modeling_hf_nomic_bert.py' in files: \
+        modeling_src = os.path.join(root, 'modeling_hf_nomic_bert.py'); break; \
+modeling_dst = os.path.join(embed_path, 'modeling_hf_nomic_bert.py'); \
+if modeling_src and not os.path.isfile(modeling_dst): \
+    shutil.copy2(modeling_src, modeling_dst); \
+    print(f'Copied modeling module to {modeling_dst}'); \
+elif os.path.isfile(modeling_dst): \
+    print('Modeling module already present'); \
+else: \
+    print('WARNING: modeling_hf_nomic_bert.py not found anywhere in cache'); \
 "
 
 # Pre-cache tiktoken encoding files.

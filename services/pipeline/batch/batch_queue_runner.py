@@ -234,8 +234,8 @@ def main():
                        help='Filter by country')
     parser.add_argument('--max-concurrent', type=int, default=5,
                        help='Maximum concurrent batches (default: 5)')
-    parser.add_argument('--poll-interval', type=int, default=300,
-                       help='Polling interval in seconds (default: 300 = 5 minutes)')
+    parser.add_argument('--poll-interval', type=int, default=60,
+                       help='Polling interval in seconds (default: 60 = 1 minute)')
     parser.add_argument('--retry-failed', action='store_true',
                        help='Reset failed batches to preparing so they get re-submitted')
     parser.add_argument('--stall-timeout', type=int, default=120,

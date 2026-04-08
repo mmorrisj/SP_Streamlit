@@ -53,13 +53,17 @@ export default function ProjectDrawer({
 
   const handleCreate = async () => {
     if (!newProjectName.trim()) return
-    const project = await createProject({ name: newProjectName.trim() })
-    onSelectProject(project.id)
-    setNewProjectName('')
-    setShowCreateForm(false)
-    setView('detail')
-    invalidate()
-    toast.success(`Project "${project.name}" created`)
+    try {
+      const project = await createProject({ name: newProjectName.trim() })
+      onSelectProject(project.id)
+      setNewProjectName('')
+      setShowCreateForm(false)
+      setView('detail')
+      invalidate()
+      toast.success(`Project "${project.name}" created`)
+    } catch (err) {
+      toast.error(`Failed to create project: ${err}`)
+    }
   }
 
   const handleDelete = async (id: string) => {

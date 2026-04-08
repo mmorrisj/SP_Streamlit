@@ -801,10 +801,30 @@ def get_event_detail(event_id: uuid.UUID):
                 "source_names": m.source_names or [],
             })
 
+        # Fallback description: if no consolidated_description, build from
+        # linked documents' distilled text
+        description = event.consolidated_description
+        if not description:
+            # Get distilled text from linked documents via daily mentions
+            all_doc_ids = []
+            for m in mentions:
+                if m.doc_ids:
+                    all_doc_ids.extend(m.doc_ids[:5])  # Cap per mention
+            if all_doc_ids:
+                docs = session.execute(
+                    text("SELECT distilled_text FROM documents WHERE doc_id = ANY(:ids) LIMIT 3"),
+                    {"ids": all_doc_ids[:10]}
+                ).fetchall()
+                if docs:
+                    description = "\n\n".join(d.distilled_text for d in docs if d.distilled_text)
+
+        # Fallback narrative: if no EventSummary exists, use description
+        narrative_overview = narr.get("overview") or description
+
         return {
             "id": str(event.id),
             "event_name": event.canonical_name,
-            "description": event.consolidated_description,
+            "description": description,
             "initiating_country": event.initiating_country,
             "first_mention_date": str(event.first_mention_date) if event.first_mention_date else None,
             "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
@@ -819,7 +839,7 @@ def get_event_detail(event_id: uuid.UUID):
             "primary_categories": event.primary_categories or {},
             "primary_recipients": event.primary_recipients or {},
             "alternative_names": event.alternative_names or [],
-            "narrative_overview": narr.get("overview"),
+            "narrative_overview": narrative_overview,
             "narrative_outcomes": narr.get("outcomes"),
             "source_link": narr.get("source_link"),
             "source_count_from_summary": narr.get("source_count"),
@@ -5078,24 +5098,21 @@ def list_projects(current_user: dict = Depends(get_current_user)):
         return {"projects": [p.to_dict() for p in projects]}
 
 
+class CreateProjectRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
 @app.post("/api/projects")
 def create_project(
-    request: Request,
+    body: CreateProjectRequest,
     current_user: dict = Depends(get_current_user),
 ):
     """Create a new research project."""
-    import asyncio
-    body = asyncio.get_event_loop().run_until_complete(request.json())
-
-    name = body.get("name")
-    if not name:
-        raise HTTPException(status_code=400, detail="name is required")
-
     with get_session() as session:
         project = ResearchProject(
             user_id=current_user["user_id"],
-            name=name,
-            description=body.get("description"),
+            name=body.name,
+            description=body.description,
         )
         session.add(project)
         session.flush()
@@ -5120,16 +5137,18 @@ def get_project(project_id: str, current_user: dict = Depends(get_current_user))
         return project.to_dict(include_documents=True)
 
 
+class UpdateProjectRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+
 @app.put("/api/projects/{project_id}")
 def update_project(
     project_id: str,
-    request: Request,
+    body: UpdateProjectRequest,
     current_user: dict = Depends(get_current_user),
 ):
     """Update project name/description."""
-    import asyncio
-    body = asyncio.get_event_loop().run_until_complete(request.json())
-
     with get_session() as session:
         project = (
             session.query(ResearchProject)
@@ -5143,12 +5162,12 @@ def update_project(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        if "name" in body:
-            project.name = body["name"]
-        if "description" in body:
-            project.description = body["description"]
-        if "status" in body:
-            project.status = ProjectStatus(body["status"])
+        if body.name is not None:
+            project.name = body.name
+        if body.description is not None:
+            project.description = body.description
+        if body.status is not None:
+            project.status = ProjectStatus(body.status)
 
         session.flush()
         return project.to_dict()
@@ -5175,20 +5194,25 @@ def delete_project(project_id: str, current_user: dict = Depends(get_current_use
         return {"status": "deleted"}
 
 
+class AddProjectDocumentRequest(BaseModel):
+    doc_id: str
+    title: Optional[str] = None
+    source_name: Optional[str] = None
+    date: Optional[str] = None
+    initiating_country: Optional[str] = None
+    recipient_country: Optional[str] = None
+    category: Optional[str] = None
+    excerpt: Optional[str] = None
+    source_query: Optional[str] = None
+    notes: Optional[str] = None
+
 @app.post("/api/projects/{project_id}/documents")
 def add_project_document(
     project_id: str,
-    request: Request,
+    body: AddProjectDocumentRequest,
     current_user: dict = Depends(get_current_user),
 ):
     """Add a source document to a research project."""
-    import asyncio
-    body = asyncio.get_event_loop().run_until_complete(request.json())
-
-    doc_id = body.get("doc_id")
-    if not doc_id:
-        raise HTTPException(status_code=400, detail="doc_id is required")
-
     with get_session() as session:
         project = (
             session.query(ResearchProject)
@@ -5207,7 +5231,7 @@ def add_project_document(
             session.query(ProjectDocument)
             .filter(
                 ProjectDocument.project_id == project_id,
-                ProjectDocument.doc_id == doc_id,
+                ProjectDocument.doc_id == body.doc_id,
             )
             .first()
         )
@@ -5216,16 +5240,16 @@ def add_project_document(
 
         doc = ProjectDocument(
             project_id=project_id,
-            doc_id=doc_id,
-            title=body.get("title"),
-            source_name=body.get("source_name"),
-            date=body.get("date"),
-            initiating_country=body.get("initiating_country"),
-            recipient_country=body.get("recipient_country"),
-            category=body.get("category"),
-            excerpt=body.get("excerpt"),
-            source_query=body.get("source_query"),
-            notes=body.get("notes"),
+            doc_id=body.doc_id,
+            title=body.title,
+            source_name=body.source_name,
+            date=body.date,
+            initiating_country=body.initiating_country,
+            recipient_country=body.recipient_country,
+            category=body.category,
+            excerpt=body.excerpt,
+            source_query=body.source_query,
+            notes=body.notes,
         )
         session.add(doc)
         session.flush()
@@ -5267,16 +5291,16 @@ def remove_project_document(
         return {"status": "removed"}
 
 
+class UpdateDocNotesRequest(BaseModel):
+    notes: Optional[str] = None
+
 @app.put("/api/projects/{project_id}/documents/{doc_id}")
 def update_project_document_notes(
     project_id: str,
     doc_id: str,
-    request: Request,
+    body: UpdateDocNotesRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Update notes on a collected document."""
-    import asyncio
-    body = asyncio.get_event_loop().run_until_complete(request.json())
 
     with get_session() as session:
         project = (
@@ -5302,8 +5326,8 @@ def update_project_document_notes(
         if not doc:
             raise HTTPException(status_code=404, detail="Document not in project")
 
-        if "notes" in body:
-            doc.notes = body["notes"]
+        if body.notes is not None:
+            doc.notes = body.notes
         session.flush()
         return doc.to_dict()
 
@@ -5628,22 +5652,24 @@ def list_alert_rules(current_user: dict = Depends(get_current_user)):
         return {"rules": [r.to_dict() for r in rules]}
 
 
+class CreateAlertRuleRequest(BaseModel):
+    name: str
+    condition_type: str
+    description: Optional[str] = None
+    condition_params: dict = {}
+    channels: List[str] = ["in_app"]
+    channel_config: dict = {}
+    severity: str = "info"
+    cooldown_minutes: int = 60
+
 @app.post("/api/alerts/rules")
 def create_alert_rule(
-    request: Request,
+    body: CreateAlertRuleRequest,
     current_user: dict = Depends(require_analyst_or_above),
 ):
     """Create a new alert rule."""
-    import asyncio
-    body = asyncio.get_event_loop().run_until_complete(request.json())
-
-    name = body.get("name")
-    condition_type = body.get("condition_type")
-    if not name or not condition_type:
-        raise HTTPException(status_code=400, detail="name and condition_type are required")
-
     try:
-        ct = AlertConditionType(condition_type)
+        ct = AlertConditionType(body.condition_type)
     except ValueError:
         valid = [t.value for t in AlertConditionType]
         raise HTTPException(
@@ -5654,14 +5680,14 @@ def create_alert_rule(
     with get_session() as session:
         rule = AlertRule(
             user_id=current_user["user_id"],
-            name=name,
-            description=body.get("description"),
+            name=body.name,
+            description=body.description,
             condition_type=ct,
-            condition_params=body.get("condition_params", {}),
-            channels=body.get("channels", ["in_app"]),
-            channel_config=body.get("channel_config", {}),
-            severity=AlertSeverity(body.get("severity", "info")),
-            cooldown_minutes=body.get("cooldown_minutes", 60),
+            condition_params=body.condition_params,
+            channels=body.channels,
+            channel_config=body.channel_config,
+            severity=AlertSeverity(body.severity),
+            cooldown_minutes=body.cooldown_minutes,
         )
         session.add(rule)
         session.flush()
@@ -5669,16 +5695,24 @@ def create_alert_rule(
     return result
 
 
+class UpdateAlertRuleRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    condition_type: Optional[str] = None
+    condition_params: Optional[dict] = None
+    channels: Optional[List[str]] = None
+    channel_config: Optional[dict] = None
+    severity: Optional[str] = None
+    cooldown_minutes: Optional[int] = None
+    is_enabled: Optional[bool] = None
+
 @app.put("/api/alerts/rules/{rule_id}")
 def update_alert_rule(
     rule_id: str,
-    request: Request,
+    body: UpdateAlertRuleRequest,
     current_user: dict = Depends(require_analyst_or_above),
 ):
     """Update an existing alert rule (must be owned by user)."""
-    import asyncio
-    body = asyncio.get_event_loop().run_until_complete(request.json())
-
     with get_session() as session:
         rule = (
             session.query(AlertRule)
@@ -5696,14 +5730,15 @@ def update_alert_rule(
             "name", "description", "condition_params", "channels",
             "channel_config", "cooldown_minutes", "is_enabled",
         ]
+        body_dict = body.model_dump(exclude_none=True)
         for field in updatable:
-            if field in body:
-                setattr(rule, field, body[field])
+            if field in body_dict:
+                setattr(rule, field, body_dict[field])
 
-        if "condition_type" in body:
-            rule.condition_type = AlertConditionType(body["condition_type"])
-        if "severity" in body:
-            rule.severity = AlertSeverity(body["severity"])
+        if body.condition_type is not None:
+            rule.condition_type = AlertConditionType(body.condition_type)
+        if body.severity is not None:
+            rule.severity = AlertSeverity(body.severity)
 
         session.flush()
         return rule.to_dict()

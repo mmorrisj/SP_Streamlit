@@ -1362,6 +1362,7 @@ def intelligent_search(
         )
 
     if apply_intelligence:
+        influencer, recipient, category, start_date, end_date, intel_notes = apply_query_intelligence(
             query,
             explicit_influencer=influencer,
             explicit_recipient=recipient,
@@ -1380,14 +1381,7 @@ def intelligent_search(
             "start_date": intent.start_date,
             "end_date": intent.end_date
         }
-        metadata["confidence_notes"] = notes
-
-        # Use merged values
-        influencer = inferred_inf
-        recipient = inferred_rec
-        category = inferred_cat
-        start_date = inferred_start
-        end_date = inferred_end
+        metadata["confidence_notes"] = intel_notes
 
     # Track what filters are actually being applied
     if influencer:
