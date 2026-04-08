@@ -49,6 +49,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
+    JOB_TYPE_EVENT_RENAME,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -68,7 +69,8 @@ from services.pipeline.batch.batch_process_results import (
     process_summary_materiality_result,
     process_entity_description_result,
     process_bilateral_summary_result,
-    process_relationship_classification_result
+    process_relationship_classification_result,
+    process_event_rename_result
 )
 from services.pipeline.events.llm_deconflict_clusters import LLMClusterDeconfliction
 
@@ -114,7 +116,9 @@ def process_single_batch(
         'summaries_scored': 0,
         'entities_described': 0,
         'bilateral_summaries_generated': 0,
-        'relationships_classified': 0
+        'relationships_classified': 0,
+        'events_renamed': 0,
+        'skipped_low_confidence': 0
     }
 
     # Verify output file exists
@@ -307,6 +311,10 @@ def _route_result(
         return process_relationship_classification_result(
             session, record_id, llm_response, verbose=verbose
         )
+    elif job_type == JOB_TYPE_EVENT_RENAME:
+        return process_event_rename_result(
+            session, record_id, llm_response, verbose=verbose
+        )
     else:
         return {'errors': 1}
 
@@ -348,6 +356,9 @@ def _merge_stats(overall: Dict, stats: Dict, job_type: str):
         overall['bilateral_summaries_generated'] += stats.get('bilateral_summaries_generated', 0)
     elif job_type == JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS:
         overall['relationships_classified'] += stats.get('relationships_classified', 0)
+    elif job_type == JOB_TYPE_EVENT_RENAME:
+        overall['events_renamed'] += stats.get('events_renamed', 0)
+        overall['skipped_low_confidence'] += stats.get('skipped_low_confidence', 0)
 
 
 def main():

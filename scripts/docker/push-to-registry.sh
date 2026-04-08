@@ -158,6 +158,7 @@ if [ "$MODE" = "registry" ]; then
         --sbom=true \
         --provenance=mode=max \
         --push \
+        --build-arg CACHEBUST="$(date +%s)" \
         --tag "${REGISTRY}/${APP_REMOTE_NAME}:latest" \
         --tag "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}" \
         -f "$PROJECT_ROOT/docker/registry.Dockerfile" \
@@ -165,6 +166,14 @@ if [ "$MODE" = "registry" ]; then
 
     echo -e "  ${GREEN}Built and pushed:${NC} ${REGISTRY}/${APP_REMOTE_NAME}:{latest,${VERSION}}"
     echo -e "  ${GREEN}Attestations:${NC} SBOM + provenance (max mode) attached"
+
+    # Pull the just-pushed image so local docker has the latest layers.
+    # buildx --push sends directly to registry without loading locally,
+    # which means local tags go stale and production-deploy.sh runs old code.
+    echo ""
+    echo -e "  Pulling pushed image to sync local Docker..."
+    docker pull "${REGISTRY}/${APP_REMOTE_NAME}:${VERSION}"
+    echo -e "  ${GREEN}Local image synced${NC}"
 else
     echo -e "${BLUE}[2/4]${NC} Verifying local production image..."
     APP_LOCAL="softpower-app-production:latest"

@@ -734,6 +734,8 @@ cmd_start() {
             -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
             -e JWT_SECRET="${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}" \
             -e JWT_EXPIRATION_HOURS="${JWT_EXPIRATION_HOURS:-24}" \
+            -e DEV_AUTH_BYPASS="${DEV_AUTH_BYPASS:-}" \
+            -e DEV_AUTH_ROLE="${DEV_AUTH_ROLE:-admin}" \
             -p "${API_PORT}:8000" \
             -p "${STREAMLIT_PORT}:8501" \
             "$APP_IMAGE"

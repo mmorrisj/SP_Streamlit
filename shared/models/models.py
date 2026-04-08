@@ -221,12 +221,18 @@ class RawEvent(Base):
 
     doc_id: Mapped[str] = mapped_column(Text, ForeignKey('documents.doc_id'), primary_key=True)
     event_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    specific_event_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Bidirectional relationship for easier querying
     document = relationship("Document", back_populates="raw_events")
 
+    @property
+    def effective_event_name(self) -> str:
+        """Return specific_event_name if available, otherwise fall back to event_name."""
+        return self.specific_event_name or self.event_name
+
     def __repr__(self) -> str:
-        return f"<RawEvent(doc_id='{self.doc_id}', event_name='{self.event_name}')>"
+        return f"<RawEvent(doc_id='{self.doc_id}', event_name='{self.effective_event_name}')>"
 
     def to_dict(self) -> Dict[str, Any]:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}

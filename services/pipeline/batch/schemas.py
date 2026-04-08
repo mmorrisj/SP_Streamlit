@@ -312,6 +312,23 @@ SCHEMA_BILATERAL_SUMMARY = {
 }
 
 
+# -- Event Rename (specificity improvement) --
+SCHEMA_EVENT_RENAME = {
+    "name": "event_rename",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "specific_event_name": {"type": "string"},
+            "reasoning": {"type": "string"},
+            "confidence": {"type": "number"}
+        },
+        "required": ["specific_event_name", "reasoning", "confidence"],
+        "additionalProperties": False
+    }
+}
+
+
 # ===================================================================
 # Mapping from job type to schema (used by generate_batch_requests)
 # ===================================================================
@@ -337,6 +354,7 @@ def get_response_format_for_job_type(job_type: str) -> dict:
         JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
         JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
         JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
+        JOB_TYPE_EVENT_RENAME,
     )
 
     _SCHEMA_MAP = {
@@ -354,6 +372,7 @@ def get_response_format_for_job_type(job_type: str) -> dict:
         JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS: SCHEMA_ENTITY_DESCRIPTION,
         JOB_TYPE_GENERATE_BILATERAL_SUMMARIES: SCHEMA_BILATERAL_SUMMARY,
         JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS: SCHEMA_RELATIONSHIP_CLASSIFICATION,
+        JOB_TYPE_EVENT_RENAME: SCHEMA_EVENT_RENAME,
     }
 
     schema = _SCHEMA_MAP.get(job_type)

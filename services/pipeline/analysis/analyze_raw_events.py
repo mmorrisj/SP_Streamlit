@@ -13,7 +13,7 @@ def analyze_raw_events():
 
         # Total unique events
         total_events = session.execute(
-            text("SELECT COUNT(DISTINCT event_name) FROM raw_events")
+            text("SELECT COUNT(DISTINCT COALESCE(specific_event_name, event_name)) FROM raw_events")
         ).scalar()
         print(f"\nTotal unique event names: {total_events:,}")
 
@@ -30,14 +30,14 @@ def analyze_raw_events():
 
         top_events = session.execute(text("""
             SELECT
-                event_name,
+                COALESCE(re.specific_event_name, re.event_name) as event_name,
                 COUNT(*) as doc_count,
                 COUNT(DISTINCT d.initiating_country) as country_count,
                 MIN(d.date) as first_seen,
                 MAX(d.date) as last_seen
             FROM raw_events re
             JOIN documents d ON re.doc_id = d.doc_id
-            GROUP BY event_name
+            GROUP BY COALESCE(re.specific_event_name, re.event_name)
             ORDER BY doc_count DESC
             LIMIT 50
         """)).fetchall()
@@ -54,9 +54,9 @@ def analyze_raw_events():
 
         distribution = session.execute(text("""
             WITH event_counts AS (
-                SELECT event_name, COUNT(*) as doc_count
+                SELECT COALESCE(specific_event_name, event_name) as event_name, COUNT(*) as doc_count
                 FROM raw_events
-                GROUP BY event_name
+                GROUP BY COALESCE(specific_event_name, event_name)
             )
             SELECT
                 CASE
@@ -117,7 +117,7 @@ def analyze_raw_events():
         by_country = session.execute(text("""
             SELECT
                 ic.initiating_country,
-                COUNT(DISTINCT re.event_name) as unique_events,
+                COUNT(DISTINCT COALESCE(re.specific_event_name, re.event_name)) as unique_events,
                 COUNT(*) as total_relationships
             FROM raw_events re
             JOIN initiating_countries ic ON re.doc_id = ic.doc_id

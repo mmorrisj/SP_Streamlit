@@ -16,6 +16,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    from alembic import context
+    bind = context.get_bind()
+    tables_exist = bind.execute(
+        sa.text("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'research_projects')")
+    ).scalar()
+    if tables_exist:
+        return
+
     projectstatus = sa.Enum('ACTIVE', 'ARCHIVED', name='projectstatus')
 
     op.create_table(

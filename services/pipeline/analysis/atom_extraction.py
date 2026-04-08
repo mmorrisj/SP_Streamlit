@@ -194,9 +194,11 @@ Please execute the following steps and output the results using the provided jso
 
 12. Distill the content of the text to only the context relevant to a soft power exchange. All locations, persons, projects, and monetary values should remain in the distilled output. Provide this output in english.
 
-13. Produce an event name that capture the soft power interaction and key actors or entities involved.
+13. Produce a SPECIFIC event name that uniquely identifies the soft power interaction described. The event name MUST include the specific activity (e.g., "signs port construction MOU", "launches Confucius Institute", "mediates nuclear talks"), key actors or entities involved, and geographic specificity when relevant. The name should be specific enough that it could NOT describe a different event between the same two countries.
+    GOOD event names: "China-Egypt Suez Canal Economic Zone Phase 2 Expansion", "Oman Mediates Iran-US Nuclear Backchannel Talks", "Turkey-Qatar Eagle Shield Joint Military Exercise 2024", "2024 BRICS Summit in Kazan"
+    BAD event names (NEVER produce these): "China-Egypt Bilateral Relations", "Iran Cultural Diplomacy", "Turkey-Qatar Military Cooperation", "Diplomatic Meeting", "Trade Agreement"
 
-14. Output the result in json, for example {"salience-justification": "Reason the text is an example of soft power.", "salience-bool": <BOOLEAN>, "category": "<CATEGORY TEXT>", "category-justification": "<JUSTIFICATION TEXT>", "subcategory": "<SUBCATEGORY TEXT>", "initiating-country": "<COUNTRY TEXT>", "recipient-country": "<COUNTRY TEXT>", "projects": "<REFERENCED PROJECTS LIST>", "LAT_LONG": "<LATITUDE AND LONGITUDE>","location": "<LOCATION TEXT>", "monetary-commitment": "<REFERENCED MONETARY VALUES>", "distilled-text": "<DISTILLED TEXT>","event-name": "<EVENT NAME>"}, {"salience-justification": "<JUSTIFICATION TEXT>", "salience-bool": false}.
+14. Output the result in json, for example {"salience-justification": "Reason the text is an example of soft power.", "salience-bool": <BOOLEAN>, "category": "<CATEGORY TEXT>", "category-justification": "<JUSTIFICATION TEXT>", "subcategory": "<SUBCATEGORY TEXT>", "initiating-country": "<COUNTRY TEXT>", "recipient-country": "<COUNTRY TEXT>", "projects": "<REFERENCED PROJECTS LIST>", "LAT_LONG": "<LATITUDE AND LONGITUDE>","location": "<LOCATION TEXT>", "monetary-commitment": "<REFERENCED MONETARY VALUES>", "distilled-text": "<DISTILLED TEXT>","event-name": "<SPECIFIC EVENT NAME>"}, {"salience-justification": "<JUSTIFICATION TEXT>", "salience-bool": false}.
 
 IMPORTANT: ONLY output the json. ONLY use the json format. ALL output values should ONLY be in English.
 '''

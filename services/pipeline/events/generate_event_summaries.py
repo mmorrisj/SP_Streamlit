@@ -158,8 +158,11 @@ class EventSummaryGenerator:
         print("Clustering documents by event name...")
 
         # Query: Get all documents with event names for this period/country
+        # Use specific_event_name (from batch rename) when available, fall back to event_name
+        from sqlalchemy import func as sa_func
+        effective_name = sa_func.coalesce(RawEvent.specific_event_name, RawEvent.event_name)
         query = self.session.query(
-            RawEvent.event_name,
+            effective_name.label('event_name'),
             Document.doc_id
         ).join(
             Document, RawEvent.doc_id == Document.doc_id

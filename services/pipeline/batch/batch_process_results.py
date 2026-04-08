@@ -44,6 +44,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
+    JOB_TYPE_EVENT_RENAME,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -2009,6 +2010,85 @@ def process_relationship_classification_result(
         raise
 
 
+def process_event_rename_result(
+    session,
+    doc_id: str,
+    llm_response: Dict[str, Any],
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process event rename result from batch API.
+
+    Updates raw_events.specific_event_name with the LLM-generated specific name.
+    The original event_name is preserved for audit/comparison.
+
+    Args:
+        session: Database session
+        doc_id: Document ID (raw_events primary key)
+        llm_response: Parsed LLM response with specific_event_name
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'events_renamed': 0,
+        'skipped_low_confidence': 0,
+        'errors': 0
+    }
+
+    try:
+        specific_name = llm_response.get('specific_event_name', '').strip()
+        confidence = llm_response.get('confidence', 0)
+        reasoning = llm_response.get('reasoning', '')
+
+        if not specific_name:
+            if verbose:
+                print(f"  Warning: doc_id {doc_id}: Empty specific_event_name")
+            stats['errors'] += 1
+            return stats
+
+        # Skip low-confidence renames — the LLM couldn't produce something specific
+        if confidence < 0.5:
+            if verbose:
+                print(f"  doc_id {doc_id}: Low confidence ({confidence:.2f}), skipping")
+            stats['skipped_low_confidence'] += 1
+            return stats
+
+        # Truncate to 200 chars max
+        specific_name = specific_name[:200]
+
+        # Update raw_events.specific_event_name (preserves original event_name).
+        # A doc_id can have multiple raw events — update only rows without a
+        # rename yet to avoid overwriting previously processed sibling rows.
+        result = session.execute(
+            text("""
+                UPDATE raw_events SET specific_event_name = :new_name
+                WHERE doc_id = :doc_id AND specific_event_name IS NULL
+            """),
+            {"new_name": specific_name, "doc_id": doc_id}
+        )
+
+        if result.rowcount > 0:
+            if verbose:
+                safe_name = specific_name.encode('ascii', 'replace').decode('ascii')[:80]
+                print(f"  doc_id {doc_id}: -> {safe_name} ({result.rowcount} rows)")
+            stats['events_renamed'] += result.rowcount
+        else:
+            if verbose:
+                print(f"  Warning: doc_id {doc_id}: No unrenamed raw_event found (already processed)")
+            # Not an error — sibling row already renamed this doc_id
+
+
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error renaming event for doc_id {doc_id}: {e}")
+        stats['errors'] += 1
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Stage 4: Process batch results and update database",
@@ -2187,6 +2267,10 @@ def main():
                                     session, record_id, llm_response,
                                     date_str=date_suffix, verbose=args.verbose
                                 )
+                            elif job_type == JOB_TYPE_EVENT_RENAME:
+                                stats = process_event_rename_result(
+                                    session, record_id, llm_response, verbose=args.verbose
+                                )
                             else:
                                 savepoint.rollback()
                                 print(f"  Warning: Unknown job type '{job_type}' for {custom_id}")
@@ -2255,6 +2339,9 @@ def main():
             elif batch_job.job_type == JOB_TYPE_GENERATE_DAILY_SUMMARY:
                 print(f"Summaries created: {overall_stats.get('summaries_created', 0)}")
                 print(f"Source links created: {overall_stats.get('source_links_created', 0)}")
+            elif batch_job.job_type == JOB_TYPE_EVENT_RENAME:
+                print(f"Events renamed: {overall_stats.get('events_renamed', 0)}")
+                print(f"Skipped (low confidence): {overall_stats.get('skipped_low_confidence', 0)}")
 
             print("=" * 80)
 

@@ -68,6 +68,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
+    JOB_TYPE_EVENT_RENAME,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE,
@@ -500,44 +501,67 @@ def build_score_materiality_prompt(event: Dict) -> Dict[str, List[Dict[str, str]
     else:
         key_facts_str = 'None available'
 
-    sys_prompt = """You are an expert analyst assessing the material impact of soft power events.
+    sys_prompt = """You are an expert analyst scoring the strategic materiality of soft power events.
 
 **YOUR TASK:**
-Assign a materiality score from 1.0 to 10.0 measuring the concrete/substantive nature of this event.
+Assign a materiality score from 1.0 to 10.0 measuring the strategic and material impact of this soft power event. Use the anchors below to calibrate your score precisely.
 
-**Scoring Scale:**
-- 1-3: Symbolic/rhetorical (statements, cultural events with no material commitments)
-- 4-6: Mixed symbolic and material (agreements with unclear implementation, capacity building)
-- 7-10: Highly material (concrete infrastructure, specific financial commitments, tangible deliverables)
+**Scoring Scale (use precise anchors):**
 
-**Consider:**
-- Concrete commitments vs. symbolic gestures
-- Specific financial amounts vs. vague promises
-- Tangible deliverables vs. aspirational statements
-- Implementation status vs. announcements only
+1.0-2.0: **Routine/Ceremonial** — No new commitments or outcomes
+  - Anniversary celebrations, cultural festivals, flag-raising ceremonies
+  - Speeches reaffirming existing positions with no new elements
+  - Routine diplomatic courtesy visits with no agenda
+  - Score 1.0: Pure ceremony. Score 2.0: Ceremony with minor symbolic gesture (gift exchange, joint statement)
 
-**Output JSON format:**
-{{
-    "material_score": 7.5,
-    "justification": "Brief explanation of the score"
-}}
+2.5-3.5: **Symbolic with Signal Value** — No material commitment but sends a political message
+  - First-ever meeting between leaders (symbolic opening, no deal)
+  - Public solidarity statements during a crisis
+  - Boycotts, expulsions, or recalls of ambassadors
+  - Cultural events explicitly tied to a political agenda (propaganda screenings, ideological exhibitions)
+  - Score 2.5: Weak signal. Score 3.5: Strong signal that shifts perceptions
 
-**Example 1 - Score 2.5:**
-Event: Cultural Festival Participation
-Description: Country representatives attended international cultural festival, delivered speeches on cultural cooperation.
-Justification: "Purely symbolic participation with no concrete commitments or tangible outcomes beyond statements."
+4.0-5.0: **Framework/Intent** — Commitments exist but are non-binding or vague
+  - MOUs without specific projects, timelines, or dollar amounts
+  - "Working groups" or "joint committees" established
+  - Trade talks initiated but no agreement reached
+  - Scholarship programs or training exchanges (small scale, <100 people)
+  - Score 4.0: Vague intent. Score 5.0: Named initiative with structure but no funding
 
-**Example 2 - Score 6.0:**
-Event: Renewable Energy Cooperation Agreement
-Description: Two countries signed MOU on renewable energy cooperation, established working group for future projects.
-Justification: "Agreement shows intent but lacks specific projects, timelines, or financial commitments. Mixed symbolic/material."
+5.5-6.5: **Concrete but Limited** — Specific, verifiable commitments at moderate scale
+  - Signed agreements with named projects and timelines
+  - Financial commitments under $100M
+  - Military equipment deliveries or specific joint exercises with named assets
+  - Visa agreements, direct flight routes, or trade facilitation measures
+  - Humanitarian aid deliveries with specific quantities
+  - Score 5.5: Single small deliverable. Score 6.5: Multiple deliverables or binding agreement
 
-**Example 3 - Score 9.0:**
-Event: Nuclear Power Plant Construction
-Description: Construction began on nuclear power plant with $25B confirmed financing, four reactors with 4,800 MW capacity, completion scheduled by 2030.
-Justification: "Major infrastructure project with specific financial commitment ($25B), confirmed construction phase, and tangible deliverables (4,800 MW capacity)."
+7.0-8.0: **Substantial** — Major commitments that alter bilateral dynamics
+  - Financial commitments $100M-$1B
+  - Infrastructure projects breaking ground (not just announced)
+  - Free trade agreements or major tariff changes
+  - Defense pacts, base access agreements, or major arms deals
+  - Large-scale humanitarian operations (thousands of beneficiaries)
+  - Score 7.0: Major single commitment. Score 8.0: Multiple major commitments or implemented (not just signed)
 
-Respond with ONLY the JSON object."""
+8.5-10.0: **Transformative** — Reshapes regional dynamics or creates lasting structural change
+  - Financial commitments >$1B
+  - Nuclear/energy megaprojects under construction
+  - New international institutions or frameworks (BRICS expansion, SCO membership)
+  - Peace agreements ending active conflicts
+  - Permanent military basing or security guarantees
+  - Score 8.5: Major structural shift. Score 10.0: Historic, once-in-a-decade event
+
+**Additional Signals (adjust score ±0.5-1.0):**
+- High article count (>20) suggests significant media/policy attention → adjust UP
+- Multi-day coverage suggests sustained importance → adjust UP
+- Multiple recipient countries involved → adjust UP
+- Event is an update to a previously scored event (follow-on meeting) → adjust DOWN vs. original event
+- Announcement only with no implementation evidence → adjust DOWN
+
+**CRITICAL:** Use the full 1-10 range. Score based on the anchors above, not gut feeling. A cultural festival is a 1-2 regardless of which countries are involved. A $500M infrastructure project is a 7+ regardless of how few articles cover it. Let the substance drive the score.
+
+Respond with ONLY the JSON object: {{"material_score": <number>, "justification": "<brief explanation>"}}"""
 
     user_prompt = f"""**Event:** {event['canonical_name']}
 **Country:** {event['initiating_country']}
@@ -2616,6 +2640,137 @@ def build_bilateral_summary_prompt(pair_data: Dict) -> Dict[str, List[Dict[str, 
     }
 
 
+def load_raw_events_for_rename(
+    session,
+    country: str = None,
+    limit: int = None,
+) -> List[Dict]:
+    """
+    Load raw_events that need more specific event names.
+
+    Targets generic event names by joining with document distilled_text
+    to give the LLM enough context to produce a specific name.
+
+    Returns list of dicts with: doc_id, event_name, distilled_text,
+    category, subcategory, initiating_country, recipient_country, projects
+    """
+    filters = []
+    params = {}
+
+    if country:
+        filters.append("d.initiating_country ILIKE :country")
+        params['country'] = f"%{country}%"
+
+    limit_clause = f"LIMIT {limit}" if limit else ""
+
+    # Only load events that haven't been renamed yet
+    base_filter = "re.specific_event_name IS NULL"
+    if filters:
+        where_clause = "WHERE " + base_filter + " AND " + " AND ".join(filters)
+    else:
+        where_clause = "WHERE " + base_filter
+
+    query = text(f"""
+        SELECT
+            re.doc_id,
+            re.event_name,
+            d.distilled_text,
+            d.category,
+            d.subcategory,
+            d.initiating_country,
+            d.recipient_country,
+            d.project_name,
+            d.date
+        FROM raw_events re
+        JOIN documents d ON re.doc_id = d.doc_id
+        {where_clause}
+        ORDER BY d.date ASC
+        {limit_clause}
+    """)
+
+    rows = session.execute(query, params).fetchall()
+
+    records = []
+    for row in rows:
+        records.append({
+            'doc_id': row.doc_id,
+            'event_name': row.event_name,
+            'distilled_text': (row.distilled_text or '')[:1500],  # Cap for token budget
+            'category': row.category or '',
+            'subcategory': row.subcategory or '',
+            'initiating_country': row.initiating_country or '',
+            'recipient_country': row.recipient_country or '',
+            'projects': row.project_name or '',
+            'date': str(row.date) if row.date else '',
+        })
+
+    print(f"  Loaded {len(records)} raw events for rename")
+    return records
+
+
+def build_event_rename_prompt(record: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt to rename a generic event name to a specific one.
+
+    Uses distilled_text + metadata to produce a name that uniquely
+    identifies THIS event vs other events involving the same country pair.
+    """
+    sys_prompt = """You are an expert analyst specializing in international relations and soft power events.
+
+Your task is to produce a SPECIFIC event name from a document about a soft power interaction.
+
+**THE PROBLEM:**
+Generic event names like "Iran-Oman Bilateral Relations" or "China-Egypt Diplomatic Engagement" are useless for event tracking because dozens of unrelated events share the same vague label. When these get clustered, they create mega-blobs of thousands of unrelated documents.
+
+**YOUR TASK:**
+Read the document content and produce a specific event name that uniquely identifies THIS particular event, agreement, project, or initiative.
+
+**RULES:**
+1. The event name MUST reference the specific activity described (e.g., "signs port MOU", "launches Confucius Institute", "mediates nuclear talks")
+2. Include key entities: named agreements, named projects, named summits, specific people when central
+3. Include geographic specificity when it distinguishes the event (e.g., "Alexandria Port" not just "port")
+4. The name should be specific enough that it could NOT describe a different event between the same two countries
+5. Keep it under 100 characters
+6. If the document describes a well-known named event (BRICS Summit, Belt and Road Forum, etc.), use the specific instance (e.g., "2024 BRICS Summit in Kazan" not just "BRICS Summit")
+
+**GOOD event names:**
+- "China-Egypt Suez Canal Economic Zone Phase 2 Expansion"
+- "Oman Mediates Iran-US Nuclear Backchannel Talks, March 2025"
+- "Turkey-Qatar Eagle Shield Joint Military Exercise 2024"
+- "Iran Cultural Screening of 'Hezbollah is Alive' in Tehran"
+- "China Funds $2B Alexandria Port Construction Project"
+- "2024 Shanghai Cooperation Organization Summit in Astana"
+
+**BAD event names (too generic — NEVER produce these):**
+- "China-Egypt Bilateral Relations"
+- "Iran Cultural Diplomacy"
+- "Turkey-Qatar Military Cooperation"
+- "China Economic Engagement with Egypt"
+- "Diplomatic Meeting"
+- "Trade Agreement"
+
+If the document content is too vague to produce a specific name, do your best with available details and set confidence below 0.5."""
+
+    user_prompt = f"""**Current event name:** {record['event_name']}
+**Date:** {record['date']}
+**Category:** {record['category']} / {record['subcategory']}
+**Initiating country:** {record['initiating_country']}
+**Recipient country:** {record['recipient_country']}
+**Referenced projects:** {record['projects']}
+
+**Document content:**
+{record['distilled_text']}
+
+Produce a specific event name for this document."""
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
 def generate_batch_requests(
     job_type: str,
     records: List[Any],
@@ -2896,6 +3051,28 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_EVENT_RENAME:
+        # records is a list of raw event dicts needing specific names
+        # raw_events has composite PK (doc_id, event_name), so one doc_id can
+        # appear multiple times. Use a hash of event_name as suffix for uniqueness.
+        import hashlib
+        for record in records:
+            name_hash = hashlib.md5(record['event_name'].encode()).hexdigest()[:8]
+            custom_id = generate_custom_id(job_type, record['doc_id'], suffix=name_hash)
+            prompt_data = build_event_rename_prompt(record)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": temperature,
+                    "response_format": response_format
+                }
+            })
+
     return batch_requests
 
 
@@ -2946,7 +3123,8 @@ def main():
                                JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
                                JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
                                JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
-                               JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS],
+                               JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
+                               JOB_TYPE_EVENT_RENAME],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -3161,6 +3339,14 @@ def main():
             )
             mode = "all (force)" if args.force else "unclassified only"
             print(f"Found {len(records)} entity relationships to classify ({mode}, min_cooccurrence={min_coo})")
+
+        elif args.job_type == JOB_TYPE_EVENT_RENAME:
+            records = load_raw_events_for_rename(
+                session,
+                args.country,
+                limit=args.min_articles if args.min_articles != 3 else None,
+            )
+            print(f"Found {len(records)} raw events for rename")
 
         else:
             print(f"Error: Unsupported job type: {args.job_type}")

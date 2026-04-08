@@ -17,12 +17,38 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create enum types
+    from alembic import context
+    bind = context.get_bind()
+
+    # Check if tables already exist (e.g. from create_all or partial migration)
+    tables_exist = bind.execute(
+        sa.text("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'alert_rules')")
+    ).scalar()
+
+    if tables_exist:
+        # Tables already created outside alembic — just stamp and move on
+        return
+
+    # Create enum types conditionally
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE alertconditiontype AS ENUM ('MATERIALITY_SPIKE', 'VOLUME_SURGE', 'NEW_ENTITY', 'NEW_EVENT');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE alertseverity AS ENUM ('INFO', 'WARNING', 'CRITICAL');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+    """)
     alertconditiontype = sa.Enum(
         'MATERIALITY_SPIKE', 'VOLUME_SURGE', 'NEW_ENTITY', 'NEW_EVENT',
-        name='alertconditiontype'
+        name='alertconditiontype', create_type=False
     )
-    alertseverity = sa.Enum('INFO', 'WARNING', 'CRITICAL', name='alertseverity')
+    alertseverity = sa.Enum('INFO', 'WARNING', 'CRITICAL', name='alertseverity', create_type=False)
 
     # Create alert_rules table
     op.create_table(

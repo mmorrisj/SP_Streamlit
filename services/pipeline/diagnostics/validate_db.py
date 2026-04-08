@@ -37,7 +37,7 @@ def validate_database():
 
         # Sample of raw events
         sample_events = session.execute(
-            text("SELECT event_name, COUNT(*) as count FROM raw_events GROUP BY event_name ORDER BY count DESC LIMIT 10")
+            text("SELECT COALESCE(specific_event_name, event_name) as event_name, COUNT(*) as count FROM raw_events GROUP BY COALESCE(specific_event_name, event_name) ORDER BY count DESC LIMIT 10")
         ).fetchall()
         print("\nTop 10 Events:")
         for event_name, count in sample_events:

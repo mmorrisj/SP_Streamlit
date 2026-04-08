@@ -135,6 +135,12 @@ enc = tiktoken.encoding_for_model('gpt-4o'); \
 print(f'Tiktoken encoding cached: {enc.name}') \
 "
 
+# Cache-bust application code layers on every build.
+# buildx caches aggressively and may serve stale COPY layers even when
+# local files have changed. This ARG changes each build, forcing a fresh
+# copy of all application code including migrations.
+ARG CACHEBUST=1
+
 # Copy application code (pipeline/ingestion excluded)
 COPY shared/ ./shared/
 COPY server/ ./server/

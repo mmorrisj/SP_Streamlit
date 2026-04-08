@@ -23,7 +23,7 @@ def analyze_event_distribution():
         print("-" * 100)
 
         total_docs = session.execute(text("SELECT COUNT(*) FROM documents")).scalar()
-        total_events_unique = session.execute(text("SELECT COUNT(DISTINCT event_name) FROM raw_events")).scalar()
+        total_events_unique = session.execute(text("SELECT COUNT(DISTINCT COALESCE(specific_event_name, event_name)) FROM raw_events")).scalar()
         total_relationships = session.execute(text("SELECT COUNT(*) FROM raw_events")).scalar()
 
         print(f"Total Documents: {total_docs:,}")
@@ -39,9 +39,9 @@ def analyze_event_distribution():
 
         distribution = session.execute(text("""
             WITH event_counts AS (
-                SELECT event_name, COUNT(*) as doc_count
+                SELECT COALESCE(specific_event_name, event_name) as event_name, COUNT(*) as doc_count
                 FROM raw_events
-                GROUP BY event_name
+                GROUP BY COALESCE(specific_event_name, event_name)
             )
             SELECT
                 CASE
@@ -78,7 +78,7 @@ def analyze_event_distribution():
 
         top_events = session.execute(text("""
             SELECT
-                event_name,
+                COALESCE(re.specific_event_name, re.event_name) as event_name,
                 COUNT(*) as doc_count,
                 COUNT(DISTINCT ic.initiating_country) as country_count,
                 MIN(d.date) as first_seen,
@@ -87,7 +87,7 @@ def analyze_event_distribution():
             FROM raw_events re
             JOIN documents d ON re.doc_id = d.doc_id
             LEFT JOIN initiating_countries ic ON d.doc_id = ic.doc_id
-            GROUP BY event_name
+            GROUP BY COALESCE(re.specific_event_name, re.event_name)
             ORDER BY doc_count DESC
             LIMIT 100
         """)).fetchall()
@@ -108,11 +108,11 @@ def analyze_event_distribution():
         patterns = session.execute(text(r"""
             WITH event_words AS (
                 SELECT
-                    event_name,
-                    regexp_split_to_array(LOWER(event_name), '\s+') as words,
+                    COALESCE(specific_event_name, event_name) as event_name,
+                    regexp_split_to_array(LOWER(COALESCE(specific_event_name, event_name)), '\s+') as words,
                     COUNT(*) as doc_count
                 FROM raw_events
-                GROUP BY event_name
+                GROUP BY COALESCE(specific_event_name, event_name)
             ),
             word_freq AS (
                 SELECT
@@ -141,16 +141,16 @@ def analyze_event_distribution():
         duplicates = session.execute(text("""
             WITH normalized_events AS (
                 SELECT
-                    LOWER(TRIM(event_name)) as normalized,
-                    array_agg(DISTINCT event_name) as variations,
+                    LOWER(TRIM(COALESCE(specific_event_name, event_name))) as normalized,
+                    array_agg(DISTINCT COALESCE(specific_event_name, event_name)) as variations,
                     SUM(cnt) as total_docs
                 FROM (
-                    SELECT event_name, COUNT(*) as cnt
+                    SELECT COALESCE(specific_event_name, event_name) as event_name, COUNT(*) as cnt
                     FROM raw_events
-                    GROUP BY event_name
+                    GROUP BY COALESCE(specific_event_name, event_name)
                 ) t
-                GROUP BY LOWER(TRIM(event_name))
-                HAVING COUNT(DISTINCT event_name) > 1
+                GROUP BY LOWER(TRIM(COALESCE(specific_event_name, event_name)))
+                HAVING COUNT(DISTINCT COALESCE(specific_event_name, event_name)) > 1
             )
             SELECT
                 normalized,
@@ -179,14 +179,14 @@ def analyze_event_distribution():
         temporal = session.execute(text("""
             WITH event_lifespan AS (
                 SELECT
-                    event_name,
+                    COALESCE(re.specific_event_name, re.event_name) as event_name,
                     MIN(d.date) as first_seen,
                     MAX(d.date) as last_seen,
                     EXTRACT(DAY FROM MAX(d.date) - MIN(d.date)) as days_span,
                     COUNT(*) as doc_count
                 FROM raw_events re
                 JOIN documents d ON re.doc_id = d.doc_id
-                GROUP BY event_name
+                GROUP BY COALESCE(re.specific_event_name, re.event_name)
             )
             SELECT
                 CASE
@@ -216,16 +216,16 @@ def analyze_event_distribution():
         geo = session.execute(text("""
             SELECT
                 ic.initiating_country,
-                COUNT(DISTINCT re.event_name) as unique_events,
+                COUNT(DISTINCT COALESCE(re.specific_event_name, re.event_name)) as unique_events,
                 COUNT(*) as total_relationships,
                 ROUND(AVG(docs_per_event), 1) as avg_docs_per_event
             FROM raw_events re
             JOIN initiating_countries ic ON re.doc_id = ic.doc_id
             JOIN (
-                SELECT event_name, COUNT(*) as docs_per_event
+                SELECT COALESCE(specific_event_name, event_name) as eff_event_name, COUNT(*) as docs_per_event
                 FROM raw_events
-                GROUP BY event_name
-            ) event_stats ON re.event_name = event_stats.event_name
+                GROUP BY COALESCE(specific_event_name, event_name)
+            ) event_stats ON COALESCE(re.specific_event_name, re.event_name) = event_stats.eff_event_name
             GROUP BY ic.initiating_country
             ORDER BY unique_events DESC
         """)).fetchall()

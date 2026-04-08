@@ -274,7 +274,7 @@ def export_audit(output_file: Path):
     output.append(f"Recipient Countries Table: {rec_count:,} rows, {rec_unique} unique")
 
     raw_events_count = run_scalar("SELECT COUNT(*) FROM raw_events")
-    raw_events_unique = run_scalar("SELECT COUNT(DISTINCT event_name) FROM raw_events")
+    raw_events_unique = run_scalar("SELECT COUNT(DISTINCT COALESCE(specific_event_name, event_name)) FROM raw_events")
     output.append(f"Raw Events Table: {raw_events_count:,} rows, {raw_events_unique:,} unique events")
 
     # ====================

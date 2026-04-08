@@ -16,12 +16,22 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '20260403_enterprise_jwt'
-down_revision: Union[str, None] = '821886869aed'
+down_revision: Union[str, None] = '20260402_research_projects'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    from alembic import context
+    bind = context.get_bind()
+
+    # Check if already applied (enterprise_id exists = migration was run outside alembic)
+    col_exists = bind.execute(
+        sa.text("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'enterprise_id')")
+    ).scalar()
+    if col_exists:
+        return
+
     # Add enterprise_id column
     op.add_column('users', sa.Column('enterprise_id', sa.String(length=255), nullable=True))
     op.create_index('ix_user_enterprise_id', 'users', ['enterprise_id'], unique=True)

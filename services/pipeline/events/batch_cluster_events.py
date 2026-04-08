@@ -137,9 +137,10 @@ class EventBatchClusterer:
         # Build base query
         if self.recipient_countries:
             # Filter by target recipients from config
+            # Use specific_event_name (from batch rename) when available, fall back to event_name
             query = text("""
                 SELECT DISTINCT
-                    re.event_name,
+                    COALESCE(re.specific_event_name, re.event_name) AS event_name,
                     re.doc_id,
                     d.date
                 FROM raw_events re
@@ -161,7 +162,7 @@ class EventBatchClusterer:
                       WHERE rc.doc_id = d.doc_id
                         AND rc.recipient_country = ic.initiating_country
                   )
-                ORDER BY re.event_name
+                ORDER BY event_name
             """)
 
             result = session.execute(query, {
@@ -171,9 +172,10 @@ class EventBatchClusterer:
             })
         else:
             # No recipient filter, just exclude self-directed
+            # Use specific_event_name (from batch rename) when available, fall back to event_name
             query = text("""
                 SELECT DISTINCT
-                    re.event_name,
+                    COALESCE(re.specific_event_name, re.event_name) AS event_name,
                     re.doc_id,
                     d.date
                 FROM raw_events re
@@ -188,7 +190,7 @@ class EventBatchClusterer:
                       WHERE rc.doc_id = d.doc_id
                         AND rc.recipient_country = ic.initiating_country
                   )
-                ORDER BY re.event_name
+                ORDER BY event_name
             """)
 
             result = session.execute(query, {
