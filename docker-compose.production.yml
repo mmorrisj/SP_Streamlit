@@ -85,7 +85,7 @@ services:
   # Single consolidated container from Docker Hub
   # -----------------------
   app:
-    image: mmorrisj/softpower-analytics:1.8.2
+    image: mmorrisj/softpower-analytics:1.8.4
     container_name: sp_prod_app
     restart: unless-stopped
     security_opt:
@@ -131,10 +131,6 @@ services:
       JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
     volumes:
-      # Mount local code for development (override image code)
-      - ./server:/app/server
-      - ./scripts:/app/scripts
-      - ./shared:/app/shared
       # Persist reports to host
       - ./reports:/app/reports
     ports:
@@ -154,7 +150,7 @@ services:
   # Alembic Migrations (run once with --profile migrate)
   # -----------------------
   migrate:
-    image: mmorrisj/softpower-analytics:1.8.2
+    image: mmorrisj/softpower-analytics:1.8.4
     container_name: sp_prod_migrate
     security_opt:
       - no-new-privileges:true

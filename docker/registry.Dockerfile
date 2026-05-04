@@ -18,7 +18,7 @@
 # ============================================
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # Node 22 is the current LTS (supported through April 2027).
-FROM node:22-bookworm-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS frontend-builder
+FROM node:22-bookworm-slim@sha256:d415caac2f1f77b98caaf9415c5f807e14bc8d7bdea62561ea2fef4fbd08a73c AS frontend-builder
 
 WORKDIR /app/client
 
@@ -35,7 +35,7 @@ RUN npm run build \
 # ============================================
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # Trixie (Debian 13, glibc 2.38) is safe — clone3 syscall requires kernel 5.3+.
-FROM python:3.13-slim-trixie@sha256:739e7213785e88c0f702dcdc12c0973afcbd606dbf021a589cab77d6b00b579d
+FROM python:3.13-slim-trixie@sha256:a0779d7c12fc20be6ec6b4ddc901a4fd7657b8a6bc9def9d3fde89ed5efe0a3d
 
 WORKDIR /app
 
