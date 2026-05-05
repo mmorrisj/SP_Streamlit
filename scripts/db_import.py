@@ -2,12 +2,20 @@
 """
 Import a chunked database export into a PostgreSQL database.
 
-Reads chunks and manifest.json produced by db_export.py, verifies checksums,
-reassembles the pg_dump file, and restores it with pg_restore.
+Source modes:
+    --input-dir   Local directory of chunk files (verifies checksums, reassembles, restores)
+    --s3-bucket   Stream chunks directly from S3 to pg_restore (no disk staging)
+
+Both modes use the manifest.json produced by db_export.py.
 
 Usage:
-    # Import using .env defaults for target database
+    # Local: import using .env defaults
     python scripts/db_import.py --input-dir ./db_export_20260226
+
+    # S3 streaming: zero disk staging (chunks pipe straight to pg_restore stdin)
+    python scripts/db_import.py --s3-bucket my-bucket \
+        --s3-prefix db_exports/20260226/ \
+        --docker-container sp_prod_db --create-db
 
     # Import into a different database
     python scripts/db_import.py --input-dir ./db_export_20260226 \
@@ -23,7 +31,7 @@ Usage:
     # Drop existing database and recreate (destructive!)
     python scripts/db_import.py --input-dir ./db_export_20260226 --drop-existing
 
-    # Dry run: verify checksums and display manifest only
+    # Dry run: verify checksums and display manifest only (input-dir mode only)
     python scripts/db_import.py --input-dir ./db_export_20260226 --dry-run
 """
 
@@ -276,6 +284,9 @@ def build_pg_restore_cmd(conn, dump_path, docker_container=None, jobs=1):
 
     When docker_container is set, uses an ephemeral container on the
     softpower_net network instead of docker exec (enterprise compatibility).
+
+    When dump_path is None, pg_restore reads from stdin (streaming mode).
+    Returns (cmd, pipe_stdin).
     """
     pg_restore_args = [
         "pg_restore",
@@ -295,7 +306,7 @@ def build_pg_restore_cmd(conn, dump_path, docker_container=None, jobs=1):
             "--port=5432",
             f"--username={conn['user']}",
         ])
-        # Ephemeral container: pipe dump file via stdin
+        # Ephemeral container: pipe dump (file or stream) via stdin
         return (
             ["docker", "run", "--rm", "-i",
              "--network", os.getenv("NETWORK_NAME", "softpower_net"),
@@ -303,14 +314,17 @@ def build_pg_restore_cmd(conn, dump_path, docker_container=None, jobs=1):
              db_image] + pg_restore_args,
             True  # pipe_stdin=True
         )
-    else:
-        pg_restore_args.extend([
-            f"--host={conn['host']}",
-            f"--port={conn['port']}",
-            f"--username={conn['user']}",
-            str(dump_path),
-        ])
-        return pg_restore_args, False
+
+    pg_restore_args.extend([
+        f"--host={conn['host']}",
+        f"--port={conn['port']}",
+        f"--username={conn['user']}",
+    ])
+    if dump_path is None:
+        # No file argument → pg_restore reads from stdin
+        return pg_restore_args, True
+    pg_restore_args.append(str(dump_path))
+    return pg_restore_args, False
 
 
 def restore_database(conn, dump_path, docker_container=None, jobs=1):
@@ -461,10 +475,160 @@ def verify_row_counts(conn, manifest_tables, docker_container=None):
         print(f"\n  All {len(all_tables)} tables verified OK")
 
 
+def make_s3_client(region=None, endpoint_url=None):
+    """Build an S3 client. boto3 picks up credentials from the standard chain
+    (env vars, ~/.aws/credentials, IAM role, etc.)."""
+    try:
+        import boto3
+    except ImportError:
+        print("ERROR: boto3 is required for --s3-bucket mode.")
+        print("       Install with: pip install boto3")
+        sys.exit(1)
+
+    kwargs = {}
+    if region:
+        kwargs["region_name"] = region
+    if endpoint_url:
+        kwargs["endpoint_url"] = endpoint_url
+    return boto3.client("s3", **kwargs)
+
+
+def s3_get_manifest(s3_client, bucket, prefix):
+    """Download manifest.json from S3 and return parsed dict."""
+    key = prefix.rstrip("/") + "/manifest.json" if prefix else "manifest.json"
+    try:
+        obj = s3_client.get_object(Bucket=bucket, Key=key)
+        return json.loads(obj["Body"].read())
+    except s3_client.exceptions.NoSuchKey:
+        print(f"ERROR: manifest.json not found at s3://{bucket}/{key}")
+        sys.exit(1)
+
+
+def restore_database_streaming(conn, manifest, s3_client, bucket, prefix,
+                               docker_container=None, jobs=1):
+    """Stream chunks from S3 directly to pg_restore stdin (no disk staging).
+
+    Verifies SHA256 of each chunk on-the-fly while streaming. Aborts the
+    restore if any chunk's checksum or size doesn't match the manifest.
+    """
+    if jobs > 1:
+        print(f"  Note: --jobs={jobs} ignored in streaming mode "
+              "(pg_restore needs seekable input for parallel restore)")
+        jobs = 1
+
+    cmd, _pipe = build_pg_restore_cmd(
+        conn, dump_path=None, docker_container=docker_container, jobs=jobs
+    )
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = conn["password"]
+
+    chunks = manifest["chunks"]
+    total_bytes = sum(c["size_bytes"] for c in chunks)
+
+    print(f"  Streaming {len(chunks)} chunk(s) from "
+          f"s3://{bucket}/{prefix} → pg_restore")
+    print(f"  Total to stream: {total_bytes / (1024**3):.2f} GB")
+
+    process = subprocess.Popen(
+        cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, env=env
+    )
+
+    bytes_streamed = 0
+    try:
+        for i, chunk in enumerate(chunks, 1):
+            key = (prefix.rstrip("/") + "/" + chunk["file"]) if prefix else chunk["file"]
+            chunk_mb = chunk["size_bytes"] / (1024**2)
+            print(f"    [{i}/{len(chunks)}] {chunk['file']} ({chunk_mb:.1f} MB)...",
+                  end="", flush=True)
+
+            obj = s3_client.get_object(Bucket=bucket, Key=key)
+            body = obj["Body"]
+            h = hashlib.sha256()
+            chunk_bytes = 0
+
+            while True:
+                block = body.read(READ_BLOCK)
+                if not block:
+                    break
+                h.update(block)
+                chunk_bytes += len(block)
+                process.stdin.write(block)
+                bytes_streamed += len(block)
+
+            actual_sha = h.hexdigest()
+            if chunk_bytes != chunk["size_bytes"]:
+                print(" SIZE MISMATCH")
+                process.stdin.close()
+                process.terminate()
+                raise RuntimeError(
+                    f"Size mismatch on {chunk['file']}: "
+                    f"expected {chunk['size_bytes']}, streamed {chunk_bytes}"
+                )
+            if actual_sha != chunk["sha256"]:
+                print(" CHECKSUM FAIL")
+                process.stdin.close()
+                process.terminate()
+                raise RuntimeError(
+                    f"Checksum mismatch on {chunk['file']}: "
+                    f"expected {chunk['sha256'][:16]}..., got {actual_sha[:16]}..."
+                )
+            pct = bytes_streamed / total_bytes * 100 if total_bytes else 100
+            print(f" OK ({pct:.1f}%)")
+
+        process.stdin.close()
+        stdout, stderr = process.communicate()
+
+        stderr_text = stderr.decode("utf-8", errors="replace")
+        error_lines = []
+        warning_lines = []
+        for line in stderr_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if "ERROR" in line and "does not exist" not in line:
+                error_lines.append(line)
+            elif "WARNING" in line or "NOTICE" in line:
+                warning_lines.append(line)
+
+        if warning_lines:
+            print(f"  Warnings ({len(warning_lines)}):")
+            for line in warning_lines[:10]:
+                print(f"    {line}")
+            if len(warning_lines) > 10:
+                print(f"    ... and {len(warning_lines) - 10} more")
+
+        if error_lines:
+            print(f"  Errors ({len(error_lines)}):")
+            for line in error_lines[:10]:
+                print(f"    {line}")
+            if len(error_lines) > 10:
+                print(f"    ... and {len(error_lines) - 10} more")
+
+        verbose_lines = [
+            l for l in stderr_text.strip().split("\n")
+            if l.strip() and "pg_restore:" in l
+        ]
+        if verbose_lines:
+            print("  pg_restore output (last 5 lines):")
+            for line in verbose_lines[-5:]:
+                print(f"    {line.strip()}")
+
+        return process.returncode
+
+    except KeyboardInterrupt:
+        print("\nAborted by user")
+        process.stdin.close()
+        process.terminate()
+        return 1
+
+
 def import_database(args):
     """Main import logic."""
-    input_dir = Path(args.input_dir).resolve()
     conn = get_connection_params(args)
+    using_s3 = bool(args.s3_bucket)
+    input_dir = Path(args.input_dir).resolve() if args.input_dir else None
 
     # Determine Docker container
     docker_container = args.docker_container
@@ -476,19 +640,24 @@ def import_database(args):
             print("  No Docker container detected, using local pg_restore")
             docker_container = None
 
-    # Read manifest
-    manifest_path = input_dir / "manifest.json"
-    if not manifest_path.exists():
-        print(f"ERROR: manifest.json not found in {input_dir}")
-        sys.exit(1)
-
-    manifest = json.loads(manifest_path.read_text())
+    # Load manifest from S3 or local directory
+    if using_s3:
+        s3_client = make_s3_client(args.s3_region, args.s3_endpoint_url)
+        manifest = s3_get_manifest(s3_client, args.s3_bucket, args.s3_prefix)
+        source_label = f"s3://{args.s3_bucket}/{args.s3_prefix.rstrip('/')}/"
+    else:
+        manifest_path = input_dir / "manifest.json"
+        if not manifest_path.exists():
+            print(f"ERROR: manifest.json not found in {input_dir}")
+            sys.exit(1)
+        manifest = json.loads(manifest_path.read_text())
+        source_label = str(input_dir)
 
     # Display manifest info
     print("=" * 60)
     print("  DATABASE IMPORT")
     print("=" * 60)
-    print(f"  Source dir:    {input_dir}")
+    print(f"  Source:        {source_label}")
     print(f"  Export date:   {manifest.get('created_at', 'unknown')}")
     print(f"  Source DB:     {manifest.get('database_name', 'unknown')}")
     print(f"  pg_dump ver:   {manifest.get('pg_dump_version', 'unknown')}")
@@ -513,20 +682,28 @@ def import_database(args):
             print(f"    {t['name']}: {t['rows']:,} rows")
         print()
 
-    # Verify checksums
-    print("  Verifying chunk checksums...")
-    ok, errors = verify_checksums(input_dir, manifest["chunks"])
-    if not ok:
-        print("\n  CHECKSUM VERIFICATION FAILED:")
-        for err in errors:
-            print(f"    {err}")
-        print("\n  The export may be corrupted. Re-export from the source database.")
-        sys.exit(1)
-    print("  All checksums verified OK")
-    print()
+    # Verify checksums (local mode only — S3 mode verifies on-the-fly during stream)
+    if using_s3:
+        print("  Skipping pre-verify (S3 streaming verifies SHA256 on-the-fly)")
+        print()
+    else:
+        print("  Verifying chunk checksums...")
+        ok, errors = verify_checksums(input_dir, manifest["chunks"])
+        if not ok:
+            print("\n  CHECKSUM VERIFICATION FAILED:")
+            for err in errors:
+                print(f"    {err}")
+            print("\n  The export may be corrupted. Re-export from the source database.")
+            sys.exit(1)
+        print("  All checksums verified OK")
+        print()
 
     if args.dry_run:
-        print("  Dry run complete. No changes made.")
+        if using_s3:
+            print("  Dry run not supported for --s3-bucket mode "
+                  "(would require streaming the full export to discard).")
+        else:
+            print("  Dry run complete. No changes made.")
         return
 
     # Drop existing database if requested
@@ -549,24 +726,27 @@ def import_database(args):
             sys.exit(1)
         print()
 
-    # Reassemble chunks
-    chunks = manifest["chunks"]
-    if len(chunks) == 1:
-        # Single chunk — use directly
-        dump_path = input_dir / chunks[0]["file"]
-        temp_dump = None
-        print(f"  Single chunk, using directly: {chunks[0]['file']}")
-    else:
-        # Multiple chunks — reassemble to temp file
-        temp_dump = Path(tempfile.mkdtemp()) / "reassembled.dump"
-        dump_path = reassemble_chunks(input_dir, chunks, temp_dump)
-    print()
-
     # Run pg_restore
+    temp_dump = None
     try:
-        returncode = restore_database(
-            conn, dump_path, docker_container, jobs=args.jobs
-        )
+        if using_s3:
+            returncode = restore_database_streaming(
+                conn, manifest, s3_client,
+                args.s3_bucket, args.s3_prefix,
+                docker_container=docker_container, jobs=args.jobs,
+            )
+        else:
+            chunks = manifest["chunks"]
+            if len(chunks) == 1:
+                dump_path = input_dir / chunks[0]["file"]
+                print(f"  Single chunk, using directly: {chunks[0]['file']}")
+            else:
+                temp_dump = Path(tempfile.mkdtemp()) / "reassembled.dump"
+                dump_path = reassemble_chunks(input_dir, chunks, temp_dump)
+            print()
+            returncode = restore_database(
+                conn, dump_path, docker_container, jobs=args.jobs
+            )
         print()
 
         if returncode == 0:
@@ -582,7 +762,7 @@ def import_database(args):
             verify_row_counts(conn, tables, docker_container)
 
     finally:
-        # Clean up temp file
+        # Clean up temp reassembly file (local mode with multiple chunks)
         if temp_dump and temp_dump.exists():
             temp_dump.unlink()
             temp_dump.parent.rmdir()
@@ -610,8 +790,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Import using .env defaults
+  # Import from local directory
   python scripts/db_import.py --input-dir ./db_export
+
+  # Stream from S3 (zero disk staging)
+  python scripts/db_import.py --s3-bucket my-bucket \\
+      --s3-prefix db_exports/20260226/ \\
+      --docker-container sp_prod_db --create-db
 
   # Import into a different host
   python scripts/db_import.py --input-dir ./db_export \\
@@ -620,12 +805,23 @@ Examples:
   # Create database + extensions automatically
   python scripts/db_import.py --input-dir ./db_export --create-db
 
-  # Dry run (verify checksums only)
+  # Dry run (verify checksums only — input-dir mode)
   python scripts/db_import.py --input-dir ./db_export --dry-run
         """,
     )
-    parser.add_argument("--input-dir", required=True,
+    # Source: either a local directory of chunks or an S3 prefix (mutually exclusive)
+    parser.add_argument("--input-dir",
                         help="Directory containing chunk files and manifest.json")
+    parser.add_argument("--s3-bucket",
+                        help="S3 bucket containing the export "
+                             "(streams chunks directly to pg_restore, no disk staging)")
+    parser.add_argument("--s3-prefix", default="",
+                        help="S3 prefix containing manifest.json and chunks "
+                             "(e.g. 'db_exports/20260226/')")
+    parser.add_argument("--s3-region",
+                        help="S3 region (default: AWS_REGION env or boto3 default)")
+    parser.add_argument("--s3-endpoint-url",
+                        help="Custom S3 endpoint URL (for S3-compatible services)")
 
     # Target connection params
     parser.add_argument("--target-host",
@@ -658,6 +854,13 @@ Examples:
                         help="Verify checksums and display manifest only, no restore")
 
     args = parser.parse_args()
+
+    # Source is required: exactly one of --input-dir or --s3-bucket
+    if not args.input_dir and not args.s3_bucket:
+        parser.error("must specify either --input-dir or --s3-bucket")
+    if args.input_dir and args.s3_bucket:
+        parser.error("--input-dir and --s3-bucket are mutually exclusive")
+
     import_database(args)
 
 
