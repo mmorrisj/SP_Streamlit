@@ -14,7 +14,7 @@
 
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # PostgreSQL 17 for performance improvements (incremental backup, vacuum, JSON_TABLE).
-FROM postgres:17-bookworm
+FROM postgres:17-bookworm@sha256:0042a9d3d3365f837bd561981a9098518ed529b801fb2f655338d49108a464d5
 
 # pgvector version and immutable commit SHA for supply-chain pinning.
 # SHA must match the tag; verify with:
