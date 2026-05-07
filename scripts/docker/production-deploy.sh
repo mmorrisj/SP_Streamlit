@@ -145,8 +145,16 @@ DB_CONTAINER="sp_prod_db"
 APP_CONTAINER="sp_prod_app"
 REDIS_CONTAINER="sp_prod_redis"
 
+# Networking: this script uses host networking (--network host) for every
+# container. Custom Docker bridge networks require the daemon to bind-mount
+# /proc/<pid>/ns/net into /var/run/docker/netns/, which fails on enterprise
+# kiosk hosts with "permission denied". Host networking avoids that bind
+# mount entirely. Inter-container traffic flows through 127.0.0.1:<port>.
+DB_HOSTNAME="127.0.0.1"
+REDIS_HOSTNAME="127.0.0.1"
+REDIS_PORT="${REDIS_PORT:-6379}"
+
 # Docker resources
-NETWORK_NAME="softpower_net"
 DB_VOLUME="softpower_production_prod_pgdata"
 
 # ============================================
@@ -188,9 +196,9 @@ wait_for_db() {
     local max_attempts=30
     for i in $(seq 1 $max_attempts); do
         # Use ephemeral container instead of docker exec (enterprise compatibility)
-        if docker run --rm --network "$NETWORK_NAME" \
+        if docker run --rm --network host \
             "$DB_IMAGE" \
-            pg_isready -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
+            pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
             log_ok "PostgreSQL is ready"
             return 0
         fi
@@ -416,12 +424,7 @@ cmd_start() {
         fi
     done
 
-    # Create network
-    if ! docker network inspect "$NETWORK_NAME" &>/dev/null; then
-        log_info "Creating Docker network: $NETWORK_NAME"
-        docker network create "$NETWORK_NAME"
-    fi
-    log_ok "Network: $NETWORK_NAME"
+    log_ok "Network: host (containers share host network namespace)"
 
     # Create volume
     if ! docker volume inspect "$DB_VOLUME" &>/dev/null; then
@@ -442,7 +445,7 @@ cmd_start() {
         log_info "Starting PostgreSQL + pgvector..."
         docker run -d \
             --name "$DB_CONTAINER" \
-            --network "$NETWORK_NAME" \
+            --network host \
             --restart unless-stopped \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
@@ -452,8 +455,8 @@ cmd_start() {
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
             -e PGDATA=/var/lib/postgresql/data/pgdata \
+            -e PGPORT="$DB_PORT" \
             -v "$DB_VOLUME":/var/lib/postgresql/data \
-            -p "${DB_PORT}:5432" \
             --shm-size=1g \
             "$DB_IMAGE"
 
@@ -468,14 +471,14 @@ cmd_start() {
     # those env vars are silently ignored on subsequent starts.  Detect the
     # mismatch early and fix it so credentials in .env always work.
     log_info "Verifying database credentials match .env..."
-    if docker run --rm --network "$NETWORK_NAME" \
+    if docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        pg_isready -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1 \
-    && docker run --rm --network "$NETWORK_NAME" \
+        pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1 \
+    && docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         -c "SELECT 1" > /dev/null 2>&1; then
         log_ok "Database credentials verified"
     else
@@ -495,10 +498,10 @@ cmd_start() {
         # Start with trust auth (no password required) temporarily
         docker run -d \
             --name "$DB_CONTAINER" \
-            --network "$NETWORK_NAME" \
+            --network host \
             -e PGDATA=/var/lib/postgresql/data/pgdata \
+            -e PGPORT="$DB_PORT" \
             -v "$DB_VOLUME":/var/lib/postgresql/data \
-            -p "${DB_PORT}:5432" \
             --shm-size=1g \
             "$DB_IMAGE" \
             postgres -c "authentication_timeout=30"
@@ -506,9 +509,9 @@ cmd_start() {
         # Wait for it to be ready
         local fix_attempts=15
         for i in $(seq 1 $fix_attempts); do
-            if docker run --rm --network "$NETWORK_NAME" \
+            if docker run --rm --network host \
                 "$DB_IMAGE" \
-                pg_isready -h "$DB_CONTAINER" > /dev/null 2>&1; then
+                pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" > /dev/null 2>&1; then
                 break
             fi
             sleep 2
@@ -517,17 +520,17 @@ cmd_start() {
         # Reset the password to match .env using the existing superuser
         # First, discover the actual superuser name from the pg catalog
         local actual_user
-        actual_user=$(docker run --rm --network "$NETWORK_NAME" \
+        actual_user=$(docker run --rm --network host \
             "$DB_IMAGE" \
-            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d postgres \
+            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres \
             -tAc "SELECT usename FROM pg_user WHERE usesuper LIMIT 1" 2>/dev/null || echo "")
 
         if [ -z "$actual_user" ]; then
             # Try common superuser names
             for try_user in postgres "$POSTGRES_USER"; do
-                actual_user=$(docker run --rm --network "$NETWORK_NAME" \
+                actual_user=$(docker run --rm --network host \
                     "$DB_IMAGE" \
-                    psql -h "$DB_CONTAINER" -U "$try_user" -d postgres \
+                    psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$try_user" -d postgres \
                     -tAc "SELECT usename FROM pg_user WHERE usesuper LIMIT 1" 2>/dev/null || echo "")
                 [ -n "$actual_user" ] && break
             done
@@ -535,15 +538,15 @@ cmd_start() {
 
         if [ -n "$actual_user" ]; then
             # Update password for the target user
-            docker run --rm --network "$NETWORK_NAME" \
+            docker run --rm --network host \
                 "$DB_IMAGE" \
-                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
                 -c "ALTER USER \"$POSTGRES_USER\" WITH PASSWORD '$POSTGRES_PASSWORD';" > /dev/null 2>&1
 
             # Create user if it doesn't exist (volume was initialized with a different username)
-            docker run --rm --network "$NETWORK_NAME" \
+            docker run --rm --network host \
                 "$DB_IMAGE" \
-                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
                 -c "DO \$\$ BEGIN
                     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$POSTGRES_USER') THEN
                         CREATE USER \"$POSTGRES_USER\" WITH SUPERUSER PASSWORD '$POSTGRES_PASSWORD';
@@ -551,13 +554,13 @@ cmd_start() {
                 END \$\$;" > /dev/null 2>&1
 
             # Create database if it doesn't exist
-            docker run --rm --network "$NETWORK_NAME" \
+            docker run --rm --network host \
                 "$DB_IMAGE" \
-                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
                 -c "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'" 2>/dev/null | grep -q 1 || \
-            docker run --rm --network "$NETWORK_NAME" \
+            docker run --rm --network host \
                 "$DB_IMAGE" \
-                psql -h "$DB_CONTAINER" -U "$actual_user" -d postgres \
+                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
                 -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";" > /dev/null 2>&1
 
             log_ok "Credentials updated to match .env"
@@ -573,7 +576,7 @@ cmd_start() {
 
         docker run -d \
             --name "$DB_CONTAINER" \
-            --network "$NETWORK_NAME" \
+            --network host \
             --restart unless-stopped \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
@@ -583,18 +586,18 @@ cmd_start() {
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
             -e PGDATA=/var/lib/postgresql/data/pgdata \
+            -e PGPORT="$DB_PORT" \
             -v "$DB_VOLUME":/var/lib/postgresql/data \
-            -p "${DB_PORT}:5432" \
             --shm-size=1g \
             "$DB_IMAGE"
 
         wait_for_db
 
         # Final verification
-        if docker run --rm --network "$NETWORK_NAME" \
+        if docker run --rm --network host \
             -e PGPASSWORD="$POSTGRES_PASSWORD" \
             "$DB_IMAGE" \
-            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
             -c "SELECT 1" > /dev/null 2>&1; then
             log_ok "Credential fix verified — .env credentials now work"
         else
@@ -615,20 +618,23 @@ cmd_start() {
         fi
 
         log_info "Starting Redis cache..."
+        # Bind redis to 127.0.0.1 only — host networking exposes the port on
+        # the host's network interface, and the app reaches it via loopback.
         docker run -d \
             --name "$REDIS_CONTAINER" \
-            --network "$NETWORK_NAME" \
+            --network host \
             --restart unless-stopped \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
             --cap-add SETGID --cap-add SETUID \
-            "$REDIS_IMAGE"
+            "$REDIS_IMAGE" \
+            redis-server --bind 127.0.0.1 --port "$REDIS_PORT"
 
         # Wait for Redis to be ready
         local redis_attempts=10
         for i in $(seq 1 $redis_attempts); do
-            if docker run --rm --network "$NETWORK_NAME" \
-                "$REDIS_IMAGE" redis-cli -h "$REDIS_CONTAINER" ping 2>/dev/null | grep -q PONG; then
+            if docker run --rm --network host \
+                "$REDIS_IMAGE" redis-cli -h "$REDIS_HOSTNAME" -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG; then
                 log_ok "Redis is ready"
                 break
             fi
@@ -650,13 +656,13 @@ cmd_start() {
 
         # Proxy config: if LLM_PROXY_PORT is set and non-zero, route LLM/S3
         # calls through a host-side proxy. Otherwise, the container calls APIs directly.
+        # With host networking, the container shares the host's loopback, so the
+        # proxy is reachable at 127.0.0.1 (no host.docker.internal hostname needed).
         if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
-            PROXY_API_URL="http://host.docker.internal:${LLM_PROXY_PORT}"
-            PROXY_HOST_FLAG="--add-host=host.docker.internal:host-gateway"
-            log_info "LLM/S3 proxy: host.docker.internal:${LLM_PROXY_PORT}"
+            PROXY_API_URL="http://127.0.0.1:${LLM_PROXY_PORT}"
+            log_info "LLM/S3 proxy: 127.0.0.1:${LLM_PROXY_PORT}"
         else
-            PROXY_API_URL="http://0.0.0.0:8000"
-            PROXY_HOST_FLAG=""
+            PROXY_API_URL="http://127.0.0.1:${API_PORT}"
             log_info "LLM/S3 proxy: disabled (container calls APIs directly)"
         fi
 
@@ -699,22 +705,23 @@ cmd_start() {
         log_info "Starting application (FastAPI + Streamlit)..."
         docker run -d \
             --name "$APP_CONTAINER" \
-            --network "$NETWORK_NAME" \
+            --network host \
             --restart unless-stopped \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
             $VOLUME_FLAGS \
-            $PROXY_HOST_FLAG \
             -e DOCKER_ENV=true \
             -e NODE_ENV=production \
-            -e DB_HOST="$DB_CONTAINER" \
-            -e DB_PORT=5432 \
-            -e POSTGRES_HOST="$DB_CONTAINER" \
-            -e POSTGRES_PORT=5432 \
+            -e DB_HOST="$DB_HOSTNAME" \
+            -e DB_PORT="$DB_PORT" \
+            -e POSTGRES_HOST="$DB_HOSTNAME" \
+            -e POSTGRES_PORT="$DB_PORT" \
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
-            -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
+            -e DATABASE_URL="$(build_database_url "$DB_HOSTNAME" "$DB_PORT")" \
+            -e API_PORT="$API_PORT" \
+            -e STREAMLIT_PORT="$STREAMLIT_PORT" \
             -e DB_POOL_SIZE="${DB_POOL_SIZE:-10}" \
             -e DB_MAX_OVERFLOW="${DB_MAX_OVERFLOW:-20}" \
             -e DB_POOL_TIMEOUT="${DB_POOL_TIMEOUT:-30}" \
@@ -727,7 +734,7 @@ cmd_start() {
             -e HF_HOME="/app/.cache/huggingface" \
             -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface/hub" \
             -e TIKTOKEN_CACHE_DIR="/app/.cache/tiktoken" \
-            -e REDIS_URL="redis://${REDIS_CONTAINER}:6379/0" \
+            -e REDIS_URL="redis://${REDIS_HOSTNAME}:${REDIS_PORT}/0" \
             -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
             -e OPENAI_PROJ_API="${OPENAI_PROJ_API:-}" \
             -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
@@ -736,8 +743,6 @@ cmd_start() {
             -e JWT_EXPIRATION_HOURS="${JWT_EXPIRATION_HOURS:-24}" \
             -e DEV_AUTH_BYPASS="${DEV_AUTH_BYPASS:-}" \
             -e DEV_AUTH_ROLE="${DEV_AUTH_ROLE:-admin}" \
-            -p "${API_PORT}:8000" \
-            -p "${STREAMLIT_PORT}:8501" \
             "$APP_IMAGE"
 
         log_ok "Application container started"
@@ -760,17 +765,18 @@ cmd_start() {
     fi
     echo "App image:    $APP_IMAGE"
     if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
-        echo "LLM proxy:    host.docker.internal:${LLM_PROXY_PORT}"
+        echo "LLM proxy:    127.0.0.1:${LLM_PROXY_PORT}"
     else
         echo "LLM proxy:    disabled (container calls APIs directly)"
     fi
+    echo "Network:      host (containers share host network namespace)"
     echo ""
     echo "Access:"
     echo "  React Web App:    http://0.0.0.0:${API_PORT}"
     echo "  API Docs:         http://0.0.0.0:${API_PORT}/docs"
     echo "  Streamlit:        http://0.0.0.0:${STREAMLIT_PORT}"
     echo "  PostgreSQL:       0.0.0.0:${DB_PORT}"
-    echo "  Redis cache:      $REDIS_CONTAINER (internal)"
+    echo "  Redis cache:      127.0.0.1:${REDIS_PORT} (loopback only)"
     echo ""
     if [ "$LLM_PROXY_PORT" != "0" ] && [ -n "$LLM_PROXY_PORT" ]; then
         echo "LLM/S3 proxy prerequisite:"
@@ -829,14 +835,14 @@ cmd_migrate() {
     # Always use ephemeral container (enterprise compatibility — no docker exec)
     # Writes any missing merge migrations before running alembic upgrade head.
     docker run --rm \
-        --network "$NETWORK_NAME" \
+        --network host \
         -e DOCKER_ENV=true \
-        -e DB_HOST="$DB_CONTAINER" \
-        -e DB_PORT=5432 \
+        -e DB_HOST="$DB_HOSTNAME" \
+        -e DB_PORT="$DB_PORT" \
         -e POSTGRES_USER="$POSTGRES_USER" \
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
-        -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
+        -e DATABASE_URL="$(build_database_url "$DB_HOSTNAME" "$DB_PORT")" \
         "$APP_IMAGE" \
         python3 -c "
 import os, subprocess, sys
@@ -920,8 +926,7 @@ cmd_status() {
     docker volume ls --filter "name=softpower" 2>/dev/null || true
 
     echo ""
-    log_info "Network:"
-    docker network inspect "$NETWORK_NAME" --format '{{range .Containers}}  {{.Name}}{{"\n"}}{{end}}' 2>/dev/null || echo "  Network not created"
+    log_info "Network:    host (containers share host network namespace)"
     echo ""
 }
 
@@ -937,11 +942,12 @@ cmd_backup() {
     fi
 
     log_info "Creating database backup..."
-    # Ephemeral container connects over network (no docker exec needed).
+    # Ephemeral container connects over loopback (host networking).
     # Stdout redirection avoids MSYS2 path translation on Windows.
-    docker run --rm --network "$NETWORK_NAME" \
+    docker run --rm --network host \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        pg_dump -h "$DB_CONTAINER" \
+        pg_dump -h "$DB_HOSTNAME" -p "$DB_PORT" \
         -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" \
         -F c > "$backup_file"
@@ -972,11 +978,12 @@ cmd_restore() {
     fi
 
     log_info "Restoring database from: $backup_file"
-    # Ephemeral container connects over network (no docker exec needed).
+    # Ephemeral container connects over loopback (host networking).
     # Stdin redirection avoids MSYS2 path translation on Windows.
-    docker run --rm -i --network "$NETWORK_NAME" \
+    docker run --rm -i --network host \
+        -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        pg_restore -h "$DB_CONTAINER" \
+        pg_restore -h "$DB_HOSTNAME" -p "$DB_PORT" \
         -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" \
         --clean --if-exists < "$backup_file" || true
@@ -1027,20 +1034,17 @@ cmd_import() {
 
             log_info "Importing chunked export from: $target"
 
-            # Use db_import.py with the Docker container auto-detected over network.
-            # Pass host-level connection params so the script connects via the
-            # published port (no docker exec needed).
+            # Use db_import.py over loopback (host networking).
             docker run --rm -i \
-                --network "$NETWORK_NAME" \
+                --network host \
                 -v "$(cd "$target" && pwd):/import:ro" \
                 -e PGPASSWORD="$POSTGRES_PASSWORD" \
                 -e DB_IMAGE="$DB_IMAGE" \
-                -e NETWORK_NAME="$NETWORK_NAME" \
                 "$APP_IMAGE" \
                 python scripts/db_import.py \
                     --input-dir /import \
-                    --target-host "$DB_CONTAINER" \
-                    --target-port 5432 \
+                    --target-host "$DB_HOSTNAME" \
+                    --target-port "$DB_PORT" \
                     --target-user "$POSTGRES_USER" \
                     --target-password "$POSTGRES_PASSWORD" \
                     --target-db "$POSTGRES_DB" \
@@ -1056,11 +1060,11 @@ cmd_import() {
                 restore_args="$restore_args --jobs=$jobs"
             fi
 
-            docker run --rm -i --network "$NETWORK_NAME" \
+            docker run --rm -i --network host \
                 -e PGPASSWORD="$POSTGRES_PASSWORD" \
                 "$DB_IMAGE" \
                 pg_restore $restore_args \
-                -h "$DB_CONTAINER" \
+                -h "$DB_HOSTNAME" -p "$DB_PORT" \
                 -U "$POSTGRES_USER" \
                 -d "$POSTGRES_DB" < "$target" && import_count=$((import_count + 1)) || {
                     # pg_restore returns non-zero on warnings too — check if data loaded
@@ -1079,19 +1083,19 @@ cmd_import() {
 
     # Run ANALYZE to update statistics after bulk import
     log_info "Running ANALYZE to update table statistics..."
-    docker run --rm --network "$NETWORK_NAME" \
+    docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         -c "ANALYZE;" >/dev/null 2>&1
     log_ok "Statistics updated"
 
     # Show table counts
     log_info "Current table row counts:"
-    docker run --rm --network "$NETWORK_NAME" \
+    docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         -c "SELECT relname AS table, reltuples::bigint AS approx_rows
             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind = 'r' AND n.nspname = 'public'
@@ -1112,16 +1116,16 @@ cmd_psql() {
     if [ $# -eq 0 ]; then
         # Interactive psql session
         log_info "Opening interactive psql session (Ctrl+D to exit)..."
-        docker run --rm -it --network "$NETWORK_NAME" \
+        docker run --rm -it --network host \
             -e PGPASSWORD="$POSTGRES_PASSWORD" \
             "$DB_IMAGE" \
-            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
     else
         # Execute SQL command(s)
-        docker run --rm --network "$NETWORK_NAME" \
+        docker run --rm --network host \
             -e PGPASSWORD="$POSTGRES_PASSWORD" \
             "$DB_IMAGE" \
-            psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
             -c "$*"
     fi
 }
@@ -1166,10 +1170,10 @@ cmd_rebuild_db() {
     if container_running "$DB_CONTAINER"; then
         local auto_backup="softpower-pre-rebuild-$(date +%Y%m%d-%H%M%S).dump"
         log_info "Step 1/6: Creating safety backup before rebuild..."
-        if docker run --rm --network "$NETWORK_NAME" \
+        if docker run --rm --network host \
             -e PGPASSWORD="$POSTGRES_PASSWORD" \
             "$DB_IMAGE" \
-            pg_dump -h "$DB_CONTAINER" \
+            pg_dump -h "$DB_HOSTNAME" -p "$DB_PORT" \
             -U "$POSTGRES_USER" \
             -d "$POSTGRES_DB" \
             -F c > "$auto_backup" 2>/dev/null; then
@@ -1213,18 +1217,13 @@ cmd_rebuild_db() {
     # ---- Step 4: Start fresh database ----
     log_info "Step 4/6: Starting fresh PostgreSQL..."
 
-    # Recreate network if needed
-    if ! docker network inspect "$NETWORK_NAME" &>/dev/null; then
-        docker network create "$NETWORK_NAME"
-    fi
-
     # Recreate volume
     docker volume create "$DB_VOLUME"
 
     # Start PostgreSQL (it will auto-create the database on first boot)
     docker run -d \
         --name "$DB_CONTAINER" \
-        --network "$NETWORK_NAME" \
+        --network host \
         --restart unless-stopped \
         --security-opt no-new-privileges:true \
         --cap-drop ALL \
@@ -1234,8 +1233,8 @@ cmd_rebuild_db() {
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
         -e PGDATA=/var/lib/postgresql/data/pgdata \
+        -e PGPORT="$DB_PORT" \
         -v "$DB_VOLUME":/var/lib/postgresql/data \
-        -p "${DB_PORT}:5432" \
         --shm-size=1g \
         "$DB_IMAGE"
 
@@ -1243,10 +1242,10 @@ cmd_rebuild_db() {
 
     # ---- Step 5: Enable pgvector extension ----
     log_info "Step 5/6: Enabling pgvector extension..."
-    docker run --rm --network "$NETWORK_NAME" \
+    docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         -c "CREATE EXTENSION IF NOT EXISTS vector;" \
         -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
         -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'pg_trgm');"
@@ -1264,10 +1263,10 @@ cmd_rebuild_db() {
             exit 1
         fi
 
-        docker run --rm -i --network "$NETWORK_NAME" \
+        docker run --rm -i --network host \
             -e PGPASSWORD="$POSTGRES_PASSWORD" \
             "$DB_IMAGE" \
-            pg_restore -h "$DB_CONTAINER" \
+            pg_restore -h "$DB_HOSTNAME" -p "$DB_PORT" \
             -U "$POSTGRES_USER" \
             -d "$POSTGRES_DB" \
             --clean --if-exists < "$backup_file" || true
@@ -1277,28 +1276,28 @@ cmd_rebuild_db() {
         # Run migrations to apply any schema changes since the backup
         log_info "Running migrations to apply any schema changes since backup..."
         docker run --rm \
-            --network "$NETWORK_NAME" \
+            --network host \
             -e DOCKER_ENV=true \
-            -e DB_HOST="$DB_CONTAINER" \
-            -e DB_PORT=5432 \
+            -e DB_HOST="$DB_HOSTNAME" \
+            -e DB_PORT="$DB_PORT" \
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
-            -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
+            -e DATABASE_URL="$(build_database_url "$DB_HOSTNAME" "$DB_PORT")" \
             "$APP_IMAGE" \
             alembic upgrade head
         log_ok "Migrations applied"
     else
         log_info "Step 6/6: Running Alembic migrations (fresh schema)..."
         docker run --rm \
-            --network "$NETWORK_NAME" \
+            --network host \
             -e DOCKER_ENV=true \
-            -e DB_HOST="$DB_CONTAINER" \
-            -e DB_PORT=5432 \
+            -e DB_HOST="$DB_HOSTNAME" \
+            -e DB_PORT="$DB_PORT" \
             -e POSTGRES_USER="$POSTGRES_USER" \
             -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             -e POSTGRES_DB="$POSTGRES_DB" \
-            -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
+            -e DATABASE_URL="$(build_database_url "$DB_HOSTNAME" "$DB_PORT")" \
             "$APP_IMAGE" \
             alembic upgrade head
         log_ok "Migrations complete — empty schema created"
@@ -1307,10 +1306,10 @@ cmd_rebuild_db() {
     # ---- Verify ----
     log_info "Verifying database..."
     local table_count
-    table_count=$(docker run --rm --network "$NETWORK_NAME" \
+    table_count=$(docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
 
     echo ""

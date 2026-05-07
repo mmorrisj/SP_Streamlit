@@ -2,6 +2,14 @@
 
 Full data app migration: wipe and rebuild the database from a dump file while preserving user accounts. All operations use `docker run` (ephemeral containers) — **no `docker exec` allowed**.
 
+> **Networking note (kiosk hosts):** This guide uses `--network host` for every
+> container instead of a custom Docker bridge network. Custom bridges require
+> the Docker daemon to bind-mount `/proc/<pid>/ns/net` into
+> `/var/run/docker/netns/`, which fails on enterprise/kiosk hosts with
+> `permission denied`. Host networking sidesteps the bind mount entirely;
+> containers share the host's network stack and reach each other at
+> `127.0.0.1:<port>`.
+
 ---
 
 ## Prerequisites
@@ -155,30 +163,28 @@ If there's an existing database with users you want to preserve, export them fir
 ### 3.1 Check if the old database is still accessible
 
 ```bash
-# Start ONLY the database container (using the old volume)
+# Start ONLY the database container with host networking
 sudo docker run -d \
     --name sp_prod_db \
-    --network softpower_net \
+    --network host \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e PGDATA=/var/lib/postgresql/data/pgdata \
+    -e PGPORT="${DB_PORT:-5432}" \
     -v softpower_production_prod_pgdata:/var/lib/postgresql/data \
-    -p 5432:5432 \
     --shm-size=1g \
     mmorrisj/pgvector:0.8.1-pg16
 ```
-
-(If the network doesn't exist yet, create it first: `sudo docker network create softpower_net`)
 
 ### 3.2 Wait for database to be ready
 
 ```bash
 # Poll until ready (ephemeral container, no docker exec)
 for i in $(seq 1 30); do
-    if sudo docker run --rm --network softpower_net \
+    if sudo docker run --rm --network host \
         mmorrisj/pgvector:0.8.1-pg16 \
-        pg_isready -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" 2>/dev/null; then
+        pg_isready -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" 2>/dev/null; then
         echo "Database is ready"
         break
     fi
@@ -191,10 +197,10 @@ done
 
 ```bash
 # Export users table as plain SQL INSERT statements
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    pg_dump -h sp_prod_db \
+    pg_dump -h 127.0.0.1 -p "${DB_PORT:-5432}" \
     -U "$POSTGRES_USER" \
     -d "$POSTGRES_DB" \
     --table=users \
@@ -238,7 +244,7 @@ export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
 
 sudo docker run -d \
     --name sp_prod_db \
-    --network softpower_net \
+    --network host \
     --restart unless-stopped \
     --security-opt no-new-privileges:true \
     --cap-drop ALL \
@@ -248,8 +254,8 @@ sudo docker run -d \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e PGDATA=/var/lib/postgresql/data/pgdata \
+    -e PGPORT="${DB_PORT:-5432}" \
     -v softpower_production_prod_pgdata:/var/lib/postgresql/data \
-    -p "${DB_PORT:-5432}:5432" \
     --shm-size=1g \
     mmorrisj/pgvector:0.8.1-pg16
 ```
@@ -258,9 +264,9 @@ sudo docker run -d \
 
 ```bash
 for i in $(seq 1 30); do
-    if sudo docker run --rm --network softpower_net \
+    if sudo docker run --rm --network host \
         mmorrisj/pgvector:0.8.1-pg16 \
-        pg_isready -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" 2>/dev/null; then
+        pg_isready -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" 2>/dev/null; then
         echo "PostgreSQL is ready"
         break
     fi
@@ -272,10 +278,10 @@ done
 ### 4.4 Enable required PostgreSQL extensions
 
 ```bash
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -c "CREATE EXTENSION IF NOT EXISTS vector;" \
     -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
     -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'pg_trgm');"
@@ -285,10 +291,10 @@ sudo docker run --rm --network softpower_net \
 
 ```bash
 # Restore from the dump file (replace softpower-full.dump with your actual filename)
-sudo docker run --rm -i --network softpower_net \
+sudo docker run --rm -i --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    pg_restore -h sp_prod_db \
+    pg_restore -h 127.0.0.1 -p "${DB_PORT:-5432}" \
     -U "$POSTGRES_USER" \
     -d "$POSTGRES_DB" \
     --clean --if-exists \
@@ -301,14 +307,14 @@ sudo docker run --rm -i --network softpower_net \
 
 ```bash
 sudo docker run --rm \
-    --network softpower_net \
+    --network host \
     -e DOCKER_ENV=true \
-    -e DB_HOST=sp_prod_db \
+    -e DB_HOST=127.0.0.1 \
     -e DB_PORT=5432 \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
-    -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sp_prod_db:5432/${POSTGRES_DB}" \
+    -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${DB_PORT:-5432}/${POSTGRES_DB}" \
     mmorrisj/softpower-analytics:1.7.2 \
     alembic upgrade head
 ```
@@ -317,10 +323,10 @@ sudo docker run --rm \
 
 ```bash
 # Check table count
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -c "SELECT relname AS table_name, reltuples::bigint AS approx_rows
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE c.relkind = 'r' AND n.nspname = 'public'
@@ -336,10 +342,10 @@ sudo docker run --rm --network softpower_net \
 
 ```bash
 # Delete all users that came from the dump
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -c "DELETE FROM users;"
 ```
 
@@ -347,19 +353,19 @@ sudo docker run --rm --network softpower_net \
 
 ```bash
 # Re-import the users you exported in Phase 3
-sudo docker run --rm -i --network softpower_net \
+sudo docker run --rm -i --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" < users_backup.sql
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" < users_backup.sql
 ```
 
 ### 5.3 Verify users are restored
 
 ```bash
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -c "SELECT username, role, display_name, is_active, created_at FROM users ORDER BY created_at;"
 ```
 
@@ -370,14 +376,14 @@ If this is a first deployment or you don't have users to restore, create one via
 ```bash
 # Start a temporary app container to create the default admin
 sudo docker run --rm -it \
-    --network softpower_net \
+    --network host \
     -e DOCKER_ENV=true \
-    -e DB_HOST=sp_prod_db \
+    -e DB_HOST=127.0.0.1 \
     -e DB_PORT=5432 \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
-    -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sp_prod_db:5432/${POSTGRES_DB}" \
+    -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${DB_PORT:-5432}/${POSTGRES_DB}" \
     mmorrisj/softpower-analytics:1.7.2 \
     python -c "
 from shared.database.database import get_session
@@ -413,10 +419,10 @@ with get_session() as session:
 After a full restore, update PostgreSQL statistics:
 
 ```bash
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -c "ANALYZE VERBOSE;" 2>&1 | tail -5
 ```
 
@@ -427,19 +433,21 @@ sudo docker run --rm --network softpower_net \
 ### 7.1 Start Redis
 
 ```bash
+# Bind redis to loopback only — host networking exposes the port on the host
 sudo docker run -d \
     --name sp_prod_redis \
-    --network softpower_net \
+    --network host \
     --restart unless-stopped \
     --security-opt no-new-privileges:true \
     --cap-drop ALL \
     --cap-add SETGID --cap-add SETUID \
-    ${REDIS_IMAGE:-redis:7-alpine}
+    ${REDIS_IMAGE:-redis:7-alpine} \
+    redis-server --bind 127.0.0.1 --port 6379
 
 # Verify Redis is running
 for i in $(seq 1 10); do
-    if sudo docker run --rm --network softpower_net \
-        ${REDIS_IMAGE:-redis:7-alpine} redis-cli -h sp_prod_redis ping 2>/dev/null | grep -q PONG; then
+    if sudo docker run --rm --network host \
+        ${REDIS_IMAGE:-redis:7-alpine} redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG; then
         echo "Redis is ready"
         break
     fi
@@ -452,42 +460,41 @@ done
 ```bash
 sudo docker run -d \
     --name sp_prod_app \
-    --network softpower_net \
+    --network host \
     --restart unless-stopped \
     --security-opt no-new-privileges:true \
     --cap-drop ALL \
-    --add-host=host.docker.internal:host-gateway \
     -e DOCKER_ENV=true \
     -e NODE_ENV=production \
-    -e DB_HOST=sp_prod_db \
-    -e DB_PORT=5432 \
-    -e POSTGRES_HOST=sp_prod_db \
-    -e POSTGRES_PORT=5432 \
+    -e DB_HOST=127.0.0.1 \
+    -e DB_PORT="${DB_PORT:-5432}" \
+    -e POSTGRES_HOST=127.0.0.1 \
+    -e POSTGRES_PORT="${DB_PORT:-5432}" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
-    -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sp_prod_db:5432/${POSTGRES_DB}" \
+    -e DATABASE_URL="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${DB_PORT:-5432}/${POSTGRES_DB}" \
+    -e API_PORT="${API_PORT:-8000}" \
+    -e STREAMLIT_PORT="${STREAMLIT_PORT:-8501}" \
     -e DB_POOL_SIZE="${DB_POOL_SIZE:-10}" \
     -e DB_MAX_OVERFLOW="${DB_MAX_OVERFLOW:-20}" \
     -e DB_POOL_TIMEOUT="${DB_POOL_TIMEOUT:-30}" \
     -e DB_POOL_RECYCLE="${DB_POOL_RECYCLE:-3600}" \
-    -e API_URL="http://host.docker.internal:${LLM_PROXY_PORT:-7001}" \
-    -e S3_PROXY_URL="http://host.docker.internal:${LLM_PROXY_PORT:-7001}" \
+    -e API_URL="http://127.0.0.1:${LLM_PROXY_PORT:-7001}" \
+    -e S3_PROXY_URL="http://127.0.0.1:${LLM_PROXY_PORT:-7001}" \
     -e USE_S3_API_CLIENT=true \
     -e TRANSFORMERS_OFFLINE=1 \
     -e HF_HUB_OFFLINE=1 \
     -e HF_HOME="/app/.cache/huggingface" \
     -e SENTENCE_TRANSFORMERS_HOME="/app/.cache/huggingface/hub" \
     -e TIKTOKEN_CACHE_DIR="/app/.cache/tiktoken" \
-    -e REDIS_URL="redis://sp_prod_redis:6379/0" \
+    -e REDIS_URL="redis://127.0.0.1:6379/0" \
     -e CLAUDE_KEY="${CLAUDE_KEY:-}" \
     -e OPENAI_PROJ_API="${OPENAI_PROJ_API:-}" \
     -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
     -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
     -e JWT_SECRET="${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}" \
     -e JWT_EXPIRATION_HOURS="${JWT_EXPIRATION_HOURS:-24}" \
-    -p "${API_PORT:-8000}:8000" \
-    -p "${STREAMLIT_PORT:-8501}:8501" \
     mmorrisj/softpower-analytics:1.7.2
 ```
 
@@ -591,10 +598,10 @@ curl http://127.0.0.1:7001/api/health
 ### 9.4 Verify document count in database
 
 ```bash
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -c "SELECT count(*) AS document_count FROM documents;"
 ```
 
@@ -634,8 +641,7 @@ sudo docker logs sp_prod_app 2>&1 | grep -E "ERROR|FATAL|Traceback"
 1. Check the host-side proxy is running: `curl http://localhost:7001/api/health`
 2. Check `API_URL` inside the container:
    ```bash
-   sudo docker run --rm --network softpower_net \
-       --add-host=host.docker.internal:host-gateway \
+   sudo docker run --rm --network host \
        mmorrisj/softpower-analytics:1.7.2 \
        python -c "import os; print('API_URL =', os.getenv('API_URL', 'NOT SET'))"
    ```
@@ -648,10 +654,10 @@ sudo docker logs sp_prod_app 2>&1 | grep -E "ERROR|FATAL|Traceback"
 
 ```bash
 # Test connectivity from an ephemeral container
-sudo docker run --rm --network softpower_net \
+sudo docker run --rm --network host \
     -e PGPASSWORD="$POSTGRES_PASSWORD" \
     mmorrisj/pgvector:0.8.1-pg16 \
-    psql -h sp_prod_db -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    psql -h 127.0.0.1 -p "${DB_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -c "SELECT 1 AS connected;"
 ```
 
@@ -665,7 +671,7 @@ If `POSTGRES_PASSWORD` contains `@`, `/`, `#`, `%`, or spaces, the `DATABASE_URL
 -e POSTGRES_USER="$POSTGRES_USER" \
 -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
 -e POSTGRES_DB="$POSTGRES_DB" \
--e DB_HOST=sp_prod_db \
+-e DB_HOST=127.0.0.1 \
 -e DB_PORT=5432 \
 ```
 

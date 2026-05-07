@@ -10,7 +10,9 @@
 #
 # Honors the same env vars as production-deploy.sh:
 #   APP_IMAGE, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
-#   DB_PORT, NETWORK_NAME, DB_CONTAINER
+#   DB_PORT, DB_HOSTNAME
+#
+# Uses host networking — the database is reached at 127.0.0.1:${DB_PORT}.
 # ============================================
 
 set -e
@@ -44,19 +46,19 @@ APP_IMAGE="${APP_IMAGE:-softpower-analytics:latest}"
 POSTGRES_USER="${POSTGRES_USER:?Set POSTGRES_USER in .env or environment}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or environment}"
 POSTGRES_DB="${POSTGRES_DB:?Set POSTGRES_DB in .env or environment}"
-DB_CONTAINER="${DB_CONTAINER:-sp_prod_db}"
-NETWORK_NAME="${NETWORK_NAME:-softpower_net}"
+DB_HOSTNAME="${DB_HOSTNAME:-127.0.0.1}"
+DB_PORT="${DB_PORT:-5432}"
 
 echo "[INFO]  Using image: $APP_IMAGE"
-echo "[INFO]  Database: $DB_CONTAINER / $POSTGRES_DB"
-echo "[INFO]  Network: $NETWORK_NAME"
+echo "[INFO]  Database: ${DB_HOSTNAME}:${DB_PORT} / $POSTGRES_DB"
+echo "[INFO]  Network: host"
 echo ""
 
 docker run --rm \
-    --network "$NETWORK_NAME" \
+    --network host \
     -e DOCKER_ENV=true \
-    -e DB_HOST="$DB_CONTAINER" \
-    -e DB_PORT=5432 \
+    -e DB_HOST="$DB_HOSTNAME" \
+    -e DB_PORT="$DB_PORT" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB="$POSTGRES_DB" \
