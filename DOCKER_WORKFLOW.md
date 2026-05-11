@@ -2,6 +2,25 @@
 
 Quick reference for building, running, and maintaining the SoftPower Analytics Docker container.
 
+> ## ⚠ Enterprise / kiosk hosts — read this first
+>
+> This document assumes a permissive Docker daemon (laptop, dev VM, generic Linux server) where `docker exec`, `docker cp`, custom bridge networks, and `--rm` all work normally.
+>
+> **On enterprise / kiosk hosts (Rocky 9 + hardened daemon), most patterns in this file will fail with `setns: permission denied` errors.** Specifically these are blocked: `docker exec`, `docker cp`, `docker rm` of existing containers, `docker run --rm` (teardown), and `--network` with anything other than `host`.
+>
+> **For enterprise deployments use [`PRODUCTION_DOCKER_RUN.md`](./PRODUCTION_DOCKER_RUN.md) instead** — it documents the host-TCP / `--network host` / non-`--rm` patterns that actually work in that environment.
+>
+> Quick translation table for commands in this doc:
+>
+> | Doc says | Enterprise host uses |
+> |---|---|
+> | `docker exec <container> psql ...` | `psql -h 127.0.0.1 -p 5432 ...` (host-installed psql) |
+> | `docker exec <container> printenv X` | `docker inspect <container> --format '{{range .Config.Env}}{{println .}}{{end}}' \| grep X` |
+> | `docker exec -it <container> bash` | Not available — debug via `docker logs` and host-side reproductions |
+> | `docker exec <container> curl ...` | `curl ...` from the host (containers are on `--network host`) |
+> | `docker run --rm ...` | `docker run` without `--rm`; ignore the stopped container afterward |
+> | `docker network create ...` | Don't create networks; use `--network host` |
+
 ## Architecture
 
 The production image is a **single container** running two services via supervisord:

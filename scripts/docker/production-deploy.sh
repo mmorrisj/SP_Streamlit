@@ -1,10 +1,30 @@
 #!/bin/bash
 # ============================================
 # Production Deployment Script
-# Run this ON the the production target system
-# No docker-compose required - raw docker only
+# Run this ON the production target system.
+# No docker-compose required — raw docker only.
 # ============================================
-# Usage: ./production-deploy.sh [start|stop|restart|migrate|status|load|backup|restore]
+# Usage: ./production-deploy.sh [start|stop|restart|migrate|status|load|backup|restore|psql|import|rebuild-db]
+# ============================================
+#
+# Enterprise / kiosk daemon compatibility:
+#   The script avoids `docker exec`, `docker cp`, `docker rm` of existing
+#   containers, `docker run --rm`, and custom Docker networks — operations
+#   that fail with `setns: permission denied` on hardened daemons.
+#
+#   All runtime paths (start, stop, restart, migrate, backup, restore, psql,
+#   status, logs, import, rebuild-db) use:
+#     * --network host on every container (no bridge networks)
+#     * docker start || docker run pattern for idempotent service launches
+#     * Host-native psql / pg_dump / pg_restore over TCP to 127.0.0.1:$DB_PORT
+#       when those binaries are present (falls back to no-rm container if not)
+#     * docker stop without docker rm; stopped containers are left in place
+#       and reused by docker start on next launch
+#
+#   The cmd_setup subcommand (image preparation with ML wheels) is the only
+#   path that requires docker cp / docker rm — it's intended for permissive
+#   build hosts, not the enterprise deployment target. Use a pre-baked
+#   registry image (mmorrisj/softpower-analytics:latest) on enterprise.
 # ============================================
 
 set -e
@@ -191,14 +211,86 @@ check_docker() {
     fi
 }
 
+# ----------------------------------------------------------------------------
+# Host-native Postgres client wrappers
+# ----------------------------------------------------------------------------
+# On enterprise / kiosk hosts, `docker run --rm` triggers setns failures during
+# container teardown. These helpers prefer the host's psql/pg_dump/pg_restore/
+# pg_isready binaries when present (so DB admin ops happen over TCP, no
+# setns). They fall back to `docker run` WITHOUT `--rm` on hosts where the
+# native tools are unavailable — short-lived admin containers stay in `Exited`
+# state but don't trigger the teardown setns.
+#
+# Connection always goes to 127.0.0.1:$DB_PORT (the DB container runs with
+# --network host, so its port is on the host's loopback).
+# ----------------------------------------------------------------------------
+
+_have_native_pg() {
+    command -v psql &>/dev/null && command -v pg_isready &>/dev/null
+}
+
+_pg_isready_host() {
+    if _have_native_pg; then
+        PGPASSWORD="$POSTGRES_PASSWORD" pg_isready \
+            -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
+    else
+        # No --rm: container stays in Exited state on enterprise daemon, harmless.
+        docker run --name "sp_pgcheck_$(date +%s%N)" --network host \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
+    fi
+}
+
+_psql_host() {
+    if _have_native_pg; then
+        PGPASSWORD="$POSTGRES_PASSWORD" psql \
+            -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" "$@"
+    else
+        docker run --name "sp_psql_$(date +%s%N)" --network host \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" "$@"
+    fi
+}
+
+_pg_dump_host() {
+    if command -v pg_dump &>/dev/null; then
+        PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
+            -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" "$@"
+    else
+        docker run --name "sp_pgdump_$(date +%s%N)" --network host \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            pg_dump -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" "$@"
+    fi
+}
+
+_pg_restore_host() {
+    if command -v pg_restore &>/dev/null; then
+        PGPASSWORD="$POSTGRES_PASSWORD" pg_restore \
+            -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" "$@"
+    else
+        docker run -i --name "sp_pgrestore_$(date +%s%N)" --network host \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            "$DB_IMAGE" \
+            pg_restore -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" "$@"
+    fi
+}
+
+# Try `docker rm` but don't fail if the daemon blocks it (setns enforcement).
+# Use this instead of bare `docker rm` everywhere — keeps the script
+# operational on hosts where existing-container removal is forbidden.
+_docker_rm_best_effort() {
+    docker rm "$@" 2>/dev/null || \
+        log_warn "Could not remove $* (likely setns-blocked); ignoring. Stopped container remains."
+}
+
 wait_for_db() {
     log_info "Waiting for PostgreSQL to be ready..."
     local max_attempts=30
     for i in $(seq 1 $max_attempts); do
-        # Use ephemeral container instead of docker exec (enterprise compatibility)
-        if docker run --rm --network host \
-            "$DB_IMAGE" \
-            pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
+        if _pg_isready_host > /dev/null 2>&1; then
             log_ok "PostgreSQL is ready"
             return 0
         fi
@@ -241,6 +333,14 @@ cmd_setup() {
     echo "Installing ML packages from local wheels"
     echo "=============================================="
     echo ""
+
+    # NOTE: cmd_setup uses `docker cp` and `docker commit` to install ML deps
+    # into a slim image. Both `docker cp` and `docker rm` of the build container
+    # are blocked on enterprise/kiosk daemons with setns enforcement. This
+    # subcommand is intended for IMAGE PREPARATION on a permissive build host,
+    # not for runtime deployment on the enterprise host. On the enterprise host,
+    # use a pre-baked registry image (mmorrisj/softpower-analytics:latest) and
+    # skip this subcommand entirely.
 
     # Registry images already have ML packages baked in — skip setup
     if [ "$IMAGE_TYPE" = "registry" ]; then
@@ -436,10 +536,16 @@ cmd_start() {
     # --- Start PostgreSQL ---
     if container_running "$DB_CONTAINER"; then
         log_ok "Database already running"
+    elif container_exists "$DB_CONTAINER" && docker start "$DB_CONTAINER" >/dev/null 2>&1; then
+        log_ok "Restarted existing database container (no setns required)"
     else
+        # No existing container, or start failed — create fresh.
+        # On enterprise daemons docker rm of an existing stopped container is
+        # blocked; we best-effort it and proceed (docker run will fail if the
+        # name is still in use, in which case the user must rename).
         if container_exists "$DB_CONTAINER"; then
             log_info "Removing stopped database container..."
-            docker rm "$DB_CONTAINER"
+            _docker_rm_best_effort "$DB_CONTAINER"
         fi
 
         log_info "Starting PostgreSQL + pgvector..."
@@ -471,33 +577,30 @@ cmd_start() {
     # those env vars are silently ignored on subsequent starts.  Detect the
     # mismatch early and fix it so credentials in .env always work.
     log_info "Verifying database credentials match .env..."
-    if docker run --rm --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1 \
-    && docker run --rm --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        -c "SELECT 1" > /dev/null 2>&1; then
+    if _pg_isready_host > /dev/null 2>&1 \
+    && _psql_host -d "$POSTGRES_DB" -c "SELECT 1" > /dev/null 2>&1; then
         log_ok "Database credentials verified"
     else
         log_warn "Credential mismatch detected — .env password differs from initialized database"
         log_info "This happens when POSTGRES_PASSWORD changed after the volume was first created."
         log_info "Attempting to update the database password to match .env..."
 
-        # Try connecting with the superuser role 'postgres' (which uses trust auth
-        # from the same container on some setups) or via peer auth to reset the password.
-        # The most reliable method: use the running container's local socket (no password needed
-        # for local connections in default pg_hba.conf).
-        # We cannot docker exec in enterprise, so restart the DB container momentarily
-        # with trust auth to reset the password.
-        docker stop "$DB_CONTAINER" > /dev/null 2>&1
-        docker rm "$DB_CONTAINER" > /dev/null 2>&1
+        # The recovery flow stops the main DB container and starts a transient
+        # trust-auth container on the same volume. On enterprise daemons we
+        # cannot `docker rm` the main container, so the transient runs under a
+        # separate name. Once credentials are fixed in the volume, the trust
+        # container is stopped and the main container is `docker start`'d
+        # again with normal password auth.
+        local trust_container="${DB_CONTAINER}_trust"
 
-        # Start with trust auth (no password required) temporarily
+        docker stop "$DB_CONTAINER" > /dev/null 2>&1
+        # If a stale trust container from a prior run is around, stop+best-effort-rm it.
+        docker stop "$trust_container" > /dev/null 2>&1 || true
+        _docker_rm_best_effort "$trust_container" > /dev/null 2>&1 || true
+
+        # Start a SEPARATELY NAMED trust-auth container on the same volume
         docker run -d \
-            --name "$DB_CONTAINER" \
+            --name "$trust_container" \
             --network host \
             -e PGDATA=/var/lib/postgresql/data/pgdata \
             -e PGPORT="$DB_PORT" \
@@ -506,31 +609,23 @@ cmd_start() {
             "$DB_IMAGE" \
             postgres -c "authentication_timeout=30"
 
-        # Wait for it to be ready
+        # Wait for trust-auth container to be ready
         local fix_attempts=15
         for i in $(seq 1 $fix_attempts); do
-            if docker run --rm --network host \
-                "$DB_IMAGE" \
-                pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" > /dev/null 2>&1; then
+            if _pg_isready_host > /dev/null 2>&1; then
                 break
             fi
             sleep 2
         done
 
-        # Reset the password to match .env using the existing superuser
-        # First, discover the actual superuser name from the pg catalog
+        # Discover the actual superuser name from pg_user
         local actual_user
-        actual_user=$(docker run --rm --network host \
-            "$DB_IMAGE" \
-            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres \
+        actual_user=$(PGPASSWORD="" _psql_host -d postgres \
             -tAc "SELECT usename FROM pg_user WHERE usesuper LIMIT 1" 2>/dev/null || echo "")
 
         if [ -z "$actual_user" ]; then
-            # Try common superuser names
             for try_user in postgres "$POSTGRES_USER"; do
-                actual_user=$(docker run --rm --network host \
-                    "$DB_IMAGE" \
-                    psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$try_user" -d postgres \
+                actual_user=$(PGPASSWORD="" POSTGRES_USER="$try_user" _psql_host -d postgres \
                     -tAc "SELECT usename FROM pg_user WHERE usesuper LIMIT 1" 2>/dev/null || echo "")
                 [ -n "$actual_user" ] && break
             done
@@ -538,15 +633,11 @@ cmd_start() {
 
         if [ -n "$actual_user" ]; then
             # Update password for the target user
-            docker run --rm --network host \
-                "$DB_IMAGE" \
-                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
+            PGPASSWORD="" POSTGRES_USER="$actual_user" _psql_host -d postgres \
                 -c "ALTER USER \"$POSTGRES_USER\" WITH PASSWORD '$POSTGRES_PASSWORD';" > /dev/null 2>&1
 
-            # Create user if it doesn't exist (volume was initialized with a different username)
-            docker run --rm --network host \
-                "$DB_IMAGE" \
-                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
+            # Create user if it doesn't exist
+            PGPASSWORD="" POSTGRES_USER="$actual_user" _psql_host -d postgres \
                 -c "DO \$\$ BEGIN
                     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$POSTGRES_USER') THEN
                         CREATE USER \"$POSTGRES_USER\" WITH SUPERUSER PASSWORD '$POSTGRES_PASSWORD';
@@ -554,13 +645,9 @@ cmd_start() {
                 END \$\$;" > /dev/null 2>&1
 
             # Create database if it doesn't exist
-            docker run --rm --network host \
-                "$DB_IMAGE" \
-                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
+            PGPASSWORD="" POSTGRES_USER="$actual_user" _psql_host -d postgres \
                 -c "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'" 2>/dev/null | grep -q 1 || \
-            docker run --rm --network host \
-                "$DB_IMAGE" \
-                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$actual_user" -d postgres \
+            PGPASSWORD="" POSTGRES_USER="$actual_user" _psql_host -d postgres \
                 -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";" > /dev/null 2>&1
 
             log_ok "Credentials updated to match .env"
@@ -570,35 +657,35 @@ cmd_start() {
             log_info "Or update .env to match the original credentials used when the volume was created"
         fi
 
-        # Restart the DB container normally (with password auth)
-        docker stop "$DB_CONTAINER" > /dev/null 2>&1
-        docker rm "$DB_CONTAINER" > /dev/null 2>&1
+        # Stop the trust-auth container and restart the main one with normal password auth
+        docker stop "$trust_container" > /dev/null 2>&1
+        _docker_rm_best_effort "$trust_container" > /dev/null 2>&1 || true
 
-        docker run -d \
-            --name "$DB_CONTAINER" \
-            --network host \
-            --restart unless-stopped \
-            --security-opt no-new-privileges:true \
-            --cap-drop ALL \
-            --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
-            --cap-add SETGID --cap-add SETUID \
-            -e POSTGRES_USER="$POSTGRES_USER" \
-            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            -e POSTGRES_DB="$POSTGRES_DB" \
-            -e PGDATA=/var/lib/postgresql/data/pgdata \
-            -e PGPORT="$DB_PORT" \
-            -v "$DB_VOLUME":/var/lib/postgresql/data \
-            --shm-size=1g \
-            "$DB_IMAGE"
+        # Re-start the main DB container (it already exists; docker start avoids setns)
+        if ! docker start "$DB_CONTAINER" > /dev/null 2>&1; then
+            # Container was removed previously (permissive daemon) — recreate
+            docker run -d \
+                --name "$DB_CONTAINER" \
+                --network host \
+                --restart unless-stopped \
+                --security-opt no-new-privileges:true \
+                --cap-drop ALL \
+                --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+                --cap-add SETGID --cap-add SETUID \
+                -e POSTGRES_USER="$POSTGRES_USER" \
+                -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+                -e POSTGRES_DB="$POSTGRES_DB" \
+                -e PGDATA=/var/lib/postgresql/data/pgdata \
+                -e PGPORT="$DB_PORT" \
+                -v "$DB_VOLUME":/var/lib/postgresql/data \
+                --shm-size=1g \
+                "$DB_IMAGE"
+        fi
 
         wait_for_db
 
         # Final verification
-        if docker run --rm --network host \
-            -e PGPASSWORD="$POSTGRES_PASSWORD" \
-            "$DB_IMAGE" \
-            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-            -c "SELECT 1" > /dev/null 2>&1; then
+        if _psql_host -d "$POSTGRES_DB" -c "SELECT 1" > /dev/null 2>&1; then
             log_ok "Credential fix verified — .env credentials now work"
         else
             log_error "Credential fix failed. Manual intervention required."
@@ -611,10 +698,12 @@ cmd_start() {
     # --- Start Redis ---
     if container_running "$REDIS_CONTAINER"; then
         log_ok "Redis already running"
+    elif container_exists "$REDIS_CONTAINER" && docker start "$REDIS_CONTAINER" >/dev/null 2>&1; then
+        log_ok "Restarted existing Redis container"
     else
         if container_exists "$REDIS_CONTAINER"; then
             log_info "Removing stopped Redis container..."
-            docker rm "$REDIS_CONTAINER"
+            _docker_rm_best_effort "$REDIS_CONTAINER"
         fi
 
         log_info "Starting Redis cache..."
@@ -630,11 +719,21 @@ cmd_start() {
             "$REDIS_IMAGE" \
             redis-server --bind 127.0.0.1 --port "$REDIS_PORT"
 
-        # Wait for Redis to be ready
+        # Wait for Redis to be ready — prefer host-native redis-cli or nc
         local redis_attempts=10
         for i in $(seq 1 $redis_attempts); do
-            if docker run --rm --network host \
-                "$REDIS_IMAGE" redis-cli -h "$REDIS_HOSTNAME" -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG; then
+            local is_up=0
+            if command -v redis-cli &>/dev/null; then
+                redis-cli -h "$REDIS_HOSTNAME" -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG && is_up=1
+            elif command -v nc &>/dev/null; then
+                nc -z "$REDIS_HOSTNAME" "$REDIS_PORT" 2>/dev/null && is_up=1
+            else
+                # Non-rm transient container as last resort
+                docker run --name "sp_redischeck_$(date +%s%N)" --network host \
+                    "$REDIS_IMAGE" redis-cli -h "$REDIS_HOSTNAME" -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG && is_up=1
+            fi
+
+            if [ "$is_up" = "1" ]; then
                 log_ok "Redis is ready"
                 break
             fi
@@ -648,10 +747,12 @@ cmd_start() {
     # --- Start Application ---
     if container_running "$APP_CONTAINER"; then
         log_ok "Application already running"
+    elif container_exists "$APP_CONTAINER" && docker start "$APP_CONTAINER" >/dev/null 2>&1; then
+        log_ok "Restarted existing application container"
     else
         if container_exists "$APP_CONTAINER"; then
             log_info "Removing stopped application container..."
-            docker rm "$APP_CONTAINER"
+            _docker_rm_best_effort "$APP_CONTAINER"
         fi
 
         # Proxy config: if LLM_PROXY_PORT is set and non-zero, route LLM/S3
@@ -690,7 +791,10 @@ cmd_start() {
             log_ok "Model dir: $MODEL_DIR (verified)"
 
             # Pre-flight: verify ML packages were installed (./production-deploy.sh setup)
-            if ! docker run --rm "$APP_IMAGE" python3 -c "import sentence_transformers" 2>/dev/null; then
+            # No --rm: stopped container is harmless and avoids the teardown
+            # setns failure on enterprise daemons.
+            if ! docker run --name "sp_mlcheck_$(date +%s%N)" "$APP_IMAGE" \
+                python3 -c "import sentence_transformers" 2>/dev/null; then
                 log_error "ML packages not installed in $APP_IMAGE"
                 log_info "Run './production-deploy.sh setup' first to install torch + sentence-transformers"
                 exit 1
@@ -801,14 +905,17 @@ cmd_stop() {
     echo ""
     log_info "Stopping services..."
 
+    # On enterprise daemons docker rm of existing containers is blocked; we
+    # stop them and leave the stopped record in place. The next `start` will
+    # pick them up via `docker start` (no setns) rather than recreating.
     for container in "$APP_CONTAINER" "$REDIS_CONTAINER" "$DB_CONTAINER"; do
         if container_running "$container"; then
-            docker stop "$container"
-            docker rm "$container"
+            docker stop "$container" >/dev/null 2>&1
+            _docker_rm_best_effort "$container" >/dev/null 2>&1 || true
             log_ok "Stopped: $container"
         elif container_exists "$container"; then
-            docker rm "$container"
-            log_ok "Removed stopped: $container"
+            _docker_rm_best_effort "$container" >/dev/null 2>&1 || true
+            log_info "Stopped container exists: $container (left in place if removal was blocked)"
         else
             log_info "Not running: $container"
         fi
@@ -832,9 +939,11 @@ cmd_migrate() {
         exit 1
     fi
 
-    # Always use ephemeral container (enterprise compatibility — no docker exec)
+    # Transient migration container — no --rm (setns-safe on enterprise daemons).
+    # The container exits after alembic completes; the stopped record is harmless.
     # Writes any missing merge migrations before running alembic upgrade head.
-    docker run --rm \
+    docker run \
+        --name "sp_migrate_$(date +%s)" \
         --network host \
         -e DOCKER_ENV=true \
         -e DB_HOST="$DB_HOSTNAME" \
@@ -942,15 +1051,8 @@ cmd_backup() {
     fi
 
     log_info "Creating database backup..."
-    # Ephemeral container connects over loopback (host networking).
-    # Stdout redirection avoids MSYS2 path translation on Windows.
-    docker run --rm --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        pg_dump -h "$DB_HOSTNAME" -p "$DB_PORT" \
-        -U "$POSTGRES_USER" \
-        -d "$POSTGRES_DB" \
-        -F c > "$backup_file"
+    # Uses host-native pg_dump when available; falls back to non-rm container.
+    _pg_dump_host -d "$POSTGRES_DB" -F c -f "$backup_file"
 
     log_ok "Backup saved to: $backup_file ($(du -h "$backup_file" | cut -f1))"
     echo ""
@@ -978,15 +1080,11 @@ cmd_restore() {
     fi
 
     log_info "Restoring database from: $backup_file"
-    # Ephemeral container connects over loopback (host networking).
-    # Stdin redirection avoids MSYS2 path translation on Windows.
-    docker run --rm -i --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        pg_restore -h "$DB_HOSTNAME" -p "$DB_PORT" \
-        -U "$POSTGRES_USER" \
-        -d "$POSTGRES_DB" \
-        --clean --if-exists < "$backup_file" || true
+    # Uses host-native pg_restore when available; falls back to non-rm container.
+    # pg_restore may return non-zero on warnings — that's normal, hence || true.
+    _pg_restore_host -d "$POSTGRES_DB" --clean --if-exists \
+        --no-owner --no-privileges --verbose \
+        "$backup_file" || true
 
     log_ok "Database restored from $backup_file"
     echo ""
@@ -1034,21 +1132,35 @@ cmd_import() {
 
             log_info "Importing chunked export from: $target"
 
-            # Use db_import.py over loopback (host networking).
-            docker run --rm -i \
-                --network host \
-                -v "$(cd "$target" && pwd):/import:ro" \
-                -e PGPASSWORD="$POSTGRES_PASSWORD" \
-                -e DB_IMAGE="$DB_IMAGE" \
-                "$APP_IMAGE" \
-                python scripts/db_import.py \
-                    --input-dir /import \
+            # Prefer host-native python scripts/db_import.py path (no Docker
+            # involvement, no setns risk). Fall back to a non-rm container if
+            # the host doesn't have Python with project deps installed.
+            if command -v python3 &>/dev/null && python3 -c "import psycopg2" &>/dev/null; then
+                python3 scripts/db_import.py \
+                    --input-dir "$target" \
                     --target-host "$DB_HOSTNAME" \
                     --target-port "$DB_PORT" \
                     --target-user "$POSTGRES_USER" \
                     --target-password "$POSTGRES_PASSWORD" \
                     --target-db "$POSTGRES_DB" \
                     --jobs "$jobs" && import_count=$((import_count + 1)) || fail_count=$((fail_count + 1))
+            else
+                docker run -i \
+                    --name "sp_import_$(date +%s)" \
+                    --network host \
+                    -v "$(cd "$target" && pwd):/import:ro" \
+                    -e PGPASSWORD="$POSTGRES_PASSWORD" \
+                    -e DB_IMAGE="$DB_IMAGE" \
+                    "$APP_IMAGE" \
+                    python scripts/db_import.py \
+                        --input-dir /import \
+                        --target-host "$DB_HOSTNAME" \
+                        --target-port "$DB_PORT" \
+                        --target-user "$POSTGRES_USER" \
+                        --target-password "$POSTGRES_PASSWORD" \
+                        --target-db "$POSTGRES_DB" \
+                        --jobs "$jobs" && import_count=$((import_count + 1)) || fail_count=$((fail_count + 1))
+            fi
 
         # --- Single .dump file ---
         elif [ -f "$target" ]; then
@@ -1057,17 +1169,11 @@ cmd_import() {
             # pg_restore without --clean: adds data, skips existing objects
             local restore_args="--verbose --if-exists --no-owner --no-privileges"
             if [ "$jobs" -gt 1 ]; then
-                restore_args="$restore_args --jobs=$jobs"
+                restore_args="--jobs=$jobs $restore_args"
             fi
 
-            docker run --rm -i --network host \
-                -e PGPASSWORD="$POSTGRES_PASSWORD" \
-                "$DB_IMAGE" \
-                pg_restore $restore_args \
-                -h "$DB_HOSTNAME" -p "$DB_PORT" \
-                -U "$POSTGRES_USER" \
-                -d "$POSTGRES_DB" < "$target" && import_count=$((import_count + 1)) || {
-                    # pg_restore returns non-zero on warnings too — check if data loaded
+            _pg_restore_host -d "$POSTGRES_DB" $restore_args "$target" \
+                && import_count=$((import_count + 1)) || {
                     log_warn "pg_restore exited non-zero for $target (may be warnings only)"
                     import_count=$((import_count + 1))
                 }
@@ -1083,19 +1189,12 @@ cmd_import() {
 
     # Run ANALYZE to update statistics after bulk import
     log_info "Running ANALYZE to update table statistics..."
-    docker run --rm --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        -c "ANALYZE;" >/dev/null 2>&1
+    _psql_host -d "$POSTGRES_DB" -c "ANALYZE;" >/dev/null 2>&1
     log_ok "Statistics updated"
 
     # Show table counts
     log_info "Current table row counts:"
-    docker run --rm --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    _psql_host -d "$POSTGRES_DB" \
         -c "SELECT relname AS table, reltuples::bigint AS approx_rows
             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind = 'r' AND n.nspname = 'public'
@@ -1116,17 +1215,20 @@ cmd_psql() {
     if [ $# -eq 0 ]; then
         # Interactive psql session
         log_info "Opening interactive psql session (Ctrl+D to exit)..."
-        docker run --rm -it --network host \
-            -e PGPASSWORD="$POSTGRES_PASSWORD" \
-            "$DB_IMAGE" \
-            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+        # Interactive psql needs a TTY. Native psql on the host is best;
+        # fall back to a non-rm container only when host psql is missing.
+        if _have_native_pg; then
+            PGPASSWORD="$POSTGRES_PASSWORD" psql \
+                -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+        else
+            docker run -it --name "sp_psql_$(date +%s)" --network host \
+                -e PGPASSWORD="$POSTGRES_PASSWORD" \
+                "$DB_IMAGE" \
+                psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+        fi
     else
-        # Execute SQL command(s)
-        docker run --rm --network host \
-            -e PGPASSWORD="$POSTGRES_PASSWORD" \
-            "$DB_IMAGE" \
-            psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-            -c "$*"
+        # Execute SQL command(s) via host-native psql when available
+        _psql_host -d "$POSTGRES_DB" -c "$*"
     fi
 }
 
@@ -1170,13 +1272,7 @@ cmd_rebuild_db() {
     if container_running "$DB_CONTAINER"; then
         local auto_backup="softpower-pre-rebuild-$(date +%Y%m%d-%H%M%S).dump"
         log_info "Step 1/6: Creating safety backup before rebuild..."
-        if docker run --rm --network host \
-            -e PGPASSWORD="$POSTGRES_PASSWORD" \
-            "$DB_IMAGE" \
-            pg_dump -h "$DB_HOSTNAME" -p "$DB_PORT" \
-            -U "$POSTGRES_USER" \
-            -d "$POSTGRES_DB" \
-            -F c > "$auto_backup" 2>/dev/null; then
+        if _pg_dump_host -d "$POSTGRES_DB" -F c -f "$auto_backup" 2>/dev/null; then
             local backup_size
             backup_size=$(du -h "$auto_backup" 2>/dev/null | cut -f1)
             if [ -s "$auto_backup" ]; then
@@ -1198,10 +1294,10 @@ cmd_rebuild_db() {
     for container in "$APP_CONTAINER" "$REDIS_CONTAINER" "$DB_CONTAINER"; do
         if container_running "$container"; then
             docker stop "$container" >/dev/null 2>&1
-            docker rm "$container" >/dev/null 2>&1
+            _docker_rm_best_effort "$container" >/dev/null 2>&1 || true
             log_ok "Stopped: $container"
         elif container_exists "$container"; then
-            docker rm "$container" >/dev/null 2>&1
+            _docker_rm_best_effort "$container" >/dev/null 2>&1 || true
         fi
     done
 
@@ -1242,10 +1338,7 @@ cmd_rebuild_db() {
 
     # ---- Step 5: Enable pgvector extension ----
     log_info "Step 5/6: Enabling pgvector extension..."
-    docker run --rm --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    _psql_host -d "$POSTGRES_DB" \
         -c "CREATE EXTENSION IF NOT EXISTS vector;" \
         -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
         -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'pg_trgm');"
@@ -1263,19 +1356,14 @@ cmd_rebuild_db() {
             exit 1
         fi
 
-        docker run --rm -i --network host \
-            -e PGPASSWORD="$POSTGRES_PASSWORD" \
-            "$DB_IMAGE" \
-            pg_restore -h "$DB_HOSTNAME" -p "$DB_PORT" \
-            -U "$POSTGRES_USER" \
-            -d "$POSTGRES_DB" \
-            --clean --if-exists < "$backup_file" || true
+        _pg_restore_host -d "$POSTGRES_DB" --clean --if-exists \
+            --no-owner --no-privileges --verbose "$backup_file" || true
 
         log_ok "Database restored from: $backup_file"
 
         # Run migrations to apply any schema changes since the backup
         log_info "Running migrations to apply any schema changes since backup..."
-        docker run --rm \
+        docker run --name "sp_migrate_$(date +%s)" \
             --network host \
             -e DOCKER_ENV=true \
             -e DB_HOST="$DB_HOSTNAME" \
@@ -1289,7 +1377,7 @@ cmd_rebuild_db() {
         log_ok "Migrations applied"
     else
         log_info "Step 6/6: Running Alembic migrations (fresh schema)..."
-        docker run --rm \
+        docker run --name "sp_migrate_$(date +%s)" \
             --network host \
             -e DOCKER_ENV=true \
             -e DB_HOST="$DB_HOSTNAME" \
@@ -1306,10 +1394,7 @@ cmd_rebuild_db() {
     # ---- Verify ----
     log_info "Verifying database..."
     local table_count
-    table_count=$(docker run --rm --network host \
-        -e PGPASSWORD="$POSTGRES_PASSWORD" \
-        "$DB_IMAGE" \
-        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    table_count=$(_psql_host -d "$POSTGRES_DB" \
         -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
 
     echo ""
