@@ -2,6 +2,13 @@
 # Production Deployment - Docker Hub Images Only
 # Pulls all images from Docker Hub (no local builds)
 #
+# NETWORKING: This stack uses host networking (network_mode: host).
+# Required on enterprise/kiosk hosts where the Docker daemon cannot
+# create per-container network namespaces (error: "bind mount
+# /proc/<pid>/ns/net -> /var/run/docker/netns/...: permission denied").
+# With host networking all services share the host's network stack and
+# reach each other via 127.0.0.1:<port> instead of by container name.
+#
 # Usage:
 #   # First time — run migrations:
 #   docker compose -f docker-compose.production.yml --profile migrate up
@@ -21,11 +28,13 @@ name: softpower_production
 services:
   # -----------------------
   # PostgreSQL + pgvector
+  # Listens on host:${DB_PORT:-5432}
   # -----------------------
   db:
     image: mmorrisj/pgvector:0.8.1-pg17
     container_name: sp_prod_db
     restart: unless-stopped
+    network_mode: host
     shm_size: "1gb"
     security_opt:
       - no-new-privileges:true
@@ -42,14 +51,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       PGDATA: /var/lib/postgresql/data/pgdata
+      PGPORT: ${DB_PORT:-5432}
     volumes:
       - prod_pgdata:/var/lib/postgresql/data
-    ports:
-      - "${DB_PORT:-5432}:5432"
-    networks:
-      - prod_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?Set POSTGRES_USER in .env} -d ${POSTGRES_DB:?Set POSTGRES_DB in .env}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${DB_PORT:-5432} -U ${POSTGRES_USER:?Set POSTGRES_USER in .env} -d ${POSTGRES_DB:?Set POSTGRES_DB in .env}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -57,6 +63,7 @@ services:
 
   # -----------------------
   # Redis Cache
+  # Bound to 127.0.0.1 only — host networking exposes ports on the host
   # Replace image with your enterprise hardened Redis image if required
   # e.g., dhi/redis:7
   # -----------------------
@@ -64,6 +71,8 @@ services:
     image: redis:7-alpine
     container_name: sp_prod_redis
     restart: unless-stopped
+    network_mode: host
+    command: ["redis-server", "--bind", "127.0.0.1", "--port", "6379"]
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -71,10 +80,8 @@ services:
     cap_add:
       - SETGID
       - SETUID
-    networks:
-      - prod_net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "6379", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -83,33 +90,36 @@ services:
   # -----------------------
   # SoftPower Analytics (FastAPI + Streamlit via supervisord)
   # Single consolidated container from Docker Hub
+  # Binds host:${API_PORT:-8000} (FastAPI) and host:${STREAMLIT_PORT:-8501} (Streamlit)
   # -----------------------
   app:
     image: mmorrisj/softpower-analytics:1.8.2
     container_name: sp_prod_app
     restart: unless-stopped
+    network_mode: host
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     environment:
       DOCKER_ENV: "true"
-      DB_HOST: sp_prod_db
-      DB_PORT: 5432
+      DB_HOST: 127.0.0.1
+      DB_PORT: ${DB_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
-      POSTGRES_HOST: sp_prod_db
-      POSTGRES_PORT: 5432
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: ${DB_PORT:-5432}
       # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
       # be URL-encoded here. The app also builds the URL from individual vars
       # (with auto-encoding) so you can omit DATABASE_URL entirely.
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
-      API_PORT: 8000
-      # Host-side proxy for LLM/S3 calls (run uvicorn server.main:app on host)
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@127.0.0.1:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      API_PORT: ${API_PORT:-8000}
+      STREAMLIT_PORT: ${STREAMLIT_PORT:-8501}
+      # Host-side proxy for LLM/S3 calls — runs on the same host, reachable at 127.0.0.1
       # LLM_PROXY_PORT defaults to 7001; set LLM_PROXY_PORT in .env to override
-      API_URL: http://host.docker.internal:${LLM_PROXY_PORT:-7001}
-      S3_PROXY_URL: http://host.docker.internal:${LLM_PROXY_PORT:-7001}
+      API_URL: http://127.0.0.1:${LLM_PROXY_PORT:-7001}
+      S3_PROXY_URL: http://127.0.0.1:${LLM_PROXY_PORT:-7001}
       USE_S3_API_CLIENT: "true"
       # Pass through credentials from .env (will be empty if not set)
       CLAUDE_KEY: ${CLAUDE_KEY:-}
@@ -127,7 +137,7 @@ services:
       HF_HOME: /app/.cache/huggingface
       SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
       TIKTOKEN_CACHE_DIR: /app/.cache/tiktoken
-      REDIS_URL: redis://sp_prod_redis:6379/0
+      REDIS_URL: redis://127.0.0.1:6379/0
       JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
     volumes:
@@ -137,13 +147,6 @@ services:
       - ./shared:/app/shared
       # Persist reports to host
       - ./reports:/app/reports
-    ports:
-      - "${API_PORT:-8000}:8000"   # FastAPI (React UI + API)
-      - "${STREAMLIT_PORT:-8501}:8501"   # Streamlit Dashboard
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - prod_net
     depends_on:
       db:
         condition: service_healthy
@@ -156,24 +159,23 @@ services:
   migrate:
     image: mmorrisj/softpower-analytics:1.8.2
     container_name: sp_prod_migrate
+    network_mode: host
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     environment:
       DOCKER_ENV: "true"
-      DB_HOST: sp_prod_db
-      DB_PORT: 5432
+      DB_HOST: 127.0.0.1
+      DB_PORT: ${DB_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
       # be URL-encoded here. The app also builds the URL from individual vars
       # (with auto-encoding) so you can omit DATABASE_URL entirely.
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@sp_prod_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@127.0.0.1:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
     command: alembic upgrade head
-    networks:
-      - prod_net
     depends_on:
       db:
         condition: service_healthy
@@ -181,15 +183,12 @@ services:
       - migrate
 
 # -----------------------
-# Persistent Volumes and Network
+# Persistent Volumes
 # Pin names explicitly so docker-compose and production-deploy.sh
 # always reference the exact same Docker objects.
+# Note: no `networks:` block — all services use host networking, which
+# avoids the per-container netns bind mount that fails on kiosk hosts.
 # -----------------------
 volumes:
   prod_pgdata:
     name: softpower_production_prod_pgdata
-
-networks:
-  prod_net:
-    name: softpower_net
-    external: true
