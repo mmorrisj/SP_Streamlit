@@ -6,9 +6,9 @@
 
 **Author:** Matt Morris, Data Scientist
 
-**Version:** 2.0
+**Version:** 3.0
 
-**Date:** December 2024
+**Date:** May 2026
 
 ---
 
@@ -24,10 +24,14 @@
 8. [Entity and Relationship Extraction](#entity-and-relationship-extraction)
 9. [Agentic RAG System](#agentic-rag-system)
 10. [Interactive Visualization](#interactive-visualization)
-11. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
-12. [Knowledge Distillation](#knowledge-distillation)
-13. [Limitations and Future Directions](#limitations-and-future-directions)
-14. [Conclusion](#conclusion)
+11. [Alerting and Notifications](#alerting-and-notifications)
+12. [Competing Influence Analysis](#competing-influence-analysis)
+13. [Research Projects](#research-projects)
+14. [Report Generation and Export](#report-generation-and-export)
+15. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
+16. [Knowledge Distillation](#knowledge-distillation)
+17. [Limitations and Future Directions](#limitations-and-future-directions)
+18. [Conclusion](#conclusion)
 
 ---
 
@@ -45,6 +49,10 @@ Evaluations demonstrated that GAI models not only excelled in categorizing artic
 - **Extract entities and relationships** to build a network graph of actors involved in soft power transactions
 - **Provide conversational access** to the data through an agentic RAG (Retrieval-Augmented Generation) interface
 - **Visualize entity networks** through interactive graph visualizations
+- **Alert analysts** to significant changes via configurable notification rules
+- **Compare competing influence** across multiple countries in a single view
+- **Support research workflows** with document collection and project-scoped analysis
+- **Generate publication-ready reports** with Word document export
 
 The black-box nature of GAI inference poses an ongoing risk that this project mitigates through periodic evaluations of GAI outputs to monitor performance, with exploration of training student models using GAI outputs as a contingency.
 
@@ -652,6 +660,56 @@ compare_countries(countries, date_range)
 # Returns: Comparative statistics across selected countries
 ```
 
+### Layered RAG Context Architecture
+
+A key enhancement to the RAG system is the **three-layer context injection** that provides richer, more accurate responses by combining multiple information sources:
+
+```
+User Query → Layer 1: Strategic Context (SQL) →
+             Layer 2: Event Discovery (Semantic) →
+             Layer 3: Document Chunks (Semantic) →
+             LLM Response Generation
+```
+
+**Layer 1: Strategic Context (Deterministic SQL)**
+
+Pre-analyzed strategic summaries retrieved via direct database lookup:
+- **Bilateral Relationship Summaries**: Overview, key themes, trend analysis for country pairs
+- **Country-Category Summaries**: Aggregated insights per influencer-category combination
+- **Period Summaries**: Time-based analytical products
+
+```python
+def gather_strategic_context(influencer, recipient, category) -> str:
+    # SQL lookup of BilateralRelationshipSummary
+    # SQL lookup of CountryCategorySummary
+    # SQL lookup of PeriodSummary
+    return formatted_strategic_context
+```
+
+**Layer 2: Event Summary Discovery (Semantic Search)**
+
+Semantic search across event summary embeddings:
+- Daily, weekly, and monthly event collections
+- Filtered by inferred or explicit country/category
+- Returns top-k most relevant event summaries
+
+**Layer 3: Document Chunk Search (Semantic Search)**
+
+Traditional RAG retrieval over source documents:
+- Chunked document embeddings in pgvector
+- Entity-aware boosting for matched entities
+- Deduplication to prevent redundant sources
+
+**Benefits of Layered Context:**
+
+| Layer | Source | Latency | Coverage |
+|-------|--------|---------|----------|
+| Strategic | SQL lookup | <50ms | Pre-analyzed summaries |
+| Event | Semantic search | ~200ms | Consolidated events |
+| Document | Semantic search | ~300ms | Raw source material |
+
+This architecture ensures responses are grounded in both high-level analytical products and specific source evidence.
+
 ---
 
 ## Interactive Visualization
@@ -820,6 +878,343 @@ def create_network_graph(entities, relationships, height_px, physics, show_label
 
 ---
 
+## Alerting and Notifications
+
+The platform includes a comprehensive **alerting system** that enables analysts to receive proactive notifications when significant changes occur in the soft power landscape. This shifts the analyst workflow from reactive querying to proactive monitoring.
+
+### Alert Condition Types
+
+The system supports four types of configurable alert conditions:
+
+| Condition Type | Description | Example Parameters |
+|----------------|-------------|-------------------|
+| **Materiality Spike** | Detects when materiality scores exceed baseline | `threshold_z: 2.0`, `window_days: 7`, `country: "China"` |
+| **Volume Surge** | Alerts on unusual document volume | `threshold_z: 2.0`, `window_days: 7`, `country: "Russia"` |
+| **New Entity** | Triggers when a new entity appears | `country: "China"`, `entity_type: "person"` |
+| **New Event** | Alerts on new high-materiality events | `country: "Iran"`, `min_materiality: 3.0` |
+
+### Notification Channels
+
+Alerts can be delivered through multiple channels:
+
+- **In-App (AlertBell)**: Visual notification indicator in the application header
+- **Email**: Configurable email addresses for alert delivery
+- **Slack**: Webhook integration for team notification channels
+
+### Alert Severity Levels
+
+| Severity | Use Case | Visual Indicator |
+|----------|----------|------------------|
+| **Info** | Routine changes worth noting | Blue |
+| **Warning** | Significant changes requiring attention | Orange |
+| **Critical** | Major developments requiring immediate review | Red |
+
+### Alert Rule Configuration
+
+Each alert rule specifies:
+
+```python
+class AlertRule:
+    name: str                    # "China Military Activity Spike"
+    condition_type: str          # "materiality_spike"
+    condition_params: dict       # {"threshold_z": 2.0, "window_days": 7}
+    channels: List[str]          # ["in_app", "slack"]
+    channel_config: dict         # {"slack_webhook_url": "..."}
+    severity: str                # "warning"
+    cooldown_minutes: int        # 60 (prevent alert fatigue)
+    is_enabled: bool             # True
+```
+
+### Background Evaluation
+
+Alert rules are evaluated on a configurable schedule using **APScheduler**:
+
+1. Background worker queries database for enabled rules
+2. Each rule's condition is evaluated against current data
+3. If triggered and cooldown has elapsed, alert is created
+4. Notifications dispatched to configured channels
+5. Alert history recorded for audit trail
+
+### Alert History and Acknowledgment
+
+All triggered alerts are stored in `AlertHistory` with:
+- Timestamp and severity
+- Title and detailed message
+- Context data (what triggered the alert)
+- Channels notified
+- Acknowledgment status and timestamp
+
+Analysts can acknowledge alerts to track review status and clear notification indicators.
+
+---
+
+## Competing Influence Analysis
+
+A key analytical capability is the **Competing Influence Overlay**, which enables side-by-side comparison of multiple influencer countries' activities within a single recipient country.
+
+### Purpose
+
+Traditional analysis examines one influencer-recipient pair at a time. The Competing Influence view answers:
+- How do China, Russia, Iran, Turkey, and the US compete for influence in Egypt?
+- Which influencer dominates in which category?
+- How have influence patterns shifted over time?
+
+### Visualization Components
+
+**1. Stacked Area Chart**
+
+Shows document volume over time for all five influencers:
+- X-axis: Time (monthly buckets)
+- Y-axis: Document count
+- Colors: Distinct color per influencer (China=red, Russia=blue, etc.)
+- Interaction: Hover for exact values, click to filter
+
+**2. Category Heatmap**
+
+Matrix visualization showing activity intensity:
+
+| Category | China | Iran | Russia | Turkey | US |
+|----------|-------|------|--------|--------|-----|
+| Economic | High | Low | Medium | Low | Medium |
+| Military | Medium | Medium | High | Low | High |
+| Social | High | Low | Low | Medium | Low |
+| Diplomacy | High | Medium | High | Medium | High |
+
+Cell color intensity based on document count, enabling quick pattern recognition.
+
+**3. Per-Influencer Event Listing**
+
+Expandable sections showing top events for each influencer:
+- Event name and date range
+- Document count and materiality score
+- Category breakdown
+- Click-through to event details
+
+**4. RAG Comparative Assessment**
+
+AI-generated analysis comparing influencer strategies:
+- Streaming response generation
+- Grounded in retrieved documents
+- Source citations with relevance scores
+- Exportable for reports
+
+### Data Structure
+
+```python
+class CompetingInfluenceSummary:
+    recipient: str                           # "Egypt"
+    influencer_summary: List[InfluencerStats]  # Per-influencer metrics
+    category_matrix: List[CategoryRow]        # Heatmap data
+    monthly_trends: List[MonthlyData]         # Time series
+    top_events: Dict[str, List[Event]]        # Events by influencer
+```
+
+### Recipient Countries
+
+The Competing Influence view is available for all 18 recipient countries in the Middle East and North Africa region, with data filtered by the selected recipient.
+
+---
+
+## Research Projects
+
+The **Research Projects** feature supports analyst workflows for collecting, organizing, and analyzing source documents across multiple queries.
+
+### Motivation
+
+Analysts often need to:
+- Collect relevant documents across multiple search sessions
+- Build a corpus for a specific research question
+- Generate reports from curated sources only
+- Share document collections with colleagues
+
+Research Projects provide a structured way to accomplish these tasks.
+
+### Project Workflow
+
+```
+Chat/Search → Find Relevant Document → Add to Project →
+Repeat → Project-Scoped Analysis → Generate Report
+```
+
+**Step 1: Create Project**
+- Name and description
+- Status tracking (active/archived)
+- User ownership
+
+**Step 2: Collect Documents**
+- From chat responses, click "Add to Project"
+- From search results, select and add
+- Metadata cached at collection time
+- Source query recorded for context
+
+**Step 3: Project-Scoped Chat**
+- RAG queries restricted to project documents only
+- Focused analysis without corpus noise
+- Higher relevance for specific questions
+
+**Step 4: Report Generation**
+- Generate reports from project documents
+- All citations from curated sources
+- Export to Word document
+
+### Database Schema
+
+**`research_projects`** table:
+```python
+class ResearchProject:
+    id: UUID
+    user_id: UUID                # Owner
+    name: str                    # "Iran Nuclear Analysis Q1 2026"
+    description: Optional[str]
+    status: ProjectStatus        # ACTIVE or ARCHIVED
+    created_at: datetime
+    updated_at: datetime
+```
+
+**`project_documents`** table:
+```python
+class ProjectDocument:
+    id: UUID
+    project_id: UUID             # Parent project
+    doc_id: str                  # Reference to documents table
+    # Cached metadata (snapshot at collection)
+    title: str
+    source_name: str
+    date: date
+    initiating_country: str
+    recipient_country: str
+    category: str
+    excerpt: str
+    # Context
+    source_query: str            # Query that found this document
+    notes: str                   # Analyst annotations
+    added_at: datetime
+```
+
+### User Interface
+
+**ProjectDrawer Component:**
+- Side panel accessible from Research page
+- List of user's projects with document counts
+- Create new project
+- View/manage project documents
+- Delete or archive projects
+
+**Document Collection:**
+- "Add to Project" button on search results
+- Project selector dropdown
+- Optional notes field
+- Confirmation feedback
+
+---
+
+## Report Generation and Export
+
+The platform provides comprehensive **report generation** capabilities for creating publication-ready documents with LLM-generated narratives, metrics, and citations.
+
+### Report Types
+
+**1. Country Reports**
+- Single influencer country analysis
+- Configurable date range
+- All categories or filtered
+- Top events and trends
+
+**2. Bilateral Reports**
+- Specific influencer-recipient pair
+- Relationship summary and trajectory
+- Key events and actors
+- Category breakdown
+
+**3. Thematic Reports**
+- Category-focused (e.g., "Military Cooperation")
+- Cross-country comparisons
+- Trend analysis
+
+### Report Sections
+
+Reports are generated with configurable sections:
+
+| Section | Content | Toggle |
+|---------|---------|--------|
+| **Executive Summary** | AI-generated overview | Always included |
+| **Events** | Top events with descriptions | Configurable |
+| **Entities** | Key actors and organizations | Configurable |
+| **Metrics** | Document counts, materiality scores | Configurable |
+| **Persons** | Notable individuals mentioned | Configurable |
+| **Citations** | Source documents with hyperlinks | Always included |
+
+### LLM Narrative Generation
+
+Each report section uses specialized prompts:
+
+```python
+def generate_event_narrative(event_data, citations) -> str:
+    prompt = f"""
+    Generate a concise analytical narrative for this soft power event.
+    
+    Event: {event_data['name']}
+    Date Range: {event_data['start']} to {event_data['end']}
+    Category: {event_data['category']}
+    Materiality: {event_data['materiality_score']}
+    
+    Source excerpts:
+    {formatted_citations}
+    
+    Write 2-3 sentences describing the significance and key actors.
+    Include citation numbers [1], [2] where appropriate.
+    """
+    return gai(system_prompt, prompt, model="gpt-4o")
+```
+
+### Citation Management
+
+All claims are traced to source documents:
+
+```python
+def build_hyperlink(doc_id: str, display_text: str) -> str:
+    # Generates clickable link to source document
+    return f"[{display_text}](/document/{doc_id})"
+```
+
+Citations include:
+- Document title and source
+- Publication date
+- Relevance score
+- Direct link to full text
+
+### Word Document Export
+
+Reports can be exported to Microsoft Word format (.docx):
+
+**Template-Based Generation:**
+- Professional formatting with headers and styles
+- Table of contents generation
+- Embedded metrics tables
+- Formatted citation lists
+- Section breaks and page numbers
+
+**Export Options:**
+- Full report or selected sections
+- With or without source excerpts
+- Reviewer validation copy (includes confidence scores)
+
+### Materiality Scoring Enhancement
+
+Report generation leverages improved materiality scoring with **10 granular anchors**:
+
+| Score | Description | Dollar Threshold |
+|-------|-------------|------------------|
+| 1-2 | Routine diplomatic activity | < $1M |
+| 3-4 | Notable but limited impact | $1M - $50M |
+| 5-6 | Significant regional event | $50M - $500M |
+| 7-8 | Major bilateral development | $500M - $5B |
+| 9-10 | Strategic/transformative event | > $5B |
+
+This prevents score clustering and provides better differentiation for report prioritization.
+
+---
+
 ## Techniques and Lessons Learned
 
 ### Model Strategy & Cost Optimization
@@ -958,6 +1353,10 @@ The adoption of GAI has enabled:
 - **Entity and relationship extraction** to build comprehensive knowledge graphs
 - **Conversational access** to data through an agentic RAG interface
 - **Interactive visualizations** for exploring entity networks
+- **Proactive alerting** for significant changes in soft power activities
+- **Competing influence analysis** comparing multiple countries simultaneously
+- **Research project workflows** for curated document analysis
+- **Publication-ready reports** with Word document export
 
 The system has evolved from a document categorization tool to a comprehensive soft power analytics platform that includes:
 
@@ -968,11 +1367,16 @@ The system has evolved from a document categorization tool to a comprehensive so
 | Entity Extraction | GPT-4o-mini + validation | Identify actors and organizations |
 | Relationship Mapping | GPT-4o-mini + aggregation | Build network graph of interactions |
 | Conversational Interface | Agentic RAG + tool selection | Natural language data access |
-| Network Visualization | Pyvis + Streamlit | Interactive entity exploration |
+| Layered RAG Context | SQL + semantic search | Three-tier context for accurate responses |
+| Network Visualization | Pyvis + React | Interactive entity exploration |
+| Alerting System | APScheduler + Slack/Email | Proactive analyst notifications |
+| Competing Influence | Recharts + RAG assessment | Multi-influencer comparison |
+| Research Projects | Project-scoped RAG | Curated document collections |
+| Report Generation | GPT-4o + python-docx | Publication-ready Word export |
 
 As GAI technology continues to advance with improved accuracy, reduced costs, and expanded context windows, the framework established by this project positions the soft power analytics capability for continued evolution and enhancement.
 
-The combination of frontier models for complex reasoning, open-source embeddings for efficient retrieval, distilled student models for cost-effective deployment, and interactive user interfaces represents a sustainable, adaptable approach to AI-powered analysis at scale.
+The combination of frontier models for complex reasoning, open-source embeddings for efficient retrieval, distilled student models for cost-effective deployment, layered RAG architecture for grounded responses, and comprehensive analyst workflows represents a sustainable, adaptable approach to AI-powered analysis at scale.
 
 ---
 
@@ -1083,4 +1487,33 @@ The combination of frontier models for complex reasoning, open-source embeddings
 
 ---
 
-*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 2.0 includes expanded coverage of entity extraction, relationship mapping, agentic RAG systems, and interactive visualization capabilities.*
+## Appendix: Alert Condition Reference
+
+### Alert Condition Types
+
+| Condition | Parameters | Evaluation Logic |
+|-----------|------------|------------------|
+| `materiality_spike` | `threshold_z`, `window_days`, `country`, `category` | Z-score of current materiality vs. rolling window |
+| `volume_surge` | `threshold_z`, `window_days`, `country` | Z-score of document count vs. rolling window |
+| `new_entity` | `country`, `entity_type` | First appearance of entity in database |
+| `new_event` | `country`, `min_materiality` | New event exceeding materiality threshold |
+
+### Notification Channel Configuration
+
+| Channel | Config Fields | Example |
+|---------|---------------|---------|
+| `in_app` | None required | In-app AlertBell indicator |
+| `email` | `email` | `analyst@organization.gov` |
+| `slack` | `slack_webhook_url` | `https://hooks.slack.com/services/...` |
+
+### Severity Guidelines
+
+| Severity | Use Case | Cooldown |
+|----------|----------|----------|
+| `info` | Routine monitoring, FYI alerts | 60 min |
+| `warning` | Notable changes requiring review | 30 min |
+| `critical` | Major developments, immediate attention | 15 min |
+
+---
+
+*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 3.0 includes expanded coverage of alerting and notifications, competing influence analysis, research project workflows, layered RAG architecture, and publication-ready report generation capabilities.*
