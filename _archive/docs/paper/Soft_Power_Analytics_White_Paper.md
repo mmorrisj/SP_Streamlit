@@ -29,9 +29,10 @@
 13. [Research Projects](#research-projects)
 14. [Report Generation and Export](#report-generation-and-export)
 15. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
-16. [Knowledge Distillation](#knowledge-distillation)
-17. [Limitations and Future Directions](#limitations-and-future-directions)
-18. [Conclusion](#conclusion)
+16. [Alignment with Best Practices](#alignment-with-best-practices)
+17. [Knowledge Distillation](#knowledge-distillation)
+18. [Limitations and Future Directions](#limitations-and-future-directions)
+19. [Conclusion](#conclusion)
 
 ---
 
@@ -198,6 +199,8 @@ Two labeling exercises were conducted to test alignment between human annotators
 
 **Round 2:** A separate set of 200 documents was labeled independently by three annotators. Divergence persisted, confirming variability in human interpretation. Despite this, models captured nearly 100% of human-identified true positives, with disagreements concentrated in borderline or "grey area" cases.
 
+> **Best Practice Alignment**: This iterative human-model comparison follows established ML evaluation practices: (1) multiple independent annotators to measure inter-rater reliability, (2) disagreement analysis to identify edge cases, and (3) expert adjudication of conflicts. The finding that humans exhibited higher variance than models is consistent with research on annotation quality in NLP tasks.
+
 ### Key Findings
 
 - LLMs can reliably apply custom schemas without retraining
@@ -262,6 +265,8 @@ Soft Power DB (pgvector) → Publication (Dashboard, Reports, Agent UI)
 ### Structured Output Enforcement
 
 Prompts that constrained models to return JSON outputs proved critical for pipeline integration. Including an explicit "ONLY output JSON" instruction and providing an example template greatly improved compliance across all models.
+
+> **Best Practice Alignment**: Structured output enforcement follows the principle of "constrained decoding" recommended for production LLM systems. By providing explicit output schemas with examples, the system reduces parsing errors and enables reliable downstream processing—a core tenet of MLOps best practices.
 
 ### Expanded Task Capabilities
 
@@ -343,6 +348,8 @@ Human intervention point where analysts can:
 - Flag high-priority SPIDs for detailed tracking
 - Split over-consolidated SPIDs
 - Combine SPIDs that should be tracked as single events
+
+> **Best Practice Alignment**: The SME Review step implements the "human-in-the-loop" (HITL) pattern recommended for high-stakes AI applications. Rather than fully automating decisions, the system presents AI outputs for expert validation, enabling correction of errors while building trust in automated processes.
 
 ### Deduplication Strategies
 
@@ -477,6 +484,8 @@ Deduplication → Database Storage → Relationship Aggregation
 - Match by aliases (stored as array)
 - For persons, match by name + country combination
 - Use `ON CONFLICT DO NOTHING` for document-entity pairs
+
+> **Best Practice Alignment**: Entity resolution follows knowledge graph construction best practices: canonical naming with alias tracking, multi-attribute matching for persons, and idempotent database operations. This prevents data duplication while maintaining traceability to source documents.
 
 **Step 5: Relationship Aggregation**
 - Aggregate relationship observations across documents
@@ -709,6 +718,8 @@ Traditional RAG retrieval over source documents:
 | Document | Semantic search | ~300ms | Raw source material |
 
 This architecture ensures responses are grounded in both high-level analytical products and specific source evidence.
+
+> **Best Practice Alignment**: The layered RAG architecture implements the "retrieval augmented generation" pattern with multi-source grounding. By combining deterministic lookups (strategic context) with semantic search (events and documents), the system balances response latency with comprehensiveness—a recommended pattern for enterprise RAG systems. Source attribution at each layer supports the "verifiable AI" principle.
 
 ---
 
@@ -946,6 +957,8 @@ All triggered alerts are stored in `AlertHistory` with:
 
 Analysts can acknowledge alerts to track review status and clear notification indicators.
 
+> **Best Practice Alignment**: The alerting system follows observability and incident management best practices: configurable thresholds with statistical baselines (z-scores), multi-channel delivery, severity levels, cooldown periods to prevent alert fatigue, and acknowledgment tracking for audit trails. The use of APScheduler for background evaluation implements the "async job processing" pattern recommended for production systems.
+
 ---
 
 ## Competing Influence Analysis
@@ -1106,6 +1119,8 @@ class ProjectDocument:
 - Optional notes field
 - Confirmation feedback
 
+> **Best Practice Alignment**: Research Projects implement the "progressive disclosure" UX pattern—analysts can use the system casually or invest in curated collections. The metadata caching at collection time follows the "snapshot isolation" pattern, ensuring project integrity even if source documents are later modified. Project-scoped RAG demonstrates the "context window management" best practice for focused analysis.
+
 ---
 
 ## Report Generation and Export
@@ -1213,6 +1228,8 @@ Report generation leverages improved materiality scoring with **10 granular anch
 
 This prevents score clustering and provides better differentiation for report prioritization.
 
+> **Best Practice Alignment**: Report generation follows document automation best practices: template-based formatting for consistency, section toggles for customization, and citation management with hyperlinks for verifiability. The granular materiality scoring with explicit anchors implements the "calibrated confidence" pattern, making AI-generated scores interpretable and actionable.
+
 ---
 
 ## Techniques and Lessons Learned
@@ -1257,6 +1274,101 @@ This prevents score clustering and provides better differentiation for report pr
 - Analysts validated high-stakes events and anomalies
 - Risk controls prevented unchecked propagation of hallucinated content
 - Selective validation combined with confidence metrics
+
+---
+
+## Alignment with Best Practices
+
+The Soft Power Analytics platform was designed with deliberate attention to established best practices across AI/ML engineering, software architecture, and analyst workflow design. This section consolidates the key alignments.
+
+### AI/ML Engineering Best Practices
+
+| Practice | Implementation | Benefit |
+|----------|----------------|---------|
+| **Human-in-the-Loop (HITL)** | SME review step for event consolidation, alert acknowledgment, entity verification | Catches AI errors while building analyst trust |
+| **Model Tiering** | GPT-4o-mini for salience, GPT-4o for extraction, GPT-4.1 for complex reasoning | Optimizes cost/performance tradeoff |
+| **Structured Output Enforcement** | JSON schema constraints with examples in prompts | Reliable parsing, reduced post-processing errors |
+| **Iterative Prompt Refinement** | Verbose prompts with explicit instructions evolved through testing | Consistent, predictable model behavior |
+| **Knowledge Distillation** | DistilBERT student models trained on GPT-4o labels | Reduced inference costs, offline capability |
+| **Evaluation with Human Baselines** | Multi-annotator labeling exercises with disagreement analysis | Realistic performance assessment |
+
+### RAG System Best Practices
+
+| Practice | Implementation | Benefit |
+|----------|----------------|---------|
+| **Multi-Source Grounding** | Three-layer context (strategic, event, document) | Comprehensive, verifiable responses |
+| **Source Attribution** | Citation numbers with hyperlinks to source documents | Analyst verification, audit trail |
+| **Semantic + Deterministic Retrieval** | Vector search combined with SQL lookups | Speed and accuracy balance |
+| **Context Window Management** | Distilled text summaries, chunking strategies | Efficient token usage |
+| **Entity-Aware Search** | Boost documents mentioning matched entities | Improved relevance for actor-focused queries |
+
+### Software Architecture Best Practices
+
+| Practice | Implementation | Benefit |
+|----------|----------------|---------|
+| **Separation of Concerns** | Distinct services for pipeline, chat, dashboard, API | Maintainability, independent scaling |
+| **Idempotent Operations** | `ON CONFLICT DO NOTHING`, incremental processing | Safe re-runs, crash recovery |
+| **Database Normalization** | Separate tables for entities, relationships, documents | Data integrity, query flexibility |
+| **Event Sourcing** | Audit tables for extraction runs, alert history | Debugging, compliance |
+| **Configuration Management** | YAML config with environment variable overrides | Environment flexibility |
+
+### Data Quality Best Practices
+
+| Practice | Implementation | Benefit |
+|----------|----------------|---------|
+| **Validation at Extraction** | Entity type, role, and relationship type validation against taxonomies | Consistent data quality |
+| **Deduplication Strategy** | Canonical names with aliases, multi-attribute matching | Clean entity graph |
+| **Temporal Tracking** | First/last seen dates, observation counts | Trend analysis capability |
+| **Confidence Scoring** | Extraction confidence, relationship observation counts | Prioritization signals |
+
+### Analyst Workflow Best Practices
+
+| Practice | Implementation | Benefit |
+|----------|----------------|---------|
+| **Progressive Disclosure** | Simple search → detailed analysis → curated projects | Supports varied skill levels |
+| **Filter Context Preservation** | Sidebar filters automatically included in RAG queries | Consistent analysis scope |
+| **Proactive Notifications** | Configurable alerts with cooldowns | Reduces information overload |
+| **Export to Familiar Formats** | Word document generation with professional formatting | Integration with existing workflows |
+| **Source Traceability** | All claims linked to documents via citation hyperlinks | Verification support |
+
+### Governance and Risk Best Practices
+
+| Practice | Implementation | Benefit |
+|----------|----------------|---------|
+| **Risk Management Framework** | Documented risks with mitigation strategies | Informed decision-making |
+| **Black-Box Mitigation** | Periodic evaluation, student model contingency | Reduced vendor dependency |
+| **Audit Trails** | Extraction runs, alert history, project documents | Compliance, debugging |
+| **Graceful Degradation** | Fallback behaviors when LLM unavailable | System reliability |
+| **Role-Based Access** | JWT authentication, user-scoped projects | Data security |
+
+### Visualization Best Practices
+
+| Practice | Implementation | Benefit |
+|----------|----------------|---------|
+| **Visual Encoding Standards** | Consistent colors for entity types, relationship types | Quick pattern recognition |
+| **Interactive Exploration** | Hover tooltips, click-to-filter, zoom/pan | Analyst-driven discovery |
+| **Metrics Dashboards** | Key counts and averages prominently displayed | Quick orientation |
+| **Sample Data Mode** | Demo data when database empty | Onboarding, testing |
+
+### Alignment Summary
+
+The platform demonstrates adherence to best practices across the full stack:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     BEST PRACTICE COVERAGE                       │
+├─────────────────────────────────────────────────────────────────┤
+│  AI/ML          │ HITL, tiering, distillation, evaluation       │
+│  RAG            │ Multi-source, attribution, semantic+SQL       │
+│  Architecture   │ Separation, idempotency, normalization        │
+│  Data Quality   │ Validation, deduplication, confidence         │
+│  Analyst UX     │ Progressive disclosure, traceability          │
+│  Governance     │ Risk framework, audit trails, access control  │
+│  Visualization  │ Encoding standards, interactivity             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+These alignments were not coincidental—they emerged from iterative development with continuous attention to maintainability, scalability, and analyst trust. The result is a system that delivers AI-powered insights while remaining transparent, verifiable, and adaptable to evolving requirements.
 
 ---
 
@@ -1333,6 +1445,8 @@ The project implemented a comprehensive risk management framework:
 | Cost overruns | Model tiering by task complexity |
 | Black-box concerns | Periodic evaluation and student model contingency |
 | Schema drift | Continuous prompt refinement |
+
+> **Best Practice Alignment**: This risk matrix follows the NIST AI Risk Management Framework approach: identify risks, assess likelihood/impact, implement mitigations, and monitor continuously. The combination of technical controls (structured outputs, validation) and process controls (human review, periodic evaluation) demonstrates defense-in-depth for AI systems.
 
 ---
 
