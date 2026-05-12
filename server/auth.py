@@ -2,14 +2,10 @@
 Authentication utilities for enterprise JWT-based auth.
 
 The enterprise gateway provides JWT tokens via the 'x-kiosk-gateway-jwt' header
-on every request. This module validates those tokens and extracts user identity.
-
-Configuration:
-    ENTERPRISE_JWT_SECRET: Secret or public key for validating enterprise JWTs.
-                           Set via ENTERPRISE_JWT_SECRET env var.
-    ENTERPRISE_JWT_ALGORITHM: Algorithm used by the enterprise gateway (default: HS256).
-                              Set via ENTERPRISE_JWT_ALGORITHM env var.
-                              For RS256/ES256, set ENTERPRISE_JWT_PUBLIC_KEY to a PEM file path.
+on every request. Per gateway documentation, signature verification is performed
+at the gateway (the only ingress path), so the application decodes the token
+without signature verification and uses the claims directly. Token expiry is
+still enforced.
 """
 import os
 import logging
@@ -18,13 +14,6 @@ from typing import Optional, Dict, Any
 import jwt
 
 logger = logging.getLogger(__name__)
-
-# Enterprise JWT Configuration
-# For symmetric algorithms (HS256), this is the shared secret.
-# For asymmetric algorithms (RS256/ES256), use ENTERPRISE_JWT_PUBLIC_KEY instead.
-ENTERPRISE_JWT_SECRET = os.getenv("ENTERPRISE_JWT_SECRET", "")
-ENTERPRISE_JWT_ALGORITHM = os.getenv("ENTERPRISE_JWT_ALGORITHM", "HS256")
-ENTERPRISE_JWT_PUBLIC_KEY_PATH = os.getenv("ENTERPRISE_JWT_PUBLIC_KEY", "")
 
 # The HTTP header the enterprise gateway uses to pass the JWT
 ENTERPRISE_JWT_HEADER = "x-kiosk-gateway-jwt"
@@ -54,42 +43,25 @@ if DEV_AUTH_BYPASS:
     )
 
 
-def _get_verification_key() -> str:
-    """
-    Get the key used to verify enterprise JWTs.
-
-    For asymmetric algorithms (RS256, ES256, etc.), reads from PEM file.
-    For symmetric algorithms (HS256), uses the shared secret.
-    """
-    if ENTERPRISE_JWT_PUBLIC_KEY_PATH and os.path.isfile(ENTERPRISE_JWT_PUBLIC_KEY_PATH):
-        with open(ENTERPRISE_JWT_PUBLIC_KEY_PATH, "r") as f:
-            return f.read()
-    return ENTERPRISE_JWT_SECRET
-
-
 def verify_enterprise_token(token: str) -> Optional[Dict[str, Any]]:
     """
-    Verify and decode an enterprise gateway JWT token.
+    Decode an enterprise gateway JWT token.
+
+    Signature verification is intentionally skipped: the gateway is the only
+    ingress path to this service, so any JWT in the x-kiosk-gateway-jwt header
+    has already been validated upstream. Token expiry is still enforced.
 
     Args:
         token: JWT token string from x-kiosk-gateway-jwt header
 
     Returns:
-        Decoded payload dict if valid, None if invalid/expired.
+        Decoded payload dict if parseable and unexpired, None otherwise.
         Expected claims: sub (user ID), preferred_username or email, name, groups/roles
     """
-    key = _get_verification_key()
-    if not key:
-        logger.error("No enterprise JWT secret or public key configured. "
-                      "Set ENTERPRISE_JWT_SECRET or ENTERPRISE_JWT_PUBLIC_KEY env var.")
-        return None
-
     try:
         payload = jwt.decode(
             token,
-            key,
-            algorithms=[ENTERPRISE_JWT_ALGORITHM],
-            options={"verify_exp": True}
+            options={"verify_signature": False, "verify_exp": True},
         )
         return payload
     except jwt.ExpiredSignatureError:

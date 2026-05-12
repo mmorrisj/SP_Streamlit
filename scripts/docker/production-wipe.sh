@@ -88,8 +88,10 @@ DB_CONTAINER="sp_prod_db"
 APP_CONTAINER="sp_prod_app"
 REDIS_CONTAINER="sp_prod_redis"
 
+# Networking: host networking (see production-deploy.sh for rationale).
+DB_HOSTNAME="127.0.0.1"
+
 # Docker resources
-NETWORK_NAME="softpower_net"
 DB_VOLUME="softpower_production_prod_pgdata"
 
 # ============================================
@@ -152,9 +154,9 @@ wait_for_db() {
     log_info "Waiting for PostgreSQL to be ready..."
     local max_attempts=30
     for i in $(seq 1 $max_attempts); do
-        if docker run --rm --network "$NETWORK_NAME" \
+        if docker run --rm --network host \
             "$DB_IMAGE" \
-            pg_isready -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
+            pg_isready -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
             log_ok "PostgreSQL is ready"
             return 0
         fi
@@ -183,7 +185,7 @@ fi
 echo ""
 echo "  Containers:  $APP_CONTAINER, $REDIS_CONTAINER, $DB_CONTAINER"
 echo "  Volume:      $DB_VOLUME (ALL DATABASE DATA)"
-echo "  Network:     $NETWORK_NAME"
+echo "  Network:     host (containers share host network namespace)"
 echo ""
 
 # Safety confirmation
@@ -206,10 +208,10 @@ USERS_DUMP=""
 if container_running "$DB_CONTAINER" && [ -n "$POSTGRES_USER" ] && [ -n "$POSTGRES_PASSWORD" ]; then
     auto_backup="softpower-pre-wipe-$(date +%Y%m%d-%H%M%S).dump"
     log_info "Step 1: Creating safety backup before wipe..."
-    if docker run --rm --network "$NETWORK_NAME" \
+    if docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        pg_dump -h "$DB_CONTAINER" \
+        pg_dump -h "$DB_HOSTNAME" -p "$DB_PORT" \
         -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" \
         -F c > "$auto_backup" 2>/dev/null; then
@@ -232,10 +234,10 @@ if container_running "$DB_CONTAINER" && [ -n "$POSTGRES_USER" ] && [ -n "$POSTGR
 
         # Use pg_dump to export just the users table data (--data-only --table=users)
         # --inserts produces INSERT statements that work regardless of column order changes
-        if docker run --rm --network "$NETWORK_NAME" \
+        if docker run --rm --network host \
             -e PGPASSWORD="$POSTGRES_PASSWORD" \
             "$DB_IMAGE" \
-            pg_dump -h "$DB_CONTAINER" \
+            pg_dump -h "$DB_HOSTNAME" -p "$DB_PORT" \
             -U "$POSTGRES_USER" \
             -d "$POSTGRES_DB" \
             --data-only --table=users --inserts \
@@ -286,32 +288,21 @@ else
     log_info "Volume did not exist"
 fi
 
-# ---- Step 4: Remove network ----
-log_info "Step 4: Removing Docker network ($NETWORK_NAME)..."
-if docker network inspect "$NETWORK_NAME" &>/dev/null; then
-    docker network rm "$NETWORK_NAME" 2>/dev/null || log_warn "Could not remove network (may have other containers attached)"
-    if ! docker network inspect "$NETWORK_NAME" &>/dev/null; then
-        log_ok "Network removed: $NETWORK_NAME"
-    fi
-else
-    log_info "Network did not exist"
-fi
+# ---- Step 4: Network cleanup (no-op for host networking) ----
+log_info "Step 4: Network cleanup — using host networking, nothing to remove"
 
 # ---- Step 5: Restore users (if --preserve-users and we have a dump) ----
 if [ "$PRESERVE_USERS" = true ] && [ -n "$USERS_DUMP" ] && [ -f "$USERS_DUMP" ]; then
     echo ""
     log_info "Step 5: Restoring user accounts into fresh database..."
 
-    # Recreate network + volume
-    if ! docker network inspect "$NETWORK_NAME" &>/dev/null; then
-        docker network create "$NETWORK_NAME"
-    fi
+    # Recreate volume
     docker volume create "$DB_VOLUME"
 
-    # Start fresh PostgreSQL
+    # Start fresh PostgreSQL (host networking)
     docker run -d \
         --name "$DB_CONTAINER" \
-        --network "$NETWORK_NAME" \
+        --network host \
         --restart unless-stopped \
         --security-opt no-new-privileges:true \
         --cap-drop ALL \
@@ -321,8 +312,8 @@ if [ "$PRESERVE_USERS" = true ] && [ -n "$USERS_DUMP" ] && [ -f "$USERS_DUMP" ];
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
         -e PGDATA=/var/lib/postgresql/data/pgdata \
+        -e PGPORT="$DB_PORT" \
         -v "$DB_VOLUME":/var/lib/postgresql/data \
-        -p "${DB_PORT}:5432" \
         --shm-size=1g \
         "$DB_IMAGE"
 
@@ -330,10 +321,10 @@ if [ "$PRESERVE_USERS" = true ] && [ -n "$USERS_DUMP" ] && [ -f "$USERS_DUMP" ];
 
     # Enable extensions
     log_info "Enabling pgvector + pg_trgm extensions..."
-    docker run --rm --network "$NETWORK_NAME" \
+    docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         -c "CREATE EXTENSION IF NOT EXISTS vector;" \
         -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" > /dev/null 2>&1
     log_ok "Extensions enabled"
@@ -341,31 +332,31 @@ if [ "$PRESERVE_USERS" = true ] && [ -n "$USERS_DUMP" ] && [ -f "$USERS_DUMP" ];
     # Run migrations to create schema
     log_info "Running Alembic migrations (fresh schema)..."
     docker run --rm \
-        --network "$NETWORK_NAME" \
+        --network host \
         -e DOCKER_ENV=true \
-        -e DB_HOST="$DB_CONTAINER" \
-        -e DB_PORT=5432 \
+        -e DB_HOST="$DB_HOSTNAME" \
+        -e DB_PORT="$DB_PORT" \
         -e POSTGRES_USER="$POSTGRES_USER" \
         -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
         -e POSTGRES_DB="$POSTGRES_DB" \
-        -e DATABASE_URL="$(build_database_url "$DB_CONTAINER" 5432)" \
+        -e DATABASE_URL="$(build_database_url "$DB_HOSTNAME" "$DB_PORT")" \
         "$APP_IMAGE" \
         alembic upgrade head
     log_ok "Migrations complete — fresh schema created"
 
     # Restore users data
     log_info "Restoring users from $USERS_DUMP..."
-    docker run --rm -i --network "$NETWORK_NAME" \
+    docker run --rm -i --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         < "$USERS_DUMP" > /dev/null 2>&1
 
     # Verify
-    restored_count=$(docker run --rm --network "$NETWORK_NAME" \
+    restored_count=$(docker run --rm --network host \
         -e PGPASSWORD="$POSTGRES_PASSWORD" \
         "$DB_IMAGE" \
-        psql -h "$DB_CONTAINER" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        psql -h "$DB_HOSTNAME" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
         -t -c "SELECT count(*) FROM users;" 2>/dev/null | tr -d ' ')
 
     log_ok "Restored ${restored_count:-0} user(s)"

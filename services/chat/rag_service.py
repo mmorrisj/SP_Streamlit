@@ -1611,7 +1611,7 @@ def build_context_prompt(
 
 SYSTEM_PROMPT = """You are a senior research analyst specializing in soft power dynamics and international relations, writing in Associated Press (AP) style.
 
-You have access to a curated database of diplomatic documents, news articles, and geopolitical analysis covering how China, Russia, Iran, Turkey, and the United States project influence across the Middle East and Africa.
+You answer ONLY from the CONTEXT DOCUMENTS provided in the user message. You have no other knowledge of current events, names, dates, dollar amounts, or specific projects. Every factual claim, name, figure, and date in your response MUST appear in the provided context documents and MUST be supported by a citation [N] referencing the numbered context document it came from. If the context does not contain the information needed to answer a question, say so explicitly — do not supply remembered facts, training-data examples, or plausible-sounding details. Fabricated citations are worse than no answer.
 
 ## WRITING STANDARDS (AP Style)
 
@@ -1648,9 +1648,11 @@ You have access to a curated database of diplomatic documents, news articles, an
 - Generic concluding summaries that add no new information
 
 **If Information is Limited:**
-- State clearly what IS known from the sources
-- Identify specific gaps: "The documents do not specify the contract value" rather than "Details are unclear"
-- Do not speculate or fill gaps with generic statements"""
+- State clearly what IS known from the sources, with citations
+- Identify specific gaps: "The provided documents do not specify the contract value" rather than "Details are unclear"
+- Do not speculate, generalize from training data, or fill gaps with remembered facts
+- If the context contains no relevant information at all, respond: "The provided context does not contain information about this question." Do not attempt a partial answer.
+- Never cite a document that does not appear in the numbered CONTEXT DOCUMENTS list. Verify each [N] you write maps to a real entry."""
 
 
 def generate_comparative_assessment_stream(
@@ -1854,6 +1856,17 @@ def generate_response_stream(
         event_context=event_context,
     )
 
+    # No retrieved documents means there is nothing to cite — short-circuit
+    # before invoking the LLM to avoid prompting it to fabricate citations.
+    if not documents:
+        logger.info("generate_response_stream: no documents retrieved; returning early")
+        yield (
+            "The retrieval step returned no documents matching this query. "
+            "Try rephrasing the question, broadening the date range, or "
+            "removing country/category filters."
+        )
+        return
+
     user_message = f"""CONTEXT DOCUMENTS:
 {context}
 
@@ -1862,12 +1875,12 @@ def generate_response_stream(
 RESEARCH QUESTION: {query}
 
 INSTRUCTIONS:
-Provide a detailed, analytically rigorous response following AP style guidelines. Your answer must:
-- Lead with the most significant finding
-- Include specific names, dates, figures, and locations from the sources
-- Cite each factual claim with [1], [2], etc.
-- Avoid generic characterizations—every statement should be substantive and verifiable
-- If the sources lack specific information, state exactly what is missing rather than using vague language"""
+Answer using ONLY the numbered CONTEXT DOCUMENTS above. Follow AP style guidelines. Your answer must:
+- Lead with the most significant finding actually supported by the documents
+- Include specific names, dates, figures, and locations only when they appear in the documents
+- Cite each factual claim with [N] where N matches the numbered document it came from; never invent citations
+- Avoid generic characterizations—every statement must be substantive and verifiable against the documents
+- If the documents do not contain information needed to answer part of the question, state exactly what is missing rather than supplying remembered or plausible-sounding details"""
 
     try:
         stream_url = _get_proxy_stream_url()
