@@ -6,7 +6,7 @@
 
 **Author:** Matt Morris, Data Scientist
 
-**Version:** 3.0
+**Version:** 4.0
 
 **Date:** May 2026
 
@@ -30,9 +30,10 @@
 14. [Report Generation and Export](#report-generation-and-export)
 15. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
 16. [Alignment with Best Practices](#alignment-with-best-practices)
-17. [Knowledge Distillation](#knowledge-distillation)
-18. [Limitations and Future Directions](#limitations-and-future-directions)
-19. [Conclusion](#conclusion)
+17. [Technology Stack Validation](#technology-stack-validation)
+18. [Knowledge Distillation](#knowledge-distillation)
+19. [Limitations and Future Directions](#limitations-and-future-directions)
+20. [Conclusion](#conclusion)
 
 ---
 
@@ -224,10 +225,10 @@ Soft Power DB (pgvector) → Publication (Dashboard, Reports, Agent UI)
 #### Data Layer
 - **Document Metadata**: Source information and timestamps
 - **GAI Extraction Data**: Structured outputs from analysis prompts
-- **Embeddings**: Vector representations using all-MiniLM-L6-v2
+- **Embeddings**: Vector representations using Nomic Embed Text v1.5
   - Distilled Text Embeddings
   - Event Embeddings
-  - Project Embeddings
+  - Entity Embeddings
 
 #### Processing Layer
 - **Activity Aggregation**: Document and GAI extractions parsed and grouped
@@ -246,11 +247,12 @@ Soft Power DB (pgvector) → Publication (Dashboard, Reports, Agent UI)
 |-----------|------------|
 | Backend | SQLAlchemy 2.0, FastAPI |
 | Database | PostgreSQL + pgvector |
-| Frontend | Streamlit |
-| AI/ML | OpenAI GPT models, sentence-transformers, HDBSCAN |
-| Infrastructure | Docker Compose, Alembic migrations |
-| Storage | AWS S3 |
-| Embeddings | all-MiniLM-L6-v2 (open-source) |
+| Frontend | React + TypeScript + Vite (primary), Streamlit (analytics) |
+| AI/ML | OpenAI GPT models (gpt-4o, gpt-4o-mini, gpt-4.1), sentence-transformers |
+| Clustering | DBSCAN with cosine distance |
+| Infrastructure | Docker Compose, Alembic migrations, APScheduler |
+| Storage | AWS S3, Redis (caching) |
+| Embeddings | Nomic Embed Text v1.5 (open-source) |
 
 ---
 
@@ -303,10 +305,34 @@ The system employs a series of specialized prompts:
 
 ## Event Processing Pipeline
 
+The event processing pipeline uses a **two-stage batch consolidation architecture** that separates daily event detection from cross-temporal linking. This approach provides cleaner separation of concerns and enables LLM validation at multiple checkpoints.
+
+### Architecture Overview
+
+```
+Stage 1: Daily Event Detection
+├─ 1A: batch_cluster_events.py (DBSCAN clustering per day)
+│      → event_clusters table
+└─ 1B: llm_deconflict_clusters.py (LLM validation)
+       → canonical_events + daily_event_mentions
+
+Stage 2: Batch Consolidation (Across All Dates)
+├─ 2A: consolidate_all_events.py (embedding similarity ≥0.85)
+│      → Sets master_event_id hierarchy
+├─ 2B: llm_deconflict_canonical_events.py (validates groups)
+│      → Sets llm_validated=TRUE, picks best names
+└─ 2C: merge_canonical_events.py (consolidates mentions)
+       → Creates multi-day events, deletes children
+
+Stage 3: Materiality Scoring
+└─ score_canonical_event_materiality.py
+   → Assigns material_score (1.0-10.0)
+```
+
 ### Workflow Steps
 
 #### Step 1: Salience Run
-NE_AUTO holdings are queried and results are run through GPT-3.5 turbo on ingest to detect articles relevant to the soft power project.
+Document holdings are queried and run through GPT-4o-mini on ingest to detect articles relevant to the soft power project.
 
 #### Step 2: Extraction Run
 Salient articles are run through an extraction prompt using GPT-4o which:
@@ -314,62 +340,177 @@ Salient articles are run through an extraction prompt using GPT-4o which:
 - Creates distilled versions containing only relevant content
 - Identifies initiating and recipient countries
 - Determines location (latitude-longitude)
+- Extracts a `specific_event_name` for event tracking
 
-#### Step 3: Unique Event Identification
-Processing the entirety of distilled articles exceeds both context and output limits of current GAI models (128K token input, 10K token output). The solution:
+#### Step 3: Daily Event Clustering (Stage 1A)
+For each (country, date) combination:
 
-1. Cluster corpus by cosine similarity into chunks of ~50 articles
-2. Run each chunk through GAI to output event groupings
-3. Assign Event IDs (EIDs) to consolidated articles
+1. Load all documents with `specific_event_name` or `event_name`
+2. Generate embeddings using Sentence Transformers (Nomic Embed Text v1.5)
+3. Run DBSCAN clustering with `eps=0.15` (cosine distance), `min_samples=1`
+4. Calculate centroid embedding for each cluster
+5. Organize clusters into batches of ~50-150 events for LLM processing
+6. Save to `event_clusters` table with batch metadata
 
-#### Step 4: Event Aggregation
-To account for duplicative events across separate chunks:
-- Another round of clustering and GAI aggregation on event objects
-- Consolidated events assigned Soft Power IDs (SPIDs)
-- SPIDs run through GAI for overarching event-name and event-summary
+#### Step 4: LLM Cluster Deconfliction (Stage 1B)
+For each event cluster:
 
-#### Step 5: Event Tracking
-For subsequent data batches:
-- Steps 1-3 repeated on new batch
-- New events compared to existing SPIDs
-- Updated SPIDs incorporate new information
-- Truly new events processed through Step 4
+1. Skip noise clusters (DBSCAN label -1) and single-name clusters
+2. Submit multi-name clusters to LLM for validation:
+   - Are these the same event at different lifecycle stages?
+   - Should this cluster be split into separate events?
+3. Create `canonical_events` records (one per unique event per day)
+4. Create `daily_event_mentions` linking events to source documents via `doc_ids[]`
+5. Uses SQLAlchemy savepoints for atomic creation of event + mentions
 
-#### Step 6: Findings by Country
-SPIDs filtered by country and run through GAI to build weekly summaries with:
+**Key Output:**
+```python
+class CanonicalEvent:
+    canonical_name: str              # "Belt and Road Forum 2025"
+    initiating_country: str          # "China"
+    master_event_id: Optional[UUID]  # NULL = master, UUID = child
+    embedding_vector: List[float]    # For similarity matching
+    story_phase: str                 # "emerging"|"developing"|"peak"|"fading"|"dormant"
+    material_score: Numeric(3,1)     # 1.0-10.0
+
+class DailyEventMention:
+    canonical_event_id: UUID
+    mention_date: date
+    article_count: int
+    doc_ids: List[str]               # Source document traceability
+```
+
+#### Step 5: Cross-Temporal Consolidation (Stage 2A)
+Groups canonical events across the entire dataset:
+
+1. Load ALL canonical events for a country (no date filtering)
+2. Compute pairwise cosine similarity on embedding vectors
+3. Find connected components using similarity threshold ≥0.85
+4. Select highest-article-count event as **master**
+5. Set `master_event_id` on related events to create hierarchy
+
+**Result:**
+- Master events: `master_event_id IS NULL`
+- Child events: `master_event_id = <master.id>`
+
+#### Step 6: LLM Validation of Consolidation (Stage 2B)
+For each event group (same `master_event_id`):
+
+1. Submit group names to LLM:
+   - "Are these the same real-world event?"
+   - "Which canonical name is best?"
+   - "Should this group be split?"
+2. Update canonical names based on LLM selection
+3. Set `llm_validated = TRUE` on validated master events
+4. Supports checkpoint/resume for large-scale processing
+
+#### Step 7: Daily Mention Merging (Stage 2C)
+Consolidates `daily_event_mentions` from child to master events:
+
+1. For each validated master event:
+   - Merge article counts for same-date mentions
+   - Reassign child mentions to master for different dates
+   - Delete empty child canonical events
+2. Update master event metadata:
+   - `first_mention_date`, `last_mention_date`
+   - `total_mention_days`, `total_articles`
+
+**Result:** Master events now span multiple days with consolidated mentions and full document traceability.
+
+#### Step 8: Materiality Scoring (Stage 3)
+Assigns materiality scores (1.0-10.0) to events:
+
+| Score | Description | Dollar Threshold |
+|-------|-------------|------------------|
+| 1-3 | Symbolic: statements, cultural events | < $1M |
+| 4-6 | Notable: agreements, capacity building | $1M - $500M |
+| 7-10 | Concrete: infrastructure, financial commitments | > $500M |
+
+#### Step 9: Summary Generation
+Events filtered by country and run through GAI to build summaries with:
 - Specific findings with source citations
 - Hyperlinks to original documents via ATOM IDs
+- Daily, weekly, and monthly summary generation
 
-#### Step 7: Visualization
+#### Step 10: Visualization
 Dashboard enables dynamic manipulation of soft power data from country level down to individual articles.
 
-#### Step 8: SME Review
+#### Step 11: SME Review
 Human intervention point where analysts can:
-- Flag high-priority SPIDs for detailed tracking
-- Split over-consolidated SPIDs
-- Combine SPIDs that should be tracked as single events
+- Flag high-priority events for detailed tracking
+- Split over-consolidated events
+- Combine events that should be tracked together
 
 > **Best Practice Alignment**: The SME Review step implements the "human-in-the-loop" (HITL) pattern recommended for high-stakes AI applications. Rather than fully automating decisions, the system presents AI outputs for expert validation, enabling correction of errors while building trust in automated processes.
 
-### Deduplication Strategies
+### Database Schema
 
-**Batch Deduplication (Deferred):**
-- Occurs after weeks/months of data collected
-- Events evaluated in context of larger dataset
-- Minimizes fragmentation
-- *Drawback*: Delays analyst access to consolidated events
+**`event_clusters`** - DBSCAN clustering results per day:
+- `initiating_country`, `cluster_date`, `batch_number`
+- `cluster_id`, `event_names[]`, `doc_ids[]`
+- `centroid_embedding[]`, `representative_name`
+- `processed`, `llm_deconflicted` flags
 
-**Real-Time Deduplication (Streaming):**
-- Occurs as new articles are ingested
-- Immediate comparison against existing SPIDs
-- Near-instant enrichment of summaries
-- *Drawback*: Risks over-consolidation due to limited historical context
+**`canonical_events`** - Deduplicated events with hierarchy:
+- `canonical_name`, `initiating_country`, `master_event_id`
+- `first_mention_date`, `last_mention_date`, `total_articles`
+- `embedding_vector[]`, `story_phase`, `material_score`
+- `llm_validated`, `llm_validated_at`
+
+**`daily_event_mentions`** - Document-to-event linking:
+- `canonical_event_id`, `mention_date`, `article_count`
+- `doc_ids[]` (full traceability to source documents)
+- Unique constraint: (canonical_event_id, mention_date)
+
+### Why Two-Stage Architecture?
+
+| Concern | Stage 1 (Daily) | Stage 2 (Batch) |
+|---------|-----------------|-----------------|
+| Context | Same-day events only | Full historical dataset |
+| Focus | Deduplication within day | Temporal linking across days |
+| LLM Validation | Cluster-level | Group-level |
+| Traceability | doc_ids → event | Child → master hierarchy |
+
+This separation ensures:
+- Daily clustering has clear, bounded scope
+- Batch consolidation benefits from complete dataset context
+- Multiple LLM validation passes improve quality
+- Full traceability from master events → daily mentions → source documents
 
 ---
 
 ## Entity and Relationship Extraction
 
 Building on the foundational document categorization and event extraction capabilities, the system expanded to include comprehensive **entity and relationship extraction**. This enables the construction of a knowledge graph representing the actors, organizations, and connections underlying soft power activities.
+
+The entity pipeline mirrors the event pipeline's **two-stage batch consolidation architecture**, separating daily entity detection from cross-temporal resolution.
+
+### Architecture Overview
+
+```
+Stage 1: Daily Entity Detection
+├─ 1A: extract_daily_entities.py (LLM extraction)
+│      → raw_entities table
+├─ 1B: cluster_daily_entities.py (DBSCAN clustering)
+│      → entity_clusters table
+└─ 1C: llm_deconflict_entity_clusters.py (LLM validation)
+       → canonical_entities + daily_entity_mentions
+
+Stage 2: Batch Consolidation (Across All Dates)
+├─ 2A: consolidate_all_entities.py (embedding similarity ≥0.88)
+│      → Sets master_entity_id hierarchy
+├─ 2B: llm_deconflict_canonical_entities.py (validates groups)
+│      → Sets llm_validated=TRUE, picks best names/roles
+└─ 2C: merge_canonical_entities.py (consolidates mentions)
+       → Creates multi-day entities, deletes children
+
+Stage 3: Relationship Building
+├─ 3A: link_entities_to_events.py (entity-event linking)
+├─ 3B: build_entity_cooccurrence.py (co-occurrence graph)
+├─ 3C: generate_entity_descriptions.py (LLM descriptions)
+└─ 3D: classify_entity_relationships.py (relationship classification)
+       → 9 typed relationships with descriptions
+```
 
 ### Motivation
 
@@ -378,170 +519,214 @@ While event-level analysis provides insights into *what* happened, understanding
 - **Network Analysis**: Identifying key actors and their influence patterns
 - **Connection Discovery**: Finding hidden relationships between entities across documents
 - **Temporal Tracking**: Monitoring how entity involvement evolves over time
-- **Financial Flow Mapping**: Tracing monetary relationships between organizations
+- **Event Correlation**: Linking entities to specific soft power events
 
 ### Entity Taxonomy
 
-The system extracts 11 types of entities:
+The system extracts 5 core entity types with 14 role labels:
 
 | Entity Type | Description | Examples |
 |-------------|-------------|----------|
 | **PERSON** | Individual officials, executives, diplomats | Wang Yi, Crown Prince Mohammed bin Salman |
-| **GOVERNMENT_AGENCY** | Ministries, departments, embassies | Ministry of Foreign Affairs, USAID |
-| **STATE_OWNED_ENTERPRISE** | Government-controlled companies | China National Petroleum Corporation, Saudi Aramco |
-| **PRIVATE_COMPANY** | Privately owned businesses | Huawei, Siemens |
-| **MULTILATERAL_ORG** | International bodies | UN, BRICS, SCO, African Union |
-| **NGO** | Non-governmental organizations | Red Cross, Doctors Without Borders |
-| **EDUCATIONAL_INSTITUTION** | Universities, research institutes | Confucius Institute, Cairo University |
-| **FINANCIAL_INSTITUTION** | Banks, investment funds | China Development Bank, World Bank |
-| **MILITARY_UNIT** | Armed forces, defense ministries | People's Liberation Army |
-| **MEDIA_ORGANIZATION** | News outlets, broadcasters | CGTN, Al Jazeera |
-| **RELIGIOUS_ORGANIZATION** | Religious bodies | Al-Azhar University |
+| **ORGANIZATION** | Government agencies, NGOs, international bodies | Ministry of Foreign Affairs, UN, BRICS |
+| **COMPANY** | Private and state-owned enterprises | Huawei, Saudi Aramco, China Development Bank |
+| **LOCATION** | Cities, venues, facilities, projects | Gwadar Port, Cairo University |
+| **OTHER** | Entities not fitting other categories | Specific agreements, treaties |
 
-### Role Labels (25 Types)
+### Role Labels (14 Types)
 
-Each entity is assigned a role describing their function in the soft power transaction:
+Each entity is assigned a primary role from the `EntityRoleEnum`:
 
-**Diplomatic Roles:**
-- HEAD_OF_STATE, DIPLOMAT, NEGOTIATOR, GOVERNMENT_OFFICIAL, LEGISLATOR
+**Government/Diplomatic Roles:**
+- `government_official`, `diplomat`, `military_official`
 
-**Economic Roles:**
-- FINANCIER, INVESTOR, CONTRACTOR, DEVELOPER, TRADE_PARTNER, OPERATOR
-
-**Military Roles:**
-- MILITARY_OFFICIAL, DEFENSE_SUPPLIER, TRAINER
+**Business Roles:**
+- `business_leader`
 
 **Cultural/Social Roles:**
-- CULTURAL_INSTITUTION, EDUCATOR, MEDIA_ENTITY, RELIGIOUS_ENTITY, HUMANITARIAN
+- `cultural_figure`, `academic`, `media_figure`, `civil_society`
 
-**Transaction-Specific Roles:**
-- BENEFICIARY, HOST, LOCAL_PARTNER, FACILITATOR, SIGNATORY
+**Organizational Roles:**
+- `implementing_organization`, `funding_organization`, `recipient_institution`
 
-### Topic Labels (30 Types)
+**Project/Location Roles:**
+- `infrastructure_project`, `venue`, `other`
 
-Entities are tagged with the domain of influence they operate in:
+### Relationship Types (9 Types)
 
-**Economic Topics:**
-- INFRASTRUCTURE, ENERGY, FINANCE, TRADE, TECHNOLOGY, TELECOMMUNICATIONS, TRANSPORTATION, AGRICULTURE, MINING, MANUFACTURING
+The system captures directed relationships between entities with LLM-classified types:
 
-**Diplomatic Topics:**
-- BILATERAL_RELATIONS, MULTILATERAL_FORUMS, CONFLICT_MEDIATION, TREATY_NEGOTIATION
+| Relationship Type | Description | Example |
+|-------------------|-------------|---------|
+| **works_with** | Colleagues at same level (person-person) | Wang Yi works_with Sergey Lavrov |
+| **employed_by** | Person works for organization | Executive employed_by State Grid |
+| **leads** | Person heads/directs organization | President leads Government |
+| **represents** | Person acts as envoy/representative | Diplomat represents Ministry |
+| **partnered_with** | Organizations in formal partnership | Company partnered_with SOE |
+| **subsidiary_of** | Organization is part of parent | Division subsidiary_of Corporation |
+| **located_in** | Organization/person based in location | Embassy located_in Capital |
+| **visited** | Person traveled to location | Official visited Port |
+| **signed_agreement_with** | Entities signed agreement together | Country signed_agreement_with Country |
+| **co_occurrence** | Fallback when evidence insufficient | - |
 
-**Military Topics:**
-- ARMS_TRADE, MILITARY_COOPERATION, DEFENSE_TRAINING, SECURITY_ASSISTANCE
+### Extraction Pipeline (Stage 1)
 
-**Social Topics:**
-- EDUCATION, HEALTHCARE, CULTURE, MEDIA, RELIGION, HUMANITARIAN_AID, TOURISM
+#### Step 1A: LLM Entity Extraction
+For each document with `salience_bool = true`:
 
-### Relationship Types (14 Types)
+1. Format prompt with document context (date, countries, categories)
+2. Call GPT-4o-mini to extract entities by category:
+   - PERSONS: Individual roles/titles, country affiliation, context
+   - ORGANIZATIONS: Gov agencies, NGOs; type, country, function
+   - COMPANIES: Businesses, SOEs; sector, country, involvement
+   - LOCATIONS: Cities, venues, facilities; type, significance
+3. Parse structured JSON output to `raw_entities` table
+4. Store: `entity_name`, `entity_type`, `role`, `country_affiliation`, `context_snippet`
 
-The system captures directed relationships between entities:
+#### Step 1B: Daily Entity Clustering
+For each (country, entity_type, date) combination:
 
-| Relationship Type | Description |
-|-------------------|-------------|
-| **FUNDS** | Provides money/financing to |
-| **INVESTS_IN** | Makes equity investment in |
-| **CONTRACTS_WITH** | Has contract/agreement with |
-| **PARTNERS_WITH** | Forms partnership/JV with |
-| **SIGNS_AGREEMENT** | Signs formal agreement with |
-| **MEETS_WITH** | Has meeting/diplomatic encounter with |
-| **EMPLOYS** | Has employment relationship with |
-| **OWNS** | Has ownership stake in |
-| **REPRESENTS** | Officially represents (person → organization) |
-| **HOSTS** | Hosts event/visit for |
-| **TRAINS** | Provides training to |
-| **SUPPLIES** | Provides goods/equipment to |
-| **MEDIATES** | Mediates between parties |
-| **ANNOUNCES** | Makes public announcement about |
+1. Load raw entities with their names
+2. Generate embeddings using Nomic Embed Text v1.5
+3. Run DBSCAN clustering with `eps=0.12` (stricter than events), `min_samples=1`
+4. Calculate centroid embedding per cluster
+5. Organize into batches of ~150 entities for LLM processing
+6. Save to `entity_clusters` table
 
-### Extraction Pipeline
+#### Step 1C: LLM Cluster Deconfliction
+For each entity cluster:
 
-The entity extraction pipeline operates as follows:
+1. Skip noise clusters (DBSCAN label -1) and single-name clusters
+2. Submit multi-name clusters to LLM:
+   - Are these names the same entity (transliterations, abbreviations)?
+   - What is the best canonical name?
+   - What is the best primary role from valid roles?
+3. Create `canonical_entities` with embeddings
+4. Create `daily_entity_mentions` linking to source documents
 
+**Key Output:**
+```python
+class CanonicalEntity:
+    canonical_name: str              # "Wang Yi"
+    entity_type: EntityTypeEnum      # PERSON
+    primary_role: EntityRoleEnum     # government_official
+    initiating_country: str          # "China"
+    master_entity_id: Optional[UUID] # NULL = master, UUID = child
+    alternative_names: List[str]     # ["Wang Yi", "Chinese Foreign Minister"]
+    embedding_vector: List[float]    # For similarity matching
+    entity_description: str          # LLM-generated summary
+    key_activities: Dict             # Structured activity data
+
+class DailyEntityMention:
+    canonical_entity_id: UUID
+    mention_date: date
+    document_count: int
+    doc_ids: List[str]               # Source document traceability
+    associated_event_ids: List[str]  # Linked canonical events
 ```
-Documents → Entity Extraction (GPT-4o-mini) → Validation →
-Deduplication → Database Storage → Relationship Aggregation
-```
 
-**Step 1: Document Selection**
-- Query documents with `salience_bool = true` and valid `distilled_text`
-- Filter by country, date range, or specific document IDs
-- Automatically skip already-processed documents (incremental processing)
+### Consolidation Pipeline (Stage 2)
 
-**Step 2: LLM Extraction**
-- Format prompt with document context (initiating/recipient country, category)
-- Call GPT-4o-mini to extract entities and relationships
-- Parse structured JSON output
+#### Step 2A: Cross-Temporal Consolidation
+Groups canonical entities across the entire dataset:
 
-**Step 3: Validation**
-- Validate entity types against defined taxonomy
-- Validate role labels and topic labels
-- Validate relationship types and ensure source/target entities exist
-- Log warnings for invalid or missing fields
+1. Load ALL canonical entities for a country/entity_type (no date filtering)
+2. Compute pairwise cosine similarity on embedding vectors
+3. Find connected components using similarity threshold ≥0.88 (stricter than events)
+4. **Constraint**: Only groups entities of SAME type
+5. Select highest-document-count entity as master
+6. Set `master_entity_id` on related entities
 
-**Step 4: Deduplication**
-- Match entities by canonical name (case-insensitive)
-- Match by aliases (stored as array)
-- For persons, match by name + country combination
-- Use `ON CONFLICT DO NOTHING` for document-entity pairs
+#### Step 2B: LLM Validation of Consolidation
+For each entity group:
 
-> **Best Practice Alignment**: Entity resolution follows knowledge graph construction best practices: canonical naming with alias tracking, multi-attribute matching for persons, and idempotent database operations. This prevents data duplication while maintaining traceability to source documents.
+1. Submit group names to LLM with checkpoint/resume support:
+   - "Are these the same real-world entity?"
+   - "Which canonical name is best?"
+   - "What is the best primary role?"
+2. Update canonical names based on LLM selection
+3. Set `llm_validated = TRUE` on master entities
+4. Supports force mode for reprocessing
 
-**Step 5: Relationship Aggregation**
-- Aggregate relationship observations across documents
-- Track `observation_count` and `document_count`
-- Maintain `first_observed` and `last_observed` dates
-- Sum `total_value_usd` for financial relationships
-- Store sample evidence (up to 10 document IDs per relationship)
+#### Step 2C: Daily Mention Merging
+Consolidates `daily_entity_mentions` from child to master entities:
+
+1. Merge JSONB dicts by summing counts
+2. Merge arrays by deduplicating while preserving order
+3. Delete empty child canonical entities
+4. Update master entity statistics
+
+### Relationship Building (Stage 3)
+
+#### Step 3A: Entity-Event Linking
+Links entities to canonical events:
+
+1. Find events whose `daily_event_mentions` share `doc_ids` with entity mentions
+2. Uses PostgreSQL array overlap operator (`&&`)
+3. Populates `associated_event_ids[]` on daily mentions
+4. Aggregates to `associated_events[]` on canonical entity
+
+#### Step 3B: Co-occurrence Graph
+Builds entity-entity relationships:
+
+1. Create inverted index: doc_id → Set[entity_id]
+2. For each document with 2+ entities: generate all pairs
+3. Use sorted UUID ordering to avoid duplicates
+4. Filter by minimum co-occurrence threshold (default: 2)
+5. Create `entity_relationships` records
+
+#### Step 3C: Entity Descriptions
+Generates LLM descriptions for entities:
+
+1. Gather context: metadata, activity metrics, document evidence, associated events
+2. Call LLM to generate:
+   - `entity_description`: 2-3 sentences with specific actions/counterparts
+   - `key_activities`: primary_function, notable_actions, key_relationships, geographic_focus
+
+#### Step 3D: Relationship Classification
+Classifies generic co-occurrences into typed relationships:
+
+1. Load document snippets for context (limit: 5 docs, 500 chars each)
+2. Provide entity profiles (type, role, country)
+3. Call LLM to classify relationship type and generate description
+4. Update `relationship_type` and `relationship_description`
 
 ### Database Schema
 
-The entity system uses three core tables:
+**`raw_entities`** - Initial extraction per document:
+- `doc_id` (FK), `entity_name`, `entity_type`, `role`
+- `country_affiliation`, `context_snippet`
 
-**`entities`** - Canonical, deduplicated entities
-- UUID primary key
-- `canonical_name`, `entity_type`, `country`
-- `aliases` (array for deduplication)
-- `mention_count`, `first_seen_date`, `last_seen_date`
-- `primary_topics` (JSONB) - aggregated topic usage
-- `primary_roles` (JSONB) - aggregated role usage
+**`entity_clusters`** - DBSCAN clustering results:
+- `initiating_country`, `cluster_date`, `entity_type`, `batch_number`
+- `cluster_id`, `entity_names[]`, `doc_ids[]`
+- `centroid_embedding[]`, `representative_name`
+- `processed`, `llm_deconflicted` flags
 
-**`document_entities`** - Links documents to entities
-- Foreign keys to `documents` and `entities`
-- `side` (initiating/recipient/third_party)
-- `role_label`, `topic_label`, `role_description`
-- `confidence` score and `extraction_method`
+**`canonical_entities`** - Deduplicated entities with hierarchy:
+- `canonical_name`, `entity_type`, `primary_role`, `initiating_country`
+- `master_entity_id` (self-referential FK for resolution)
+- `alternative_names[]`, `country_affiliations[]`
+- `first_mention_date`, `last_mention_date`, `total_documents`
+- `embedding_vector[]`, `entity_description`, `key_activities`
+- `primary_categories{}`, `primary_recipients{}`, `associated_events[]`
+- `llm_validated`, `llm_validated_at`
 
-**`entity_relationships`** - Aggregated relationships
-- Source and target entity foreign keys
-- `relationship_type`
-- `observation_count`, `document_count`
-- `total_value_usd` (for financial relationships)
-- `sample_doc_ids` (array of evidence)
+**`daily_entity_mentions`** - Document-to-entity linking:
+- `canonical_entity_id`, `mention_date`, `document_count`
+- `doc_ids[]` (full traceability)
+- `associated_event_ids[]` (event correlation)
+- Unique constraint: (canonical_entity_id, mention_date)
 
-### Parallel Processing
+**`entity_relationships`** - Entity-entity connections:
+- `entity_from_id`, `entity_to_id` (FKs)
+- `relationship_type` (9 types)
+- `co_occurrence_count`, `first_co_occurrence`, `last_co_occurrence`
+- `primary_categories{}`, `relationship_description`
+- `source_doc_ids[]` (evidence)
+- Check constraint: entity_from_id < entity_to_id (canonical ordering)
 
-The extraction pipeline supports parallel processing for improved throughput:
-
-```bash
-# Sequential processing (default)
-python services/pipeline/entities/entity_extraction.py --country China --limit 100
-
-# Parallel processing with 4 workers
-python services/pipeline/entities/entity_extraction.py --country China --limit 100 --parallel-workers 4
-
-# Force reprocess already-extracted documents
-python services/pipeline/entities/entity_extraction.py --country China --reprocess
-```
-
-### Entity Resolution
-
-A separate entity resolution prompt handles deduplication of extracted entities:
-
-- Identifies abbreviated vs. full names (CNPC vs. China National Petroleum Corporation)
-- Matches with/without titles (President Xi vs. Xi Jinping)
-- Handles transliteration variations
-- Groups merge candidates with confidence scores
+> **Best Practice Alignment**: Entity resolution follows knowledge graph construction best practices: two-stage consolidation mirrors event processing for consistency, canonical naming with alias tracking enables deduplication, multi-attribute matching prevents false merges, and idempotent database operations with check constraints ensure data integrity. The relationship classification with LLM validation improves on simple co-occurrence networks.
 
 ---
 
@@ -588,7 +773,7 @@ The agent has access to seven specialized tools:
 
 The RAG query engine provides semantic search capabilities using vector embeddings:
 
-**Embedding Model:** `sentence-transformers/all-MiniLM-L6-v2` (384-dimensional)
+**Embedding Model:** `nomic-ai/nomic-embed-text-v1.5` (768-dimensional)
 
 **Vector Stores:**
 - `chunk_store` - Document chunk embeddings
@@ -1289,7 +1474,7 @@ The Soft Power Analytics platform was designed with deliberate attention to esta
 | **Model Tiering** | GPT-4o-mini for salience, GPT-4o for extraction, GPT-4.1 for complex reasoning | Optimizes cost/performance tradeoff |
 | **Structured Output Enforcement** | JSON schema constraints with examples in prompts | Reliable parsing, reduced post-processing errors |
 | **Iterative Prompt Refinement** | Verbose prompts with explicit instructions evolved through testing | Consistent, predictable model behavior |
-| **Knowledge Distillation** | DistilBERT student models trained on GPT-4o labels | Reduced inference costs, offline capability |
+| **Knowledge Distillation** | DistilBERT evaluated on GPT-4o labels (contingency option) | Potential for reduced costs if API becomes prohibitive |
 | **Evaluation with Human Baselines** | Multi-annotator labeling exercises with disagreement analysis | Realistic performance assessment |
 
 ### RAG System Best Practices
@@ -1372,15 +1557,128 @@ These alignments were not coincidental—they emerged from iterative development
 
 ---
 
+## Technology Stack Validation
+
+This section validates claimed capabilities against actual implementation status, providing transparency about what has been built, what is partially implemented, and what remains planned.
+
+### Implementation Status Summary
+
+| Technology | Status | Location | Notes |
+|-----------|--------|----------|-------|
+| **pgvector** | ✅ FULL | `services/pipeline/embeddings/` | LangChain PGVector integration; standard indices (no HNSW) |
+| **APScheduler** | ✅ FULL | `server/alert_evaluator.py` | 5-minute evaluation cycle for alerts |
+| **DBSCAN Clustering** | ✅ FULL | `services/pipeline/events/`, `services/pipeline/entities/` | eps=0.12-0.15, cosine distance |
+| **GPT-4/GPT-4o** | ✅ FULL | `server/`, `services/pipeline/` | gpt-4o-mini, gpt-4o, gpt-4.1 via OpenAI SDK |
+| **Sentence Transformers** | ✅ FULL | `services/pipeline/embeddings/` | Nomic Embed Text v1.5 (entities/events) |
+| **React Frontend** | ✅ FULL | `client/src/pages/` | 28 pages, React 19.2, TypeScript, Vite |
+| **Streamlit Dashboard** | ✅ FULL | `services/dashboard/pages/` | 23 pages, analytics UI |
+| **FastAPI** | ✅ FULL | `server/main.py` | 103+ endpoints, Redis caching |
+| **Word Document Export** | ✅ FULL | `server/report_exporter.py` | python-docx, template-based |
+| **Research Projects** | ✅ FULL | `shared/models/research_project_models.py` | User-scoped document collections |
+| **Alerting System** | ✅ FULL | `shared/models/alert_models.py`, `server/alert_evaluator.py` | 4 condition types, multi-channel |
+| **Competing Influence** | ✅ FULL | `server/main.py`, `client/src/pages/CompetingInfluencePage.tsx` | Multi-influencer comparison |
+| **Entity Network** | ✅ FULL | `services/dashboard/pages/17_Entity_Network.py` | pyvis force-directed graph |
+| **HDBSCAN** | ⚠️ ARCHIVED | `_archive/` only | DBSCAN used in production |
+| **Knowledge Distillation** | ⚠️ EVALUATED | N/A (see below) | DistilBERT evaluated, not deployed |
+
+### Detailed Validation by Component
+
+#### AI/ML Components
+
+| Claimed | Actual Implementation | Evidence |
+|---------|----------------------|----------|
+| GPT-4o for extraction | ✅ Implemented | `server/main.py`: model parameter defaults |
+| GPT-4o-mini for salience | ✅ Implemented | `services/pipeline/batch/utils/cost_estimator.py` |
+| Sentence Transformers | ✅ Implemented (different model) | Claims MiniLM-L6-v2; uses **Nomic Embed Text v1.5** |
+| HDBSCAN clustering | ⚠️ Not in production | DBSCAN used; HDBSCAN only in `_archive/` |
+| DistilBERT distillation | ⚠️ Evaluated only | F1=0.81 reported; no deployed model found |
+
+#### Database & Storage
+
+| Claimed | Actual Implementation | Evidence |
+|---------|----------------------|----------|
+| PostgreSQL + pgvector | ✅ Implemented | `requirements.txt`: pgvector>=0.2.5 |
+| HNSW indices | ⚠️ Not found | Standard pgvector with cosine similarity |
+| SQLAlchemy 2.0 | ✅ Implemented | `shared/database/database.py` |
+| AWS S3 | ✅ Implemented | `services/pipeline/embeddings/s3.py` |
+| Redis caching | ✅ Implemented | `server/main.py`: Redis-based response caching |
+
+#### Frontend Components
+
+| Claimed | Actual Implementation | Evidence |
+|---------|----------------------|----------|
+| React + TypeScript | ✅ Implemented | 28 pages in `client/src/pages/` |
+| Streamlit dashboard | ✅ Implemented | 23 pages in `services/dashboard/pages/` |
+| Entity Network viz | ✅ Implemented | pyvis-based force-directed graph |
+| Recharts | ✅ Implemented | Used in React frontend |
+| Chat interface | ✅ Implemented | `ChatPage.tsx`, RAG integration |
+
+#### Processing Pipeline
+
+| Claimed | Actual Implementation | Evidence |
+|---------|----------------------|----------|
+| Two-stage event pipeline | ✅ Implemented | `batch_cluster_events.py`, `consolidate_all_events.py` |
+| Canonical events | ✅ Implemented | `CanonicalEvent` model, master_event_id hierarchy |
+| LLM deconfliction | ✅ Implemented | `llm_deconflict_clusters.py`, `llm_deconflict_canonical_events.py` |
+| Entity extraction | ✅ Implemented | Full two-stage pipeline in `services/pipeline/entities/` |
+| Relationship classification | ✅ Implemented | 9 typed relationships, LLM classification |
+
+### Capability by Workflow Location
+
+| Capability | Preprocessing | API/Backend | React UI | Streamlit | Status |
+|------------|---------------|-------------|----------|-----------|--------|
+| Document Ingestion | ✅ | - | - | - | FULL |
+| Salience Detection | ✅ | - | - | - | FULL |
+| Category Extraction | ✅ | - | - | - | FULL |
+| Event Clustering | ✅ | - | - | - | FULL |
+| Event Consolidation | ✅ | - | - | - | FULL |
+| Entity Extraction | ✅ | - | - | - | FULL |
+| Entity Resolution | ✅ | - | - | - | FULL |
+| Relationship Building | ✅ | - | - | - | FULL |
+| Embedding Generation | ✅ | - | - | - | FULL |
+| Alert Evaluation | - | ✅ | - | - | FULL |
+| RAG/Chat | - | ✅ | ✅ | ✅ | FULL |
+| Report Generation | - | ✅ | ✅ | ✅ | FULL |
+| Word Export | - | ✅ | ✅ | - | FULL |
+| Entity Profile | - | ✅ | ✅ | ✅ | FULL |
+| Entity Network | - | - | - | ✅ | FULL |
+| Competing Influence | - | ✅ | ✅ | - | FULL |
+| Research Projects | - | ✅ | ✅ | - | FULL |
+| Alert Management | - | ✅ | ✅ | - | FULL |
+| Event Timeline | - | ✅ | ✅ | ✅ | FULL |
+| Bilateral Analysis | - | ✅ | ✅ | ✅ | FULL |
+| Materiality Scoring | ✅ | ✅ | ✅ | ✅ | FULL |
+
+### Clarifications
+
+**Embedding Model:**
+- White paper previously cited `all-MiniLM-L6-v2` (384-dim)
+- Actual implementation uses **Nomic Embed Text v1.5** for entities and events
+- Both are valid Sentence Transformer models; Nomic provides better performance for semantic tasks
+
+**Knowledge Distillation:**
+- Section reports DistilBERT F1=0.81 on classification task
+- This represents **evaluation results**, not a deployed production model
+- Serves as contingency option if API costs become prohibitive
+- No evidence of DistilBERT model files or inference code in current codebase
+
+**Clustering Algorithm:**
+- HDBSCAN mentioned in technology stack
+- Production code uses **DBSCAN** exclusively
+- HDBSCAN exists only in archived legacy code
+- DBSCAN preferred for reproducibility with explicit eps parameter
+
+---
+
 ## Knowledge Distillation
 
 ### Approach
 
-To reduce long-term costs and enable offline deployment, the project explored **knowledge distillation**—training smaller, specialized models on GAI-generated labels.
+To reduce long-term costs and enable offline deployment, the project explored **knowledge distillation**—training smaller, specialized models on GAI-generated labels. This represents an **evaluation exercise** to assess feasibility as a contingency option, not a currently deployed production system.
 
 ### Classification Distillation Results
 
-When evaluated against GPT-4o's synthetic labels, the **DistilBERT student model** achieved:
+In evaluation experiments using GPT-4o's synthetic labels, the **DistilBERT student model** achieved:
 
 | Metric | Score |
 |--------|-------|
@@ -1490,7 +1788,7 @@ The system has evolved from a document categorization tool to a comprehensive so
 
 As GAI technology continues to advance with improved accuracy, reduced costs, and expanded context windows, the framework established by this project positions the soft power analytics capability for continued evolution and enhancement.
 
-The combination of frontier models for complex reasoning, open-source embeddings for efficient retrieval, distilled student models for cost-effective deployment, layered RAG architecture for grounded responses, and comprehensive analyst workflows represents a sustainable, adaptable approach to AI-powered analysis at scale.
+The combination of frontier models for complex reasoning (GPT-4o, GPT-4.1), open-source embeddings for efficient retrieval (Nomic Embed Text), two-stage event and entity resolution pipelines, layered RAG architecture for grounded responses, and comprehensive analyst workflows represents a sustainable, adaptable approach to AI-powered analysis at scale. The evaluated knowledge distillation pathway provides a contingency for future cost optimization if needed.
 
 ---
 
@@ -1630,4 +1928,4 @@ The combination of frontier models for complex reasoning, open-source embeddings
 
 ---
 
-*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 3.0 includes expanded coverage of alerting and notifications, competing influence analysis, research project workflows, layered RAG architecture, and publication-ready report generation capabilities.*
+*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 4.0 includes: updated event processing pipeline documentation reflecting the canonical events two-stage architecture; expanded entity and relationship extraction pipeline with full Stage 1-3 workflow; comprehensive technology stack validation table comparing claimed vs. actual implementation status; and corrected technology references (DBSCAN, Nomic Embed Text v1.5, React frontend).*
