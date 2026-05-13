@@ -212,7 +212,7 @@ def fetch_gai_response(sys_prompt,prompt,model):
 
 
 @rate_limit(min_interval=10.0)
-def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=None, azure_use_env=False):
+def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source=None, use_proxy=None, azure_use_env=False):
     """
     Unified LLM call supporting multiple backends.
 
@@ -220,11 +220,13 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
         sys_prompt: System prompt for the LLM
         user_prompt: User prompt for the LLM
         model: Model to use (default: gpt-4o-mini)
-        source: Backend source - "proxy" (default), "litellm", "azure", or "openai"
+        source: Backend source - "proxy", "litellm", "azure", or "openai".
+                When None (default), reads GAI_DEFAULT_SOURCE env var, falling back to "proxy".
         use_proxy: [DEPRECATED] Use source="proxy" instead. Maintained for backward compatibility.
         azure_use_env: If True with source="azure", use env vars instead of AWS Secrets Manager
 
     Environment Variables:
+        GAI_DEFAULT_SOURCE: Selects backend when source= isn't passed (proxy|litellm|azure|openai).
         API_URL: Required for source="proxy" (base URL, e.g. http://localhost:5001)
         LITELLM_URL, LITELLM_API_KEY: Required for source="litellm"
         LITELLM_MODEL: Optional model override for LITELLM (if not set, uses 'model' parameter)
@@ -243,6 +245,8 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source="proxy", use_proxy=
     # Handle backward compatibility with use_proxy parameter
     if use_proxy is not None:
         source = "proxy" if use_proxy else "openai"
+    elif source is None:
+        source = os.getenv("GAI_DEFAULT_SOURCE", "proxy")
 
     # AZURE OpenAI (System 2 default)
     if source == "azure":

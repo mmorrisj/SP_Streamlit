@@ -3,20 +3,34 @@ Stage 2A: Comprehensive Canonical Event Consolidation
 
 Part of the two-stage batch consolidation pipeline for event processing.
 
-This script consolidates ALL canonical events by:
-1. Loading all events for each country (not filtered by mention_date)
-2. Using embedding similarity to identify related events across the entire dataset
-3. Setting master_event_id to link related events to their primary event
+This script proposes CANDIDATE event groupings using HDBSCAN over a composite
+distance (name embedding + recipient overlap + temporal proximity) with a hard
+temporal gate. Groupings are written via master_event_id but are NOT considered
+final until llm_deconflict_canonical_events.py marks the master as
+llm_validated=TRUE. Only LLM-validated groupings are merged downstream by
+merge_canonical_events.py.
 
-This creates a master event hierarchy where:
-- Master events have master_event_id = NULL
-- Child events have master_event_id pointing to the master event ID
+ALGORITHM (replaces previous connected-components approach which suffered from
+single-linkage chaining — a chain of pairwise-similar events across many months
+could collapse into one giant cluster):
+
+  distance(A,B) = alpha * (1 - cosine(name_emb_A, name_emb_B))
+                + beta  * (1 - jaccard(recipients_A, recipients_B))
+                + gamma * min(|dates_A - dates_B| / max_days, 1.0)
+
+  Hard gate: any pair more than `max_days` apart gets distance=1.0
+  (cluster-breaking), independent of how similar names/recipients are.
+
+  HDBSCAN with metric='precomputed' then clusters; noise (-1) stays as
+  unmerged singletons.
 
 PIPELINE CONTEXT:
   - Stage 1: Daily clustering (batch_cluster_events.py + llm_deconflict_clusters.py)
-  - Stage 2A: THIS SCRIPT - Groups events using embedding similarity
-  - Stage 2B: llm_deconflict_canonical_events.py - LLM validates groupings
-  - Stage 2C: merge_canonical_events.py - Consolidates daily mentions
+  - Stage 2A: THIS SCRIPT - Proposes candidate groupings (HDBSCAN + composite dist)
+  - Stage 2B: llm_deconflict_canonical_events.py - LLM is FINAL JUDGE (validates,
+              splits, picks best canonical name)
+  - Stage 2C: merge_canonical_events.py - Consolidates daily mentions for
+              LLM-validated masters only
 
 Usage:
     # Consolidate all events for all influencer countries
@@ -30,6 +44,9 @@ Usage:
 
     # Force re-consolidation (resets existing consolidations first)
     python consolidate_all_events.py --country China --force
+
+    # Override clustering weights
+    python consolidate_all_events.py --country Iran --alpha 0.4 --beta 0.2 --gamma 0.4
 
 IMPORTANT: Running multiple times without --force will skip already-consolidated events
 to prevent accumulation. Use --force to reset and re-run with different parameters.
@@ -45,11 +62,13 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import argparse
+import json
 import yaml
 import numpy as np
 import gc
+from datetime import date
 from typing import List, Dict
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import HDBSCAN
 from sqlalchemy import text
 
 from shared.database.database import get_session
@@ -90,7 +109,9 @@ def load_all_canonical_events(
             COUNT(DISTINCT dem.mention_date) as days_mentioned,
             MIN(dem.mention_date) as first_mention,
             MAX(dem.mention_date) as last_mention,
-            SUM(dem.article_count) as total_articles
+            SUM(dem.article_count) as total_articles,
+            ce.primary_recipients,
+            ce.first_mention_date
         FROM canonical_events ce
         LEFT JOIN daily_event_mentions dem ON ce.id = dem.canonical_event_id
         WHERE ce.initiating_country = :country
@@ -103,25 +124,48 @@ def load_all_canonical_events(
 
     events = []
     skipped_no_embedding = 0
+    skipped_no_date = 0
 
     for row in result:
         # Skip events without embeddings
         if row[3] is None:
             skipped_no_embedding += 1
             continue
+        # Skip events without a first_mention_date — required for temporal gate
+        if row[11] is None:
+            skipped_no_date += 1
+            continue
+
+        recipients = row[10]
+        if isinstance(recipients, str):
+            try:
+                recipients = json.loads(recipients)
+            except (ValueError, TypeError):
+                recipients = {}
+        if isinstance(recipients, dict):
+            recipient_set = frozenset(recipients.keys())
+        elif isinstance(recipients, list):
+            recipient_set = frozenset(recipients)
+        else:
+            recipient_set = frozenset()
 
         events.append({
             'id': row[0],
             'canonical_name': row[1],
             'initiating_country': row[2],
-            'embedding': np.array(row[3]),
+            'embedding': np.array(row[3], dtype=np.float32),
             'alternative_names': row[4] or [],
             'master_event_id': row[5],
             'days_mentioned': row[6] or 0,
             'first_mention': row[7],
             'last_mention': row[8],
-            'total_articles': row[9] or 0
+            'total_articles': row[9] or 0,
+            'recipients': recipient_set,
+            'first_mention_date': row[11]
         })
+
+    if skipped_no_date > 0:
+        print(f"  [WARNING] Skipped {skipped_no_date:,} events without first_mention_date")
 
     if skipped_no_embedding > 0:
         print(f"  [WARNING] Skipped {skipped_no_embedding:,} events without embeddings")
@@ -131,19 +175,42 @@ def load_all_canonical_events(
 
 def find_similar_events(
     events: List[Dict],
-    similarity_threshold: float = 0.85,
+    alpha: float = 0.4,
+    beta: float = 0.2,
+    gamma: float = 0.4,
+    max_days_gate: int = 30,
+    min_cluster_size: int = 2,
     verbose: bool = True
 ) -> List[List[int]]:
     """
-    Find groups of similar events using embedding cosine similarity.
+    Find candidate groups of related events using HDBSCAN over a composite
+    distance with a hard temporal gate.
+
+    distance(A,B) = alpha * (1 - cosine(name_emb))
+                  + beta  * (1 - jaccard(recipients))
+                  + gamma * min(|date_diff_days| / max_days_gate, 1.0)
+
+    Hard gate: any pair with |date_diff_days| > max_days_gate is forced to
+    distance=1.0, preventing cross-month cluster collapse regardless of how
+    similar names or recipients are.
+
+    This replaces the prior connected-components approach which suffered from
+    single-linkage chaining (e.g., 5,421 Iran events collapsing into one cluster).
 
     Args:
-        events: List of event dicts with 'embedding' field
-        similarity_threshold: Minimum cosine similarity to consider events related
+        events: List of event dicts with 'embedding', 'recipients',
+                'first_mention_date' fields
+        alpha: weight for name-embedding cosine distance (default 0.4)
+        beta: weight for recipient Jaccard distance (default 0.2)
+        gamma: weight for normalized temporal distance (default 0.4)
+        max_days_gate: pairs more than this many days apart get distance=1.0
+                       (cluster-breaking). Default 30.
+        min_cluster_size: HDBSCAN min cluster size (default 2)
         verbose: Print progress indicators
 
     Returns:
-        List of event index groups (each group is a list of indices into events list)
+        List of event index groups (each group is a list of indices into events list).
+        Groups have size >= 2; singletons (HDBSCAN noise) are excluded.
     """
     if len(events) == 0:
         return []
@@ -151,75 +218,92 @@ def find_similar_events(
     n = len(events)
 
     if verbose:
-        print(f"  Building embedding matrix ({n:,} events)...")
+        print(f"  Building feature arrays ({n:,} events)...")
 
-    # Build embedding matrix
-    embeddings = np.vstack([e['embedding'] for e in events])
+    # Name embeddings: normalize for cosine via dot product
+    embeddings = np.vstack([e['embedding'] for e in events]).astype(np.float32)
+    embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-9
 
-    if verbose:
-        matrix_size_mb = (n * n * 8) / (1024 * 1024)  # 8 bytes per float64
-        print(f"  Computing similarity matrix ({n:,} x {n:,} = {matrix_size_mb:.1f} MB)...")
-        print("  Using chunked computation to avoid memory issues...")
+    # Build recipient occurrence matrix for vectorized Jaccard
+    all_recipients = sorted({r for e in events for r in e['recipients']})
+    rec_idx = {r: i for i, r in enumerate(all_recipients)}
+    if len(all_recipients) > 0:
+        R = np.zeros((n, len(all_recipients)), dtype=np.float32)
+        for i, e in enumerate(events):
+            for r in e['recipients']:
+                R[i, rec_idx[r]] = 1.0
+        rec_count = R.sum(axis=1)
+    else:
+        R = None
+        rec_count = None
 
-    # Compute pairwise similarities in chunks to avoid memory corruption
-    chunk_size = 1000  # Process 1000 rows at a time
-    similarities = np.zeros((n, n), dtype=np.float32)  # Use float32 to save memory
-
-    for start_idx in range(0, n, chunk_size):
-        end_idx = min(start_idx + chunk_size, n)
-        chunk = embeddings[start_idx:end_idx]
-        similarities[start_idx:end_idx] = cosine_similarity(chunk, embeddings).astype(np.float32)
-
-        if verbose and start_idx > 0 and start_idx % (chunk_size * 5) == 0:
-            progress = (end_idx / n) * 100
-            print(f"    Similarity computation: {progress:.1f}% complete ({end_idx:,}/{n:,})")
-
-        # Clean up chunk
-        del chunk
-        gc.collect()
+    # Dates as integer day offsets
+    epoch = date(2024, 1, 1)
+    dates = np.array([(e['first_mention_date'] - epoch).days for e in events], dtype=np.int32)
 
     if verbose:
-        print(f"  Finding connected components (threshold={similarity_threshold})...")
+        matrix_size_mb = (n * n * 4) / (1024 * 1024)  # float32
+        print(f"  Computing composite distance matrix ({n:,} x {n:,} = {matrix_size_mb:.1f} MB)...")
 
-    # Find connected components using similarity threshold
-    # Using iterative DFS to avoid recursion depth issues with large clusters
-    visited = [False] * n
-    groups = []
+    # Name distance: 1 - cosine(name)
+    name_sim = embeddings @ embeddings.T
+    name_dist = (1.0 - name_sim).clip(min=0.0, max=2.0).astype(np.float32)
+    del name_sim
 
-    # Progress tracking for large datasets
-    progress_interval = max(1000, n // 10)  # Report every 10% or every 1000 events
+    # Recipient distance: 1 - Jaccard
+    if R is not None:
+        intersect = R @ R.T
+        union = rec_count[:, None] + rec_count[None, :] - intersect
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rec_dist = np.where(union > 0, 1.0 - intersect / union, 1.0).astype(np.float32)
+        del intersect, union
+    else:
+        rec_dist = np.ones((n, n), dtype=np.float32)
 
-    for i in range(n):
-        if verbose and i > 0 and i % progress_interval == 0:
-            progress_pct = (i / n) * 100
-            print(f"    Progress: {i:,}/{n:,} events processed ({progress_pct:.1f}%), found {len(groups):,} groups so far")
+    # Temporal distance: |delta| / max_days, clipped to 1.0
+    time_diff_days = np.abs(dates[:, None] - dates[None, :]).astype(np.int32)
+    time_dist = np.minimum(time_diff_days.astype(np.float32) / float(max_days_gate), 1.0)
 
-        if not visited[i]:
-            # Iterative DFS using a stack
-            group = []
-            stack = [i]
+    # Composite distance
+    D = (alpha * name_dist + beta * rec_dist + gamma * time_dist).astype(np.float64)
+    del name_dist, rec_dist, time_dist
 
-            while stack:
-                idx = stack.pop()
+    # Hard temporal gate — any pair more than max_days_gate apart cannot cluster
+    gate_mask = time_diff_days > max_days_gate
+    n_gated_pairs = int(gate_mask.sum() // 2)
+    D[gate_mask] = 1.0
+    np.fill_diagonal(D, 0.0)
+    del gate_mask, time_diff_days
 
-                if visited[idx]:
-                    continue
+    if verbose:
+        print(f"  Running HDBSCAN (alpha={alpha}, beta={beta}, gamma={gamma}, "
+              f"max_days_gate={max_days_gate}, min_cluster_size={min_cluster_size})")
+        print(f"    Pairs gated by temporal threshold: {n_gated_pairs:,}")
 
-                visited[idx] = True
-                group.append(idx)
+    clusterer = HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        metric='precomputed',
+        copy=True,
+    )
+    labels = clusterer.fit_predict(D)
+    del D
 
-                # Add unvisited similar events to stack
-                for j in range(n):
-                    if not visited[j] and similarities[idx][j] >= similarity_threshold:
-                        stack.append(j)
+    # Collect indices per cluster; -1 is noise (singletons, intentionally excluded)
+    groups_map: Dict[int, List[int]] = {}
+    for i, c in enumerate(labels):
+        c = int(c)
+        if c == -1:
+            continue
+        groups_map.setdefault(c, []).append(i)
 
-            if len(group) > 1:  # Only include groups with multiple events
-                groups.append(group)
+    groups = [g for g in groups_map.values() if len(g) > 1]
 
-    # Explicitly clean up large matrices to avoid memory corruption
-    del embeddings
-    del similarities
-    del visited
+    if verbose:
+        noise_count = int((labels == -1).sum())
+        print(f"    Found {len(groups):,} candidate groups; "
+              f"{noise_count:,} events ({100 * noise_count / n:.0f}%) remained singleton")
+
+    del embeddings, labels
     gc.collect()
 
     return groups
@@ -228,7 +312,11 @@ def find_similar_events(
 def consolidate_country(
     session,
     country: str,
-    similarity_threshold: float = 0.85,
+    alpha: float = 0.4,
+    beta: float = 0.2,
+    gamma: float = 0.4,
+    max_days_gate: int = 30,
+    min_cluster_size: int = 2,
     dry_run: bool = False,
     verbose: bool = True,
     force: bool = False
@@ -239,7 +327,11 @@ def consolidate_country(
     Args:
         session: Database session
         country: Initiating country
-        similarity_threshold: Cosine similarity threshold for merging events
+        alpha: weight for name embedding cosine distance
+        beta: weight for recipient Jaccard distance
+        gamma: weight for normalized temporal distance
+        max_days_gate: pairs > this many days apart cannot cluster
+        min_cluster_size: HDBSCAN min cluster size
         dry_run: If True, don't save changes to database
         verbose: Print progress
         force: If True, reset existing consolidations before running
@@ -288,8 +380,16 @@ def consolidate_country(
     if verbose:
         print(f"  Loaded {len(events)} canonical events")
 
-    # Find similar event groups
-    groups = find_similar_events(events, similarity_threshold)
+    # Find similar event groups (candidates — LLM validation is the final judge)
+    groups = find_similar_events(
+        events,
+        alpha=alpha,
+        beta=beta,
+        gamma=gamma,
+        max_days_gate=max_days_gate,
+        min_cluster_size=min_cluster_size,
+        verbose=verbose,
+    )
 
     if verbose:
         print(f"  Identified {len(groups)} event groups to consolidate")
@@ -368,9 +468,17 @@ def main():
     parser.add_argument('--country', type=str, help='Process specific country')
     parser.add_argument('--influencers', action='store_true', help='Process all influencer countries from config.yaml')
 
-    # Consolidation parameters
-    parser.add_argument('--similarity-threshold', type=float, default=0.85,
-                       help='Cosine similarity threshold for merging events (0.0-1.0)')
+    # Composite distance weights (Config D from offline experiment)
+    parser.add_argument('--alpha', type=float, default=0.4,
+                       help='Weight for name-embedding cosine distance (default 0.4)')
+    parser.add_argument('--beta', type=float, default=0.2,
+                       help='Weight for recipient Jaccard distance (default 0.2)')
+    parser.add_argument('--gamma', type=float, default=0.4,
+                       help='Weight for normalized temporal distance (default 0.4)')
+    parser.add_argument('--max-days-gate', type=int, default=30,
+                       help='Hard temporal gate — pairs further apart cannot cluster (default 30)')
+    parser.add_argument('--min-cluster-size', type=int, default=2,
+                       help='HDBSCAN min_cluster_size (default 2)')
 
     # Options
     parser.add_argument('--dry-run', action='store_true', help='Show what would be consolidated without saving')
@@ -390,10 +498,12 @@ def main():
         return
 
     print("=" * 80)
-    print("COMPREHENSIVE CANONICAL EVENT CONSOLIDATION")
+    print("COMPREHENSIVE CANONICAL EVENT CONSOLIDATION (HDBSCAN + composite distance)")
     print("=" * 80)
     print(f"Countries: {', '.join(countries)}")
-    print(f"Similarity threshold: {args.similarity_threshold}")
+    print(f"Weights: alpha={args.alpha} (name), beta={args.beta} (recipient), gamma={args.gamma} (time)")
+    print(f"Temporal gate: {args.max_days_gate} days  |  min_cluster_size: {args.min_cluster_size}")
+    print("Output: CANDIDATE groupings — final acceptance requires llm_deconflict_canonical_events.py")
     if args.dry_run:
         print("[DRY RUN MODE] No changes will be saved")
     if args.force:
@@ -412,10 +522,14 @@ def main():
             stats = consolidate_country(
                 session,
                 country,
-                args.similarity_threshold,
-                args.dry_run,
-                args.verbose,
-                args.force
+                alpha=args.alpha,
+                beta=args.beta,
+                gamma=args.gamma,
+                max_days_gate=args.max_days_gate,
+                min_cluster_size=args.min_cluster_size,
+                dry_run=args.dry_run,
+                verbose=args.verbose,
+                force=args.force,
             )
 
             overall_stats['total_events'] += stats['events']

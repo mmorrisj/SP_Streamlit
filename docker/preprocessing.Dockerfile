@@ -33,38 +33,17 @@ RUN apt-get purge -y build-essential \
 # NLTK resources used by some pipeline jobs.
 RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('stopwords', quiet=True)"
 
-# Bake in ML models (same pattern as registry.Dockerfile).
+# Bake in ML models (same script as registry.Dockerfile).
 # nomic-embed-text-v1.5: 768-dim, 8192-token context, requires trust_remote_code=True.
 # cross-encoder/ms-marco-MiniLM-L-6-v2: reranker used by RAG pipeline.
-# Both saved via model.save() for a clean, symlink-free layout, then HF hub
-# cache purged — all in one RUN step so downloads don't persist as layers.
+# bake_models.py also patches config.json auto_map and copies
+# modeling_hf_nomic_bert.py into the model dir so trust_remote_code resolves
+# offline at runtime (required when TRANSFORMERS_OFFLINE=1).
 ENV HF_HOME=/app/.cache/huggingface
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/hub
 
-RUN python3 -c "\
-import os, shutil; \
-from sentence_transformers import SentenceTransformer, CrossEncoder; \
-\
-# 1. Embedding model (revision-pinned to prevent unexpected custom code updates) \
-emb = SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, revision='e5cf08aadaa33385f5990def41f7a23405aec398'); \
-emb_path = '/app/.cache/huggingface/models/nomic-embed-text-v1.5'; \
-os.makedirs(emb_path, exist_ok=True); \
-emb.save(emb_path); \
-assert os.path.isfile(os.path.join(emb_path, 'modules.json')), 'Embedding model save failed'; \
-print(f'Embedding model baked in at {emb_path}'); \
-\
-# 2. Reranker model \
-reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512); \
-reranker_path = '/app/.cache/huggingface/models/ms-marco-MiniLM-L-6-v2'; \
-os.makedirs(reranker_path, exist_ok=True); \
-reranker.save(reranker_path); \
-assert os.path.isfile(os.path.join(reranker_path, 'config.json')), 'Reranker save failed'; \
-print(f'Reranker baked in at {reranker_path}'); \
-\
-# 3. Purge HF hub cache \
-shutil.rmtree('/app/.cache/huggingface/hub', ignore_errors=True); \
-print('HF hub cache purged'); \
-"
+COPY scripts/docker/bake_models.py /tmp/bake_models.py
+RUN python3 /tmp/bake_models.py && rm /tmp/bake_models.py
 
 # Offline mode: models are baked in, no network access to HuggingFace needed at runtime.
 ENV TRANSFORMERS_OFFLINE=1
