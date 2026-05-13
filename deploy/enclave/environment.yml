@@ -1,0 +1,63 @@
+name: softpower
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.13
+
+  # Infrastructure (run as native processes, no Docker)
+  - postgresql>=16
+  - pgvector
+  - redis-server
+  - supervisor
+
+  # Web framework + uvicorn[standard] components
+  - fastapi>=0.115.0
+  - uvicorn>=0.32.0
+  - httptools
+  - websockets
+  - watchfiles
+  - uvloop
+  - python-multipart
+  - pydantic
+  - pydantic-settings
+
+  # Database / ORM / migrations
+  - sqlalchemy>=2.0.37,<2.1
+  - psycopg2
+  - alembic
+
+  # Cache client
+  - redis-py
+
+  # AWS / data
+  - boto3
+  - pyarrow>=18.0.0
+  - pandas
+  - numpy
+
+  # AI / embeddings (CPU build of pytorch is fine)
+  - pytorch>=2.6.0
+  - transformers
+  - sentence-transformers
+  - einops
+  - tiktoken>=0.7.0
+  - openai>=2.14.0
+  - filelock>=3.20.3
+
+  # Auth
+  - pyjwt>=2.8.0
+
+  # Reports (Word + chart export)
+  - python-docx
+  - matplotlib
+  - pillow>=12.1.1
+  - openpyxl
+
+  # Misc utilities used by the webapp / shared code
+  - python-dotenv
+  - pyyaml
+  - requests
+  - httpx
+  - click
+  - tabulate
