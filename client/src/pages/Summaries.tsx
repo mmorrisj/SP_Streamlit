@@ -18,6 +18,24 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const PAGE_SIZE = 20
 
+// Citations may be strings (legacy) or objects with { citation | headline | source_name | ... }
+function citationToText(c: unknown): string {
+  if (typeof c === 'string') return c
+  if (c && typeof c === 'object') {
+    const o = c as Record<string, unknown>
+    const pick = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : '')
+    const formatted = pick('citation')
+    if (formatted) return formatted
+    const headline = pick('headline') || pick('title')
+    const source = pick('source_name')
+    const date = pick('published_date') || pick('date')
+    const parts = [headline, source && `[${source}]`, date].filter(Boolean)
+    if (parts.length) return parts.join(' ')
+    return JSON.stringify(c)
+  }
+  return String(c)
+}
+
 function SummaryCard({ summary, onEventClick }: {
   summary: Summary
   onEventClick?: (id: string) => void
@@ -121,7 +139,7 @@ function SummaryCard({ summary, onEventClick }: {
               <strong>Citations:</strong>
               <ul>
                 {summary.citations.slice(0, 5).map((cite, i) => (
-                  <li key={i}>{cite}</li>
+                  <li key={i}>{citationToText(cite)}</li>
                 ))}
               </ul>
             </div>

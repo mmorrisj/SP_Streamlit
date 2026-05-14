@@ -30,6 +30,27 @@ const CATEGORY_COLORS: Record<string, string> = {
   Social: '#8b5cf6',
 }
 
+// Citations may come back as either plain strings (legacy) or objects with
+// { citation | headline | title | source_name | date | doc_id | ... }.
+// Render to a single string defensively so the page never crashes if the
+// upstream narrative summary stored an object shape.
+function citationToText(c: unknown): string {
+  if (typeof c === 'string') return c
+  if (c && typeof c === 'object') {
+    const o = c as Record<string, unknown>
+    const pick = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : '')
+    const formatted = pick('citation')
+    if (formatted) return formatted
+    const headline = pick('headline') || pick('title')
+    const source = pick('source_name')
+    const date = pick('published_date') || pick('date')
+    const parts = [headline, source && `[${source}]`, date].filter(Boolean)
+    if (parts.length) return parts.join(' ')
+    return JSON.stringify(c)
+  }
+  return String(c)
+}
+
 function MentionCard({ mention }: { mention: EventDetailMention }) {
   return (
     <div style={{
@@ -277,7 +298,7 @@ export default function EventDetailPage() {
           <h2 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>Citations</h2>
           <ul style={{ margin: 0, paddingLeft: '1.25rem', color: '#475569', lineHeight: 1.7, fontSize: '0.85rem' }}>
             {event.citations.map((cite, i) => (
-              <li key={i}>{cite}</li>
+              <li key={i}>{citationToText(cite)}</li>
             ))}
           </ul>
         </div>

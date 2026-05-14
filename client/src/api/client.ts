@@ -58,7 +58,7 @@ export interface Summary {
   strategic: string | null
   source_link: string | null
   source_count: number | null
-  citations: string[]
+  citations: (string | Record<string, unknown>)[]
   count_by_category: Record<string, number>
   count_by_subcategory: Record<string, number>
   count_by_recipient: Record<string, number>
@@ -110,7 +110,7 @@ export interface CrossPeriodEntry {
   count_by_recipient: Record<string, number>
   source_link: string | null
   source_count: number | null
-  citations: string[]
+  citations: (string | Record<string, unknown>)[]
 }
 
 export interface CrossPeriodData {
@@ -726,7 +726,7 @@ export interface EventDetail {
   narrative_outcomes: string | null
   source_link: string | null
   source_count_from_summary: number | null
-  citations: string[]
+  citations: (string | Record<string, unknown>)[]
   daily_mentions: EventDetailMention[]
 }
 
