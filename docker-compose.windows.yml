@@ -1,0 +1,76 @@
+# ============================================
+# Local testing override for Docker Desktop (Windows / macOS / WSL2)
+#
+# Why this exists: docker-compose.production.yml uses network_mode: host,
+# which on Docker Desktop binds containers inside the Docker VM, not the
+# host OS. Windows and WSL2 distros cannot reach those services via
+# localhost. This override switches to bridge networking with published
+# ports so the stack is reachable at localhost on the host.
+#
+# Requires Docker Compose v2.24+ (for the !reset YAML tag, shipped with
+# Docker Desktop 4.27+).
+#
+# Usage:
+#   docker compose -f docker-compose.production.yml -f docker-compose.windows.yml up -d
+#   docker compose -f docker-compose.production.yml -f docker-compose.windows.yml down
+#
+# Access from Windows / WSL2:
+#   FastAPI:   http://localhost:8000
+#   Streamlit: http://localhost:8501
+#   Postgres:  localhost:5432
+#
+# Does NOT affect production-deploy.sh or docker-compose.production.yml.
+# Run `... down` before invoking production-deploy.sh to release container
+# names (sp_prod_*).
+# ============================================
+
+services:
+  db:
+    network_mode: !reset null
+    networks:
+      - sp_dev
+    ports:
+      - "${DB_PORT:-5432}:${DB_PORT:-5432}"
+
+  redis:
+    network_mode: !reset null
+    networks:
+      - sp_dev
+    # Production binds to 127.0.0.1; bridge networking needs 0.0.0.0 so the
+    # app container can reach it by service name.
+    command: ["redis-server", "--bind", "0.0.0.0", "--port", "6379"]
+
+  app:
+    network_mode: !reset null
+    networks:
+      - sp_dev
+    ports:
+      - "${API_PORT:-8000}:${API_PORT:-8000}"
+      - "${STREAMLIT_PORT:-8501}:${STREAMLIT_PORT:-8501}"
+    environment:
+      DB_HOST: db
+      POSTGRES_HOST: db
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      REDIS_URL: redis://redis:6379/0
+      # Host-side LLM/S3 proxy lives on the Windows host, reachable from a
+      # bridge-networked container via host.docker.internal.
+      API_URL: http://host.docker.internal:${LLM_PROXY_PORT:-7001}
+      S3_PROXY_URL: http://host.docker.internal:${LLM_PROXY_PORT:-7001}
+      # Auth bypass for local testing — production-deploy.sh passes these via
+      # -e flags; the production compose file does not, so we forward them here.
+      DEV_AUTH_BYPASS: ${DEV_AUTH_BYPASS:-}
+      DEV_AUTH_ROLE: ${DEV_AUTH_ROLE:-admin}
+      DEV_AUTH_USERNAME: ${DEV_AUTH_USERNAME:-dev-admin}
+
+  migrate:
+    network_mode: !reset null
+    networks:
+      - sp_dev
+    environment:
+      DB_HOST: db
+      POSTGRES_HOST: db
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+
+networks:
+  sp_dev:
+    driver: bridge

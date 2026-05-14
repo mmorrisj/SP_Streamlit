@@ -29,6 +29,24 @@ const CATEGORY_COLORS: Record<string, string> = {
   Social: '#8b5cf6',
 }
 
+// Citations may be strings (legacy) or objects with { citation | headline | source_name | ... }
+function citationToText(c: unknown): string {
+  if (typeof c === 'string') return c
+  if (c && typeof c === 'object') {
+    const o = c as Record<string, unknown>
+    const pick = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : '')
+    const formatted = pick('citation')
+    if (formatted) return formatted
+    const headline = pick('headline') || pick('title')
+    const source = pick('source_name')
+    const date = pick('published_date') || pick('date')
+    const parts = [headline, source && `[${source}]`, date].filter(Boolean)
+    if (parts.length) return parts.join(' ')
+    return JSON.stringify(c)
+  }
+  return String(c)
+}
+
 function PeriodCard({ entry, periodType }: { entry: CrossPeriodEntry; periodType: string }) {
   const [expanded, setExpanded] = useState(false)
   const topCats = Object.entries(entry.count_by_category || {}).sort(([,a],[,b]) => b - a).slice(0, 3)
@@ -89,7 +107,7 @@ function PeriodCard({ entry, periodType }: { entry: CrossPeriodEntry; periodType
             <div className="summ-citations">
               <strong>Citations:</strong>
               <ul>
-                {entry.citations.slice(0, 5).map((c, i) => <li key={i}>{c}</li>)}
+                {entry.citations.slice(0, 5).map((c, i) => <li key={i}>{citationToText(c)}</li>)}
               </ul>
             </div>
           )}
