@@ -24,6 +24,7 @@ import BilateralSummariesPage from './pages/BilateralSummariesPage'
 import BilateralSummaryDetailPage from './pages/BilateralSummaryDetailPage'
 import TimelineComparison from './pages/TimelineComparison'
 import ReportPage from './pages/ReportPage'
+import AgentPage from './pages/AgentPage'
 import EventDetailPage from './pages/EventDetailPage'
 import CrossPeriodView from './pages/CrossPeriodView'
 import CountryComparison from './pages/CountryComparison'
@@ -73,6 +74,7 @@ function App() {
               <Route path="timeline" element={<TimelineComparison />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="report" element={<ReportPage />} />
+              <Route path="agent" element={<AgentPage />} />
               <Route path="drilldown" element={<DrilldownPage />} />
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="competing/:recipient" element={<CompetingInfluencePage />} />
