@@ -113,9 +113,14 @@ def query_documents(
     else:
         where_clauses.append("rc.recipient_country = ANY(:recipients)")
 
-    # Category filter
+    # Category filter — documents.category stores a semicolon-concatenated
+    # raw value (e.g. "Economic;Diplomacy"). Filter against the exploded
+    # categories join table instead.
     if category and category != "ALL":
-        where_clauses.append("d.category = :category")
+        where_clauses.append(
+            "EXISTS (SELECT 1 FROM categories cat"
+            " WHERE cat.doc_id = d.doc_id AND cat.category = :category)"
+        )
         params["category"] = category
 
     # Full-text search on title and distilled_text

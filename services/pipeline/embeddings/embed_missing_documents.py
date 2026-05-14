@@ -53,8 +53,14 @@ def find_missing_embeddings(collection_name='chunk_embeddings', country=None):
     engine = get_engine()
 
     with engine.connect() as conn:
-        # Find documents without embeddings that have distilled_text
-        country_filter = "AND d.initiating_country = :country" if country else ""
+        # Find documents without embeddings that have distilled_text.
+        # The country filter uses EXISTS against the normalized join table because
+        # documents.initiating_country is a semicolon-concatenated raw value
+        # (e.g. "Iran;Egypt"), while initiating_countries is the exploded source.
+        country_filter = (
+            "AND EXISTS (SELECT 1 FROM initiating_countries ic"
+            " WHERE ic.doc_id = d.doc_id AND ic.initiating_country = :country)"
+        ) if country else ""
         result = conn.execute(text(f"""
             SELECT
                 d.doc_id,

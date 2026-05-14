@@ -1114,18 +1114,33 @@ def semantic_search(
 
     embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
-    # Build filter conditions (shared between vector and BM25 queries)
+    # Build filter conditions (shared between vector and BM25 queries).
+    # Country / category filters use EXISTS against the normalized join tables
+    # (initiating_countries / recipient_countries / categories), which are the
+    # exploded source of truth. The raw documents.{initiating,recipient}_country
+    # and documents.category columns store semicolon-concatenated multi-value
+    # strings (e.g. "Iran;Egypt", "Economic;Diplomacy") that a scalar `=`
+    # comparison would silently miss.
     filter_sql = ""
     params = {"limit": k}
 
     if influencer:
-        filter_sql += " AND d.initiating_country = :influencer"
+        filter_sql += (
+            " AND EXISTS (SELECT 1 FROM initiating_countries ic"
+            " WHERE ic.doc_id = d.doc_id AND ic.initiating_country = :influencer)"
+        )
         params["influencer"] = influencer
     if recipient:
-        filter_sql += " AND d.recipient_country = :recipient"
+        filter_sql += (
+            " AND EXISTS (SELECT 1 FROM recipient_countries rc"
+            " WHERE rc.doc_id = d.doc_id AND rc.recipient_country = :recipient)"
+        )
         params["recipient"] = recipient
     if category:
-        filter_sql += " AND d.category = :category"
+        filter_sql += (
+            " AND EXISTS (SELECT 1 FROM categories cat"
+            " WHERE cat.doc_id = d.doc_id AND cat.category = :category)"
+        )
         params["category"] = category
     if start_date:
         filter_sql += " AND d.date >= :start_date"

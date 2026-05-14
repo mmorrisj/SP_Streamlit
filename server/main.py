@@ -811,8 +811,9 @@ def get_event_detail(event_id: uuid.UUID):
                 if m.doc_ids:
                     all_doc_ids.extend(m.doc_ids[:5])  # Cap per mention
             if all_doc_ids:
+                from sqlalchemy import text as sql_text
                 docs = session.execute(
-                    text("SELECT distilled_text FROM documents WHERE doc_id = ANY(:ids) LIMIT 3"),
+                    sql_text("SELECT distilled_text FROM documents WHERE doc_id = ANY(:ids) LIMIT 3"),
                     {"ids": all_doc_ids[:10]}
                 ).fetchall()
                 if docs:
