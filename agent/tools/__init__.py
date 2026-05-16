@@ -33,6 +33,7 @@ def get_registry() -> dict[str, "Tool"]:
         entity_lookup,
         event_timeline,
         materiality_filter,
+        writing_products,
     )
 
     tools = [
@@ -46,5 +47,8 @@ def get_registry() -> dict[str, "Tool"]:
         corroboration_check.TOOL,
         country_grouping.TOOL,
         briefing_generator.TOOL,
+        writing_products.LIST_TOOL,
+        writing_products.RECOMMEND_TOOL,
+        writing_products.GET_TEMPLATE_TOOL,
     ]
     return {t.name: t for t in tools}

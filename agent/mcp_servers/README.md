@@ -9,9 +9,20 @@ plugins).
 
 ## Current servers
 
-| Server | Module | Tools |
+| Server | Module | Primitives |
 |---|---|---|
-| `softpower-document-search` | `agent.mcp_servers.document_search_server` | `document_search` |
+| `softpower-document-search` | `agent.mcp_servers.document_search_server` | Tools: `document_search` |
+| `softpower-writing` | `agent.mcp_servers.writing_server` | Prompts: `quick_summary`, `sourced_report`, `metrics_focused`, `entity_profile`, `bilateral_assessment`. Tools: `list_writing_products`, `recommend_product` |
+
+### MCP primitives used
+
+The writing server exercises MCP's **prompts** primitive (parameterized
+templates), not just tools. Prompts are how MCP expresses
+"reusable composition recipes" — each product type returns a fully-
+composed system prompt + output schema + the analyst's query + any
+evidence summary, ready for the LLM to consume. Hosts can discover them
+via `prompts/list` and fetch via `prompts/get`. Claude Desktop surfaces
+them in its slash-command picker.
 
 ## Running a server directly
 
@@ -27,9 +38,18 @@ its stdin is closed.
 ## Debugging with MCP Inspector
 
 ```bash
+# Document search (tools)
 npx @modelcontextprotocol/inspector \
   python -m agent.mcp_servers.document_search_server
+
+# Writing products (prompts + tools)
+npx @modelcontextprotocol/inspector \
+  python -m agent.mcp_servers.writing_server
 ```
+
+Inspector's UI has separate panes for **Tools**, **Prompts**, and
+**Resources** — useful for verifying that the writing server exposes its
+products as proper prompts rather than just tool calls.
 
 Inspector opens a browser UI where you can call `tools/list` and
 `tools/call` interactively. Database environment variables

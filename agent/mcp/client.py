@@ -45,6 +45,11 @@ MCP_SERVERS: dict[str, MCPServerSpec] = {
         command=sys.executable,
         args=["-m", "agent.mcp_servers.document_search_server"],
     ),
+    "softpower-writing": MCPServerSpec(
+        name="softpower-writing",
+        command=sys.executable,
+        args=["-m", "agent.mcp_servers.writing_server"],
+    ),
 }
 
 
@@ -82,6 +87,35 @@ class MCPClientManager:
         loop = self._ensure_loop()
         fut = asyncio.run_coroutine_threadsafe(
             self._call_tool_async(server_name, tool_name, arguments),
+            loop,
+        )
+        return fut.result(timeout=timeout)
+
+    def list_prompts(self, server_name: str, timeout: float = 30.0) -> list[dict[str, Any]]:
+        """Return the list of prompts exposed by an MCP server."""
+        loop = self._ensure_loop()
+        fut = asyncio.run_coroutine_threadsafe(
+            self._list_prompts_async(server_name),
+            loop,
+        )
+        return fut.result(timeout=timeout)
+
+    def get_prompt(
+        self,
+        server_name: str,
+        prompt_name: str,
+        arguments: dict[str, Any] | None = None,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        """Fetch a parameterized prompt as a flattened {description, text} dict.
+
+        The text is the concatenation of all message contents in order — for
+        prompts that return a single user-role message (our convention), the
+        text is exactly the composition instructions the LLM should consume.
+        """
+        loop = self._ensure_loop()
+        fut = asyncio.run_coroutine_threadsafe(
+            self._get_prompt_async(server_name, prompt_name, arguments or {}),
             loop,
         )
         return fut.result(timeout=timeout)
@@ -152,6 +186,57 @@ class MCPClientManager:
             return json.loads(text)
         except json.JSONDecodeError:
             return {"ok": False, "error": "tool returned non-JSON text", "raw": text}
+
+    async def _list_prompts_async(self, server_name: str) -> list[dict[str, Any]]:
+        session = await self._get_session(server_name)
+        result = await session.list_prompts()
+        out: list[dict[str, Any]] = []
+        for p in result.prompts:
+            out.append(
+                {
+                    "name": p.name,
+                    "description": p.description,
+                    "arguments": [
+                        {
+                            "name": a.name,
+                            "description": a.description,
+                            "required": a.required,
+                        }
+                        for a in (p.arguments or [])
+                    ],
+                }
+            )
+        return out
+
+    async def _get_prompt_async(
+        self,
+        server_name: str,
+        prompt_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        session = await self._get_session(server_name)
+        result = await session.get_prompt(prompt_name, arguments=arguments)
+
+        # Concatenate the text of every message in the prompt; preserves
+        # multi-message templates while keeping our single-message convention
+        # working unchanged.
+        parts: list[str] = []
+        for msg in result.messages:
+            content = msg.content
+            text = getattr(content, "text", None)
+            if text:
+                parts.append(text)
+        return {
+            "description": result.description,
+            "text": "\n\n".join(parts),
+            "messages": [
+                {
+                    "role": m.role,
+                    "text": getattr(m.content, "text", None),
+                }
+                for m in result.messages
+            ],
+        }
 
 
 def get_mcp_client() -> MCPClientManager:
