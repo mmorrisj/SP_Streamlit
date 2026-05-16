@@ -89,3 +89,60 @@ class AgentToolCall(Base):
         Index("ix_agent_tool_calls_run", "run_id"),
         Index("ix_agent_tool_calls_tool", "tool_name"),
     )
+
+
+class AgentWorkflowRun(Base):
+    """One execution of a structured workflow (e.g. the report DAG).
+
+    Distinct from AgentRun (which is for open-ended ReAct loops): workflow
+    runs have a fixed stage sequence and per-stage outputs persisted in
+    agent_workflow_steps.
+    """
+
+    __tablename__ = "agent_workflow_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workflow_name = Column(String(128), nullable=False)
+    inputs = Column(JSONB, nullable=True)
+    status = Column(String(32), default="pending", nullable=False)  # running|succeeded|failed
+    error = Column(Text, nullable=True)
+    skipped_stages = Column(JSONB, nullable=True)
+    confidence_summary = Column(JSONB, nullable=True)  # {stage_name: confidence}
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    latency_ms = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_agent_workflow_runs_name", "workflow_name"),
+        Index("ix_agent_workflow_runs_status", "status"),
+        Index("ix_agent_workflow_runs_started", "started_at"),
+    )
+
+
+class AgentWorkflowStep(Base):
+    """One stage of one workflow run — the per-stage audit trail."""
+
+    __tablename__ = "agent_workflow_steps"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    stage_name = Column(String(128), nullable=False)
+    status = Column(String(32), default="pending", nullable=False)
+    summary = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    citations = Column(JSONB, nullable=True)
+    output = Column(JSONB, nullable=True)
+    notes = Column(JSONB, nullable=True)
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    latency_ms = Column(Float, nullable=True)
+
+    __table_args__ = (
+        Index("ix_agent_workflow_steps_run", "run_id"),
+        Index("ix_agent_workflow_steps_stage", "stage_name"),
+    )
