@@ -483,6 +483,22 @@
   font-family: ui-monospace, monospace;
 }
 
+.cite-chip-link {
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.1s, color 0.1s;
+}
+
+.cite-chip-link:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.cite-chip-compact {
+  padding: 1px 5px;
+  font-size: 0.7rem;
+}
+
 .cites-more {
   font-size: 0.75rem;
   color: var(--text-muted, #9ca3af);

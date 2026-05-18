@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertCircle,
   CheckCircle2,
@@ -546,7 +547,7 @@ function NarrativesPanel({ narratives, sourced }: { narratives: any[]; sourced?:
                 <div className="narrative-citations">
                   <span className="cites-label">Cited:</span>
                   {n.cited_doc_ids.slice(0, 8).map((d: string) => (
-                    <code key={d} className="cite-chip">{d.slice(0, 8)}</code>
+                    <CiteChip key={d} docId={d} />
                   ))}
                   {n.cited_doc_ids.length > 8 && (
                     <span className="cites-more">+{n.cited_doc_ids.length - 8}</span>
@@ -566,7 +567,7 @@ function NarrativesPanel({ narratives, sourced }: { narratives: any[]; sourced?:
                         {c.cited_doc_ids?.length > 0 && (
                           <span className="claim-cites">
                             {c.cited_doc_ids.map((d: string) => (
-                              <code key={d}>{d.slice(0, 8)}</code>
+                              <CiteChip key={d} docId={d} compact />
                             ))}
                           </span>
                         )}
@@ -608,7 +609,7 @@ function EntitiesPanel({ entities }: { entities: any[] }) {
               <div className="entity-citations">
                 <span className="cites-label">Cited:</span>
                 {e.cited_doc_ids.slice(0, 6).map((d: string) => (
-                  <code key={d} className="cite-chip">{d.slice(0, 8)}</code>
+                  <CiteChip key={d} docId={d} />
                 ))}
               </div>
             )}
@@ -616,6 +617,23 @@ function EntitiesPanel({ entities }: { entities: any[] }) {
         ))}
       </div>
     </section>
+  )
+}
+
+// =================================================================
+// Cite chip — links to the Documents page filtered to that one doc.
+// `compact` shrinks padding for inline use inside claim rows.
+// =================================================================
+
+function CiteChip({ docId, compact = false }: { docId: string; compact?: boolean }) {
+  return (
+    <Link
+      to={`/documents?doc_ids=${encodeURIComponent(docId)}`}
+      className={`cite-chip cite-chip-link${compact ? ' cite-chip-compact' : ''}`}
+      title={docId}
+    >
+      {docId.slice(0, 8)}
+    </Link>
   )
 }
 

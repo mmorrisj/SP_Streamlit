@@ -647,11 +647,19 @@ def get_documents(
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = None,
     country: Optional[str] = None,
-    category: Optional[str] = None
+    category: Optional[str] = None,
+    doc_ids: Optional[str] = None,
 ):
     with get_session() as session:
         # Build base query with proper joins for filtering
         query = session.query(Document)
+
+        if doc_ids:
+            # Comma-separated list of doc_id UUIDs. Used by the agent report
+            # page to jump from cite chips into the documents view.
+            id_list = [d.strip() for d in doc_ids.split(',') if d.strip()]
+            if id_list:
+                query = query.filter(Document.doc_id.in_(id_list))
 
         if search:
             query = query.filter(Document.title.ilike(f'%{search}%'))
