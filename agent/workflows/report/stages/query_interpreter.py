@@ -6,12 +6,51 @@ decides:
   * normalized country names, normalized date range
   * a one-sentence rationale for downstream stages to reference
 
+When a region is supplied, expand it into the explicit recipient list
+defined in shared/config/config.yaml so downstream SQL stages can scope
+their queries with WHERE recipient IN (...) instead of treating "regional"
+as "any recipient on the planet".
+
 LLM role: small judgment call (resolve ambiguity, normalize aliases).
 TODO: replace stub with an LLM call once a deterministic helper isn't enough.
 """
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
+
+import yaml
+
 from agent.workflows.base import Stage, StageResult, WorkflowContext
+
+
+_CONFIG_PATH = Path(__file__).resolve().parents[4] / "shared" / "config" / "config.yaml"
+
+
+@lru_cache(maxsize=1)
+def _load_config() -> dict:
+    """Load shared/config/config.yaml once per process."""
+    try:
+        with _CONFIG_PATH.open("r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}
+
+
+def _resolve_region_recipients(region: str | None) -> list[str] | None:
+    """Map a region label to the explicit list of recipient countries.
+
+    Phase 1: the config carries a single flat `recipients` list that
+    implicitly defines the Middle East scope. Any non-empty region value
+    resolves to this list. When additional regions are added to the
+    config (e.g. as a `regions: {Middle East: [...], Africa: [...]}`
+    mapping), extend this function to dispatch by key.
+    """
+    if not region:
+        return None
+    cfg = _load_config()
+    recipients = cfg.get("recipients") or []
+    return [str(r) for r in recipients] if recipients else None
 
 
 class QueryInterpreterStage(Stage):
@@ -52,11 +91,17 @@ class QueryInterpreterStage(Stage):
                 error="Must supply at least one of: (influencer + recipient), region, or recipient.",
             )
 
+        # When scope is regional, resolve to the explicit recipient list so
+        # downstream SQL stages can apply WHERE recipient IN (...) instead
+        # of "any recipient anywhere". Bilateral scope leaves this as None.
+        region_recipients = _resolve_region_recipients(region) if scope == "regional" else None
+
         data = {
             "scope": scope,
             "influencer": influencer,
             "recipient": recipient,
             "region": region,
+            "region_recipients": region_recipients,
             "start_date": inp.get("start_date"),
             "end_date": inp.get("end_date"),
             "category": effective_category,
