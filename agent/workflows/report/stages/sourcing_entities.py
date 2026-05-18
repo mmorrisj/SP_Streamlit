@@ -52,6 +52,9 @@ Selection criteria, in order:
   4. Recency — prefer more recent sources for current-state assertions.
 
 Hard rules:
+  - Use doc_ids EXACTLY as shown in the candidates list — full UUIDs.
+    Never abbreviate, shorten, truncate, or split a doc_id.
+    Wrong: "0e7f341f". Right: "0e7f341f-1234-5678-90ab-cdef12345678".
   - Only use doc_ids that appear in the provided candidates list. Never
     invent a doc_id.
   - If no candidate substantiates the synopsis, return empty

@@ -54,6 +54,9 @@ focused overview + outcomes for THIS report's scope.
 Rules:
   - Stay grounded. Use only facts present in the supplied context.
   - Cite source documents inline using bracketed doc_ids: [doc_id]
+  - Cite doc_ids using their FULL UUID exactly as shown in the sources
+    list. Never abbreviate, shorten, truncate, or split doc_ids.
+    Wrong: [0e7f341f]. Right: [0e7f341f-1234-5678-90ab-cdef12345678]
   - Only cite doc_ids that appear in the provided sources list. Never
     invent a doc_id.
   - Overview: 3-5 sentences. What happened, who was involved, when, where.
