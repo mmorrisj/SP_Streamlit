@@ -24,12 +24,19 @@ from agent.llm.provider import LLMMessage, LLMResponse, Provider, ToolCall
 
 def _resolve_api_key() -> str | None:
     """Try the agent-specific key first, then fall back to keys the rest of
-    the codebase already uses, so devs don't need a new secret to demo."""
+    the codebase already uses, then the OpenAI SDK's standard env var."""
     return (
         os.getenv("AGENT_LLM_API_KEY")
         or os.getenv("OPENAI_PROJ_API")
         or os.getenv("CLAUDE_KEY")
+        or os.getenv("OPENAI_API_KEY")
     )
+
+
+# Per-request timeout in seconds. The OpenAI SDK default is 600s, which lets
+# a single hung call stall an entire workflow stage for ten minutes. Cap at
+# 60s so failures surface fast and the workflow can move on to the next event.
+DEFAULT_REQUEST_TIMEOUT = float(os.getenv("AGENT_LLM_REQUEST_TIMEOUT", "60"))
 
 
 class OpenAICompatProvider(Provider):
@@ -49,7 +56,10 @@ class OpenAICompatProvider(Provider):
                 raise RuntimeError(
                     "No API key found. Set AGENT_LLM_API_KEY (or OPENAI_PROJ_API / CLAUDE_KEY)."
                 )
-            kwargs: dict[str, Any] = {"api_key": self.api_key}
+            kwargs: dict[str, Any] = {
+                "api_key": self.api_key,
+                "timeout": DEFAULT_REQUEST_TIMEOUT,
+            }
             if self.base_url:
                 kwargs["base_url"] = self.base_url
             self._client = OpenAI(**kwargs)
