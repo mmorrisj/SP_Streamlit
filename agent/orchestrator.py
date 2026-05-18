@@ -1,4 +1,4 @@
-"""Orchestrator: plan → execute → trace.
+"""Orchestrator: plan -> execute -> trace.
 
 Runs an LLM tool-dispatch loop against the provider configured in
 agent/llm/provider.py. Each tool invocation is persisted to
@@ -127,7 +127,7 @@ class Orchestrator:
         scope_json = json.dumps(scope_dict, indent=2)
 
         history_lines = []
-        for turn in request.history[-12:]:  # cap context — last 12 turns
+        for turn in request.history[-12:]:  # cap context -- last 12 turns
             history_lines.append(f"{turn.role.upper()}: {turn.content}")
         history_dump = "\n".join(history_lines) if history_lines else "(no prior turns)"
 
@@ -158,7 +158,7 @@ class Orchestrator:
             return ChatTurnResponse(
                 action="chat",
                 scope=request.current_scope,
-                message=f"Sorry — the classifier couldn't reach the LLM: {e}",
+                message=f"Sorry -- the classifier couldn't reach the LLM: {e}",
             )
 
         return _parse_intent_response(response.text, fallback_scope=request.current_scope)
@@ -413,11 +413,11 @@ def _default_title(query: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Intent classifier — system prompt + response parsing.
+# Intent classifier -- system prompt + response parsing.
 # ---------------------------------------------------------------------------
 
 _INTENT_SCHEMA_BLOCK = """\
-Return STRICT JSON only — no prose, no markdown fences. Schema:
+Return STRICT JSON only -- no prose, no markdown fences. Schema:
 
 {
   "action": "propose_run" | "update_scope" | "clarify" | "chat",
@@ -436,7 +436,7 @@ Return STRICT JSON only — no prose, no markdown fences. Schema:
   "ready_to_run": true | false
 }
 
-The "scope" object is the FULL scope after applying any updates you inferred —
+The "scope" object is the FULL scope after applying any updates you inferred --
 not a diff. Carry forward every field from CURRENT SCOPE that you didn't
 change. The UI replaces its filter state with this object verbatim.
 
@@ -453,7 +453,7 @@ Today's date is {today} (use this for relative time references like
 
 AVAILABLE WORKFLOWS
 
-report — generates a multi-stage soft-power report for one country pair
+report -- generates a multi-stage soft-power report for one country pair
   or one country into a region.
   Required:
     influencer  country (e.g. "China", "Russia", "United States")
@@ -468,52 +468,52 @@ report — generates a multi-stage soft-power report for one country pair
     category_mode   "flat" (no filtering) | "filter" (single-category scope,
                     requires category to be set)
 
-CONVENTIONS (apply silently — do NOT ask about these)
+CONVENTIONS (apply silently -- do NOT ask about these)
 
-- "X-Y" or "X–Y" or "X to Y" or "X in Y" or "X toward Y" or "X into Y"
+- "X-Y" or "X-Y" or "X to Y" or "X in Y" or "X toward Y" or "X into Y"
   means X is the INFLUENCER, Y is the RECIPIENT. This is the standard
   soft-power framing: the influencer is the country whose outbound
   activity is being studied; the recipient is the destination of that
   activity.
-    "China-Egypt" → influencer=China, recipient=Egypt
-    "Russia in Africa" → influencer=Russia, region=Africa
-    "what is China doing in the Middle East" → influencer=China, region=Middle East
+    "China-Egypt" -> influencer=China, recipient=Egypt
+    "Russia in Africa" -> influencer=Russia, region=Africa
+    "what is China doing in the Middle East" -> influencer=China, region=Middle East
 
 - Categorical phrases map to category + category_mode="filter":
-    "economic activity" / "economic engagements" → Economic
-    "diplomatic activity" / "diplomatic engagements" → Diplomacy
-    "social initiatives" / "soft outreach" / "people-to-people" → Social
-    "military cooperation" / "defense activity" → Military
+    "economic activity" / "economic engagements" -> Economic
+    "diplomatic activity" / "diplomatic engagements" -> Diplomacy
+    "social initiatives" / "soft outreach" / "people-to-people" -> Social
+    "military cooperation" / "defense activity" -> Military
 
 - Time phrases (relative to today's date {today}):
-    "this quarter" / "current quarter" → current calendar quarter
-    "last quarter" → previous calendar quarter
-    "last month" / "recent" / "past 30 days" → last 30 days ending today
-    "year-to-date" / "YTD" → Jan 1 of current year through today
-    "<year>" alone → full calendar year
+    "this quarter" / "current quarter" -> current calendar quarter
+    "last quarter" -> previous calendar quarter
+    "last month" / "recent" / "past 30 days" -> last 30 days ending today
+    "year-to-date" / "YTD" -> Jan 1 of current year through today
+    "<year>" alone -> full calendar year
 
 ACTIONS
 
-1. propose_run — analyst is ready to run. All required params present
+1. propose_run -- analyst is ready to run. All required params present
    (after inferring sensible defaults). Set workflow + complete scope.
    Set ready_to_run=true. message: one-sentence acknowledgement like
-   "Set scope to China → Egypt, 2026-01-01 to 2026-03-31. Run when ready."
+   "Set scope to China -> Egypt, 2026-01-01 to 2026-03-31. Run when ready."
 
-2. update_scope — analyst is adjusting filters without explicitly asking
+2. update_scope -- analyst is adjusting filters without explicitly asking
    to run (e.g. "actually make it Q2", "only economic activity"). Update
    only the relevant fields in scope; carry the rest forward. Set
    ready_to_run=false. message: brief acknowledgement of what changed.
 
-3. clarify — a required dimension is genuinely ambiguous AND cannot be
+3. clarify -- a required dimension is genuinely ambiguous AND cannot be
    resolved by the CONVENTIONS above. Ask ONE focused question. Do not
    update scope. Set workflow=null, ready_to_run=false.
 
-4. chat — greeting, help request, or off-topic. No scope change. Set
+4. chat -- greeting, help request, or off-topic. No scope change. Set
    workflow=null, ready_to_run=false. Be brief and helpful.
 
 CLARIFICATION PRIORITY (only ask for the SINGLE most impactful gap)
 
-  1. influencer (which country's outbound activity? — but apply the
+  1. influencer (which country's outbound activity? -- but apply the
      CONVENTIONS first; only ask if the message genuinely doesn't name
      a country or names countries in a way conventions don't resolve)
   2. recipient vs region (bilateral or regional analysis?)
@@ -526,23 +526,23 @@ missing, ask about the highest-priority one and leave the rest unset.
 EXAMPLES
 
 Input: "brief on China-Egypt economic activity this quarter"
-  → action=propose_run, influencer=China, recipient=Egypt,
+  -> action=propose_run, influencer=China, recipient=Egypt,
     category=Economic, category_mode=filter,
     start_date+end_date = current calendar quarter,
     ready_to_run=true.
 
 Input: "what's China doing in the Middle East?"
-  → action=propose_run, influencer=China, region=Middle East,
+  -> action=propose_run, influencer=China, region=Middle East,
     start_date+end_date = current calendar quarter (default time scope),
     category=null, category_mode=flat, ready_to_run=true.
 
 Input: "give me a brief"
-  → action=clarify, message=Which country's outbound activity should I
+  -> action=clarify, message=Which country's outbound activity should I
     look at?
 
 Input: "actually only economic"
   (current scope has influencer=China, recipient=Egypt, dates set)
-  → action=update_scope, category=Economic, category_mode=filter,
+  -> action=update_scope, category=Economic, category_mode=filter,
     everything else carried forward, ready_to_run=false.
 
 {_INTENT_SCHEMA_BLOCK}
