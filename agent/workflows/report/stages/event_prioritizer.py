@@ -48,6 +48,18 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_N = 8
 
+# When scope is regional, fetch a larger candidate pool so the per-recipient
+# balancing step has room to spread picks across multiple countries. With
+# 19 recipients in the Middle East config and per_recipient=2, the upper
+# bound on candidates that matter is 38; pulling 50 covers it comfortably
+# while staying cheap.
+REGIONAL_CANDIDATE_LIMIT = 50
+
+# Max events to pick from any single recipient when balancing. Two leaves
+# room for follow-on events on the same story while still forcing the
+# remaining slots in top-N to come from other countries.
+PER_RECIPIENT_CAP = 2
+
 
 class EventPrioritizerStage(Stage):
     name = "event_prioritizer"
@@ -77,6 +89,13 @@ class EventPrioritizerStage(Stage):
         top_n = DEFAULT_TOP_N
         total_in_scope = int(qa.get("event_count") or 0)
 
+        # Regional scope: fetch a wider candidate pool so the balancing
+        # pass downstream has room to spread picks across recipients
+        # rather than letting whichever 1-2 countries have the highest
+        # composite scores monopolize the slot list. Bilateral scope has
+        # only one recipient anyway, so no need to over-fetch.
+        candidate_limit = REGIONAL_CANDIDATE_LIMIT if region_recipients else top_n
+
         try:
             with get_session() as session:
                 rows = _query_top_events(
@@ -85,7 +104,7 @@ class EventPrioritizerStage(Stage):
                     recipient=recipient,
                     start_date=start_date,
                     end_date=end_date,
-                    limit=top_n,
+                    limit=candidate_limit,
                     category=category,
                     region_recipients=region_recipients,
                 )
@@ -93,20 +112,44 @@ class EventPrioritizerStage(Stage):
             logger.exception("event_prioritizer SQL failed")
             return StageResult(ok=False, error=f"event prioritizer query failed: {e}")
 
-        events = [_row_to_event(r) for r in rows]
+        candidates = [_row_to_event(r) for r in rows]
+
+        if region_recipients:
+            events = _balance_by_recipient(candidates, top_n=top_n, per_recipient=PER_RECIPIENT_CAP)
+            method = "materiality_x_log_coverage_balanced_by_recipient"
+        else:
+            events = candidates[:top_n]
+            method = "materiality_x_log_coverage"
+
         confidence = _confidence(total_in_scope=total_in_scope, returned=len(events), top_n=top_n)
+
+        # Distribution surfaces in the UI so the analyst can see at a
+        # glance how the regional pick split across countries.
+        distribution: dict[str, int] = {}
+        for e in events:
+            r = e.get("primary_recipient")
+            if r:
+                distribution[r] = distribution.get(r, 0) + 1
 
         data: dict[str, Any] = {
             "events": events,
-            "method": "materiality_x_log_coverage",
+            "method": method,
             "top_n": top_n,
             "total_in_scope": total_in_scope,
+            "candidate_pool_size": len(candidates),
+            "recipient_distribution": distribution or None,
+            "per_recipient_cap": PER_RECIPIENT_CAP if region_recipients else None,
         }
+
+        summary = f"event_prioritizer: top {len(events)} of {total_in_scope} events"
+        if region_recipients and distribution:
+            summary += f" (across {len(distribution)} recipients)"
+
         return StageResult(
             ok=True,
             data=data,
             confidence=confidence,
-            summary=f"event_prioritizer: top {len(events)} of {total_in_scope} events",
+            summary=summary,
         )
 
 
@@ -169,6 +212,10 @@ def _row_to_event(row: Any) -> dict[str, Any]:
         )[:3]
     ]
 
+    primary_recipients = row.primary_recipients or {}
+    if not isinstance(primary_recipients, dict):
+        primary_recipients = {}
+
     coverage_score = int(row.total_articles or 0)
     materiality_score = float(row.material_score) if row.material_score is not None else None
     composite_score = float(row.composite_score) if row.composite_score is not None else 0.0
@@ -181,10 +228,95 @@ def _row_to_event(row: Any) -> dict[str, Any]:
         "coverage_score": coverage_score,
         "composite_score": round(composite_score, 3),
         "categories": top_categories,
+        "primary_recipient": _primary_recipient(primary_recipients),
+        "primary_recipients": primary_recipients,
         "date_span": _date_span(row.first_mention_date, row.last_mention_date),
         "total_mention_days": int(row.total_mention_days or 0),
         "story_phase": row.story_phase,
     }
+
+
+def _primary_recipient(primary_recipients: dict[str, Any]) -> str | None:
+    """Return the recipient key with the highest mention count.
+
+    primary_recipients is the canonical_events JSONB column shaped as
+    {country: mention_count}. Ties broken alphabetically so picks are
+    deterministic across runs.
+    """
+    if not primary_recipients:
+        return None
+    try:
+        items = sorted(
+            primary_recipients.items(),
+            key=lambda kv: (-int(kv[1] or 0), kv[0]),
+        )
+        return items[0][0] if items else None
+    except Exception:
+        # Pathological JSONB (non-numeric values, etc.); fall back to
+        # alphabetic first key rather than crash the stage.
+        keys = sorted(primary_recipients.keys())
+        return keys[0] if keys else None
+
+
+def _balance_by_recipient(
+    events: list[dict[str, Any]],
+    top_n: int,
+    per_recipient: int,
+) -> list[dict[str, Any]]:
+    """Return top_n events balanced across primary recipients.
+
+    Each event is assigned to its primary recipient (highest count in
+    primary_recipients JSONB). At most `per_recipient` events per
+    recipient are picked from the candidate pool; if that leaves fewer
+    than top_n picks, the remaining slots are filled from the global
+    composite-score ranking of unpicked candidates. Final list is
+    re-sorted by composite_score so the UI's top-down rendering still
+    reads as "highest impact first".
+
+    Falls back to plain top_n by composite_score when only zero or one
+    recipient is represented in the candidate pool -- balancing has
+    nothing to do at that point.
+    """
+    if not events:
+        return []
+
+    by_recipient: dict[str, list[dict[str, Any]]] = {}
+    for e in events:
+        primary = e.get("primary_recipient")
+        if not primary:
+            continue
+        by_recipient.setdefault(primary, []).append(e)
+
+    if len(by_recipient) <= 1:
+        events_sorted = sorted(events, key=_score_key, reverse=True)
+        return events_sorted[:top_n]
+
+    # First pass: take up to per_recipient from each, ranked by score
+    # within that recipient's bucket.
+    balanced: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for bucket in by_recipient.values():
+        bucket.sort(key=_score_key, reverse=True)
+        for ev in bucket[:per_recipient]:
+            eid = ev.get("event_id")
+            if eid and eid not in seen:
+                balanced.append(ev)
+                seen.add(eid)
+
+    # Second pass: if we have slack, fill with the next-highest unpicked
+    # events globally. Keeps us from under-shooting top_n when only a few
+    # recipients have material events.
+    if len(balanced) < top_n:
+        remaining = [e for e in events if e.get("event_id") not in seen]
+        remaining.sort(key=_score_key, reverse=True)
+        balanced.extend(remaining[: top_n - len(balanced)])
+
+    balanced.sort(key=_score_key, reverse=True)
+    return balanced[:top_n]
+
+
+def _score_key(event: dict[str, Any]) -> float:
+    return float(event.get("composite_score") or 0)
 
 
 def _date_span(first, last) -> str | None:
