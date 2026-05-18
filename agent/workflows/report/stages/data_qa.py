@@ -431,28 +431,47 @@ def _event_scope_filters(
     """Build where clauses + params for canonical_event-level scope.
 
     Returns (where_sql, params). Where clause starts with 'AND'.
-    primary_recipients and primary_categories are JSONB {key: count} maps;
-    we use the ? key-existence operator.
+    primary_recipients and primary_categories are JSONB {key: count} maps.
 
-    region_recipients applies in regional scope: events match if ANY of the
-    configured recipients is a key in their primary_recipients JSONB. We
-    expand to a chain of `primary_recipients ? :rrN` clauses joined by OR
-    so we don't need an explicit ARRAY bindparam at every call site.
+    Recipient matching is DOMINANT-recipient only:
+
+      The naive ?  key-existence operator on primary_recipients lets an
+      event into scope if the recipient appears as ANY key, even with a
+      small mention count. That produces leakage -- e.g. a China-Oman
+      event with primary_recipients={"Oman":50,"Egypt":3} satisfies
+      `primary_recipients ? 'Egypt'` even though it's not really a
+      China-Egypt event.
+
+      To fix that, we require the recipient (or one of the region
+      recipients) to be the dominant key -- highest count in the JSONB,
+      with alphabetic tie-break for determinism. The dominant key is
+      extracted via a correlated subquery against jsonb_each.
+
+      Categories continue to use the lighter ? operator because an event
+      typically has 2-3 categories of roughly comparable weight and the
+      analyst's intent for "Economic activity" includes events where
+      Economic is one of several primary categories, not strictly the
+      single dominant one.
     """
     where_parts: list[str] = []
     params: dict[str, Any] = {}
+
+    dominant_recipient_sql = (
+        "(SELECT key FROM jsonb_each(primary_recipients) "
+        "ORDER BY (value::text)::int DESC NULLS LAST, key ASC LIMIT 1)"
+    )
 
     if influencer:
         where_parts.append("AND initiating_country = :influencer")
         params["influencer"] = influencer
     if recipient:
-        where_parts.append("AND primary_recipients ? :recipient")
+        where_parts.append(f"AND {dominant_recipient_sql} = :recipient")
         params["recipient"] = recipient
     elif region_recipients:
-        or_clauses = " OR ".join(
-            f"primary_recipients ? :rr{i}" for i in range(len(region_recipients))
+        placeholders = ", ".join(f":rr{i}" for i in range(len(region_recipients)))
+        where_parts.append(
+            f"AND {dominant_recipient_sql} IN ({placeholders})"
         )
-        where_parts.append(f"AND ({or_clauses})")
         params.update({f"rr{i}": r for i, r in enumerate(region_recipients)})
     if category:
         where_parts.append("AND primary_categories ? :category")
