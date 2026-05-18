@@ -30,7 +30,8 @@ import logging
 import re
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import String, bindparam, text
+from sqlalchemy.dialects.postgresql import ARRAY
 
 from agent.workflows.base import Stage, StageResult, WorkflowContext
 
@@ -232,8 +233,16 @@ def _fetch_candidate_entities(
             ce.total_mention_days DESC NULLS LAST
         LIMIT :limit
     """
+    # Explicit ARRAY(String) binding: without it SQLAlchemy/psycopg passes
+    # the Python list to ANY(:event_ids) in a form Postgres treats as
+    # zero-element-matching. Verified against live data 2026-05-18: the
+    # same SQL with hardcoded IN(...) returns 16 entities; the list-bound
+    # version returned 0.
+    stmt = text(sql).bindparams(
+        bindparam("event_ids", type_=ARRAY(String)),
+    )
     rows = session.execute(
-        text(sql), {"event_ids": event_ids, "limit": limit}
+        stmt, {"event_ids": event_ids, "limit": limit}
     ).fetchall()
 
     out: list[dict[str, Any]] = []
