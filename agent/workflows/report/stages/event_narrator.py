@@ -284,10 +284,15 @@ def _narrate_one(
     outcomes = (parsed.get("outcomes") or "").strip()
     claimed_cites = parsed.get("cited_doc_ids") or []
 
-    # Hallucination check: keep only doc_ids that were in the allow-list.
+    # Hallucination check + prefix-match salvage: keep doc_ids exact-matching
+    # the allow-list, plus any that uniquely-prefix an allow-list ID (LLMs
+    # occasionally truncate UUIDs by 1+ chars; the salvage corrects those
+    # back to the full ID rather than dropping them as hallucinations).
     allowed = set(context["allowed_doc_ids"])
-    actual_cites = [c for c in _extract_inline_citations(overview + " " + outcomes) if c in allowed]
-    hallucinated = [c for c in claimed_cites if c not in allowed]
+    raw_cites = list(
+        dict.fromkeys(_extract_inline_citations(overview + " " + outcomes) + list(claimed_cites))
+    )
+    actual_cites, salvaged_map, hallucinated = _salvage_citations(raw_cites, allowed)
 
     return {
         "event_id": event.get("event_id"),
@@ -295,6 +300,7 @@ def _narrate_one(
         "overview": overview,
         "outcomes": outcomes,
         "cited_doc_ids": list(dict.fromkeys(actual_cites)),
+        "salvaged_doc_ids": salvaged_map,        # truncated -> corrected
         "hallucinated_doc_ids": hallucinated,
         "used_existing_summary": context["existing_narrative"] is not None,
         "context_doc_count": len(context["source_docs"]),
@@ -394,6 +400,42 @@ _CITATION_RE = re.compile(r"\[([A-Za-z0-9_\-:.]+)\]")
 
 def _extract_inline_citations(text_blob: str) -> list[str]:
     return _CITATION_RE.findall(text_blob or "")
+
+
+def _salvage_citations(
+    cited: list[str], allowed: set[str]
+) -> tuple[list[str], dict[str, str], list[str]]:
+    """Three-way split of cited doc_ids:
+
+      validated   exact-match against the allow-list
+      salvaged    cited as a unique prefix of an allow-list ID; corrected
+                  back to the full ID. Handles common LLM truncation patterns
+                  (8-char abbreviation, last-char drop) deterministically.
+      hallucinated cited but neither exact-match nor uniquely-prefix-matches
+                  anything in the allow-list.
+
+    Returns (validated, salvaged_map, hallucinated) where:
+      validated     is the deduped list of validated + salvaged-corrected IDs
+      salvaged_map  is {original_truncated: full_corrected} for auditability
+      hallucinated  is the list of unresolvable cites
+    """
+    allowed_list = list(allowed)
+    validated: list[str] = []
+    salvaged_map: dict[str, str] = {}
+    hallucinated: list[str] = []
+    for c in cited:
+        if c in allowed:
+            validated.append(c)
+            continue
+        matches = [a for a in allowed_list if a.startswith(c)]
+        if len(matches) == 1:
+            salvaged_map[c] = matches[0]
+            validated.append(matches[0])
+        else:
+            # Either zero matches or ambiguous (multiple prefix candidates) —
+            # don't guess; flag for the validator.
+            hallucinated.append(c)
+    return list(dict.fromkeys(validated)), salvaged_map, hallucinated
 
 
 def _failed_narrative(event: dict[str, Any], reason: str) -> dict[str, Any]:

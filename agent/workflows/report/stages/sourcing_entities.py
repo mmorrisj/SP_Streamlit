@@ -228,8 +228,7 @@ def _source_one_entity(
 
     parsed = _parse_json_response(response.text)
     raw_cites = parsed.get("cited_doc_ids") or []
-    validated = [d for d in raw_cites if d in allowed]
-    hallucinated = [d for d in raw_cites if d not in allowed]
+    validated, salvaged_map, hallucinated = _salvage_citations(raw_cites, allowed, list(allowed))
 
     confidence = (parsed.get("confidence") or "LOW").upper()
     if confidence not in {"LOW", "MED", "HIGH"}:
@@ -243,6 +242,7 @@ def _source_one_entity(
         "entity_type": entity["entity_type"],
         "role_synopsis": entity["role_synopsis"],
         "cited_doc_ids": list(dict.fromkeys(validated)),
+        "salvaged_doc_ids": salvaged_map,
         "hallucinated_doc_ids": hallucinated,
         "confidence": confidence,
         "sourcing_notes": notes,
@@ -295,6 +295,33 @@ def _failed(entity: dict[str, Any], reason: str) -> dict[str, Any]:
         "ok": False,
         "failure_reason": reason,
     }
+
+
+def _salvage_citations(
+    cited: list[str],
+    allowed: set[str],
+    allowed_list: list[str],
+) -> tuple[list[str], dict[str, str], list[str]]:
+    """Three-way split with prefix-match salvage for LLM-truncated UUIDs.
+
+    Returns (validated, salvaged_map, hallucinated). Salvaged IDs are
+    those that uniquely-prefix-match an allow-list entry; they get
+    corrected to the full form rather than dropped as hallucinations.
+    """
+    validated: list[str] = []
+    salvaged_map: dict[str, str] = {}
+    hallucinated: list[str] = []
+    for c in cited:
+        if c in allowed:
+            validated.append(c)
+            continue
+        matches = [a for a in allowed_list if a.startswith(c)]
+        if len(matches) == 1:
+            salvaged_map[c] = matches[0]
+            validated.append(matches[0])
+        else:
+            hallucinated.append(c)
+    return list(dict.fromkeys(validated)), salvaged_map, hallucinated
 
 
 def _parse_json_response(raw: str) -> dict[str, Any]:

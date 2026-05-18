@@ -189,32 +189,39 @@ def _source_one_event(
     candidates: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     allowed = {d["doc_id"] for d in candidates if d.get("doc_id")}
-    user_payload = _compose_user_payload(claims, candidates)
+    allowed_list = list(allowed)
 
-    messages = [
-        LLMMessage(role="system", content=SOURCING_SYSTEM_PROMPT),
-        LLMMessage(role="user", content=user_payload),
-    ]
-    response = provider.complete(
-        messages=messages,
-        tools=None,
-        temperature=0.1,
-        max_tokens=1500,
+    # First attempt at the LLM call.
+    raw_by_id = _call_sourcing_llm(
+        provider=provider,
+        LLMMessage=LLMMessage,
+        claims=claims,
+        candidates=candidates,
     )
 
-    parsed = _parse_json_response(response.text)
-    raw = parsed.get("sourced_claims") or []
-    raw_by_id: dict[str, dict[str, Any]] = {
-        str(r.get("claim_id")): r for r in raw if r.get("claim_id")
-    }
+    # Silent-failure retry: model returned nothing for our claims. This is
+    # the failure mode we saw on the Shing Feng Steel event — every claim
+    # falls back to empty defaults because raw_by_id is empty. One retry is
+    # cheap insurance; a second silent failure means the model is genuinely
+    # confused about this event's content.
+    if not raw_by_id and claims:
+        logger.warning(
+            "sourcing_claims returned no entries for %d claims; retrying once",
+            len(claims),
+        )
+        raw_by_id = _call_sourcing_llm(
+            provider=provider,
+            LLMMessage=LLMMessage,
+            claims=claims,
+            candidates=candidates,
+        )
 
     out: list[dict[str, Any]] = []
     for claim in claims:
         cid = claim["claim_id"]
         record = raw_by_id.get(cid, {})
         raw_cites = record.get("cited_doc_ids") or []
-        validated = [d for d in raw_cites if d in allowed]
-        hallucinated = [d for d in raw_cites if d not in allowed]
+        validated, salvaged_map, hallucinated = _salvage_citations(raw_cites, allowed, allowed_list)
 
         confidence = (record.get("confidence") or "LOW").upper()
         if confidence not in {"LOW", "MED", "HIGH"}:
@@ -227,6 +234,7 @@ def _source_one_event(
                 "claim_text": claim["text"],
                 "claim_type": claim["claim_type"],
                 "cited_doc_ids": list(dict.fromkeys(validated)),
+                "salvaged_doc_ids": salvaged_map,
                 "hallucinated_doc_ids": hallucinated,
                 "confidence": confidence,
                 "sourcing_notes": (record.get("sourcing_notes") or "").strip() or None,
@@ -234,6 +242,62 @@ def _source_one_event(
             }
         )
     return out
+
+
+def _call_sourcing_llm(
+    *,
+    provider,
+    LLMMessage,
+    claims: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Single LLM call returning {claim_id: source_record}. Factored out of
+    _source_one_event so silent-failure retries can re-run the same call
+    without rebuilding the payload twice."""
+    user_payload = _compose_user_payload(claims, candidates)
+    messages = [
+        LLMMessage(role="system", content=SOURCING_SYSTEM_PROMPT),
+        LLMMessage(role="user", content=user_payload),
+    ]
+    response = provider.complete(
+        messages=messages,
+        tools=None,
+        temperature=0.1,
+        max_tokens=1500,
+    )
+    parsed = _parse_json_response(response.text)
+    raw = parsed.get("sourced_claims") or []
+    return {str(r.get("claim_id")): r for r in raw if r.get("claim_id")}
+
+
+def _salvage_citations(
+    cited: list[str],
+    allowed: set[str],
+    allowed_list: list[str],
+) -> tuple[list[str], dict[str, str], list[str]]:
+    """Three-way split with prefix-match salvage for LLM-truncated UUIDs.
+
+    Returns (validated, salvaged_map, hallucinated):
+      validated     deduped IDs that exact-match OR uniquely-prefix-match
+                    something in allowed (salvaged IDs are corrected to the
+                    full form).
+      salvaged_map  {original_truncated: corrected_full} for the audit trail.
+      hallucinated  cited IDs with no exact match and no unique prefix match.
+    """
+    validated: list[str] = []
+    salvaged_map: dict[str, str] = {}
+    hallucinated: list[str] = []
+    for c in cited:
+        if c in allowed:
+            validated.append(c)
+            continue
+        matches = [a for a in allowed_list if a.startswith(c)]
+        if len(matches) == 1:
+            salvaged_map[c] = matches[0]
+            validated.append(matches[0])
+        else:
+            hallucinated.append(c)
+    return list(dict.fromkeys(validated)), salvaged_map, hallucinated
 
 
 def _compose_user_payload(
