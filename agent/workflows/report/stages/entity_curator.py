@@ -180,28 +180,56 @@ class EntityCuratorStage(Stage):
 def _fetch_candidate_entities(
     session, event_ids: list[str], limit: int
 ) -> list[dict[str, Any]]:
-    """Master entities whose associated_events overlaps the top event set.
+    """Master entities linked to the top event set via shared documents.
 
-    Uses the && (array overlap) operator on the text-array column. Event
-    IDs are passed as text — canonical UUIDs serialize identically and
-    associated_events is ARRAY(Text)."""
+    Linkage strategy (verified against live data 2026-05-18):
+      - canonical_entities.associated_events: unpopulated for this corpus.
+      - daily_entity_mentions.associated_event_ids: also unpopulated.
+      - canonical_events.entities_mentioned (JSONB): also empty.
+
+    The only reliable bridge is documents: both daily_event_mentions and
+    daily_entity_mentions carry doc_ids arrays, and an entity is "in
+    scope" if any of its mentions share a document with any of the top
+    events. event_id arrives as a string list from event_prioritizer;
+    cast canonical_event_id to text for the comparison.
+    """
     sql = """
+        WITH event_docs AS (
+            SELECT
+                dem.canonical_event_id::text AS event_id,
+                unnest(dem.doc_ids)          AS doc_id
+            FROM daily_event_mentions dem
+            WHERE dem.canonical_event_id::text = ANY(:event_ids)
+        ),
+        entity_links AS (
+            SELECT
+                dey.canonical_entity_id              AS entity_id,
+                array_agg(DISTINCT ed.event_id)       AS in_scope_events,
+                COUNT(DISTINCT ed.doc_id)             AS in_scope_doc_count
+            FROM daily_entity_mentions dey
+            JOIN event_docs ed ON ed.doc_id = ANY(dey.doc_ids)
+            GROUP BY dey.canonical_entity_id
+        )
         SELECT
-            id::text                        AS canonical_id,
-            canonical_name                  AS name,
-            entity_type                     AS entity_type,
-            initiating_country              AS initiating_country,
-            country_affiliations            AS country_affiliations,
-            alternative_names               AS alternative_names,
-            entity_description              AS entity_description,
-            primary_role                    AS primary_role,
-            total_documents                 AS total_documents,
-            total_mention_days              AS total_mention_days,
-            associated_events               AS associated_events
-        FROM canonical_entities
-        WHERE master_entity_id IS NULL
-          AND associated_events && :event_ids
-        ORDER BY total_documents DESC NULLS LAST, total_mention_days DESC NULLS LAST
+            ce.id::text                     AS canonical_id,
+            ce.canonical_name               AS name,
+            ce.entity_type                  AS entity_type,
+            ce.initiating_country           AS initiating_country,
+            ce.country_affiliations         AS country_affiliations,
+            ce.alternative_names            AS alternative_names,
+            ce.entity_description           AS entity_description,
+            ce.primary_role                 AS primary_role,
+            ce.total_documents              AS total_documents,
+            ce.total_mention_days           AS total_mention_days,
+            el.in_scope_events              AS in_scope_events,
+            el.in_scope_doc_count           AS in_scope_doc_count
+        FROM canonical_entities ce
+        JOIN entity_links el ON el.entity_id = ce.id
+        WHERE ce.master_entity_id IS NULL
+        ORDER BY
+            el.in_scope_doc_count DESC,
+            ce.total_documents DESC NULLS LAST,
+            ce.total_mention_days DESC NULLS LAST
         LIMIT :limit
     """
     rows = session.execute(
@@ -210,8 +238,7 @@ def _fetch_candidate_entities(
 
     out: list[dict[str, Any]] = []
     for r in rows:
-        associated = list(r.associated_events or [])
-        in_scope = [eid for eid in associated if eid in set(event_ids)]
+        in_scope = list(r.in_scope_events or [])
         out.append(
             {
                 "canonical_id": r.canonical_id,
@@ -226,6 +253,7 @@ def _fetch_candidate_entities(
                 "total_mention_days": int(r.total_mention_days or 0),
                 "associated_event_ids_in_scope": in_scope,
                 "event_overlap_count": len(in_scope),
+                "in_scope_doc_count": int(r.in_scope_doc_count or 0),
             }
         )
     return out
