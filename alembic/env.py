@@ -7,6 +7,7 @@ from shared.models.models import Base
 # Import additional model modules so Alembic discovers all tables
 import shared.models.alert_models  # noqa: F401
 import shared.models.research_project_models  # noqa: F401
+import agent.models.agent_models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

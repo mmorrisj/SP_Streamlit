@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot } from 'lucide-react'
 import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
@@ -12,6 +12,7 @@ const navItems = [
   { path: '/summaries', label: 'Summaries', icon: TrendingUp },
   { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/chat', label: 'Research', icon: MessageSquare },
+  { path: '/agent', label: 'Agent', icon: Bot },
   { path: '/report', label: 'Publication', icon: FileBarChart },
 ]
 

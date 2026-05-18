@@ -1,0 +1,138 @@
+.agent-page {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.agent-header h1 {
+  margin: 0 0 4px 0;
+}
+
+.agent-subtitle {
+  color: var(--text-muted, #666);
+  font-size: 0.9rem;
+}
+
+.agent-health {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+}
+
+.agent-health code {
+  background: var(--surface-2, #f2f2f5);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.agent-query {
+  margin: 20px 0;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.agent-query textarea {
+  flex: 1;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.agent-query button {
+  padding: 12px 24px;
+  font-weight: 600;
+  background: var(--accent, #2563eb);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-query button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.agent-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.agent-panel {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 200px;
+}
+
+.agent-panel-wide {
+  grid-column: 1 / -1;
+}
+
+.agent-panel h2 {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #6b7280);
+}
+
+.agent-plan {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.agent-plan li {
+  margin-bottom: 10px;
+}
+
+.agent-plan-reason {
+  color: var(--text-muted, #6b7280);
+  font-size: 0.85rem;
+}
+
+.agent-plan-status {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-muted, #9ca3af);
+}
+
+.agent-empty {
+  color: var(--text-muted, #9ca3af);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.agent-empty code {
+  background: var(--surface-2, #f2f2f5);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-style: normal;
+}
+
+.agent-tools {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.agent-tools li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border, #f3f4f6);
+}
+
+.agent-tools li:last-child {
+  border-bottom: none;
+}
+
+.agent-tool-dep {
+  font-size: 0.8rem;
+  color: var(--text-muted, #9ca3af);
+  margin-top: 4px;
+}

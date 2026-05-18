@@ -114,6 +114,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Agent module: isolated runtime for the OSINT-style agent page.
+# Guarded so a broken agent import cannot take down the foundational API.
+try:
+    from agent.router import router as agent_router
+    app.include_router(agent_router)
+except Exception as _agent_err:  # pragma: no cover - defensive
+    import logging as _logging
+    _logging.getLogger(__name__).warning("agent router not loaded: %s", _agent_err)
+
 def _get_narrative_for_events(session, event_names: list, country: str) -> dict:
     """
     Batch-load the most recent EventSummary narrative for each event name.
