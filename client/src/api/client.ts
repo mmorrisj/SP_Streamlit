@@ -1124,6 +1124,62 @@ export interface AgentReportCallbacks {
   onWorkflowError?: (message: string) => void
 }
 
+// ============================================================
+// Agent Chat — Intent classifier
+// ============================================================
+//
+// POST /api/agent/chat. One LLM call server-side: classifies the user's
+// message into an action + complete scope object. The chat is stateless on
+// the server — the client maintains the thread + scope and sends them back
+// each turn.
+
+export interface ChatScope {
+  influencer: string | null
+  recipient: string | null
+  region: string | null
+  start_date: string | null
+  end_date: string | null
+  category: string | null
+  subcategory: string | null
+  category_mode: string  // "flat" | "filter"
+}
+
+export interface ChatTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatTurnRequest {
+  message: string
+  history: ChatTurn[]
+  current_scope: ChatScope
+}
+
+export interface ChatTurnResponse {
+  action: 'propose_run' | 'update_scope' | 'clarify' | 'chat'
+  workflow: string | null
+  scope: ChatScope
+  message: string
+  ready_to_run: boolean
+}
+
+export async function sendAgentChat(
+  request: ChatTurnRequest,
+  signal?: AbortSignal,
+): Promise<ChatTurnResponse> {
+  const response = await fetch('/api/agent/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Server error ${response.status}: ${text}`)
+  }
+  return response.json()
+}
+
 export async function streamAgentReport(
   request: AgentReportRequest,
   callbacks: AgentReportCallbacks,

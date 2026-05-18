@@ -79,3 +79,47 @@ class ToolDescriptor(BaseModel):
 
 class ToolListResponse(BaseModel):
     tools: list[ToolDescriptor]
+
+
+# ---------------------------------------------------------------------------
+# Chat orchestrator — natural-language entry point to the workflow runner.
+# Separate from /analyze (which is a ReAct tool-calling loop). The chat
+# endpoint makes a single classification LLM call; the analyst confirms
+# before any workflow actually runs.
+# ---------------------------------------------------------------------------
+
+class ChatTurn(BaseModel):
+    """One turn in the chat history, sent back from the client each turn.
+
+    Server is stateless across turns; the client maintains the thread.
+    """
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class ChatScope(BaseModel):
+    """Mirror of the report workflow filters — kept in sync with the UI's
+    scope panel. The orchestrator may update any subset on a given turn.
+    """
+    influencer: Optional[str] = None
+    recipient: Optional[str] = None
+    region: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    category_mode: Optional[str] = "flat"
+
+
+class ChatTurnRequest(BaseModel):
+    message: str
+    history: list[ChatTurn] = []
+    current_scope: ChatScope = Field(default_factory=ChatScope)
+
+
+class ChatTurnResponse(BaseModel):
+    action: str  # "propose_run" | "update_scope" | "clarify" | "chat"
+    workflow: Optional[str] = None  # set only for propose_run
+    scope: ChatScope  # always returned — UI uses this to refresh filters
+    message: str  # assistant reply to render in the chat thread
+    ready_to_run: bool = False  # convenience flag: propose_run with no missing params

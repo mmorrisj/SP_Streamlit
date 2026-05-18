@@ -22,6 +22,8 @@ from agent.orchestrator import Orchestrator
 from agent.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
+    ChatTurnRequest,
+    ChatTurnResponse,
     ToolDescriptor,
     ToolListResponse,
 )
@@ -69,6 +71,20 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     return Orchestrator().analyze(request)
 
 
+@router.post("/chat", response_model=ChatTurnResponse)
+def agent_chat(request: ChatTurnRequest) -> ChatTurnResponse:
+    """Natural-language entry point to the workflow runner.
+
+    One LLM call: classify the user's message into an action (propose_run /
+    update_scope / clarify / chat) and a complete scope object. The client
+    reflects the returned scope into its filter panel and decides whether
+    to run the workflow (always explicit — no auto-run from a chat turn).
+    """
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="message must not be empty")
+    return Orchestrator().classify_intent(request)
+
+
 # ---------- Structured workflows ------------------------------------------
 # Distinct from /analyze (open-ended ReAct loop). Workflows are fixed DAGs.
 
@@ -79,6 +95,12 @@ class ReportWorkflowRequest(BaseModel):
     start_date: str
     end_date: str
     requested_product: str | None = None
+    # Category dimension. Phase 1 supports "flat" (no filter) and "filter"
+    # (single-category scope). "breakdown" is reserved for Phase 2 — passed
+    # through as metadata but currently behaves like "flat".
+    category: str | None = None
+    subcategory: str | None = None
+    category_mode: str | None = "flat"
 
 
 class WorkflowStepView(BaseModel):

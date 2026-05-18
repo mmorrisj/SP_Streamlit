@@ -63,6 +63,7 @@ class EventPrioritizerStage(Stage):
         recipient = intent.get("recipient")
         start_date = intent.get("start_date")
         end_date = intent.get("end_date")
+        category = intent.get("category")
 
         if not start_date or not end_date:
             return StageResult(ok=False, error="start_date and end_date required")
@@ -84,6 +85,7 @@ class EventPrioritizerStage(Stage):
                     start_date=start_date,
                     end_date=end_date,
                     limit=top_n,
+                    category=category,
                 )
         except Exception as e:
             logger.exception("event_prioritizer SQL failed")
@@ -117,8 +119,9 @@ def _query_top_events(
     start_date: str,
     end_date: str,
     limit: int,
+    category: str | None = None,
 ) -> list[Any]:
-    where, params = _event_scope_filters(influencer, recipient)
+    where, params = _event_scope_filters(influencer, recipient, category=category)
     params.update({"start_date": start_date, "end_date": end_date, "limit": limit})
 
     sql = f"""

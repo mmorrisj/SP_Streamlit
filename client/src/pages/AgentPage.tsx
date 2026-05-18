@@ -9,12 +9,17 @@ import {
   Loader2,
   MinusCircle,
   Play,
+  Send,
   StopCircle,
   XCircle,
 } from 'lucide-react'
 import {
+  sendAgentChat,
   streamAgentReport,
   type AgentReportRequest,
+  type ChatScope,
+  type ChatTurn,
+  type ChatTurnResponse,
   type StageCompletePayload,
   type StageSkippedPayload,
   type StageStartedPayload,
@@ -22,6 +27,10 @@ import {
   type WorkflowStartedPayload,
 } from '../api/client'
 import './AgentPage.css'
+
+// =================================================================
+// Types
+// =================================================================
 
 type StageStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
 
@@ -50,73 +59,204 @@ type RunState = {
   stages: Record<string, StageState>
 }
 
-const initialRunState: RunState = {
-  run_id: null,
-  status: 'idle',
-  error: null,
-  started_at: null,
-  finished_at: null,
-  stage_order: [],
-  stages: {},
-}
+type ChatMessage =
+  | { id: string; role: 'user'; type: 'text'; content: string }
+  | { id: string; role: 'assistant'; type: 'text'; content: string; action?: ChatTurnResponse['action']; ready_to_run?: boolean }
+  | { id: string; role: 'assistant'; type: 'workflow'; run: RunState; scope_at_run: ChatScope }
 
-const defaultForm: AgentReportRequest = {
+const CATEGORY_OPTIONS = ['Economic', 'Diplomacy', 'Social', 'Military']
+
+const defaultScope = (): ChatScope => ({
   influencer: 'China',
   recipient: 'Egypt',
+  region: null,
   start_date: '2026-01-01',
   end_date: '2026-03-31',
-}
+  category: null,
+  subcategory: null,
+  category_mode: 'flat',
+})
+
+const newMessageId = () =>
+  `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+// =================================================================
+// Page
+// =================================================================
 
 export default function AgentPage() {
-  const [form, setForm] = useState<AgentReportRequest>(defaultForm)
-  const [run, setRun] = useState<RunState>(initialRunState)
+  const [scope, setScope] = useState<ChatScope>(defaultScope)
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: newMessageId(),
+      role: 'assistant',
+      type: 'text',
+      content:
+        "Hi — describe what you want a brief on, or set filters on the right and hit Run. Examples: \"brief on China-Egypt this quarter\" / \"economic activity by China in the Middle East last 30 days\".",
+    },
+  ])
+  const [isClassifying, setIsClassifying] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  // tick every second while running so the elapsed timer updates
+  // tick every second while running so elapsed timers in workflow messages update
   const [, forceTick] = useState(0)
   useEffect(() => {
-    if (run.status !== 'running') return
+    if (!isRunning) return
     const t = setInterval(() => forceTick((n) => n + 1), 1000)
     return () => clearInterval(t)
-  }, [run.status])
+  }, [isRunning])
 
-  const start = useCallback(async () => {
-    if (run.status === 'running') return
+  // auto-scroll to bottom on new messages
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messages])
 
-    // reset
-    setRun({ ...initialRunState, status: 'running', started_at: Date.now() })
+  const sendChat = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed || isClassifying) return
+
+      const userMsg: ChatMessage = {
+        id: newMessageId(),
+        role: 'user',
+        type: 'text',
+        content: trimmed,
+      }
+      setMessages((m) => [...m, userMsg])
+      setIsClassifying(true)
+
+      // Build server-side history shape from chat thread
+      const history: ChatTurn[] = messages
+        .filter((m) => m.type === 'text')
+        .map((m) => ({
+          role: m.role,
+          content: (m as any).content as string,
+        }))
+
+      try {
+        const resp = await sendAgentChat({
+          message: trimmed,
+          history,
+          current_scope: scope,
+        })
+        setScope(resp.scope)
+        const reply: ChatMessage = {
+          id: newMessageId(),
+          role: 'assistant',
+          type: 'text',
+          content: resp.message,
+          action: resp.action,
+          ready_to_run: resp.ready_to_run,
+        }
+        setMessages((m) => [...m, reply])
+      } catch (e: any) {
+        const errMsg: ChatMessage = {
+          id: newMessageId(),
+          role: 'assistant',
+          type: 'text',
+          content: `(error: ${String(e?.message || e)})`,
+        }
+        setMessages((m) => [...m, errMsg])
+      } finally {
+        setIsClassifying(false)
+      }
+    },
+    [isClassifying, messages, scope],
+  )
+
+  const runWorkflow = useCallback(async () => {
+    if (isRunning) return
+    if (!scope.influencer || (!scope.recipient && !scope.region) || !scope.start_date || !scope.end_date) {
+      setMessages((m) => [
+        ...m,
+        {
+          id: newMessageId(),
+          role: 'assistant',
+          type: 'text',
+          content:
+            'Scope is incomplete — need influencer, recipient or region, and a date range.',
+        },
+      ])
+      return
+    }
+
+    const initialRun: RunState = {
+      run_id: null,
+      status: 'running',
+      error: null,
+      started_at: Date.now(),
+      finished_at: null,
+      stage_order: [],
+      stages: {},
+    }
+    const wfId = newMessageId()
+    setMessages((m) => [
+      ...m,
+      { id: wfId, role: 'assistant', type: 'workflow', run: initialRun, scope_at_run: scope },
+    ])
+    setIsRunning(true)
 
     const ac = new AbortController()
     abortRef.current = ac
 
+    // helper: update the workflow message we just inserted
+    const updateRun = (mut: (r: RunState) => RunState) => {
+      setMessages((all) =>
+        all.map((m) =>
+          m.id === wfId && m.type === 'workflow'
+            ? { ...m, run: mut(m.run) }
+            : m,
+        ),
+      )
+    }
+
+    const req: AgentReportRequest = {
+      influencer: scope.influencer || undefined,
+      recipient: scope.recipient || undefined,
+      region: scope.region || undefined,
+      start_date: scope.start_date,
+      end_date: scope.end_date,
+      // category-mode passthrough — server respects category_mode=filter only
+      // when a category is supplied.
+      ...(scope.category ? { category: scope.category } : {}),
+      ...(scope.subcategory ? { subcategory: scope.subcategory } : {}),
+      ...(scope.category_mode ? { category_mode: scope.category_mode } : {}),
+    } as AgentReportRequest & { category?: string; subcategory?: string; category_mode?: string }
+
     try {
       await streamAgentReport(
-        form,
+        req,
         {
           onWorkflowStarted: (p: WorkflowStartedPayload) => {
-            const stage_order = p.stage_names
             const stages: Record<string, StageState> = {}
-            stage_order.forEach((name, index) => {
+            p.stage_names.forEach((name, index) => {
               stages[name] = { name, index, status: 'pending' }
             })
-            setRun((r) => ({
+            updateRun((r) => ({
               ...r,
               run_id: p.run_id,
-              stage_order,
+              stage_order: p.stage_names,
               stages,
             }))
           },
           onStageStarted: (p: StageStartedPayload) => {
-            setRun((r) => ({
+            updateRun((r) => ({
               ...r,
               stages: {
                 ...r.stages,
-                [p.stage_name]: { ...(r.stages[p.stage_name] || { name: p.stage_name, index: p.index }), status: 'running' },
+                [p.stage_name]: {
+                  ...(r.stages[p.stage_name] || { name: p.stage_name, index: p.index }),
+                  status: 'running',
+                },
               },
             }))
           },
           onStageSkipped: (p: StageSkippedPayload) => {
-            setRun((r) => ({
+            updateRun((r) => ({
               ...r,
               stages: {
                 ...r.stages,
@@ -129,7 +269,7 @@ export default function AgentPage() {
             }))
           },
           onStageComplete: (p: StageCompletePayload) => {
-            setRun((r) => ({
+            updateRun((r) => ({
               ...r,
               stages: {
                 ...r.stages,
@@ -147,7 +287,7 @@ export default function AgentPage() {
             }))
           },
           onWorkflowComplete: (p: WorkflowCompletePayload) => {
-            setRun((r) => ({
+            updateRun((r) => ({
               ...r,
               status: p.status === 'succeeded' ? 'succeeded' : 'failed',
               error: p.error,
@@ -155,7 +295,7 @@ export default function AgentPage() {
             }))
           },
           onWorkflowError: (msg: string) => {
-            setRun((r) => ({
+            updateRun((r) => ({
               ...r,
               status: 'error',
               error: msg,
@@ -166,20 +306,270 @@ export default function AgentPage() {
         ac.signal,
       )
     } catch (e: any) {
-      if (e?.name === 'AbortError') {
-        setRun((r) => ({ ...r, status: 'error', error: 'Aborted by user', finished_at: Date.now() }))
-      } else {
-        setRun((r) => ({ ...r, status: 'error', error: String(e?.message || e), finished_at: Date.now() }))
-      }
+      const reason = e?.name === 'AbortError' ? 'Aborted by user' : String(e?.message || e)
+      updateRun((r) => ({
+        ...r,
+        status: 'error',
+        error: reason,
+        finished_at: Date.now(),
+      }))
     } finally {
       abortRef.current = null
+      setIsRunning(false)
     }
-  }, [form, run.status])
+  }, [isRunning, scope])
 
-  const abort = useCallback(() => {
-    abortRef.current?.abort()
-  }, [])
+  const abort = useCallback(() => abortRef.current?.abort(), [])
 
+  return (
+    <div className="agent-shell">
+      <div className="agent-chat-col">
+        <header className="agent-header">
+          <h1>Agent</h1>
+          <div className="agent-subtitle">
+            Natural-language workflow runner. Chat sets the scope; click Run on the right to fire the report workflow.
+          </div>
+        </header>
+
+        <div className="agent-thread" ref={scrollRef}>
+          {messages.map((m) =>
+            m.type === 'text' ? (
+              <ChatMessageView key={m.id} msg={m} onRun={runWorkflow} isRunning={isRunning} />
+            ) : (
+              <WorkflowMessageView key={m.id} msg={m} />
+            ),
+          )}
+          {isClassifying && (
+            <div className="chat-message chat-assistant">
+              <div className="chat-bubble chat-bubble-typing">
+                <Loader2 size={14} className="agent-spin" /> thinking…
+              </div>
+            </div>
+          )}
+        </div>
+
+        <ChatInput onSend={sendChat} disabled={isClassifying} />
+      </div>
+
+      <ScopeSidebar
+        scope={scope}
+        setScope={setScope}
+        onRun={runWorkflow}
+        onAbort={abort}
+        isRunning={isRunning}
+      />
+    </div>
+  )
+}
+
+// =================================================================
+// Scope sidebar
+// =================================================================
+
+function ScopeSidebar({
+  scope,
+  setScope,
+  onRun,
+  onAbort,
+  isRunning,
+}: {
+  scope: ChatScope
+  setScope: (s: ChatScope) => void
+  onRun: () => void
+  onAbort: () => void
+  isRunning: boolean
+}) {
+  const update = <K extends keyof ChatScope>(k: K, v: ChatScope[K]) =>
+    setScope({ ...scope, [k]: v })
+
+  const scopeShape: 'bilateral' | 'regional' = scope.region && !scope.recipient ? 'regional' : 'bilateral'
+
+  const toggleShape = (shape: 'bilateral' | 'regional') => {
+    if (shape === 'bilateral') {
+      setScope({ ...scope, region: null })
+    } else {
+      setScope({ ...scope, recipient: null })
+    }
+  }
+
+  return (
+    <aside className="agent-scope">
+      <h2>Scope</h2>
+
+      <div className="scope-field">
+        <label>Shape</label>
+        <div className="scope-radio-row">
+          <label className="scope-radio">
+            <input
+              type="radio"
+              checked={scopeShape === 'bilateral'}
+              onChange={() => toggleShape('bilateral')}
+              disabled={isRunning}
+            />
+            Bilateral
+          </label>
+          <label className="scope-radio">
+            <input
+              type="radio"
+              checked={scopeShape === 'regional'}
+              onChange={() => toggleShape('regional')}
+              disabled={isRunning}
+            />
+            Regional
+          </label>
+        </div>
+      </div>
+
+      <div className="scope-field">
+        <label>Influencer</label>
+        <input
+          value={scope.influencer || ''}
+          onChange={(e) => update('influencer', e.target.value || null)}
+          placeholder="China"
+          disabled={isRunning}
+        />
+      </div>
+
+      {scopeShape === 'bilateral' ? (
+        <div className="scope-field">
+          <label>Recipient</label>
+          <input
+            value={scope.recipient || ''}
+            onChange={(e) => update('recipient', e.target.value || null)}
+            placeholder="Egypt"
+            disabled={isRunning}
+          />
+        </div>
+      ) : (
+        <div className="scope-field">
+          <label>Region</label>
+          <input
+            value={scope.region || ''}
+            onChange={(e) => update('region', e.target.value || null)}
+            placeholder="Middle East"
+            disabled={isRunning}
+          />
+        </div>
+      )}
+
+      <div className="scope-field">
+        <label>Start date</label>
+        <input
+          type="date"
+          value={scope.start_date || ''}
+          onChange={(e) => update('start_date', e.target.value || null)}
+          disabled={isRunning}
+        />
+      </div>
+
+      <div className="scope-field">
+        <label>End date</label>
+        <input
+          type="date"
+          value={scope.end_date || ''}
+          onChange={(e) => update('end_date', e.target.value || null)}
+          disabled={isRunning}
+        />
+      </div>
+
+      <div className="scope-field">
+        <label>Category</label>
+        <select
+          value={scope.category || ''}
+          onChange={(e) => update('category', e.target.value || null)}
+          disabled={isRunning}
+        >
+          <option value="">(any)</option>
+          {CATEGORY_OPTIONS.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="scope-field">
+        <label>Category mode</label>
+        <div className="scope-radio-row">
+          <label className="scope-radio">
+            <input
+              type="radio"
+              checked={(scope.category_mode || 'flat') === 'flat'}
+              onChange={() => update('category_mode', 'flat')}
+              disabled={isRunning}
+            />
+            Flat
+          </label>
+          <label
+            className={`scope-radio${!scope.category ? ' scope-radio-disabled' : ''}`}
+            title={!scope.category ? 'Pick a category first' : ''}
+          >
+            <input
+              type="radio"
+              checked={scope.category_mode === 'filter'}
+              onChange={() => update('category_mode', 'filter')}
+              disabled={isRunning || !scope.category}
+            />
+            Filter
+          </label>
+        </div>
+        <div className="scope-help">
+          Flat: no category filter. Filter: scope to the selected category only.
+        </div>
+      </div>
+
+      <div className="scope-actions">
+        {isRunning ? (
+          <button className="agent-btn agent-btn-danger" onClick={onAbort}>
+            <StopCircle size={16} /> Abort
+          </button>
+        ) : (
+          <button className="agent-btn agent-btn-primary" onClick={onRun}>
+            <Play size={16} /> Run workflow
+          </button>
+        )}
+      </div>
+    </aside>
+  )
+}
+
+// =================================================================
+// Chat messages
+// =================================================================
+
+function ChatMessageView({
+  msg,
+  onRun,
+  isRunning,
+}: {
+  msg: Extract<ChatMessage, { type: 'text' }>
+  onRun: () => void
+  isRunning: boolean
+}) {
+  const isAssistant = msg.role === 'assistant'
+  const showRunButton = isAssistant && msg.role === 'assistant' && (msg as any).ready_to_run && !isRunning
+  return (
+    <div className={`chat-message ${isAssistant ? 'chat-assistant' : 'chat-user'}`}>
+      <div className="chat-bubble">
+        {msg.content}
+        {showRunButton && (
+          <div className="chat-bubble-actions">
+            <button className="agent-btn agent-btn-primary agent-btn-small" onClick={onRun}>
+              <Play size={14} /> Run workflow
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WorkflowMessageView({
+  msg,
+}: {
+  msg: Extract<ChatMessage, { type: 'workflow' }>
+}) {
+  const run = msg.run
   const ordered = useMemo(
     () => run.stage_order.map((n) => run.stages[n]).filter(Boolean),
     [run.stage_order, run.stages],
@@ -188,159 +578,103 @@ export default function AgentPage() {
   const validator = run.stages['validator']?.output as any | undefined
   const narratives = (run.stages['event_narrator']?.output as any)?.narratives as any[] | undefined
   const sourcedClaims = (run.stages['sourcing_claims']?.output as any)?.sourced_claims as any[] | undefined
-  const entities = (run.stages['sourcing_entities']?.output as any)?.sourced_entities as any[] | undefined
-    || (run.stages['entity_curator']?.output as any)?.entities as any[] | undefined
+  const entities =
+    ((run.stages['sourcing_entities']?.output as any)?.sourced_entities as any[] | undefined) ||
+    ((run.stages['entity_curator']?.output as any)?.entities as any[] | undefined)
 
-  return (
-    <div className="agent-page">
-      <header className="agent-header">
-        <h1>Agent</h1>
-        <div className="agent-subtitle">
-          Twelve-stage report workflow. Streams stage results live; full run ~5 min.
-        </div>
-      </header>
-
-      <RunForm
-        form={form}
-        setForm={setForm}
-        onStart={start}
-        onAbort={abort}
-        running={run.status === 'running'}
-      />
-
-      {run.run_id && (
-        <>
-          <RunStatusBar run={run} />
-          <StageTimeline stages={ordered} />
-          {validator && <ValidatorCard data={validator} />}
-          {narratives && narratives.length > 0 && (
-            <NarrativesPanel narratives={narratives} sourced={sourcedClaims} />
-          )}
-          {entities && entities.length > 0 && <EntitiesPanel entities={entities} />}
-        </>
-      )}
-    </div>
-  )
-}
-
-// =================================================================
-// Form
-// =================================================================
-
-function RunForm({
-  form,
-  setForm,
-  onStart,
-  onAbort,
-  running,
-}: {
-  form: AgentReportRequest
-  setForm: (f: AgentReportRequest) => void
-  onStart: () => void
-  onAbort: () => void
-  running: boolean
-}) {
-  const update = (k: keyof AgentReportRequest, v: string) => setForm({ ...form, [k]: v })
-
-  return (
-    <section className="agent-form">
-      <div className="agent-form-grid">
-        <label>
-          <span>Influencer</span>
-          <input
-            value={form.influencer || ''}
-            onChange={(e) => update('influencer', e.target.value)}
-            placeholder="China"
-            disabled={running}
-          />
-        </label>
-        <label>
-          <span>Recipient</span>
-          <input
-            value={form.recipient || ''}
-            onChange={(e) => update('recipient', e.target.value)}
-            placeholder="Egypt"
-            disabled={running}
-          />
-        </label>
-        <label>
-          <span>Start date</span>
-          <input
-            type="date"
-            value={form.start_date}
-            onChange={(e) => update('start_date', e.target.value)}
-            disabled={running}
-          />
-        </label>
-        <label>
-          <span>End date</span>
-          <input
-            type="date"
-            value={form.end_date}
-            onChange={(e) => update('end_date', e.target.value)}
-            disabled={running}
-          />
-        </label>
-      </div>
-
-      <div className="agent-form-actions">
-        {running ? (
-          <button className="agent-btn agent-btn-danger" onClick={onAbort}>
-            <StopCircle size={16} /> Abort
-          </button>
-        ) : (
-          <button className="agent-btn agent-btn-primary" onClick={onStart}>
-            <Play size={16} /> Run workflow
-          </button>
-        )}
-      </div>
-    </section>
-  )
-}
-
-// =================================================================
-// Run status bar
-// =================================================================
-
-function RunStatusBar({ run }: { run: RunState }) {
-  const elapsed_ms = run.started_at
-    ? (run.finished_at ?? Date.now()) - run.started_at
-    : 0
-  const elapsed = formatElapsed(elapsed_ms)
-
+  const elapsed_ms = run.started_at ? (run.finished_at ?? Date.now()) - run.started_at : 0
   const completed = run.stage_order.filter((n) => {
     const s = run.stages[n]?.status
     return s === 'succeeded' || s === 'failed' || s === 'skipped'
   }).length
 
   return (
-    <section className="agent-status-bar">
-      <div>
-        <span className="agent-label">Run</span>
-        <code className="agent-runid">{run.run_id?.slice(0, 8)}…</code>
-      </div>
-      <div>
-        <span className="agent-label">Status</span>
-        <RunStatusPill status={run.status} />
-      </div>
-      <div>
-        <span className="agent-label">Progress</span>
-        <span>
-          {completed}/{run.stage_order.length} stages
-        </span>
-      </div>
-      <div>
-        <span className="agent-label">Elapsed</span>
-        <span>{elapsed}</span>
-      </div>
-      {run.error && (
-        <div className="agent-status-error">
-          <AlertCircle size={14} /> {run.error}
+    <div className="chat-message chat-assistant chat-workflow">
+      <div className="workflow-bubble">
+        <div className="workflow-header">
+          <span className="workflow-title">Workflow run</span>
+          <RunStatusPill status={run.status} />
+          <span className="workflow-meta">
+            {completed}/{run.stage_order.length} stages · {formatElapsed(elapsed_ms)}
+            {run.run_id && <> · <code>{run.run_id.slice(0, 8)}</code></>}
+          </span>
         </div>
-      )}
-    </section>
+        <div className="workflow-scope">
+          {[msg.scope_at_run.influencer, '→', msg.scope_at_run.recipient || msg.scope_at_run.region]
+            .filter(Boolean)
+            .join(' ')}
+          {' · '}
+          {msg.scope_at_run.start_date} → {msg.scope_at_run.end_date}
+          {msg.scope_at_run.category &&
+            msg.scope_at_run.category_mode === 'filter' && (
+              <> · {msg.scope_at_run.category} only</>
+            )}
+        </div>
+
+        {run.error && (
+          <div className="agent-error workflow-error">
+            <AlertCircle size={14} /> {run.error}
+          </div>
+        )}
+
+        <StageTimeline stages={ordered} />
+        {validator && <ValidatorCard data={validator} />}
+        {narratives && narratives.length > 0 && (
+          <NarrativesPanel narratives={narratives} sourced={sourcedClaims} />
+        )}
+        {entities && entities.length > 0 && <EntitiesPanel entities={entities} />}
+      </div>
+    </div>
   )
 }
+
+// =================================================================
+// Chat input
+// =================================================================
+
+function ChatInput({
+  onSend,
+  disabled,
+}: {
+  onSend: (text: string) => void
+  disabled: boolean
+}) {
+  const [draft, setDraft] = useState('')
+  const submit = () => {
+    if (!draft.trim() || disabled) return
+    onSend(draft)
+    setDraft('')
+  }
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      submit()
+    }
+  }
+  return (
+    <div className="chat-input">
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Describe what you want a brief on… (Shift+Enter for newline)"
+        rows={2}
+        disabled={disabled}
+      />
+      <button
+        className="agent-btn agent-btn-primary"
+        onClick={submit}
+        disabled={disabled || !draft.trim()}
+      >
+        <Send size={16} />
+      </button>
+    </div>
+  )
+}
+
+// =================================================================
+// Run-status pill
+// =================================================================
 
 function RunStatusPill({ status }: { status: RunStatus }) {
   const map: Record<RunStatus, { label: string; cls: string }> = {
@@ -360,7 +694,6 @@ function RunStatusPill({ status }: { status: RunStatus }) {
 
 function StageTimeline({ stages }: { stages: StageState[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-
   const toggle = (name: string) =>
     setExpanded((s) => {
       const n = new Set(s)
@@ -446,14 +779,13 @@ function StageIcon({ status }: { status: StageStatus }) {
 }
 
 // =================================================================
-// Validator verdict card
+// Validator card
 // =================================================================
 
 function ValidatorCard({ data }: { data: any }) {
   const passed: boolean = !!data.passed
   const findings: any[] = data.findings || []
   const metrics: Record<string, any> = data.metrics || {}
-
   return (
     <section className={`agent-validator ${passed ? 'validator-pass' : 'validator-fail'}`}>
       <div className="validator-head">
@@ -463,7 +795,6 @@ function ValidatorCard({ data }: { data: any }) {
           {data.error_count ?? 0} error · {data.warning_count ?? 0} warning · {data.info_count ?? 0} info
         </span>
       </div>
-
       <div className="validator-metrics">
         {Object.entries(metrics).map(([k, v]) => (
           <div key={k} className="validator-metric">
@@ -472,7 +803,6 @@ function ValidatorCard({ data }: { data: any }) {
           </div>
         ))}
       </div>
-
       {findings.length > 0 && (
         <div className="validator-findings">
           <h3>Findings</h3>
@@ -496,7 +826,6 @@ function ValidatorCard({ data }: { data: any }) {
 // =================================================================
 
 function NarrativesPanel({ narratives, sourced }: { narratives: any[]; sourced?: any[] }) {
-  // group sourced claims by event for quick lookup
   const claimsByEvent = useMemo(() => {
     const map: Record<string, any[]> = {}
     for (const c of sourced || []) {
@@ -526,9 +855,7 @@ function NarrativesPanel({ narratives, sourced }: { narratives: any[]; sourced?:
                   {hallucinated > 0 && (
                     <span className="meta-warn">{hallucinated} hallucinated</span>
                   )}
-                  {salvaged > 0 && (
-                    <span className="meta-info">{salvaged} salvaged</span>
-                  )}
+                  {salvaged > 0 && <span className="meta-info">{salvaged} salvaged</span>}
                 </div>
               </header>
               {n.overview && (
@@ -585,7 +912,7 @@ function NarrativesPanel({ narratives, sourced }: { narratives: any[]; sourced?:
 }
 
 // =================================================================
-// Entities panel
+// Entities
 // =================================================================
 
 function EntitiesPanel({ entities }: { entities: any[] }) {
@@ -600,9 +927,7 @@ function EntitiesPanel({ entities }: { entities: any[] }) {
               <span className="entity-type">{e.entity_type}</span>
             </header>
             {e.country_affiliations?.length > 0 && (
-              <div className="entity-countries">
-                {e.country_affiliations.join(' · ')}
-              </div>
+              <div className="entity-countries">{e.country_affiliations.join(' · ')}</div>
             )}
             <p className="entity-synopsis">{e.role_synopsis}</p>
             {e.cited_doc_ids?.length > 0 && (
@@ -621,8 +946,7 @@ function EntitiesPanel({ entities }: { entities: any[] }) {
 }
 
 // =================================================================
-// Cite chip — links to the Documents page filtered to that one doc.
-// `compact` shrinks padding for inline use inside claim rows.
+// Cite chip → /documents?doc_ids=<uuid>
 // =================================================================
 
 function CiteChip({ docId, compact = false }: { docId: string; compact?: boolean }) {
@@ -646,10 +970,7 @@ function prettyStageName(name: string): string {
 }
 
 function prettyMetricName(name: string): string {
-  return name
-    .replace(/_/g, ' ')
-    .replace(/\bpct\b/, '%')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
+  return name.replace(/_/g, ' ').replace(/\bpct\b/, '%').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function formatMetricValue(key: string, v: any): string {
@@ -673,8 +994,6 @@ function formatLatency(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-// Strip inline [doc_id: ...] / [uuid] tokens so prose reads cleanly in the
-// card. Full citation list is shown below the prose as chips.
 function stripCitations(text: string): string {
   return text.replace(/\s*\[(?:doc_id:\s*)?[A-Za-z0-9_\-:.]+\]/g, '').trim()
 }

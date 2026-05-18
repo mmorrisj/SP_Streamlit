@@ -74,6 +74,7 @@ class AnomalyStage(Stage):
         recipient = intent.get("recipient")
         start_date = intent.get("start_date")
         end_date = intent.get("end_date")
+        category = intent.get("category")
         if not start_date or not end_date:
             return StageResult(ok=False, error="start_date and end_date required")
 
@@ -111,6 +112,7 @@ class AnomalyStage(Stage):
                     current_end=end_date,
                     prior_start=prior_start,
                     prior_end=prior_end,
+                    category=category,
                 )
                 anomalies += spikes
                 prior_data_available = had_prior_data
@@ -121,6 +123,7 @@ class AnomalyStage(Stage):
                     recipient=recipient,
                     start_date=start_date,
                     end_date=end_date,
+                    category=category,
                 )
         except Exception as e:
             logger.exception("anomaly SQL failed")
@@ -226,12 +229,17 @@ def _detect_category_spikes(
     current_end: str,
     prior_start: str,
     prior_end: str,
+    category: str | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Returns (spikes, prior_data_available).
 
     Two queries — one per period — joined client-side. Could be a single
     query with a CTE but staying simple keeps each query plan obvious.
     """
+    # When the analyst has filtered to a single category, "category spikes"
+    # is a degenerate signal — there's only one bucket. Skip the detector.
+    if category:
+        return [], True
     current_counts = _category_counts(
         session, influencer, recipient, current_start, current_end
     )
@@ -307,8 +315,9 @@ def _detect_materiality_outliers(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    category: str | None = None,
 ) -> list[dict[str, Any]]:
-    where, params = _event_scope_filters(influencer, recipient)
+    where, params = _event_scope_filters(influencer, recipient, category=category)
     params.update({"start_date": start_date, "end_date": end_date})
     sql = f"""
         SELECT

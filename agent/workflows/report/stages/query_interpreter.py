@@ -25,6 +25,17 @@ class QueryInterpreterStage(Stage):
         recipient = (inp.get("recipient") or "").strip() or None
         influencer = (inp.get("influencer") or "").strip() or None
         region = (inp.get("region") or "").strip() or None
+        category = (inp.get("category") or "").strip() or None
+        subcategory = (inp.get("subcategory") or "").strip() or None
+        # category_mode: "flat" (no filter), "filter" (single-category scope),
+        # or "breakdown" (planned for Phase 2 — currently treated as "flat").
+        category_mode = (inp.get("category_mode") or "flat").strip() or "flat"
+
+        # In "flat" / "breakdown" mode, we ignore the category param even if
+        # supplied — it's just metadata at that point. Only "filter" mode
+        # actually narrows the SQL scope.
+        effective_category = category if category_mode == "filter" else None
+        effective_subcategory = subcategory if category_mode == "filter" else None
 
         if influencer and recipient:
             scope = "bilateral"
@@ -48,13 +59,20 @@ class QueryInterpreterStage(Stage):
             "region": region,
             "start_date": inp.get("start_date"),
             "end_date": inp.get("end_date"),
+            "category": effective_category,
+            "subcategory": effective_subcategory,
+            "category_mode": category_mode,
+            # Preserve the user-declared category even when it isn't applied
+            # as a filter, so the validator + UI can still surface it.
+            "declared_category": category,
+            "declared_subcategory": subcategory,
             "rationale": rationale,
         }
         return StageResult(
             ok=True,
             data=data,
             confidence=1.0,
-            summary=f"scope={scope}",
+            summary=f"scope={scope}" + (f", category={effective_category}" if effective_category else ""),
         )
 
 

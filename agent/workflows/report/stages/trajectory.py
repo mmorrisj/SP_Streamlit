@@ -60,6 +60,7 @@ class TrajectoryStage(Stage):
         recipient = intent.get("recipient")
         start_date = intent.get("start_date")
         end_date = intent.get("end_date")
+        category = intent.get("category")
         if not start_date or not end_date:
             return StageResult(ok=False, error="start_date and end_date required")
 
@@ -83,7 +84,8 @@ class TrajectoryStage(Stage):
         try:
             with get_session() as session:
                 prior = _fetch_period_totals(
-                    session, influencer, recipient, prior_start, prior_end
+                    session, influencer, recipient, prior_start, prior_end,
+                    category=category,
                 )
         except Exception as e:
             logger.exception("trajectory prior-period query failed")
@@ -149,6 +151,7 @@ def _fetch_period_totals(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    category: str | None = None,
 ) -> dict[str, Any]:
     """Mirror data_qa's current-period numbers for any [start, end] window.
 
@@ -157,7 +160,9 @@ def _fetch_period_totals(
     helpers used by data_qa and anomaly.
     """
     # Documents
-    doc_joins, doc_where, doc_params = _doc_scope_filters(influencer, recipient)
+    doc_joins, doc_where, doc_params = _doc_scope_filters(
+        influencer, recipient, category=category
+    )
     doc_params.update({"start_date": start_date, "end_date": end_date})
     doc_row = session.execute(
         text(f"""
@@ -172,7 +177,9 @@ def _fetch_period_totals(
     doc_count = int(doc_row.cnt) if doc_row and doc_row.cnt else 0
 
     # Events
-    event_where, event_params = _event_scope_filters(influencer, recipient)
+    event_where, event_params = _event_scope_filters(
+        influencer, recipient, category=category
+    )
     event_params.update({"start_date": start_date, "end_date": end_date})
     event_row = session.execute(
         text(f"""
