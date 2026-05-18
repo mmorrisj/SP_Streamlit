@@ -1063,6 +1063,145 @@ export async function generateReportStream(
 }
 
 // ============================================================
+// Agent Report Workflow — SSE Streaming
+// ============================================================
+//
+// Wire to POST /api/agent/workflows/report/stream. Emits five event
+// kinds while the 12-stage DAG executes, so the UI can render a live
+// timeline plus per-stage structured cards as data arrives instead of
+// waiting ~5 minutes for the final response.
+
+export interface AgentReportRequest {
+  influencer?: string
+  recipient?: string
+  region?: string
+  start_date: string
+  end_date: string
+  requested_product?: string
+}
+
+export interface WorkflowStartedPayload {
+  run_id: string
+  workflow: string
+  inputs: Record<string, unknown>
+  stage_names: string[]
+}
+
+export interface StageStartedPayload {
+  run_id: string
+  stage_name: string
+  index: number
+  total: number
+}
+
+export interface StageSkippedPayload extends StageStartedPayload {
+  reason: string
+}
+
+export interface StageCompletePayload extends StageStartedPayload {
+  status: 'succeeded' | 'failed'
+  summary: string | null
+  confidence: number | null
+  notes: string[] | null
+  output: Record<string, unknown> | null
+  error: string | null
+  latency_ms: number
+}
+
+export interface WorkflowCompletePayload {
+  run_id: string
+  status: string
+  skipped_stages: string[]
+  error: string | null
+}
+
+export interface AgentReportCallbacks {
+  onWorkflowStarted?: (p: WorkflowStartedPayload) => void
+  onStageStarted?: (p: StageStartedPayload) => void
+  onStageSkipped?: (p: StageSkippedPayload) => void
+  onStageComplete?: (p: StageCompletePayload) => void
+  onWorkflowComplete?: (p: WorkflowCompletePayload) => void
+  onWorkflowError?: (message: string) => void
+}
+
+export async function streamAgentReport(
+  request: AgentReportRequest,
+  callbacks: AgentReportCallbacks,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch('/api/agent/workflows/report/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Server error ${response.status}: ${text}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No readable stream')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+
+      for (const part of parts) {
+        if (!part.trim()) continue
+
+        let eventType = ''
+        let eventData = ''
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim()
+          else if (line.startsWith('data: ')) eventData = line.slice(6)
+        }
+        if (!eventType || !eventData) continue
+
+        let payload: any
+        try {
+          payload = JSON.parse(eventData)
+        } catch {
+          continue
+        }
+
+        switch (eventType) {
+          case 'workflow_started':
+            callbacks.onWorkflowStarted?.(payload)
+            break
+          case 'stage_started':
+            callbacks.onStageStarted?.(payload)
+            break
+          case 'stage_skipped':
+            callbacks.onStageSkipped?.(payload)
+            break
+          case 'stage_complete':
+            callbacks.onStageComplete?.(payload)
+            break
+          case 'workflow_complete':
+            callbacks.onWorkflowComplete?.(payload)
+            break
+          case 'workflow_error':
+            callbacks.onWorkflowError?.(payload.message || 'Unknown workflow error')
+            break
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+// ============================================================
 // Word Document Export
 // ============================================================
 
