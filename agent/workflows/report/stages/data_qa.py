@@ -277,8 +277,8 @@ def _monthly_gaps(
     sql = f"""
         WITH months AS (
             SELECT generate_series(
-                date_trunc('month', :start_date::date),
-                date_trunc('month', :end_date::date),
+                date_trunc('month', CAST(:start_date AS date)),
+                date_trunc('month', CAST(:end_date AS date)),
                 interval '1 month'
             )::date AS month_start
         ),
