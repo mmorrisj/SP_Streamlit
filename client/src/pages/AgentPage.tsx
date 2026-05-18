@@ -946,13 +946,18 @@ function EntitiesPanel({ entities }: { entities: any[] }) {
 }
 
 // =================================================================
-// Cite chip → /documents?doc_ids=<uuid>
+// Cite chip -> /documents?doc_ids=<uuid>
+// Opens in a new tab so clicking a citation never disrupts an
+// in-flight workflow run on the agent page (state is held in this
+// component; navigating away unmounts it and aborts the SSE stream).
 // =================================================================
 
 function CiteChip({ docId, compact = false }: { docId: string; compact?: boolean }) {
   return (
     <Link
       to={`/documents?doc_ids=${encodeURIComponent(docId)}`}
+      target="_blank"
+      rel="noopener noreferrer"
       className={`cite-chip cite-chip-link${compact ? ' cite-chip-compact' : ''}`}
       title={docId}
     >
