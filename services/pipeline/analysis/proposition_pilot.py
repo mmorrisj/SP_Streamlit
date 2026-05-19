@@ -21,6 +21,7 @@ shared/config/config.yaml). Default prefix is dsr_extracts/.
 """
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, date as DateType
@@ -28,7 +29,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Allow running as `python services/pipeline/analysis/proposition_pilot.py`
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+project_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+# Load .env so LITELLM_URL / LITELLM_API_KEY / GAI_DEFAULT_SOURCE etc. are available
+try:
+    from dotenv import load_dotenv
+    load_dotenv(project_root / ".env")
+except ImportError:
+    pass
 
 from shared.utils.utils import gai, find_json_objects
 from shared.utils.prompts_proposition import (
@@ -352,6 +361,18 @@ def main():
     print(f"Bucket: {bucket}  Prefix: {args.s3_prefix}")
     print(f"Filters: country={args.country} recipient={args.recipient} "
           f"dates={args.start_date}..{args.end_date} limit={args.limit}")
+
+    effective_source = args.gai_source or os.getenv("GAI_DEFAULT_SOURCE", "proxy")
+    print(f"GAI backend: {effective_source}", end="")
+    if effective_source == "litellm":
+        url_set = bool(os.getenv("LITELLM_URL"))
+        key_set = bool(os.getenv("LITELLM_API_KEY"))
+        model_env = os.getenv("LITELLM_MODEL")
+        print(f"  LITELLM_URL={'set' if url_set else 'MISSING'} "
+              f"LITELLM_API_KEY={'set' if key_set else 'MISSING'} "
+              f"LITELLM_MODEL={model_env or '(falls back to --model)'}")
+    else:
+        print()
 
     debug_dump_path = args.debug_dump
     if args.debug_sample and not debug_dump_path:
