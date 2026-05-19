@@ -1,20 +1,17 @@
 """Proposition extraction pilot - reads DSR JSON from S3, writes JSONL.
 
-Standalone, no DB writes. Uses the same S3 helpers as dsr.py and applies
-salience/country/date filters in-memory before running the extraction
-prompt. The processed-files tracker is NOT updated (read-only pilot).
+Two modes:
 
-Usage:
-  python services/pipeline/analysis/proposition_pilot.py \
-      --country China --recipient Egypt \
-      --start 2024-08-01 --end 2024-08-31 \
-      --limit 50 \
-      --output pilot_outputs/china_egypt_aug24.jsonl
+  Pilot / single-file mode (--output FILE):
+      Run a small slice end-to-end and produce a single pretty-printed JSON
+      array. Good for evaluating prompt changes.
 
-  # Restrict to a known set of S3 files:
-  python services/pipeline/analysis/proposition_pilot.py \
-      --s3-files chunk_2024-08-01.json chunk_2024-08-02.json \
-      --limit 20 --output pilot_outputs/aug_first_two.jsonl
+  Batch mode (--output-dir DIR):
+      Stream JSONL output, one file per source CSV, with --resume support.
+      Used for populating proposition data at scale before loading to Postgres.
+      Reads initiator/recipient country lists from shared/config/config.yaml
+      (influencers / recipients) when --country/--recipient/--initiators/--recipients
+      are not supplied.
 
 S3 bucket comes from the project's config (S3_BUCKET env var or
 shared/config/config.yaml). Default prefix is dsr_extracts/.
@@ -26,7 +23,7 @@ import sys
 import time
 from datetime import datetime, date as DateType
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Allow running as `python services/pipeline/analysis/proposition_pilot.py`
 project_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -151,8 +148,11 @@ def _download_s3_csvs(s3_uri: str, dest_dir: Path) -> List[Path]:
     return downloaded
 
 
-def load_body_csv_index(csv_paths: List[str]) -> Dict[str, str]:
-    """Load ATOM CSV(s) and return {doc_id -> body_text}.
+def load_body_csv_index(csv_paths: List[str]) -> Dict[str, Tuple[str, str]]:
+    """Load ATOM CSV(s) and return {doc_id -> (body_text, source_csv_filename)}.
+
+    Tracks which CSV provided each body so batch mode can route output to a
+    JSONL named after the source CSV.
 
     Accepts local files, local directories, or s3://bucket/prefix/ URIs.
     Tries utf-8-sig then latin-1 (matches services/pipeline/ingestion/atom.py).
@@ -182,7 +182,7 @@ def load_body_csv_index(csv_paths: List[str]) -> Dict[str, str]:
 
     id_cols = ("ATOM ID", "atom_id", "doc_id")
     body_cols = ("Body", "BODY", "body")
-    index: Dict[str, str] = {}
+    index: Dict[str, Tuple[str, str]] = {}
 
     for path in expanded:
         try:
@@ -203,7 +203,7 @@ def load_body_csv_index(csv_paths: List[str]) -> Dict[str, str]:
             doc_id = str(row[id_col]).strip()
             body = str(row[body_col]).strip()
             if doc_id and body and doc_id not in index:
-                index[doc_id] = body
+                index[doc_id] = (body, path.name)
                 added += 1
         print(f"  [body-csv] {path.name}: +{added} bodies (total {len(index)})")
 
@@ -264,16 +264,21 @@ def _parse_date(raw: Optional[str]) -> Optional[DateType]:
         return None
 
 
-def rejection_reason(doc: Dict[str, Any], country, recipient, start_date, end_date) -> Optional[str]:
-    """Return None if doc passes filters, else a short reason string."""
+def rejection_reason(doc: Dict[str, Any], initiators, recipients, start_date, end_date) -> Optional[str]:
+    """Return None if doc passes filters, else a short reason string.
+
+    `initiators` and `recipients` may be None (no filter), a single string, or a
+    list/set of strings. Match is case-insensitive; any-part match for semicolon
+    -separated DSR values is sufficient.
+    """
     sal = (doc.get("salience") or "").upper()
     if sal != "TRUE":
         return f"salience={sal or 'MISSING'}"
     if not doc.get("distilled_text"):
         return "no_distilled_text"
-    if country and not _country_matches(doc.get("initiating_country"), country):
+    if initiators and not _country_matches(doc.get("initiating_country"), initiators):
         return f"initiating_country={doc.get('initiating_country')!r}"
-    if recipient and not _country_matches(doc.get("recipient_country"), recipient):
+    if recipients and not _country_matches(doc.get("recipient_country"), recipients):
         return f"recipient_country={doc.get('recipient_country')!r}"
     d = doc.get("date")
     if start_date and (d is None or d < start_date):
@@ -283,21 +288,60 @@ def rejection_reason(doc: Dict[str, Any], country, recipient, start_date, end_da
     return None
 
 
-def _country_matches(field_value: Optional[str], wanted: str) -> bool:
-    """DSR initiating/recipient fields can be semicolon-separated lists."""
-    if not field_value:
+def _country_matches(field_value: Optional[str], wanted) -> bool:
+    """DSR initiating/recipient fields can be semicolon-separated lists.
+
+    `wanted` is either a string or an iterable of strings; the field qualifies
+    if ANY semicolon-split part case-insensitively equals ANY wanted value.
+    """
+    if not field_value or not wanted:
         return False
-    parts = [p.strip().lower() for p in field_value.split(";")]
-    return wanted.lower() in parts
+    parts = {p.strip().lower() for p in field_value.split(";")}
+    if isinstance(wanted, str):
+        return wanted.lower() in parts
+    wanted_set = {w.lower() for w in wanted}
+    return bool(parts & wanted_set)
 
 
-def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
-                       start_date, end_date, limit, debug_sample=0, debug_dump_path=None):
+def load_country_lists_from_config() -> Tuple[List[str], List[str]]:
+    """Return (influencers, recipients) from shared/config/config.yaml."""
+    import yaml
+    config_path = project_root / "shared" / "config" / "config.yaml"
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    return list(cfg.get("influencers") or []), list(cfg.get("recipients") or [])
+
+
+def scan_processed_doc_ids(output_dir: Path) -> Set[str]:
+    """Walk every *.jsonl under output_dir and return the set of doc_ids already written."""
+    processed: Set[str] = set()
+    if not output_dir.exists():
+        return processed
+    for jsonl in sorted(output_dir.glob("*.jsonl")):
+        with jsonl.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                did = rec.get("doc_id")
+                if did:
+                    processed.add(did)
+    return processed
+
+
+def iter_eligible_docs(s3_prefix, specific_files, initiators, recipients,
+                       start_date, end_date, limit, debug_sample=0, debug_dump_path=None,
+                       skip_doc_ids: Optional[Set[str]] = None):
     """Stream parsed+filtered DSR docs from S3 until limit is reached.
 
-    Also tracks rejection counters and optionally dumps the first N parsed
-    docs (passed or rejected) to debug_dump_path for inspection.
+    initiators / recipients can be None, a single string, or a list.
+    skip_doc_ids: doc_ids that should be skipped (already processed; resume mode).
     """
+    skip_doc_ids = skip_doc_ids or set()
     if specific_files:
         files = [{"key": f"{s3_prefix}{fn}", "filename": fn} for fn in specific_files]
     else:
@@ -341,6 +385,10 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
                 counters["unparseable"] += 1
                 continue
 
+            if parsed["doc_id"] in skip_doc_ids:
+                counters["rejected"]["already_processed"] = counters["rejected"].get("already_processed", 0) + 1
+                continue
+
             # Track seen values regardless of filter result (helps diagnose mismatches)
             ic = parsed.get("initiating_country")
             if ic:
@@ -353,7 +401,7 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
             for k in (parsed.get("_gai_fields") or {}).keys():
                 seen_gai_type_keys[k] = seen_gai_type_keys.get(k, 0) + 1
 
-            reason = rejection_reason(parsed, country, recipient, start_date, end_date)
+            reason = rejection_reason(parsed, initiators, recipients, start_date, end_date)
 
             if len(debug_samples) < debug_sample:
                 debug_samples.append({
@@ -476,16 +524,25 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--s3-prefix", default="dsr_extracts/")
     ap.add_argument("--s3-files", nargs="+", help="Specific filenames within --s3-prefix")
-    ap.add_argument("--country", help="Initiating country filter")
-    ap.add_argument("--recipient", help="Recipient country filter")
+    ap.add_argument("--country", help="Single initiating country filter (shortcut for --initiators X)")
+    ap.add_argument("--recipient", help="Single recipient country filter (shortcut for --recipients X)")
+    ap.add_argument("--initiators", help="Comma-separated initiator allowlist (defaults to config influencers)")
+    ap.add_argument("--recipients", help="Comma-separated recipient allowlist (defaults to config recipients)")
+    ap.add_argument("--no-config-filter", action="store_true",
+                    help="Disable the default config-driven initiator/recipient filter")
     ap.add_argument("--start", dest="start_date", help="YYYY-MM-DD")
     ap.add_argument("--end", dest="end_date", help="YYYY-MM-DD")
-    ap.add_argument("--limit", type=int, default=50)
+    ap.add_argument("--limit", type=int, default=50,
+                    help="Cap on docs to process this run (use a high value for batch mode)")
     ap.add_argument("--model", default="gpt-4o")
     ap.add_argument("--gai-source", default=None,
                     choices=["proxy", "litellm", "azure", "openai"],
                     help="Override gai() backend (otherwise uses GAI_DEFAULT_SOURCE env var)")
-    ap.add_argument("--output", required=True)
+    out_group = ap.add_mutually_exclusive_group(required=True)
+    out_group.add_argument("--output", help="Single JSON-array file (small-run / pilot mode)")
+    out_group.add_argument("--output-dir", help="Directory for JSONL-per-source-CSV batch mode")
+    ap.add_argument("--resume", action="store_true",
+                    help="(batch mode) Skip doc_ids already present in --output-dir/*.jsonl")
     ap.add_argument("--debug-sample", type=int, default=0,
                     help="Dump the first N parsed docs (passed or rejected) for inspection")
     ap.add_argument("--debug-dump", default=None,
@@ -503,8 +560,15 @@ def main():
                          "Looks up by ATOM ID column.")
     args = ap.parse_args()
 
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    batch_mode = bool(args.output_dir)
+    out_path: Optional[Path] = None
+    output_dir: Optional[Path] = None
+    if batch_mode:
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
 
     start_d = _parse_cli_date(args.start_date)
     end_d = _parse_cli_date(args.end_date)
@@ -513,10 +577,27 @@ def main():
         inspect_doc(args.s3_prefix, args.s3_files, args.inspect_doc)
         return
 
+    # Resolve initiator/recipient filters: explicit CLI > config defaults.
+    initiators: Optional[List[str]] = None
+    recipients: Optional[List[str]] = None
+    if args.country:
+        initiators = [args.country]
+    elif args.initiators:
+        initiators = [c.strip() for c in args.initiators.split(",") if c.strip()]
+    if args.recipient:
+        recipients = [args.recipient]
+    elif args.recipients:
+        recipients = [c.strip() for c in args.recipients.split(",") if c.strip()]
+    if initiators is None and recipients is None and not args.no_config_filter:
+        initiators, recipients = load_country_lists_from_config()
+        print(f"Filters from config.yaml: {len(initiators)} initiators, {len(recipients)} recipients")
+
     bucket = get_bucket_name()
     print(f"Bucket: {bucket}  Prefix: {args.s3_prefix}")
-    print(f"Filters: country={args.country} recipient={args.recipient} "
-          f"dates={args.start_date}..{args.end_date} limit={args.limit}")
+    print(f"Filters: initiators={initiators}  recipients={recipients}  "
+          f"dates={args.start_date}..{args.end_date}  limit={args.limit}")
+    print(f"Mode: {'batch (--output-dir)' if batch_mode else 'single-file (--output)'}  "
+          f"input_text={args.input_text}")
 
     effective_source = args.gai_source or os.getenv("GAI_DEFAULT_SOURCE", "proxy")
     print(f"GAI backend: {effective_source}", end="")
@@ -530,20 +611,27 @@ def main():
     else:
         print()
 
+    # Resume set (batch mode)
+    skip_doc_ids: Set[str] = set()
+    if batch_mode and args.resume:
+        skip_doc_ids = scan_processed_doc_ids(output_dir)
+        print(f"Resume: {len(skip_doc_ids)} doc_ids already in {output_dir}; will skip")
+
     debug_dump_path = args.debug_dump
-    if args.debug_sample and not debug_dump_path:
+    if args.debug_sample and not debug_dump_path and out_path is not None:
         debug_dump_path = str(out_path.with_name(out_path.stem + "_debug.json"))
 
     docs = list(iter_eligible_docs(
         s3_prefix=args.s3_prefix,
         specific_files=args.s3_files,
-        country=args.country,
-        recipient=args.recipient,
+        initiators=initiators,
+        recipients=recipients,
         start_date=start_d,
         end_date=end_d,
         limit=args.limit,
         debug_sample=args.debug_sample,
         debug_dump_path=debug_dump_path,
+        skip_doc_ids=skip_doc_ids,
     ))
 
     if not docs:
@@ -554,18 +642,10 @@ def main():
         print(f"\n[dry-run] Would extract from {len(docs)} docs. Skipping LLM calls.")
         return
 
-    print(f"\nExtracting propositions from {len(docs)} docs via {args.model}...")
-    stats = {
-        "docs_processed": 0,
-        "docs_with_propositions": 0,
-        "docs_failed": 0,
-        "total_propositions": 0,
-        "errors": [],
-    }
-    started = time.time()
-
     sources_to_run = (["distilled", "body"] if args.input_text == "both" else [args.input_text])
 
+    # Body CSV index (also gives us source filename for output routing)
+    body_index: Dict[str, Tuple[str, str]] = {}
     if "body" in sources_to_run:
         if not args.body_csv:
             print("ERROR: --input-text body|both requires --body-csv pointing to ATOM CSV file(s).")
@@ -575,95 +655,142 @@ def main():
         print(f"  body index size: {len(body_index)}")
         matched = 0
         for d in docs:
-            txt = body_index.get(d["doc_id"])
-            if txt:
-                d["body_text"] = txt
+            entry = body_index.get(d["doc_id"])
+            if entry:
+                d["body_text"], d["_body_csv"] = entry
                 matched += 1
         print(f"  body_text matched on {matched}/{len(docs)} eligible docs")
         if matched == 0:
-            print("  WARNING: no doc_ids matched the CSV index. Check that the CSV's ATOM ID "
-                  "column values match the doc_id format ({}).".format(docs[0]["doc_id"] if docs else "n/a"))
+            print("  WARNING: no doc_ids matched the CSV index. Sample doc_id: "
+                  f"{docs[0]['doc_id'] if docs else 'n/a'}")
 
+    # In batch mode with body source, skip docs whose body wasn't found.
+    if batch_mode and args.input_text in ("body", "both"):
+        before = len(docs)
+        docs = [d for d in docs if d.get("body_text")]
+        skipped = before - len(docs)
+        if skipped:
+            print(f"  skipping {skipped} docs with no body match (batch mode)")
+
+    if not docs:
+        print("Nothing to process after body match. Exiting.")
+        return
+
+    print(f"\nExtracting propositions from {len(docs)} docs via {args.model}...")
+    stats: Dict[str, Any] = {
+        "docs_processed": 0,
+        "docs_with_propositions": 0,
+        "docs_failed": 0,
+        "total_propositions": 0,
+        "errors": [],
+    }
+    started = time.time()
     consecutive_failures = 0
     FAIL_FAST_THRESHOLD = 3
-    records: List[Dict[str, Any]] = []
+    records: List[Dict[str, Any]] = []  # only used in single-file mode
+    open_files: Dict[str, Any] = {}     # csv_filename -> open file handle (batch mode)
 
-    for i, doc in enumerate(docs, 1):
-        print(f"[{i}/{len(docs)}] {doc['doc_id']} ({doc.get('date')})", flush=True)
+    def get_output_handle(source_csv: Optional[str]):
+        """Return a file handle in append mode for the given source CSV."""
+        key = (source_csv or "unknown").replace(".csv", "") + ".propositions.jsonl"
+        if key not in open_files:
+            open_files[key] = (output_dir / key).open("a")
+        return open_files[key]
 
-        record = {
-            "doc_id": doc["doc_id"],
-            "doc_date": str(doc.get("date")) if doc.get("date") else None,
-            "doc_title": doc.get("title"),
-            "doc_initiating_country": doc.get("initiating_country"),
-            "doc_recipient_country": doc.get("recipient_country"),
-            "doc_event_name": doc.get("event_name"),
-            "source_s3_file": doc.get("_source_s3_file"),
-            "extractor_model": args.model,
-            "extractor_version": PROPOSITION_PROMPT_VERSION,
-            "extracted_at": datetime.utcnow().isoformat(),
-            "runs": {},
-        }
-        stats["docs_processed"] += 1
+    try:
+        for i, doc in enumerate(docs, 1):
+            print(f"[{i}/{len(docs)}] {doc['doc_id']} ({doc.get('date')})", flush=True)
 
-        any_propositions = False
-        for src in sources_to_run:
-            print(f"    [{src}]", flush=True)
-            parsed, err = extract_propositions(doc, args.model, source=args.gai_source,
-                                               input_text_source=src)
-            run_entry: Dict[str, Any] = {
-                "input_text_source": src,
-                "input_text_chars": len((doc.get("body_text") if src == "body" else doc.get("distilled_text")) or ""),
+            record = {
+                "doc_id": doc["doc_id"],
+                "doc_date": str(doc.get("date")) if doc.get("date") else None,
+                "doc_title": doc.get("title"),
+                "doc_initiating_country": doc.get("initiating_country"),
+                "doc_recipient_country": doc.get("recipient_country"),
+                "doc_event_name": doc.get("event_name"),
+                "source_s3_file": doc.get("_source_s3_file"),
+                "source_body_csv": doc.get("_body_csv"),
+                "extractor_model": args.model,
+                "extractor_version": PROPOSITION_PROMPT_VERSION,
+                "extracted_at": datetime.utcnow().isoformat(),
+                "runs": {},
             }
-            if err:
-                print(f"      ERROR: {err}", flush=True)
-                consecutive_failures += 1
-                run_entry["error"] = err
-                run_entry["propositions"] = []
-                stats["errors"].append({"doc_id": doc["doc_id"], "source": src, "error": err})
+            stats["docs_processed"] += 1
+
+            any_propositions = False
+            for src in sources_to_run:
+                print(f"    [{src}]", flush=True)
+                parsed, err = extract_propositions(doc, args.model, source=args.gai_source,
+                                                   input_text_source=src)
+                run_entry: Dict[str, Any] = {
+                    "input_text_source": src,
+                    "input_text_chars": len(
+                        (doc.get("body_text") if src == "body" else doc.get("distilled_text")) or ""
+                    ),
+                }
+                if err:
+                    print(f"      ERROR: {err}", flush=True)
+                    consecutive_failures += 1
+                    run_entry["error"] = err
+                    run_entry["propositions"] = []
+                    stats["errors"].append({"doc_id": doc["doc_id"], "source": src, "error": err})
+                else:
+                    consecutive_failures = 0
+                    props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
+                    run_entry["propositions"] = props
+                    run_entry["proposition_count"] = len(props)
+                    stats["total_propositions"] += len(props)
+                    if props:
+                        any_propositions = True
+                record["runs"][src] = run_entry
+
+            if not any_propositions:
+                stats["docs_failed"] += 1
             else:
-                consecutive_failures = 0
-                props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
-                run_entry["propositions"] = props
-                run_entry["proposition_count"] = len(props)
-                stats["total_propositions"] += len(props)
-                if props:
-                    any_propositions = True
-            record["runs"][src] = run_entry
+                stats["docs_with_propositions"] += 1
 
-        if not any_propositions:
-            stats["docs_failed"] += 1
-        else:
-            stats["docs_with_propositions"] += 1
+            if batch_mode:
+                fh = get_output_handle(doc.get("_body_csv"))
+                fh.write(json.dumps(record, default=str, ensure_ascii=False) + "\n")
+                fh.flush()
+            else:
+                records.append(record)
 
-        records.append(record)
-
-        if consecutive_failures >= FAIL_FAST_THRESHOLD and i < len(docs):
-            print(f"\nAborting: {consecutive_failures} consecutive LLM failures. "
-                  f"Fix the gai backend (see --gai-source / GAI_DEFAULT_SOURCE) and retry.",
-                  flush=True)
-            break
-
-    # Write all records as a single pretty-printed JSON array.
-    with out_path.open("w") as f:
-        json.dump(records, f, indent=2, default=str, ensure_ascii=False)
-        f.write("\n")
+            if consecutive_failures >= FAIL_FAST_THRESHOLD and i < len(docs):
+                print(f"\nAborting: {consecutive_failures} consecutive LLM failures. "
+                      f"Fix the gai backend (see --gai-source / GAI_DEFAULT_SOURCE) and retry.",
+                      flush=True)
+                break
+    finally:
+        for fh in open_files.values():
+            fh.close()
 
     elapsed = time.time() - started
-    summary_path = out_path.with_name(out_path.stem + "_summary.json")
     stats["elapsed_seconds"] = round(elapsed, 1)
     stats["bucket"] = bucket
     stats["s3_prefix"] = args.s3_prefix
-    stats["output_file"] = str(out_path)
-    with summary_path.open("w") as f:
-        json.dump(stats, f, indent=2)
+
+    if batch_mode:
+        stats["output_dir"] = str(output_dir)
+        stats["output_files"] = sorted(open_files.keys())
+        summary_path = output_dir / f"_run_summary_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}.json"
+        with summary_path.open("w") as f:
+            json.dump(stats, f, indent=2)
+    else:
+        with out_path.open("w") as f:
+            json.dump(records, f, indent=2, default=str, ensure_ascii=False)
+            f.write("\n")
+        stats["output_file"] = str(out_path)
+        summary_path = out_path.with_name(out_path.stem + "_summary.json")
+        with summary_path.open("w") as f:
+            json.dump(stats, f, indent=2)
 
     print(f"\nDone in {elapsed:.1f}s")
     print(f"  docs_processed:         {stats['docs_processed']}")
     print(f"  docs_with_propositions: {stats['docs_with_propositions']}")
     print(f"  docs_failed:            {stats['docs_failed']}")
     print(f"  total_propositions:     {stats['total_propositions']}")
-    if args.input_text == "both":
+    if not batch_mode and args.input_text == "both":
         print("\n  per-doc proposition counts (distilled vs body):")
         print(f"  {'doc_id':<40}  {'distilled':>10}  {'body':>10}  {'delta':>6}")
         for rec in records:
@@ -671,7 +798,12 @@ def main():
             d = runs.get("distilled", {}).get("proposition_count", 0)
             b = runs.get("body", {}).get("proposition_count", 0)
             print(f"  {rec['doc_id']:<40}  {d:>10}  {b:>10}  {b - d:>+6}")
-    print(f"\n  output:  {out_path}")
+    if batch_mode:
+        print(f"\n  output_dir: {output_dir}")
+        for fn in sorted(open_files.keys()):
+            print(f"    {fn}")
+    else:
+        print(f"\n  output:  {out_path}")
     print(f"  summary: {summary_path}")
 
 
