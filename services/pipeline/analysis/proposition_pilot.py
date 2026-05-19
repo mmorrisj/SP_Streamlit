@@ -21,10 +21,14 @@ shared/config/config.yaml). Default prefix is dsr_extracts/.
 """
 import argparse
 import json
+import sys
 import time
 from datetime import datetime, date as DateType
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Allow running as `python services/pipeline/analysis/proposition_pilot.py`
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from shared.utils.utils import gai, find_json_objects
 from shared.utils.prompts_proposition import (
