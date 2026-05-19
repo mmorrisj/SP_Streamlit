@@ -42,26 +42,6 @@ from services.pipeline.embeddings.s3 import (
 )
 
 
-# DSR docs encode soft-power fields as typed responses inside
-# auto.gai[1].value = [{type: "salience", value: "TRUE"}, {type: "distilled-text", value: "..."}, ...]
-RELEVANT_TYPES = {
-    "salience",
-    "salience-justification",
-    "category",
-    "category-justification",
-    "subcategory",
-    "initiating-country",
-    "recipient-country",
-    "project-name",
-    "event-name",
-    "projects",
-    "location",
-    "lat-long",
-    "monetary-commitment",
-    "distilled-text",
-}
-
-
 def _normalize(val: Any) -> Optional[str]:
     if val is None:
         return None
@@ -72,18 +52,24 @@ def _normalize(val: Any) -> Optional[str]:
 
 
 def parse_dsr_doc_minimal(dsr_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Pull only the fields the pilot needs from a raw DSR doc."""
+    """Pull all gai typed responses + minimal source metadata from a raw DSR doc.
+
+    Captures every type->value mapping in `gai_fields` so we can diagnose
+    type-name variations across DSR generations (salience vs salience-bool,
+    distilled-text vs distilled_text, etc.).
+    """
     auto = dsr_doc.get("auto") or {}
     gai_list = auto.get("gai") or []
     if len(gai_list) < 2:
         return None
     gai_block = gai_list[1] or {}
 
-    fields: Dict[str, Optional[str]] = {t: None for t in RELEVANT_TYPES}
+    gai_fields: Dict[str, Optional[str]] = {}
     for response in gai_block.get("value", []) or []:
         rtype = response.get("type")
-        if rtype in RELEVANT_TYPES:
-            fields[rtype] = _normalize(response.get("value"))
+        if not rtype:
+            continue
+        gai_fields[rtype] = _normalize(response.get("value"))
 
     mt = dsr_doc.get("machineTranslations") or {}
     title_translation = (mt.get("title_title") or {}).get("text")
@@ -92,21 +78,39 @@ def parse_dsr_doc_minimal(dsr_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     start_date_raw = (dsr_doc.get("source") or {}).get("startDate")
     doc_date = _parse_date(start_date_raw)
 
+    # Salience can appear as 'salience', 'salience-bool', or capitalized variants.
+    salience = (
+        gai_fields.get("salience")
+        or gai_fields.get("salience-bool")
+        or gai_fields.get("Salience")
+        or gai_fields.get("Salience_Bool")
+    )
+
     return {
         "doc_id": dsr_doc.get("id"),
         "title": title,
         "date": doc_date,
         "source_name": ((dsr_doc.get("source") or {}).get("name") or {}).get("transliterated"),
-        "salience": fields["salience"],
-        "category": fields["category"],
-        "subcategory": fields["subcategory"],
-        "initiating_country": fields["initiating-country"],
-        "recipient_country": fields["recipient-country"],
-        "event_name": fields["event-name"] or fields["project-name"] or fields["projects"],
-        "location": fields["location"],
-        "lat_long": fields["lat-long"],
-        "monetary_commitment": fields["monetary-commitment"],
-        "distilled_text": fields["distilled-text"],
+        "salience": salience,
+        "category": gai_fields.get("category") or gai_fields.get("Category"),
+        "subcategory": gai_fields.get("subcategory") or gai_fields.get("Subcategory"),
+        "initiating_country": gai_fields.get("initiating-country") or gai_fields.get("Initiating_Country"),
+        "recipient_country": gai_fields.get("recipient-country") or gai_fields.get("Recipient_Country"),
+        "event_name": (
+            gai_fields.get("event-name")
+            or gai_fields.get("project-name")
+            or gai_fields.get("projects")
+        ),
+        "location": gai_fields.get("location") or gai_fields.get("Location"),
+        "lat_long": gai_fields.get("lat-long") or gai_fields.get("LAT_LONG"),
+        "monetary_commitment": gai_fields.get("monetary-commitment") or gai_fields.get("Monetary_Commitment"),
+        "distilled_text": (
+            gai_fields.get("distilled-text")
+            or gai_fields.get("Distilled_Text")
+            or gai_fields.get("distilled_text")
+        ),
+        # Full mapping retained for debug dump.
+        "_gai_fields": gai_fields,
     }
 
 
@@ -169,6 +173,8 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
     debug_samples: List[Dict[str, Any]] = []
     seen_country_values: Dict[str, int] = {}
     seen_recipient_values: Dict[str, int] = {}
+    seen_salience_values: Dict[str, int] = {}
+    seen_gai_type_keys: Dict[str, int] = {}
 
     yielded = 0
     for fi in files:
@@ -194,13 +200,17 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
                 counters["unparseable"] += 1
                 continue
 
-            # Track seen country values regardless of filter result (helps diagnose mismatches)
+            # Track seen values regardless of filter result (helps diagnose mismatches)
             ic = parsed.get("initiating_country")
             if ic:
                 seen_country_values[ic] = seen_country_values.get(ic, 0) + 1
             rc = parsed.get("recipient_country")
             if rc:
                 seen_recipient_values[rc] = seen_recipient_values.get(rc, 0) + 1
+            sal_key = parsed.get("salience") if parsed.get("salience") is not None else "<MISSING>"
+            seen_salience_values[sal_key] = seen_salience_values.get(sal_key, 0) + 1
+            for k in (parsed.get("_gai_fields") or {}).keys():
+                seen_gai_type_keys[k] = seen_gai_type_keys.get(k, 0) + 1
 
             reason = rejection_reason(parsed, country, recipient, start_date, end_date)
 
@@ -217,6 +227,7 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
                 continue
 
             parsed["_source_s3_file"] = fi["filename"]
+            parsed.pop("_gai_fields", None)  # not needed downstream of filter
             counters["eligible"] += 1
             yield parsed
             yielded += 1
@@ -232,6 +243,15 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
         print("  rejected by reason:")
         for k, v in sorted(counters["rejected"].items(), key=lambda x: -x[1]):
             print(f"    {k}: {v}")
+    if seen_salience_values:
+        print("  salience values seen (across all docs):")
+        for k, v in sorted(seen_salience_values.items(), key=lambda x: -x[1]):
+            print(f"    {v:>5}  {k!r}")
+    if seen_gai_type_keys:
+        top = sorted(seen_gai_type_keys.items(), key=lambda x: -x[1])[:25]
+        print("  top gai type keys seen (raw):")
+        for k, v in top:
+            print(f"    {v:>5}  {k!r}")
     if seen_country_values:
         top = sorted(seen_country_values.items(), key=lambda x: -x[1])[:10]
         print("  top initiating_country values seen:")
@@ -250,6 +270,8 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
                 "counters": counters,
                 "seen_initiating_country": seen_country_values,
                 "seen_recipient_country": seen_recipient_values,
+                "seen_salience_values": seen_salience_values,
+                "seen_gai_type_keys": seen_gai_type_keys,
                 "samples": debug_samples,
             }, f, indent=2, default=str)
         print(f"  debug sample written: {debug_dump_path}")
