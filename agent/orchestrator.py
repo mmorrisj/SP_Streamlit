@@ -1,4 +1,4 @@
-"""Orchestrator: plan → execute → trace.
+"""Orchestrator: plan -> execute -> trace.
 
 Runs an LLM tool-dispatch loop against the provider configured in
 agent/llm/provider.py. Each tool invocation is persisted to
@@ -31,6 +31,10 @@ from agent.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
     Briefing,
+    ChatScope,
+    ChatTurn,
+    ChatTurnRequest,
+    ChatTurnResponse,
     EvidenceItem,
     WorkflowStep,
 )
@@ -102,6 +106,62 @@ class Orchestrator:
                 entities=[],
                 timeline=[],
             )
+
+    # ----- chat intent classifier ------------------------------------------
+
+    def classify_intent(self, request: ChatTurnRequest) -> ChatTurnResponse:
+        """Single LLM call: classify a chat turn into an action + scope diff.
+
+        Routes a natural-language message to one of four actions:
+          propose_run    workflow + complete params; analyst clicks Run.
+          update_scope   partial filter update without committing to a run.
+          clarify        one focused question about a missing dimension.
+          chat           small talk / help / off-topic; no scope change.
+
+        Stateless: client maintains the thread + scope, server is pure
+        function of (message, history, current_scope).
+        """
+        provider = get_provider()
+
+        scope_dict = request.current_scope.model_dump()
+        scope_json = json.dumps(scope_dict, indent=2)
+
+        history_lines = []
+        for turn in request.history[-12:]:  # cap context -- last 12 turns
+            history_lines.append(f"{turn.role.upper()}: {turn.content}")
+        history_dump = "\n".join(history_lines) if history_lines else "(no prior turns)"
+
+        today = datetime.utcnow().date().isoformat()
+        system_prompt = _build_intent_system_prompt(today=today)
+
+        user_prompt = (
+            f"CURRENT SCOPE (JSON):\n{scope_json}\n\n"
+            f"CHAT HISTORY:\n{history_dump}\n\n"
+            f"NEW USER MESSAGE:\n{request.message}\n\n"
+            "Respond with JSON only, matching the schema in the system prompt."
+        )
+
+        messages = [
+            LLMMessage(role="system", content=system_prompt),
+            LLMMessage(role="user", content=user_prompt),
+        ]
+
+        try:
+            response = provider.complete(
+                messages=messages,
+                tools=None,
+                temperature=0.1,
+                max_tokens=600,
+            )
+        except Exception as e:
+            logger.exception("classify_intent LLM call failed")
+            return ChatTurnResponse(
+                action="chat",
+                scope=request.current_scope,
+                message=f"Sorry -- the classifier couldn't reach the LLM: {e}",
+            )
+
+        return _parse_intent_response(response.text, fallback_scope=request.current_scope)
 
     # ----- main loop --------------------------------------------------------
 
@@ -350,3 +410,204 @@ def _jsonable(obj: Any) -> Any:
 def _default_title(query: str) -> str:
     q = query.strip()
     return q if len(q) <= 120 else q[:117] + "…"
+
+
+# ---------------------------------------------------------------------------
+# Intent classifier -- system prompt + response parsing.
+# ---------------------------------------------------------------------------
+
+_INTENT_SCHEMA_BLOCK = """\
+Return STRICT JSON only -- no prose, no markdown fences. Schema:
+
+{
+  "action": "propose_run" | "update_scope" | "clarify" | "chat",
+  "workflow": "report" | null,
+  "scope": {
+    "influencer": string | null,
+    "recipient": string | null,
+    "region": string | null,
+    "start_date": "YYYY-MM-DD" | null,
+    "end_date": "YYYY-MM-DD" | null,
+    "category": "Economic" | "Diplomacy" | "Social" | "Military" | null,
+    "subcategory": string | null,
+    "category_mode": "flat" | "filter"
+  },
+  "message": "<assistant reply text, 1-3 sentences, plain prose>",
+  "ready_to_run": true | false
+}
+
+The "scope" object is the FULL scope after applying any updates you inferred --
+not a diff. Carry forward every field from CURRENT SCOPE that you didn't
+change. The UI replaces its filter state with this object verbatim.
+
+"ready_to_run" is true only when action == "propose_run" AND every required
+param for the workflow is set.
+"""
+
+
+def _build_intent_system_prompt(today: str) -> str:
+    return f"""\
+You are an intent classifier for a soft-power analytics workflow runner.
+Today's date is {today} (use this for relative time references like
+"this quarter", "last month", "recent").
+
+AVAILABLE WORKFLOWS
+
+report -- generates a multi-stage soft-power report for one country pair
+  or one country into a region.
+  Required:
+    influencer  country (e.g. "China", "Russia", "United States")
+    Exactly one of:
+      recipient  country (for bilateral analysis)
+      region     region name (for regional analysis, e.g. "Middle East", "Africa")
+    start_date   YYYY-MM-DD
+    end_date     YYYY-MM-DD
+  Optional:
+    category        one of: Economic, Diplomacy, Social, Military
+    subcategory     free-text (rarely used; only when analyst is precise)
+    category_mode   "flat" (no filtering) | "filter" (single-category scope,
+                    requires category to be set)
+
+CONVENTIONS (apply silently -- do NOT ask about these)
+
+- "X-Y" or "X-Y" or "X to Y" or "X in Y" or "X toward Y" or "X into Y"
+  means X is the INFLUENCER, Y is the RECIPIENT. This is the standard
+  soft-power framing: the influencer is the country whose outbound
+  activity is being studied; the recipient is the destination of that
+  activity.
+    "China-Egypt" -> influencer=China, recipient=Egypt
+    "Russia in Africa" -> influencer=Russia, region=Africa
+    "what is China doing in the Middle East" -> influencer=China, region=Middle East
+
+- Categorical phrases map to category + category_mode="filter":
+    "economic activity" / "economic engagements" -> Economic
+    "diplomatic activity" / "diplomatic engagements" -> Diplomacy
+    "social initiatives" / "soft outreach" / "people-to-people" -> Social
+    "military cooperation" / "defense activity" -> Military
+
+- Time phrases (relative to today's date {today}):
+    "this quarter" / "current quarter" -> current calendar quarter
+    "last quarter" -> previous calendar quarter
+    "last month" / "recent" / "past 30 days" -> last 30 days ending today
+    "year-to-date" / "YTD" -> Jan 1 of current year through today
+    "<year>" alone -> full calendar year
+
+ACTIONS
+
+1. propose_run -- analyst is ready to run. All required params present
+   (after inferring sensible defaults). Set workflow + complete scope.
+   Set ready_to_run=true. message: one-sentence acknowledgement like
+   "Set scope to China -> Egypt, 2026-01-01 to 2026-03-31. Run when ready."
+
+2. update_scope -- analyst is adjusting filters without explicitly asking
+   to run (e.g. "actually make it Q2", "only economic activity"). Update
+   only the relevant fields in scope; carry the rest forward. Set
+   ready_to_run=false. message: brief acknowledgement of what changed.
+
+3. clarify -- a required dimension is genuinely ambiguous AND cannot be
+   resolved by the CONVENTIONS above. Ask ONE focused question. Do not
+   update scope. Set workflow=null, ready_to_run=false.
+
+4. chat -- greeting, help request, or off-topic. No scope change. Set
+   workflow=null, ready_to_run=false. Be brief and helpful.
+
+CLARIFICATION PRIORITY (only ask for the SINGLE most impactful gap)
+
+  1. influencer (which country's outbound activity? -- but apply the
+     CONVENTIONS first; only ask if the message genuinely doesn't name
+     a country or names countries in a way conventions don't resolve)
+  2. recipient vs region (bilateral or regional analysis?)
+  3. date range (only if no defaults could be reasonably inferred)
+  4. category (only if analyst hinted at filtering but was vague)
+
+Never ask more than one question in a single turn. If multiple things are
+missing, ask about the highest-priority one and leave the rest unset.
+
+EXAMPLES
+
+Input: "brief on China-Egypt economic activity this quarter"
+  -> action=propose_run, influencer=China, recipient=Egypt,
+    category=Economic, category_mode=filter,
+    start_date+end_date = current calendar quarter,
+    ready_to_run=true.
+
+Input: "what's China doing in the Middle East?"
+  -> action=propose_run, influencer=China, region=Middle East,
+    start_date+end_date = current calendar quarter (default time scope),
+    category=null, category_mode=flat, ready_to_run=true.
+
+Input: "give me a brief"
+  -> action=clarify, message=Which country's outbound activity should I
+    look at?
+
+Input: "actually only economic"
+  (current scope has influencer=China, recipient=Egypt, dates set)
+  -> action=update_scope, category=Economic, category_mode=filter,
+    everything else carried forward, ready_to_run=false.
+
+{_INTENT_SCHEMA_BLOCK}
+"""
+
+
+def _parse_intent_response(
+    raw_text: str, fallback_scope: ChatScope
+) -> ChatTurnResponse:
+    """Parse the LLM's JSON response into a ChatTurnResponse.
+
+    Tolerates surrounding whitespace, leading prose, and accidental
+    markdown fences. On any parse failure returns a `chat` action that
+    echoes the raw text so the user at least sees something.
+    """
+    text = (raw_text or "").strip()
+    if not text:
+        return ChatTurnResponse(
+            action="chat",
+            scope=fallback_scope,
+            message="(empty response from classifier)",
+        )
+
+    # Strip ```json fences and find the first {...} block.
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:].lstrip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return ChatTurnResponse(
+            action="chat",
+            scope=fallback_scope,
+            message=text,
+        )
+    blob = text[start : end + 1]
+
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError:
+        return ChatTurnResponse(
+            action="chat",
+            scope=fallback_scope,
+            message=text,
+        )
+
+    action = (data.get("action") or "chat").strip()
+    if action not in {"propose_run", "update_scope", "clarify", "chat"}:
+        action = "chat"
+
+    raw_scope = data.get("scope") or {}
+    # Merge against fallback so missing fields fall back to current scope
+    # rather than being nulled out by an LLM that returned a partial object.
+    merged_scope = fallback_scope.model_dump()
+    for k, v in raw_scope.items():
+        if k in merged_scope:
+            merged_scope[k] = v
+    if not merged_scope.get("category_mode"):
+        merged_scope["category_mode"] = "flat"
+
+    return ChatTurnResponse(
+        action=action,
+        workflow=data.get("workflow"),
+        scope=ChatScope(**merged_scope),
+        message=(data.get("message") or "").strip() or "(no message)",
+        ready_to_run=bool(data.get("ready_to_run")),
+    )

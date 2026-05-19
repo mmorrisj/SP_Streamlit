@@ -63,6 +63,8 @@ class EventPrioritizerStage(Stage):
         recipient = intent.get("recipient")
         start_date = intent.get("start_date")
         end_date = intent.get("end_date")
+        category = intent.get("category")
+        region_recipients = intent.get("region_recipients")
 
         if not start_date or not end_date:
             return StageResult(ok=False, error="start_date and end_date required")
@@ -84,6 +86,8 @@ class EventPrioritizerStage(Stage):
                     start_date=start_date,
                     end_date=end_date,
                     limit=top_n,
+                    category=category,
+                    region_recipients=region_recipients,
                 )
         except Exception as e:
             logger.exception("event_prioritizer SQL failed")
@@ -92,17 +96,31 @@ class EventPrioritizerStage(Stage):
         events = [_row_to_event(r) for r in rows]
         confidence = _confidence(total_in_scope=total_in_scope, returned=len(events), top_n=top_n)
 
+        # Natural distribution across recipients (regional only); informational.
+        distribution: dict[str, int] = {}
+        if region_recipients:
+            for e in events:
+                r = e.get("primary_recipient")
+                if r:
+                    distribution[r] = distribution.get(r, 0) + 1
+
         data: dict[str, Any] = {
             "events": events,
             "method": "materiality_x_log_coverage",
             "top_n": top_n,
             "total_in_scope": total_in_scope,
+            "recipient_distribution": distribution or None,
         }
+
+        summary = f"event_prioritizer: top {len(events)} of {total_in_scope} events"
+        if region_recipients and distribution:
+            summary += f" (across {len(distribution)} recipients)"
+
         return StageResult(
             ok=True,
             data=data,
             confidence=confidence,
-            summary=f"event_prioritizer: top {len(events)} of {total_in_scope} events",
+            summary=summary,
         )
 
 
@@ -117,8 +135,13 @@ def _query_top_events(
     start_date: str,
     end_date: str,
     limit: int,
+    category: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> list[Any]:
-    where, params = _event_scope_filters(influencer, recipient)
+    where, params = _event_scope_filters(
+        influencer, recipient,
+        category=category, region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date, "limit": limit})
 
     sql = f"""
@@ -160,6 +183,10 @@ def _row_to_event(row: Any) -> dict[str, Any]:
         )[:3]
     ]
 
+    primary_recipients = row.primary_recipients or {}
+    if not isinstance(primary_recipients, dict):
+        primary_recipients = {}
+
     coverage_score = int(row.total_articles or 0)
     materiality_score = float(row.material_score) if row.material_score is not None else None
     composite_score = float(row.composite_score) if row.composite_score is not None else 0.0
@@ -172,10 +199,36 @@ def _row_to_event(row: Any) -> dict[str, Any]:
         "coverage_score": coverage_score,
         "composite_score": round(composite_score, 3),
         "categories": top_categories,
+        "primary_recipient": _primary_recipient(primary_recipients),
+        "primary_recipients": primary_recipients,
         "date_span": _date_span(row.first_mention_date, row.last_mention_date),
         "total_mention_days": int(row.total_mention_days or 0),
         "story_phase": row.story_phase,
     }
+
+
+def _primary_recipient(primary_recipients: dict[str, Any]) -> str | None:
+    """Return the recipient key with the highest mention count.
+
+    primary_recipients is the canonical_events JSONB column shaped as
+    {country: mention_count}. Ties broken alphabetically so picks are
+    deterministic across runs.
+    """
+    if not primary_recipients:
+        return None
+    try:
+        items = sorted(
+            primary_recipients.items(),
+            key=lambda kv: (-int(kv[1] or 0), kv[0]),
+        )
+        return items[0][0] if items else None
+    except Exception:
+        # Pathological JSONB (non-numeric values, etc.); fall back to
+        # alphabetic first key rather than crash the stage.
+        keys = sorted(primary_recipients.keys())
+        return keys[0] if keys else None
+
+
 
 
 def _date_span(first, last) -> str | None:

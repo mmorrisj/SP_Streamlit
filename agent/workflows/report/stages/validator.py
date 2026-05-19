@@ -162,6 +162,34 @@ def _check_data_qa(
     gaps = data.get("gaps") or []
     metrics["coverage_gap_months"] = len([g for g in gaps if not g.startswith("not_implemented")])
 
+    # Category-dominance signal: only meaningful when no category filter is
+    # already applied. Threshold of 50% is conservative — if one category
+    # accounts for more than half the in-scope docs the analyst should
+    # probably consider running with category_mode=filter (Phase 1) or
+    # =breakdown (Phase 2) so smaller categories don't get drowned out.
+    qi = ctx.get("query_interpreter")
+    qi_data = (qi.data if qi and qi.ok else None) or {}
+    if not qi_data.get("category"):
+        top_cats = data.get("top_categories") or []
+        total = sum(int(c.get("doc_count") or 0) for c in top_cats)
+        if total > 0 and top_cats:
+            top = top_cats[0]
+            share = (int(top.get("doc_count") or 0)) / total
+            metrics["dominant_category"] = top.get("category")
+            metrics["dominant_category_share_pct"] = round(share * 100, 1)
+            if share >= 0.5:
+                findings.append(_Finding(
+                    severity="info",
+                    where="data_qa",
+                    detail=(
+                        f"{top.get('category')} is {share * 100:.0f}% of in-scope "
+                        f"docs ({top.get('doc_count')} / {total}). Consider "
+                        f"category_mode=filter (single-category scope) to keep "
+                        f"smaller categories visible."
+                    ),
+                    rule="dominant_category",
+                ))
+
 
 def _check_prioritization(
     ctx: WorkflowContext,

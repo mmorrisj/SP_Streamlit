@@ -18,10 +18,14 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
+
+# Streaming callback signature. Receives one event dict per emission.
+# Caller is responsible for non-blocking handling (e.g. putting on a queue).
+WorkflowEventCallback = Callable[[dict[str, Any]], None]
 
 
 @dataclass
@@ -86,17 +90,51 @@ class WorkflowRunner:
         self.stages = stages
         self.workflow_name = workflow_name
 
-    def run(self, inputs: dict[str, Any]) -> WorkflowContext:
+    def run(
+        self,
+        inputs: dict[str, Any],
+        *,
+        on_event: WorkflowEventCallback | None = None,
+    ) -> WorkflowContext:
+        """Execute the DAG and return the accumulated context.
+
+        If `on_event` is provided, it is invoked at five points so callers
+        (e.g. an SSE endpoint) can stream progress without waiting for the
+        full run to finish. Event kinds emitted (all dicts):
+
+          workflow_started   {run_id, workflow, inputs, stage_names}
+          stage_started      {run_id, stage_name, index, total}
+          stage_skipped      {run_id, stage_name, index, total, reason}
+          stage_complete     {run_id, stage_name, index, total, status,
+                              summary, confidence, notes, output, error,
+                              latency_ms}
+          workflow_complete  {run_id, status, skipped_stages, error}
+
+        Callback exceptions are swallowed so a broken consumer can't crash
+        the workflow itself.
+        """
         run_id = uuid4()
         ctx = WorkflowContext(run_id=run_id, inputs=inputs)
 
         self._persist_run_start(run_id, inputs)
 
+        total = len(self.stages)
+        self._emit(
+            on_event,
+            "workflow_started",
+            {
+                "run_id": str(run_id),
+                "workflow": self.workflow_name,
+                "inputs": inputs,
+                "stage_names": [s.name for s in self.stages],
+            },
+        )
+
         run_started = time.monotonic()
         run_status = "succeeded"
         run_error: str | None = None
 
-        for stage in self.stages:
+        for index, stage in enumerate(self.stages):
             if not self._dependencies_satisfied(stage, ctx):
                 ctx.skipped.append(stage.name)
                 self._persist_step(
@@ -107,6 +145,17 @@ class WorkflowRunner:
                     latency_ms=0.0,
                     result=StageResult(ok=False, error="upstream dependency unmet"),
                     status="skipped",
+                )
+                self._emit(
+                    on_event,
+                    "stage_skipped",
+                    {
+                        "run_id": str(run_id),
+                        "stage_name": stage.name,
+                        "index": index,
+                        "total": total,
+                        "reason": "upstream dependency unmet",
+                    },
                 )
                 continue
 
@@ -121,7 +170,29 @@ class WorkflowRunner:
                     result=StageResult(ok=True, summary="opted out"),
                     status="skipped",
                 )
+                self._emit(
+                    on_event,
+                    "stage_skipped",
+                    {
+                        "run_id": str(run_id),
+                        "stage_name": stage.name,
+                        "index": index,
+                        "total": total,
+                        "reason": "opted out",
+                    },
+                )
                 continue
+
+            self._emit(
+                on_event,
+                "stage_started",
+                {
+                    "run_id": str(run_id),
+                    "stage_name": stage.name,
+                    "index": index,
+                    "total": total,
+                },
+            )
 
             t0 = time.monotonic()
             started = datetime.utcnow()
@@ -145,6 +216,23 @@ class WorkflowRunner:
                 result=result,
                 status=status,
             )
+            self._emit(
+                on_event,
+                "stage_complete",
+                {
+                    "run_id": str(run_id),
+                    "stage_name": stage.name,
+                    "index": index,
+                    "total": total,
+                    "status": status,
+                    "summary": result.summary,
+                    "confidence": result.confidence,
+                    "notes": result.notes or None,
+                    "output": result.data or None,
+                    "error": result.error,
+                    "latency_ms": latency_ms,
+                },
+            )
 
             if not result.ok and stage.required:
                 run_status = "failed"
@@ -158,7 +246,26 @@ class WorkflowRunner:
             ctx=ctx,
             latency_ms=int((time.monotonic() - run_started) * 1000),
         )
+        self._emit(
+            on_event,
+            "workflow_complete",
+            {
+                "run_id": str(run_id),
+                "status": run_status,
+                "skipped_stages": ctx.skipped,
+                "error": run_error,
+            },
+        )
         return ctx
+
+    @staticmethod
+    def _emit(cb: WorkflowEventCallback | None, kind: str, payload: dict[str, Any]) -> None:
+        if cb is None:
+            return
+        try:
+            cb({"type": kind, **payload})
+        except Exception:
+            logger.exception("workflow event callback raised for %s", kind)
 
     # ----- helpers --------------------------------------------------------
 

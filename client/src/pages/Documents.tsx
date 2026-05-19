@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Search } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { FileText, Search, X } from 'lucide-react'
 import './Pages.css'
 
 interface Document {
@@ -18,14 +19,30 @@ export default function Documents() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const limit = 20
+  const [searchParams, setSearchParams] = useSearchParams()
+  const docIds = searchParams.get('doc_ids') || ''
+  const docIdList = docIds ? docIds.split(',').map((s) => s.trim()).filter(Boolean) : []
 
   const { data, isLoading } = useQuery({
-    queryKey: ['documents', page, search],
+    queryKey: ['documents', page, search, docIds],
     queryFn: async () => {
-      const response = await fetch(`/api/documents?page=${page}&limit=${limit}&search=${search}`)
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        search,
+      })
+      if (docIds) params.set('doc_ids', docIds)
+      const response = await fetch(`/api/documents?${params.toString()}`)
       return response.json()
     },
   })
+
+  const clearDocIdFilter = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('doc_ids')
+    setSearchParams(next)
+    setPage(1)
+  }
 
   return (
     <div className="page">
@@ -33,6 +50,18 @@ export default function Documents() {
         <h1>Documents</h1>
         <p>Browse and search diplomatic documents</p>
       </header>
+
+      {docIdList.length > 0 && (
+        <div className="filter-banner">
+          <span>
+            Filtered to <strong>{docIdList.length}</strong>{' '}
+            {docIdList.length === 1 ? 'document' : 'documents'} from agent report
+          </span>
+          <button onClick={clearDocIdFilter} className="filter-banner-clear">
+            <X size={14} /> Clear filter
+          </button>
+        </div>
+      )}
 
       <div className="search-bar">
         <Search size={20} />

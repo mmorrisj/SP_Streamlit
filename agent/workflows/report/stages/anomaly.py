@@ -74,6 +74,8 @@ class AnomalyStage(Stage):
         recipient = intent.get("recipient")
         start_date = intent.get("start_date")
         end_date = intent.get("end_date")
+        category = intent.get("category")
+        region_recipients = intent.get("region_recipients")
         if not start_date or not end_date:
             return StageResult(ok=False, error="start_date and end_date required")
 
@@ -111,6 +113,8 @@ class AnomalyStage(Stage):
                     current_end=end_date,
                     prior_start=prior_start,
                     prior_end=prior_end,
+                    category=category,
+                    region_recipients=region_recipients,
                 )
                 anomalies += spikes
                 prior_data_available = had_prior_data
@@ -121,6 +125,8 @@ class AnomalyStage(Stage):
                     recipient=recipient,
                     start_date=start_date,
                     end_date=end_date,
+                    category=category,
+                    region_recipients=region_recipients,
                 )
         except Exception as e:
             logger.exception("anomaly SQL failed")
@@ -226,17 +232,25 @@ def _detect_category_spikes(
     current_end: str,
     prior_start: str,
     prior_end: str,
+    category: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Returns (spikes, prior_data_available).
 
-    Two queries — one per period — joined client-side. Could be a single
+    Two queries -- one per period -- joined client-side. Could be a single
     query with a CTE but staying simple keeps each query plan obvious.
     """
+    # When the analyst has filtered to a single category, "category spikes"
+    # is a degenerate signal -- there's only one bucket. Skip the detector.
+    if category:
+        return [], True
     current_counts = _category_counts(
-        session, influencer, recipient, current_start, current_end
+        session, influencer, recipient, current_start, current_end,
+        region_recipients=region_recipients,
     )
     prior_counts = _category_counts(
-        session, influencer, recipient, prior_start, prior_end
+        session, influencer, recipient, prior_start, prior_end,
+        region_recipients=region_recipients,
     )
     prior_data_available = bool(prior_counts and sum(prior_counts.values()) > 0)
 
@@ -280,8 +294,11 @@ def _category_counts(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    region_recipients: list[str] | None = None,
 ) -> dict[str, int]:
-    joins, where, params = _doc_scope_filters(influencer, recipient)
+    joins, where, params = _doc_scope_filters(
+        influencer, recipient, region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date})
     sql = f"""
         SELECT c.category AS category, COUNT(DISTINCT d.doc_id) AS cnt
@@ -307,8 +324,13 @@ def _detect_materiality_outliers(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    category: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    where, params = _event_scope_filters(influencer, recipient)
+    where, params = _event_scope_filters(
+        influencer, recipient,
+        category=category, region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date})
     sql = f"""
         SELECT

@@ -57,6 +57,9 @@ class DataQAStage(Stage):
         recipient = intent.get("recipient")
         start_date = intent.get("start_date")
         end_date = intent.get("end_date")
+        category = intent.get("category")
+        subcategory = intent.get("subcategory")
+        region_recipients = intent.get("region_recipients")
 
         if not start_date or not end_date:
             return StageResult(
@@ -71,16 +74,32 @@ class DataQAStage(Stage):
 
         try:
             with get_session() as session:
-                doc_count = _doc_count(session, influencer, recipient, start_date, end_date)
-                event_stats = _event_stats(session, influencer, recipient, start_date, end_date)
-                materiality_distribution = _materiality_buckets(
-                    session, influencer, recipient, start_date, end_date
+                doc_count = _doc_count(
+                    session, influencer, recipient, start_date, end_date,
+                    category=category, subcategory=subcategory,
+                    region_recipients=region_recipients,
                 )
+                event_stats = _event_stats(
+                    session, influencer, recipient, start_date, end_date,
+                    category=category,
+                    region_recipients=region_recipients,
+                )
+                materiality_distribution = _materiality_buckets(
+                    session, influencer, recipient, start_date, end_date,
+                    category=category,
+                    region_recipients=region_recipients,
+                )
+                # _top_categories intentionally ignores category filter -- it
+                # surfaces the distribution that drives the dominance warning.
                 top_categories = _top_categories(
-                    session, influencer, recipient, start_date, end_date, limit=8
+                    session, influencer, recipient, start_date, end_date,
+                    limit=8, subcategory=subcategory,
+                    region_recipients=region_recipients,
                 )
                 gaps = _monthly_gaps(
-                    session, influencer, recipient, start_date, end_date
+                    session, influencer, recipient, start_date, end_date,
+                    category=category, subcategory=subcategory,
+                    region_recipients=region_recipients,
                 )
         except Exception as e:
             logger.exception("data_qa SQL failed")
@@ -118,6 +137,8 @@ class DataQAStage(Stage):
                 "recipient": recipient,
                 "start_date": str(start_date),
                 "end_date": str(end_date),
+                "category": category,
+                "subcategory": subcategory,
             },
             "doc_count": doc_count,
             "event_count": event_count,
@@ -151,12 +172,19 @@ def _doc_count(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    category: str | None = None,
+    subcategory: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> int:
     """Count distinct documents matching scope + date range.
 
     Uses the normalized join tables (initiating_countries / recipient_countries)
     because a single document can have multiple initiators or recipients."""
-    joins, where, params = _doc_scope_filters(influencer, recipient)
+    joins, where, params = _doc_scope_filters(
+        influencer, recipient,
+        category=category, subcategory=subcategory,
+        region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date})
 
     sql = f"""
@@ -176,9 +204,14 @@ def _event_stats(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    category: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> dict[str, Any]:
     """Count canonical events overlapping the date range + aggregate stats."""
-    where, params = _event_scope_filters(influencer, recipient)
+    where, params = _event_scope_filters(
+        influencer, recipient,
+        category=category, region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date})
 
     sql = f"""
@@ -211,9 +244,14 @@ def _materiality_buckets(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    category: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> dict[str, int]:
     """Bucket overlapping canonical events by material_score."""
-    where, params = _event_scope_filters(influencer, recipient)
+    where, params = _event_scope_filters(
+        influencer, recipient,
+        category=category, region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date})
 
     sql = f"""
@@ -243,9 +281,21 @@ def _top_categories(
     start_date: str,
     end_date: str,
     limit: int = 8,
+    subcategory: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Top categories by distinct-document count within the scope."""
-    joins, where, params = _doc_scope_filters(influencer, recipient)
+    """Top categories by distinct-document count within the scope.
+
+    Intentionally does NOT take a `category` filter -- the whole point of
+    this query is to expose the categorical distribution so the validator
+    can flag dominance. Subcategory and region_recipients are still passed
+    through because they constrain the universe in ways the analyst chose;
+    only category is suppressed."""
+    joins, where, params = _doc_scope_filters(
+        influencer, recipient,
+        subcategory=subcategory,
+        region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date, "limit": limit})
 
     sql = f"""
@@ -269,9 +319,16 @@ def _monthly_gaps(
     recipient: str | None,
     start_date: str,
     end_date: str,
+    category: str | None = None,
+    subcategory: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> list[str]:
     """Return months (YYYY-MM) within [start_date, end_date] that have zero docs."""
-    joins, where, params = _doc_scope_filters(influencer, recipient)
+    joins, where, params = _doc_scope_filters(
+        influencer, recipient,
+        category=category, subcategory=subcategory,
+        region_recipients=region_recipients,
+    )
     params.update({"start_date": start_date, "end_date": end_date})
 
     sql = f"""
@@ -305,12 +362,26 @@ def _monthly_gaps(
 # ---------------------------------------------------------------------------
 
 def _doc_scope_filters(
-    influencer: str | None, recipient: str | None
+    influencer: str | None,
+    recipient: str | None,
+    category: str | None = None,
+    subcategory: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     """Build join clauses + where clauses + params for document-level scope.
 
     Returns (joins_sql, where_sql, params). Where clause starts with 'AND'
-    so callers can append it after their own WHERE."""
+    so callers can append it after their own WHERE.
+
+    category / subcategory filter through the many-to-many `categories` and
+    `subcategories` junction tables. Aliased ('cat', 'sub') so they don't
+    collide with any other category-joined query the caller assembled.
+
+    region_recipients (set when the workflow runs in regional scope)
+    constrains docs to the configured recipient list via WHERE
+    rc.recipient_country IN (...). It's mutually exclusive with `recipient`
+    -- a bilateral query (with a single recipient set) ignores it.
+    """
     joins_parts: list[str] = []
     where_parts: list[str] = []
     params: dict[str, Any] = {}
@@ -327,26 +398,89 @@ def _doc_scope_filters(
         )
         where_parts.append("AND rc.recipient_country = :recipient")
         params["recipient"] = recipient
+    elif region_recipients:
+        placeholders = ", ".join(f":rr{i}" for i in range(len(region_recipients)))
+        joins_parts.append(
+            "JOIN recipient_countries rc ON rc.doc_id = d.doc_id"
+        )
+        where_parts.append(f"AND rc.recipient_country IN ({placeholders})")
+        params.update({f"rr{i}": r for i, r in enumerate(region_recipients)})
+    if category:
+        joins_parts.append(
+            "JOIN categories cat_scope ON cat_scope.doc_id = d.doc_id"
+        )
+        where_parts.append("AND cat_scope.category = :category")
+        params["category"] = category
+    if subcategory:
+        joins_parts.append(
+            "JOIN subcategories sub_scope ON sub_scope.doc_id = d.doc_id"
+        )
+        where_parts.append("AND sub_scope.subcategory = :subcategory")
+        params["subcategory"] = subcategory
 
     return "\n        ".join(joins_parts), "\n          ".join(where_parts), params
 
 
 def _event_scope_filters(
-    influencer: str | None, recipient: str | None
+    influencer: str | None,
+    recipient: str | None,
+    category: str | None = None,
+    subcategory: str | None = None,
+    region_recipients: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build where clauses + params for canonical_event-level scope.
 
     Returns (where_sql, params). Where clause starts with 'AND'.
-    primary_recipients is JSONB {country: mention_count}; we check key presence."""
+    primary_recipients and primary_categories are JSONB {key: count} maps.
+
+    Recipient matching is DOMINANT-recipient only:
+
+      The naive ?  key-existence operator on primary_recipients lets an
+      event into scope if the recipient appears as ANY key, even with a
+      small mention count. That produces leakage -- e.g. a China-Oman
+      event with primary_recipients={"Oman":50,"Egypt":3} satisfies
+      `primary_recipients ? 'Egypt'` even though it's not really a
+      China-Egypt event.
+
+      To fix that, we require the recipient (or one of the region
+      recipients) to be the dominant key -- highest count in the JSONB,
+      with alphabetic tie-break for determinism. The dominant key is
+      extracted via a correlated subquery against jsonb_each.
+
+      Categories continue to use the lighter ? operator because an event
+      typically has 2-3 categories of roughly comparable weight and the
+      analyst's intent for "Economic activity" includes events where
+      Economic is one of several primary categories, not strictly the
+      single dominant one.
+    """
     where_parts: list[str] = []
     params: dict[str, Any] = {}
+
+    dominant_recipient_sql = (
+        "(SELECT key FROM jsonb_each(primary_recipients) "
+        "ORDER BY (value::text)::int DESC NULLS LAST, key ASC LIMIT 1)"
+    )
 
     if influencer:
         where_parts.append("AND initiating_country = :influencer")
         params["influencer"] = influencer
     if recipient:
-        where_parts.append("AND primary_recipients ? :recipient")
+        where_parts.append(f"AND {dominant_recipient_sql} = :recipient")
         params["recipient"] = recipient
+    elif region_recipients:
+        placeholders = ", ".join(f":rr{i}" for i in range(len(region_recipients)))
+        where_parts.append(
+            f"AND {dominant_recipient_sql} IN ({placeholders})"
+        )
+        params.update({f"rr{i}": r for i, r in enumerate(region_recipients)})
+    if category:
+        where_parts.append("AND primary_categories ? :category")
+        params["category"] = category
+    if subcategory:
+        # Subcategories aren't surfaced on canonical_events; subcategory
+        # filtering only applies to doc-level queries. Drop it silently
+        # at the event level rather than no-matching every event.
+        pass
 
     return "\n          ".join(where_parts), params
 
