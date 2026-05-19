@@ -27,10 +27,6 @@ class DocumentProposition(Base):
     doc_id: Mapped[str] = mapped_column(Text, ForeignKey("documents.doc_id"), nullable=False, index=True)
     evidence_span: Mapped[Optional[Dict]] = mapped_column(JSONB)  # {"start": int, "end": int, "text": str}
 
-    # Relevance gate
-    is_softpower_relevant: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    relevance_justification: Mapped[Optional[str]] = mapped_column(Text)
-
     # Proposition structure
     proposition_text: Mapped[str] = mapped_column(Text, nullable=False)  # natural-language form
     subject: Mapped[Optional[str]] = mapped_column(Text)

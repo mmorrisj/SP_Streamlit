@@ -1,32 +1,19 @@
 """Prompt skeletons for proposition-level extraction.
 
-Two-stage prompt design:
-  1. relevance_gate_prompt  - cheap first pass; decide if doc has any soft-power signal
-  2. proposition_extraction_prompt - decompose doc into atomic propositions
-
-Both return strict JSON. Field names match shared/models/proposition_models.py.
+Inputs are docs already filtered as soft-power relevant upstream, so there
+is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
 PROPOSITION_PROMPT_VERSION = "v0.1"
 
 
-relevance_gate_prompt = '''You are an expert in international relations and soft power analysis. Soft power is the ability of one country to shape the preferences and behaviors of another through cultural, economic, diplomatic, informational, or technological means rather than coercion.
-
-Read the provided text and decide whether it contains ANY soft-power-relevant content involving one country acting toward another (including statements, commitments, actions, or perceptions).
-
-Output ONLY this JSON:
-{"is_softpower_relevant": true|false, "relevance_justification": "<<=200 chars explaining the decision>"}
-
-IMPORTANT: ONLY return the JSON. No extra text.'''
-
-
-proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. Your task is to decompose the provided text into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
+proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Your task is to decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
 
 Rules for atomicity:
 - One subject, one predicate, one object per proposition.
 - If a sentence contains multiple claims (e.g., "{country_a} pledged $10M AND signed an MOU"), output TWO propositions.
 - Do NOT merge separate actions across sentences just because they share actors.
-- Skip content that is not soft-power relevant (sports scores, weather, unrelated domestic news).
+- Skip sentences with no soft-power content (incidental sports/weather/etc.); do NOT emit a proposition for them.
 
 For EACH proposition, extract the fields below. Use null when a value is not stated; do not invent.
 
@@ -87,12 +74,10 @@ OUTPUT FORMAT
 Return ONLY this JSON object:
 {
   "doc_id": "<echo of provided doc_id>",
-  "is_softpower_relevant": true|false,
-  "relevance_justification": "<short reason>",
   "propositions": [ { ...fields above... }, ... ]
 }
 
-If is_softpower_relevant is false, "propositions" MUST be an empty list.
+If the document contains no atomic soft-power claims after decomposition, return "propositions": [].
 
 IMPORTANT: ONLY output the JSON. No prose, no markdown fences, no commentary.'''
 
