@@ -45,12 +45,10 @@ class DocumentProposition(Base):
     recipient_actor_type: Mapped[Optional[str]] = mapped_column(Text)
     third_parties: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text), default=list)
 
-    # Categorization
-    category: Mapped[Optional[str]] = mapped_column(Text, index=True)
-    subcategory: Mapped[Optional[str]] = mapped_column(Text)
-    soft_power_dimension: Mapped[Optional[str]] = mapped_column(Text)  # cultural|political_values|foreign_policy|economic|security|informational|technological
-    instrument_type: Mapped[Optional[str]] = mapped_column(Text)       # aid|investment|MOU|cultural_exchange|scholarship|infrastructure|military_coop|media|sanctions|statement
-    mechanism: Mapped[Optional[str]] = mapped_column(String(16))       # attraction|persuasion|coercion|co_option
+    # Taxonomy (closed enums - see shared/utils/prompts_proposition.py for allowed values)
+    sp_domain: Mapped[Optional[str]] = mapped_column(Text, index=True)  # economic_aid|investment|trade|diplomatic_engagement|cultural|educational|media_information|science_technology|health|humanitarian|security_military|governance|religious|other
+    instrument_type: Mapped[Optional[str]] = mapped_column(Text)        # state_visit|bilateral_agreement|multilateral_forum|loan|grant|debt_relief|direct_investment|infrastructure_project|scholarship|exchange_program|cultural_event|language_institute|media_broadcast|joint_research|training_program|aid_delivery|statement|sanctions|other
+    mechanism: Mapped[Optional[str]] = mapped_column(String(16))        # attraction|persuasion|inducement|coercion
 
     # Entities mentioned (persons, orgs, projects, locations)
     entities: Mapped[Optional[Dict]] = mapped_column(JSONB, default=dict)
@@ -98,7 +96,7 @@ class DocumentProposition(Base):
     __table_args__ = (
         Index("ix_proposition_country_pair", "initiator_country", "recipient_country"),
         Index("ix_proposition_event_date_country", "event_date", "initiator_country"),
-        Index("ix_proposition_dimension", "soft_power_dimension"),
+        Index("ix_proposition_sp_domain", "sp_domain"),
     )
 
 
@@ -110,9 +108,7 @@ class CanonicalProposition(Base):
     canonical_text: Mapped[str] = mapped_column(Text, nullable=False)
     initiator_country: Mapped[Optional[str]] = mapped_column(Text, index=True)
     recipient_country: Mapped[Optional[str]] = mapped_column(Text, index=True)
-    category: Mapped[Optional[str]] = mapped_column(Text)
-    subcategory: Mapped[Optional[str]] = mapped_column(Text)
-    soft_power_dimension: Mapped[Optional[str]] = mapped_column(Text)
+    sp_domain: Mapped[Optional[str]] = mapped_column(Text)
     instrument_type: Mapped[Optional[str]] = mapped_column(Text)
     mechanism: Mapped[Optional[str]] = mapped_column(String(16))
 

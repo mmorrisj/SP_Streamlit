@@ -410,52 +410,55 @@ def main():
 
     consecutive_failures = 0
     FAIL_FAST_THRESHOLD = 3
+    records: List[Dict[str, Any]] = []
 
+    for i, doc in enumerate(docs, 1):
+        print(f"[{i}/{len(docs)}] {doc['doc_id']} ({doc.get('date')})", flush=True)
+        parsed, err = extract_propositions(doc, args.model, source=args.gai_source)
+        stats["docs_processed"] += 1
+        if err:
+            print(f"    ERROR: {err}", flush=True)
+            consecutive_failures += 1
+        else:
+            consecutive_failures = 0
+
+        record = {
+            "doc_id": doc["doc_id"],
+            "doc_date": str(doc.get("date")) if doc.get("date") else None,
+            "doc_title": doc.get("title"),
+            "doc_initiating_country": doc.get("initiating_country"),
+            "doc_recipient_country": doc.get("recipient_country"),
+            "doc_event_name": doc.get("event_name"),
+            "source_s3_file": doc.get("_source_s3_file"),
+            "extractor_model": args.model,
+            "extractor_version": PROPOSITION_PROMPT_VERSION,
+            "extracted_at": datetime.utcnow().isoformat(),
+        }
+
+        if err:
+            stats["docs_failed"] += 1
+            stats["errors"].append({"doc_id": doc["doc_id"], "error": err})
+            record["error"] = err
+            record["propositions"] = []
+        else:
+            props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
+            record["propositions"] = props
+            stats["total_propositions"] += len(props)
+            if props:
+                stats["docs_with_propositions"] += 1
+
+        records.append(record)
+
+        if consecutive_failures >= FAIL_FAST_THRESHOLD and i < len(docs):
+            print(f"\nAborting: {consecutive_failures} consecutive LLM failures. "
+                  f"Fix the gai backend (see --gai-source / GAI_DEFAULT_SOURCE) and retry.",
+                  flush=True)
+            break
+
+    # Write all records as a single pretty-printed JSON array.
     with out_path.open("w") as f:
-        for i, doc in enumerate(docs, 1):
-            print(f"[{i}/{len(docs)}] {doc['doc_id']} ({doc.get('date')})", flush=True)
-            parsed, err = extract_propositions(doc, args.model, source=args.gai_source)
-            stats["docs_processed"] += 1
-            if err:
-                print(f"    ERROR: {err}", flush=True)
-                consecutive_failures += 1
-            else:
-                consecutive_failures = 0
-
-            record = {
-                "doc_id": doc["doc_id"],
-                "doc_date": str(doc.get("date")) if doc.get("date") else None,
-                "doc_title": doc.get("title"),
-                "doc_initiating_country": doc.get("initiating_country"),
-                "doc_recipient_country": doc.get("recipient_country"),
-                "doc_category": doc.get("category"),
-                "doc_subcategory": doc.get("subcategory"),
-                "doc_event_name": doc.get("event_name"),
-                "source_s3_file": doc.get("_source_s3_file"),
-                "extractor_model": args.model,
-                "extractor_version": PROPOSITION_PROMPT_VERSION,
-                "extracted_at": datetime.utcnow().isoformat(),
-            }
-
-            if err:
-                stats["docs_failed"] += 1
-                stats["errors"].append({"doc_id": doc["doc_id"], "error": err})
-                record["error"] = err
-                record["propositions"] = []
-            else:
-                props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
-                record["propositions"] = props
-                stats["total_propositions"] += len(props)
-                if props:
-                    stats["docs_with_propositions"] += 1
-
-            f.write(json.dumps(record, default=str) + "\n")
-
-            if consecutive_failures >= FAIL_FAST_THRESHOLD and i < len(docs):
-                print(f"\nAborting: {consecutive_failures} consecutive LLM failures. "
-                      f"Fix the gai backend (see --gai-source / GAI_DEFAULT_SOURCE) and retry.",
-                      flush=True)
-                break
+        json.dump(records, f, indent=2, default=str, ensure_ascii=False)
+        f.write("\n")
 
     elapsed = time.time() - started
     summary_path = out_path.with_name(out_path.stem + "_summary.json")
