@@ -291,7 +291,7 @@ def parse_llm_output(raw):
     return None
 
 
-def extract_propositions(doc: Dict[str, Any], model: str):
+def extract_propositions(doc: Dict[str, Any], model: str, source: Optional[str] = None):
     user_prompt = (
         f"doc_id: {doc['doc_id']}\n"
         f"date: {doc.get('date')}\n"
@@ -300,14 +300,17 @@ def extract_propositions(doc: Dict[str, Any], model: str):
         f"doc_recipient_country: {doc.get('recipient_country')}\n"
         f"distilled_text:\n{doc['distilled_text']}"
     )
+    gai_kwargs = {"model": model}
+    if source:
+        gai_kwargs["source"] = source
     try:
-        raw = gai(proposition_extraction_prompt, user_prompt, model=model)
+        raw = gai(proposition_extraction_prompt, user_prompt, **gai_kwargs)
     except Exception as e:
-        return None, f"llm_call_failed: {e}"
+        return None, f"llm_call_failed: {type(e).__name__}: {e}"
 
     parsed = parse_llm_output(raw)
     if parsed is None:
-        return None, f"unparseable_output: {str(raw)[:200]}"
+        return None, f"unparseable_output: {str(raw)[:300]}"
     return parsed, None
 
 
@@ -327,6 +330,9 @@ def main():
     ap.add_argument("--end", dest="end_date", help="YYYY-MM-DD")
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--model", default="gpt-4o")
+    ap.add_argument("--gai-source", default=None,
+                    choices=["proxy", "litellm", "azure", "openai"],
+                    help="Override gai() backend (otherwise uses GAI_DEFAULT_SOURCE env var)")
     ap.add_argument("--output", required=True)
     ap.add_argument("--debug-sample", type=int, default=0,
                     help="Dump the first N parsed docs (passed or rejected) for inspection")
@@ -381,11 +387,19 @@ def main():
     }
     started = time.time()
 
+    consecutive_failures = 0
+    FAIL_FAST_THRESHOLD = 3
+
     with out_path.open("w") as f:
         for i, doc in enumerate(docs, 1):
             print(f"[{i}/{len(docs)}] {doc['doc_id']} ({doc.get('date')})", flush=True)
-            parsed, err = extract_propositions(doc, args.model)
+            parsed, err = extract_propositions(doc, args.model, source=args.gai_source)
             stats["docs_processed"] += 1
+            if err:
+                print(f"    ERROR: {err}", flush=True)
+                consecutive_failures += 1
+            else:
+                consecutive_failures = 0
 
             record = {
                 "doc_id": doc["doc_id"],
@@ -415,6 +429,12 @@ def main():
                     stats["docs_with_propositions"] += 1
 
             f.write(json.dumps(record, default=str) + "\n")
+
+            if consecutive_failures >= FAIL_FAST_THRESHOLD and i < len(docs):
+                print(f"\nAborting: {consecutive_failures} consecutive LLM failures. "
+                      f"Fix the gai backend (see --gai-source / GAI_DEFAULT_SOURCE) and retry.",
+                      flush=True)
+                break
 
     elapsed = time.time() - started
     summary_path = out_path.with_name(out_path.stem + "_summary.json")
