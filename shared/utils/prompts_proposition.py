@@ -4,10 +4,20 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.2"
+PROPOSITION_PROMPT_VERSION = "v0.3"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
+
+==============================
+LANGUAGE
+==============================
+The source text may be in ANY language (English, Arabic, Chinese, Russian, etc.). ALL OUTPUT FIELDS MUST BE IN ENGLISH. This includes:
+- proposition_text, subject, predicate, object: English paraphrase/translation.
+- initiator_actor, recipient_actor, third_parties: English names. Transliterate person names (e.g., "Amr Talaat") and translate organization/ministry names ("Ministry of Foreign Affairs of China", "Egyptian Space Agency"). Use the most common English form when one exists.
+- entities (persons, organizations, projects, locations): English/transliterated.
+- evidence_span.text: this is the EXCEPTION - quote the source VERBATIM in its original language, then optionally append an English translation in parentheses if the quote is non-English. Format: {"text": "<original verbatim>", "text_en": "<English translation>"} when the source is non-English; just {"text": "<verbatim>"} when the source is already English.
+Country names: use standard English country names ("China", "Egypt", "Saudi Arabia") regardless of source language.
 
 ==============================
 ATOMICITY (read carefully)
@@ -132,7 +142,10 @@ GEO
 - geo_scope: one of [bilateral, regional, multilateral, global].
 
 EVIDENCE
-- evidence_span: object {"text": "<verbatim quote, <=300 chars>"}. Character offsets may be added by the post-processor.
+- evidence_span:
+    If source is English:   {"text": "<verbatim quote, <=300 chars>"}
+    If source is non-English: {"text": "<verbatim original, <=300 chars>", "text_en": "<English translation>"}
+  Character offsets may be added by the post-processor.
 
 ==============================
 OUTPUT FORMAT
