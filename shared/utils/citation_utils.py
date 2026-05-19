@@ -38,6 +38,33 @@ def build_hyperlink(doc_ids: List[str]) -> str:
     return link
 
 
+def build_hyperlinks_chunked(doc_ids: List[str], chunk_size: int = 80) -> List[str]:
+    """Build one or more ATOM search hyperlinks, chunking to stay under URL length limits.
+
+    With UUID-style doc_ids (36 chars), 80 ids/url keeps each URL under ~4 KB,
+    safely below the 8 KB default LimitRequestLine on Apache/nginx and well
+    below modern browser limits.
+
+    Args:
+        doc_ids: Full list of document IDs.
+        chunk_size: Max IDs per URL. Default 80 (~3.7 KB for UUID IDs).
+                    Lower this if your ATOM deployment / proxy enforces
+                    a stricter URL length limit.
+
+    Returns:
+        List of formatted ATOM search URLs covering all input doc_ids.
+
+    Example:
+        >>> urls = build_hyperlinks_chunked(['a'] * 200, chunk_size=80)
+        >>> len(urls)
+        3
+    """
+    if not doc_ids:
+        return []
+    return [build_hyperlink(doc_ids[i:i + chunk_size])
+            for i in range(0, len(doc_ids), chunk_size)]
+
+
 def get_citation_data(session, doc_id: str) -> Tuple[str, str, str, str]:
     """
     Retrieve citation metadata for a document.
