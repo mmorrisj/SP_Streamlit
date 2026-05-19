@@ -125,18 +125,52 @@ def parse_dsr_doc_minimal(dsr_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+def _download_s3_csvs(s3_uri: str, dest_dir: Path) -> List[Path]:
+    """Download every .csv under s3://bucket/prefix/ to dest_dir. Returns local paths."""
+    import boto3
+
+    if not s3_uri.startswith("s3://"):
+        raise ValueError(f"Expected s3:// URI, got {s3_uri!r}")
+    rest = s3_uri[5:]
+    bucket, _, prefix = rest.partition("/")
+    if not bucket:
+        raise ValueError(f"Could not parse bucket from {s3_uri!r}")
+
+    s3 = boto3.client("s3")
+    paginator = s3.get_paginator("list_objects_v2")
+    downloaded: List[Path] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []) or []:
+            key = obj["Key"]
+            if not key.lower().endswith(".csv"):
+                continue
+            local = dest_dir / Path(key).name
+            print(f"  [body-csv] downloading s3://{bucket}/{key} -> {local.name}")
+            s3.download_file(bucket, key, str(local))
+            downloaded.append(local)
+    return downloaded
+
+
 def load_body_csv_index(csv_paths: List[str]) -> Dict[str, str]:
     """Load ATOM CSV(s) and return {doc_id -> body_text}.
 
+    Accepts local files, local directories, or s3://bucket/prefix/ URIs.
     Tries utf-8-sig then latin-1 (matches services/pipeline/ingestion/atom.py).
     Column name candidates:
       doc id: 'ATOM ID', 'atom_id', 'doc_id'
       body:   'Body', 'BODY', 'body'
     """
     import pandas as pd
+    import tempfile
 
     expanded: List[Path] = []
+    tmp_dir_obj = None
     for p in csv_paths:
+        if isinstance(p, str) and p.startswith("s3://"):
+            if tmp_dir_obj is None:
+                tmp_dir_obj = tempfile.TemporaryDirectory(prefix="atom_csv_")
+            expanded.extend(_download_s3_csvs(p, Path(tmp_dir_obj.name)))
+            continue
         path = Path(p)
         if path.is_dir():
             expanded.extend(sorted(path.glob("*.csv")))
@@ -464,8 +498,9 @@ def main():
     ap.add_argument("--input-text", choices=["distilled", "body", "both"], default="distilled",
                     help="Which text to feed the LLM. 'both' runs each doc twice for A/B comparison.")
     ap.add_argument("--body-csv", nargs="+", default=None,
-                    help="One or more ATOM CSV files (or directories of CSVs) providing the full "
-                         "document body. Required for --input-text body|both. Looks up by ATOM ID.")
+                    help="One or more ATOM CSV sources: local file, local directory, or "
+                         "s3://bucket/prefix/. Required for --input-text body|both. "
+                         "Looks up by ATOM ID column.")
     args = ap.parse_args()
 
     out_path = Path(args.output)
