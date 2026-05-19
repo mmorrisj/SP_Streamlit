@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.3"
+PROPOSITION_PROMPT_VERSION = "v0.4"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -27,6 +27,23 @@ ATOMICITY (read carefully)
 - If a sentence chains multiple actions across the same actors (e.g., "China pledged $10M AND signed an MOU"), output TWO propositions.
 - Do NOT merge separate actions across sentences just because they share actors.
 - Skip sentences with no soft-power content; do NOT emit a proposition for them.
+
+==============================
+WHAT COUNTS AS A SOFT-POWER PROPOSITION
+==============================
+Emit propositions ONLY for explicit ACTS, STATEMENTS, or COMMITMENTS by an identifiable actor toward another actor or audience. Acceptable claim sources:
+- An actor does something: "Minister X visited Y", "China signed an MOU with Egypt".
+- An actor says/affirms/announces something: "Lin Xin expressed appreciation for cooperation".
+- An actor commits to or proposes something: "Talaat proposed future joint plans".
+- An instrument's stated purpose: "The Forum aims to exchange best practices" (the act is the convening; the purpose is its soft-power intent).
+
+DO NOT emit propositions for:
+- Editorial/positioning claims about a country's general standing or capability ("Egypt continues to strengthen its leading position in space"). These are author framing, not acts of soft power.
+- Background context about historical relations unless tied to a specific present act.
+- Generic capability descriptions ("The Egyptian Space Agency operates several labs") unless they describe a concrete act being shown/used in the engagement.
+- Speculation or analyst commentary about consequences ("This visit could lead to...").
+
+When in doubt: does this proposition describe a specific act, statement, or commitment by a named actor? If no, drop it.
 
 ==============================
 SOFT-POWER DIRECTION (read carefully)
