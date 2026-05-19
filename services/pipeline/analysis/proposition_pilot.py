@@ -638,13 +638,11 @@ def main():
         print("No eligible documents found. Exiting.")
         return
 
-    if args.dry_run:
-        print(f"\n[dry-run] Would extract from {len(docs)} docs. Skipping LLM calls.")
-        return
-
     sources_to_run = (["distilled", "body"] if args.input_text == "both" else [args.input_text])
 
-    # Body CSV index (also gives us source filename for output routing)
+    # Body CSV index (also gives us source filename for output routing).
+    # Do this BEFORE the dry-run check so the dry-run reports body match coverage,
+    # which is the most important pre-flight signal for batch-mode body runs.
     body_index: Dict[str, Tuple[str, str]] = {}
     if "body" in sources_to_run:
         if not args.body_csv:
@@ -663,6 +661,10 @@ def main():
         if matched == 0:
             print("  WARNING: no doc_ids matched the CSV index. Sample doc_id: "
                   f"{docs[0]['doc_id'] if docs else 'n/a'}")
+
+    if args.dry_run:
+        print(f"\n[dry-run] Would extract from {len(docs)} docs. Skipping LLM calls.")
+        return
 
     # In batch mode with body source, skip docs whose body wasn't found.
     if batch_mode and args.input_text in ("body", "both"):
