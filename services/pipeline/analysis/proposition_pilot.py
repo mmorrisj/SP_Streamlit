@@ -118,45 +118,62 @@ def parse_dsr_doc_minimal(dsr_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             or gai_fields.get("Distilled_Text")
             or gai_fields.get("distilled_text")
         ),
-        "body_text": resolve_body_text(dsr_doc),
+        # body_text is attached later via the ATOM CSV index (--body-csv)
+        "body_text": None,
         # Full mapping retained for debug dump.
         "_gai_fields": gai_fields,
     }
 
 
-def resolve_body_text(dsr_doc: Dict[str, Any]) -> Optional[str]:
-    """Try the most likely paths for the full document body in a DSR record.
+def load_body_csv_index(csv_paths: List[str]) -> Dict[str, str]:
+    """Load ATOM CSV(s) and return {doc_id -> body_text}.
 
-    Order of preference:
-      1. machineTranslations.text.text  - English-translated body (best for analysis)
-      2. text.text                       - original-language body
-      3. auto.gai[0].value (if string)   - sometimes the gai[0] prefilter holds preprocessed text
-      4. machineTranslations.body.text   - alt key name some collections use
-      5. body.text / body                - last-resort fallbacks
+    Tries utf-8-sig then latin-1 (matches services/pipeline/ingestion/atom.py).
+    Column name candidates:
+      doc id: 'ATOM ID', 'atom_id', 'doc_id'
+      body:   'Body', 'BODY', 'body'
     """
-    candidates = []
-    mt = (dsr_doc.get("machineTranslations") or {})
-    candidates.append((mt.get("text") or {}).get("text"))
-    candidates.append((dsr_doc.get("text") or {}).get("text"))
-    auto = dsr_doc.get("auto") or {}
-    gai_list = auto.get("gai") or []
-    if gai_list:
-        v0 = gai_list[0]
-        if isinstance(v0, dict):
-            val = v0.get("value")
-            if isinstance(val, str):
-                candidates.append(val)
-    candidates.append((mt.get("body") or {}).get("text"))
-    body_field = dsr_doc.get("body")
-    if isinstance(body_field, dict):
-        candidates.append(body_field.get("text"))
-    elif isinstance(body_field, str):
-        candidates.append(body_field)
+    import pandas as pd
 
-    for c in candidates:
-        if isinstance(c, str) and c.strip():
-            return c
-    return None
+    expanded: List[Path] = []
+    for p in csv_paths:
+        path = Path(p)
+        if path.is_dir():
+            expanded.extend(sorted(path.glob("*.csv")))
+        else:
+            expanded.append(path)
+
+    if not expanded:
+        return {}
+
+    id_cols = ("ATOM ID", "atom_id", "doc_id")
+    body_cols = ("Body", "BODY", "body")
+    index: Dict[str, str] = {}
+
+    for path in expanded:
+        try:
+            df = pd.read_csv(path, engine="python", on_bad_lines="skip", encoding="utf-8-sig")
+        except Exception:
+            df = pd.read_csv(path, engine="python", on_bad_lines="skip", encoding="latin-1")
+
+        id_col = next((c for c in id_cols if c in df.columns), None)
+        body_col = next((c for c in body_cols if c in df.columns), None)
+        if not id_col or not body_col:
+            print(f"  [WARN] {path.name}: missing id or body column "
+                  f"(id_col={id_col!r}, body_col={body_col!r}, columns={list(df.columns)[:10]}...)")
+            continue
+
+        df = df.dropna(subset=[id_col, body_col])
+        added = 0
+        for _, row in df.iterrows():
+            doc_id = str(row[id_col]).strip()
+            body = str(row[body_col]).strip()
+            if doc_id and body and doc_id not in index:
+                index[doc_id] = body
+                added += 1
+        print(f"  [body-csv] {path.name}: +{added} bodies (total {len(index)})")
+
+    return index
 
 
 def _summarize_keys(obj: Any, depth: int = 0, max_depth: int = 3, max_items: int = 6) -> Any:
@@ -197,14 +214,11 @@ def inspect_doc(s3_prefix: str, specific_files: Optional[List[str]], n: int):
     print("\nStructure summary (depth=3):")
     print(json.dumps(_summarize_keys(raw, max_depth=3), indent=2, default=str))
 
-    body = resolve_body_text(raw)
-    print("\nresolve_body_text() result:")
-    if body:
-        print(f"  Found body text: len={len(body)}")
-        print(f"  First 400 chars: {body[:400]!r}")
-    else:
-        print("  NO body text found at any tried path.")
-        print("  Edit resolve_body_text() in proposition_pilot.py if the body lives elsewhere.")
+    parsed = parse_dsr_doc_minimal(raw)
+    if parsed:
+        print(f"\nMinimal-parsed doc_id: {parsed.get('doc_id')}")
+        print("Body text is NOT embedded in DSR JSON for this dataset - "
+              "load it from the ATOM CSV via --body-csv.")
 
 
 def _parse_date(raw: Optional[str]) -> Optional[DateType]:
@@ -449,6 +463,9 @@ def main():
                          "Use to discover where the full body text lives.")
     ap.add_argument("--input-text", choices=["distilled", "body", "both"], default="distilled",
                     help="Which text to feed the LLM. 'both' runs each doc twice for A/B comparison.")
+    ap.add_argument("--body-csv", nargs="+", default=None,
+                    help="One or more ATOM CSV files (or directories of CSVs) providing the full "
+                         "document body. Required for --input-text body|both. Looks up by ATOM ID.")
     args = ap.parse_args()
 
     out_path = Path(args.output)
@@ -514,13 +531,23 @@ def main():
 
     sources_to_run = (["distilled", "body"] if args.input_text == "both" else [args.input_text])
 
-    # Quick sanity check: if user asked for body but no doc has body text, warn early.
     if "body" in sources_to_run:
-        with_body = sum(1 for d in docs if d.get("body_text"))
-        print(f"  body_text available on {with_body}/{len(docs)} docs")
-        if with_body == 0:
-            print("  WARNING: no docs have body_text - resolve_body_text() needs adjustment. "
-                  "Run with --inspect-doc 0 to see the raw JSON structure.")
+        if not args.body_csv:
+            print("ERROR: --input-text body|both requires --body-csv pointing to ATOM CSV file(s).")
+            return
+        print(f"Loading body text from CSV: {args.body_csv}")
+        body_index = load_body_csv_index(args.body_csv)
+        print(f"  body index size: {len(body_index)}")
+        matched = 0
+        for d in docs:
+            txt = body_index.get(d["doc_id"])
+            if txt:
+                d["body_text"] = txt
+                matched += 1
+        print(f"  body_text matched on {matched}/{len(docs)} eligible docs")
+        if matched == 0:
+            print("  WARNING: no doc_ids matched the CSV index. Check that the CSV's ATOM ID "
+                  "column values match the doc_id format ({}).".format(docs[0]["doc_id"] if docs else "n/a"))
 
     consecutive_failures = 0
     FAIL_FAST_THRESHOLD = 3
