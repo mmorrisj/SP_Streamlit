@@ -98,6 +98,34 @@ python services/pipeline/batch/batch_cleanup.py \
     --archive-s3
 ```
 
+### Proposition Extraction (S3-driven, JSONL sink)
+
+Extract atomic soft-power propositions from DSR docs. Unlike other job
+types this one reads docs from S3 at prep time (DSR JSON + ATOM CSVs for
+body text) rather than from the `documents` table, and writes results to
+JSONL files on disk (one per source CSV) rather than a database table.
+
+```bash
+# Stage 1: Prepare (filters to config influencers/recipients by default;
+# skips docs where init set == recip set)
+python services/pipeline/batch/batch_prepare.py \
+    --job-type proposition_extract \
+    --initiators China \
+    --start-date 2026-01-01 \
+    --filename-contains 2026 \
+    --input-text body \
+    --body-csv s3://morris-sp-bucket/atom_csv/
+
+# Stages 2-4: same as other job types (submit, monitor, process_results)
+
+# Output sink:
+#   pilot_outputs/proposition_batch/<csv_basename>.propositions.jsonl
+# Override via PROPOSITION_BATCH_OUTPUT_DIR env var.
+```
+
+Other proposition_extract-specific flags: `--s3-prefix`, `--s3-files`,
+`--recipients`, `--input-text {body|distilled}`, `--limit`.
+
 ### Canonical Event Deconfliction
 
 Process canonical event groups:
