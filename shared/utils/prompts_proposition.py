@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.4"
+PROPOSITION_PROMPT_VERSION = "v0.5"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -12,11 +12,11 @@ proposition_extraction_prompt = '''You are an expert in international relations 
 ==============================
 LANGUAGE
 ==============================
-The source text may be in ANY language (English, Arabic, Chinese, Russian, etc.). ALL OUTPUT FIELDS MUST BE IN ENGLISH. This includes:
+The source text may be in ANY language (English, Arabic, Chinese, Russian, etc.). ALL OUTPUT FIELDS MUST BE IN ENGLISH. NO EXCEPTIONS. This includes:
 - proposition_text, subject, predicate, object: English paraphrase/translation.
 - initiator_actor, recipient_actor, third_parties: English names. Transliterate person names (e.g., "Amr Talaat") and translate organization/ministry names ("Ministry of Foreign Affairs of China", "Egyptian Space Agency"). Use the most common English form when one exists.
 - entities (persons, organizations, projects, locations): English/transliterated.
-- evidence_span.text: this is the EXCEPTION - quote the source VERBATIM in its original language, then optionally append an English translation in parentheses if the quote is non-English. Format: {"text": "<original verbatim>", "text_en": "<English translation>"} when the source is non-English; just {"text": "<verbatim>"} when the source is already English.
+- evidence_span.text: English translation of the source quote (NOT the original-language verbatim). If you want to preserve the verbatim source for traceability, put it in an optional "text_original" field. Default to English-only.
 Country names: use standard English country names ("China", "Egypt", "Saudi Arabia") regardless of source language.
 
 ==============================
@@ -159,10 +159,10 @@ GEO
 - geo_scope: one of [bilateral, regional, multilateral, global].
 
 EVIDENCE
-- evidence_span:
-    If source is English:   {"text": "<verbatim quote, <=300 chars>"}
-    If source is non-English: {"text": "<verbatim original, <=300 chars>", "text_en": "<English translation>"}
-  Character offsets may be added by the post-processor.
+- evidence_span: {"text": "<English quote / translation of the supporting source span, <=300 chars>"}
+  Optionally include "text_original" with the verbatim source-language span for traceability:
+    {"text": "<English>", "text_original": "<verbatim source>"}
+  The "text" field MUST be English regardless of source language.
 
 ==============================
 OUTPUT FORMAT
