@@ -119,21 +119,23 @@ def _parse_date(raw: Optional[str]) -> Optional[DateType]:
         return None
 
 
-def matches_filters(doc: Dict[str, Any], country, recipient, start_date, end_date) -> bool:
-    if (doc.get("salience") or "").upper() != "TRUE":
-        return False
+def rejection_reason(doc: Dict[str, Any], country, recipient, start_date, end_date) -> Optional[str]:
+    """Return None if doc passes filters, else a short reason string."""
+    sal = (doc.get("salience") or "").upper()
+    if sal != "TRUE":
+        return f"salience={sal or 'MISSING'}"
     if not doc.get("distilled_text"):
-        return False
+        return "no_distilled_text"
     if country and not _country_matches(doc.get("initiating_country"), country):
-        return False
+        return f"initiating_country={doc.get('initiating_country')!r}"
     if recipient and not _country_matches(doc.get("recipient_country"), recipient):
-        return False
+        return f"recipient_country={doc.get('recipient_country')!r}"
     d = doc.get("date")
     if start_date and (d is None or d < start_date):
-        return False
+        return f"date={d}<start"
     if end_date and (d is None or d > end_date):
-        return False
-    return True
+        return f"date={d}>end"
+    return None
 
 
 def _country_matches(field_value: Optional[str], wanted: str) -> bool:
@@ -144,14 +146,29 @@ def _country_matches(field_value: Optional[str], wanted: str) -> bool:
     return wanted.lower() in parts
 
 
-def iter_eligible_docs(s3_prefix, specific_files, country, recipient, start_date, end_date, limit):
-    """Stream parsed+filtered DSR docs from S3 until limit is reached."""
+def iter_eligible_docs(s3_prefix, specific_files, country, recipient,
+                       start_date, end_date, limit, debug_sample=0, debug_dump_path=None):
+    """Stream parsed+filtered DSR docs from S3 until limit is reached.
+
+    Also tracks rejection counters and optionally dumps the first N parsed
+    docs (passed or rejected) to debug_dump_path for inspection.
+    """
     if specific_files:
         files = [{"key": f"{s3_prefix}{fn}", "filename": fn} for fn in specific_files]
     else:
         files = list_s3_json_files(s3_prefix=s3_prefix)
 
     print(f"Scanning {len(files)} S3 file(s) for eligible docs (limit={limit})")
+
+    counters = {
+        "docs_seen": 0,
+        "unparseable": 0,
+        "rejected": {},   # reason_key -> count
+        "eligible": 0,
+    }
+    debug_samples: List[Dict[str, Any]] = []
+    seen_country_values: Dict[str, int] = {}
+    seen_recipient_values: Dict[str, int] = {}
 
     yielded = 0
     for fi in files:
@@ -171,16 +188,71 @@ def iter_eligible_docs(s3_prefix, specific_files, country, recipient, start_date
         for raw in payload:
             if yielded >= limit:
                 break
+            counters["docs_seen"] += 1
             parsed = parse_dsr_doc_minimal(raw)
             if parsed is None or not parsed.get("doc_id"):
+                counters["unparseable"] += 1
                 continue
-            if not matches_filters(parsed, country, recipient, start_date, end_date):
+
+            # Track seen country values regardless of filter result (helps diagnose mismatches)
+            ic = parsed.get("initiating_country")
+            if ic:
+                seen_country_values[ic] = seen_country_values.get(ic, 0) + 1
+            rc = parsed.get("recipient_country")
+            if rc:
+                seen_recipient_values[rc] = seen_recipient_values.get(rc, 0) + 1
+
+            reason = rejection_reason(parsed, country, recipient, start_date, end_date)
+
+            if len(debug_samples) < debug_sample:
+                debug_samples.append({
+                    "_source_s3_file": fi["filename"],
+                    "rejection_reason": reason,
+                    "parsed": parsed,
+                })
+
+            if reason is not None:
+                reason_key = reason.split("=", 1)[0]
+                counters["rejected"][reason_key] = counters["rejected"].get(reason_key, 0) + 1
                 continue
+
             parsed["_source_s3_file"] = fi["filename"]
+            counters["eligible"] += 1
             yield parsed
             yielded += 1
             file_yielded += 1
         print(f"  {fi['filename']}: {file_yielded} eligible (running total {yielded}/{limit})")
+
+    # Print summary diagnostics
+    print("\n--- Filter diagnostics ---")
+    print(f"  docs_seen:    {counters['docs_seen']}")
+    print(f"  unparseable:  {counters['unparseable']}")
+    print(f"  eligible:     {counters['eligible']}")
+    if counters["rejected"]:
+        print("  rejected by reason:")
+        for k, v in sorted(counters["rejected"].items(), key=lambda x: -x[1]):
+            print(f"    {k}: {v}")
+    if seen_country_values:
+        top = sorted(seen_country_values.items(), key=lambda x: -x[1])[:10]
+        print("  top initiating_country values seen:")
+        for k, v in top:
+            print(f"    {v:>5}  {k!r}")
+    if seen_recipient_values:
+        top = sorted(seen_recipient_values.items(), key=lambda x: -x[1])[:10]
+        print("  top recipient_country values seen:")
+        for k, v in top:
+            print(f"    {v:>5}  {k!r}")
+
+    if debug_dump_path and debug_samples:
+        Path(debug_dump_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(debug_dump_path, "w") as f:
+            json.dump({
+                "counters": counters,
+                "seen_initiating_country": seen_country_values,
+                "seen_recipient_country": seen_recipient_values,
+                "samples": debug_samples,
+            }, f, indent=2, default=str)
+        print(f"  debug sample written: {debug_dump_path}")
 
 
 def parse_llm_output(raw):
@@ -234,6 +306,12 @@ def main():
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--model", default="gpt-4o")
     ap.add_argument("--output", required=True)
+    ap.add_argument("--debug-sample", type=int, default=0,
+                    help="Dump the first N parsed docs (passed or rejected) for inspection")
+    ap.add_argument("--debug-dump", default=None,
+                    help="Path for debug sample JSON (defaults next to --output)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Scan and filter only; do not call the LLM")
     args = ap.parse_args()
 
     out_path = Path(args.output)
@@ -247,6 +325,10 @@ def main():
     print(f"Filters: country={args.country} recipient={args.recipient} "
           f"dates={args.start_date}..{args.end_date} limit={args.limit}")
 
+    debug_dump_path = args.debug_dump
+    if args.debug_sample and not debug_dump_path:
+        debug_dump_path = str(out_path.with_name(out_path.stem + "_debug.json"))
+
     docs = list(iter_eligible_docs(
         s3_prefix=args.s3_prefix,
         specific_files=args.s3_files,
@@ -255,10 +337,16 @@ def main():
         start_date=start_d,
         end_date=end_d,
         limit=args.limit,
+        debug_sample=args.debug_sample,
+        debug_dump_path=debug_dump_path,
     ))
 
     if not docs:
         print("No eligible documents found. Exiting.")
+        return
+
+    if args.dry_run:
+        print(f"\n[dry-run] Would extract from {len(docs)} docs. Skipping LLM calls.")
         return
 
     print(f"\nExtracting propositions from {len(docs)} docs via {args.model}...")
