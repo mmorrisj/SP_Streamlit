@@ -329,6 +329,114 @@ SCHEMA_EVENT_RENAME = {
 }
 
 
+# -- Proposition Extraction --
+# Schema matches the v0.5 prompt in shared/utils/prompts_proposition.py.
+# json_schema strict mode requires every property in `required` and every
+# optional field declared with a nullable type union, so all fields are
+# listed here and nullable ones use ["type", "null"].
+_PROPOSITION_ENTITIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "persons":       {"type": "array", "items": {"type": "string"}},
+        "organizations": {"type": "array", "items": {"type": "string"}},
+        "projects":      {"type": "array", "items": {"type": "string"}},
+        "locations":     {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["persons", "organizations", "projects", "locations"],
+    "additionalProperties": False,
+}
+
+_EVIDENCE_SPAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "text": {"type": "string"},
+        "text_original": {"type": ["string", "null"]},
+    },
+    "required": ["text", "text_original"],
+    "additionalProperties": False,
+}
+
+_PROPOSITION_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "proposition_text":      {"type": "string"},
+        "subject":               {"type": "string"},
+        "predicate":             {"type": "string"},
+        "object":                {"type": "string"},
+        "claim_type":            {"type": "string", "enum": ["action", "commitment", "statement", "outcome", "perception", "capability"]},
+        "tense":                 {"type": "string", "enum": ["past", "present", "future"]},
+        "modality":              {"type": "string", "enum": ["actual", "planned", "proposed", "denied", "speculative"]},
+
+        "initiator_country":     {"type": ["string", "null"]},
+        "initiator_actor":       {"type": ["string", "null"]},
+        "initiator_actor_type":  {"type": ["string", "null"]},
+        "recipient_country":     {"type": ["string", "null"]},
+        "recipient_actor":       {"type": ["string", "null"]},
+        "recipient_actor_type":  {"type": ["string", "null"]},
+        "third_parties":         {"type": "array", "items": {"type": "string"}},
+
+        "sp_domain":             {"type": "string", "enum": ["economic_aid", "investment", "trade", "diplomatic_engagement", "cultural", "educational", "media_information", "science_technology", "health", "humanitarian", "security_military", "governance", "religious", "other"]},
+        "instrument_type":       {"type": "string", "enum": ["state_visit", "bilateral_agreement", "multilateral_forum", "loan", "grant", "debt_relief", "direct_investment", "infrastructure_project", "scholarship", "exchange_program", "cultural_event", "language_institute", "media_broadcast", "joint_research", "training_program", "aid_delivery", "statement", "sanctions", "other"]},
+        "mechanism":             {"type": "string", "enum": ["attraction", "persuasion", "inducement", "coercion"]},
+
+        "entities":              _PROPOSITION_ENTITIES_SCHEMA,
+
+        "monetary_value":        {"type": ["number", "null"]},
+        "currency":              {"type": ["string", "null"]},
+        "monetary_value_usd":    {"type": ["number", "null"]},
+        "quantity":              {"type": ["number", "null"]},
+        "quantity_unit":         {"type": ["string", "null"]},
+        "timeframe":             {"type": ["string", "null"]},
+
+        "valence":               {"type": ["number", "null"]},
+        "salience_score":        {"type": ["number", "null"]},
+        "materiality_score":     {"type": ["number", "null"]},
+        "confidence":            {"type": ["number", "null"]},
+
+        "event_date":            {"type": ["string", "null"]},
+        # date_precision: one of day|month|quarter|year|unknown (enforced via prompt; null allowed)
+        "date_precision":        {"type": ["string", "null"]},
+
+        "location_name":         {"type": ["string", "null"]},
+        "lat_long":              {"type": ["string", "null"]},
+        # geo_scope: one of bilateral|regional|multilateral|global (enforced via prompt; null allowed)
+        "geo_scope":             {"type": ["string", "null"]},
+
+        "evidence_span":         _EVIDENCE_SPAN_SCHEMA,
+    },
+    "required": [
+        "proposition_text", "subject", "predicate", "object",
+        "claim_type", "tense", "modality",
+        "initiator_country", "initiator_actor", "initiator_actor_type",
+        "recipient_country", "recipient_actor", "recipient_actor_type",
+        "third_parties",
+        "sp_domain", "instrument_type", "mechanism",
+        "entities",
+        "monetary_value", "currency", "monetary_value_usd",
+        "quantity", "quantity_unit", "timeframe",
+        "valence", "salience_score", "materiality_score", "confidence",
+        "event_date", "date_precision",
+        "location_name", "lat_long", "geo_scope",
+        "evidence_span",
+    ],
+    "additionalProperties": False,
+}
+
+SCHEMA_PROPOSITION_EXTRACT = {
+    "name": "proposition_extract",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "doc_id": {"type": "string"},
+            "propositions": {"type": "array", "items": _PROPOSITION_ITEM_SCHEMA},
+        },
+        "required": ["doc_id", "propositions"],
+        "additionalProperties": False,
+    }
+}
+
+
 # ===================================================================
 # Mapping from job type to schema (used by generate_batch_requests)
 # ===================================================================
@@ -355,6 +463,7 @@ def get_response_format_for_job_type(job_type: str) -> dict:
         JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
         JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
         JOB_TYPE_EVENT_RENAME,
+        JOB_TYPE_PROPOSITION_EXTRACT,
     )
 
     _SCHEMA_MAP = {
@@ -373,6 +482,7 @@ def get_response_format_for_job_type(job_type: str) -> dict:
         JOB_TYPE_GENERATE_BILATERAL_SUMMARIES: SCHEMA_BILATERAL_SUMMARY,
         JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS: SCHEMA_RELATIONSHIP_CLASSIFICATION,
         JOB_TYPE_EVENT_RENAME: SCHEMA_EVENT_RENAME,
+        JOB_TYPE_PROPOSITION_EXTRACT: SCHEMA_PROPOSITION_EXTRACT,
     }
 
     schema = _SCHEMA_MAP.get(job_type)
