@@ -335,17 +335,26 @@ def scan_processed_doc_ids(output_dir: Path) -> Set[str]:
 
 def iter_eligible_docs(s3_prefix, specific_files, initiators, recipients,
                        start_date, end_date, limit, debug_sample=0, debug_dump_path=None,
-                       skip_doc_ids: Optional[Set[str]] = None):
+                       skip_doc_ids: Optional[Set[str]] = None,
+                       filename_contains: Optional[List[str]] = None):
     """Stream parsed+filtered DSR docs from S3 until limit is reached.
 
     initiators / recipients can be None, a single string, or a list.
     skip_doc_ids: doc_ids that should be skipped (already processed; resume mode).
+    filename_contains: prune S3 file list to those whose name contains any pattern
+        (case-insensitive). Cheap way to avoid downloading 90 files when you only
+        want a date range, e.g. ["2026"].
     """
     skip_doc_ids = skip_doc_ids or set()
     if specific_files:
         files = [{"key": f"{s3_prefix}{fn}", "filename": fn} for fn in specific_files]
     else:
         files = list_s3_json_files(s3_prefix=s3_prefix)
+    if filename_contains:
+        patterns_lc = [p.lower() for p in filename_contains]
+        before = len(files)
+        files = [f for f in files if any(p in f["filename"].lower() for p in patterns_lc)]
+        print(f"Filename filter {filename_contains}: {before} -> {len(files)} files")
 
     print(f"Scanning {len(files)} S3 file(s) for eligible docs (limit={limit})")
 
@@ -524,6 +533,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--s3-prefix", default="dsr_extracts/")
     ap.add_argument("--s3-files", nargs="+", help="Specific filenames within --s3-prefix")
+    ap.add_argument("--filename-contains", nargs="+", default=None,
+                    help="Only download S3 files whose name (case-insensitive) contains ANY of "
+                         "these substrings. Example: --filename-contains 2026 Mar2026.")
     ap.add_argument("--country", help="Single initiating country filter (shortcut for --initiators X)")
     ap.add_argument("--recipient", help="Single recipient country filter (shortcut for --recipients X)")
     ap.add_argument("--initiators", help="Comma-separated initiator allowlist (defaults to config influencers)")
@@ -632,6 +644,7 @@ def main():
         debug_sample=args.debug_sample,
         debug_dump_path=debug_dump_path,
         skip_doc_ids=skip_doc_ids,
+        filename_contains=args.filename_contains,
     ))
 
     if not docs:

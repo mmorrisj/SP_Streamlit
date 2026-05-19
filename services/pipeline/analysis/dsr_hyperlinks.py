@@ -70,6 +70,9 @@ def main():
     ap.add_argument("--s3-prefix", default="dsr_extracts/")
     ap.add_argument("--s3-files", nargs="+",
                     help="Specific filenames within --s3-prefix (otherwise process all)")
+    ap.add_argument("--filename-contains", nargs="+", default=None,
+                    help="Only download S3 files whose name (case-insensitive) contains ANY of "
+                         "these substrings. Example: --filename-contains 2026 Mar2026.")
     ap.add_argument("--initiators",
                     help="Comma-separated initiator allowlist (defaults to config influencers)")
     ap.add_argument("--recipients",
@@ -111,6 +114,11 @@ def main():
         files = [{"key": f"{args.s3_prefix}{fn}", "filename": fn} for fn in args.s3_files]
     else:
         files = list_s3_json_files(s3_prefix=args.s3_prefix)
+    if args.filename_contains:
+        patterns_lc = [p.lower() for p in args.filename_contains]
+        before = len(files)
+        files = [f for f in files if any(p in f["filename"].lower() for p in patterns_lc)]
+        print(f"Filename filter {args.filename_contains}: {before} -> {len(files)} files")
     print(f"Scanning {len(files)} S3 file(s)")
 
     counters = {
