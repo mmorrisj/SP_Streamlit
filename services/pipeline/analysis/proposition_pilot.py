@@ -118,9 +118,93 @@ def parse_dsr_doc_minimal(dsr_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             or gai_fields.get("Distilled_Text")
             or gai_fields.get("distilled_text")
         ),
+        "body_text": resolve_body_text(dsr_doc),
         # Full mapping retained for debug dump.
         "_gai_fields": gai_fields,
     }
+
+
+def resolve_body_text(dsr_doc: Dict[str, Any]) -> Optional[str]:
+    """Try the most likely paths for the full document body in a DSR record.
+
+    Order of preference:
+      1. machineTranslations.text.text  - English-translated body (best for analysis)
+      2. text.text                       - original-language body
+      3. auto.gai[0].value (if string)   - sometimes the gai[0] prefilter holds preprocessed text
+      4. machineTranslations.body.text   - alt key name some collections use
+      5. body.text / body                - last-resort fallbacks
+    """
+    candidates = []
+    mt = (dsr_doc.get("machineTranslations") or {})
+    candidates.append((mt.get("text") or {}).get("text"))
+    candidates.append((dsr_doc.get("text") or {}).get("text"))
+    auto = dsr_doc.get("auto") or {}
+    gai_list = auto.get("gai") or []
+    if gai_list:
+        v0 = gai_list[0]
+        if isinstance(v0, dict):
+            val = v0.get("value")
+            if isinstance(val, str):
+                candidates.append(val)
+    candidates.append((mt.get("body") or {}).get("text"))
+    body_field = dsr_doc.get("body")
+    if isinstance(body_field, dict):
+        candidates.append(body_field.get("text"))
+    elif isinstance(body_field, str):
+        candidates.append(body_field)
+
+    for c in candidates:
+        if isinstance(c, str) and c.strip():
+            return c
+    return None
+
+
+def _summarize_keys(obj: Any, depth: int = 0, max_depth: int = 3, max_items: int = 6) -> Any:
+    """Return a shape-only summary of a nested JSON structure for inspection."""
+    if depth >= max_depth:
+        return f"<{type(obj).__name__}>"
+    if isinstance(obj, dict):
+        out = {}
+        for k in list(obj.keys())[:max_items]:
+            out[k] = _summarize_keys(obj[k], depth + 1, max_depth, max_items)
+        if len(obj) > max_items:
+            out["...truncated..."] = f"{len(obj) - max_items} more keys"
+        return out
+    if isinstance(obj, list):
+        return [_summarize_keys(obj[i], depth + 1, max_depth, max_items)
+                for i in range(min(len(obj), 3))] + ([f"...+{len(obj) - 3}"] if len(obj) > 3 else [])
+    if isinstance(obj, str):
+        return f"<str len={len(obj)} sample={obj[:80]!r}>"
+    return obj
+
+
+def inspect_doc(s3_prefix: str, specific_files: Optional[List[str]], n: int):
+    if specific_files:
+        key = f"{s3_prefix}{specific_files[0]}"
+    else:
+        files = list_s3_json_files(s3_prefix=s3_prefix)
+        if not files:
+            print("No S3 files found.")
+            return
+        key = files[0]["key"]
+    print(f"Inspecting doc #{n} in {key}")
+    payload = download_s3_json_file(key)
+    if not isinstance(payload, list) or n >= len(payload):
+        print(f"  Bad payload or N={n} out of range (file has {len(payload) if isinstance(payload, list) else '?'} docs)")
+        return
+    raw = payload[n]
+    print(f"\nTop-level keys: {list(raw.keys())}")
+    print("\nStructure summary (depth=3):")
+    print(json.dumps(_summarize_keys(raw, max_depth=3), indent=2, default=str))
+
+    body = resolve_body_text(raw)
+    print("\nresolve_body_text() result:")
+    if body:
+        print(f"  Found body text: len={len(body)}")
+        print(f"  First 400 chars: {body[:400]!r}")
+    else:
+        print("  NO body text found at any tried path.")
+        print("  Edit resolve_body_text() in proposition_pilot.py if the body lives elsewhere.")
 
 
 def _parse_date(raw: Optional[str]) -> Optional[DateType]:
@@ -300,14 +384,25 @@ def parse_llm_output(raw):
     return None
 
 
-def extract_propositions(doc: Dict[str, Any], model: str, source: Optional[str] = None):
+def extract_propositions(doc: Dict[str, Any], model: str, source: Optional[str] = None,
+                         input_text_source: str = "distilled"):
+    if input_text_source == "body":
+        text = doc.get("body_text") or ""
+        text_label = "body_text"
+    else:
+        text = doc.get("distilled_text") or ""
+        text_label = "distilled_text"
+
+    if not text:
+        return None, f"empty_{text_label}"
+
     user_prompt = (
         f"doc_id: {doc['doc_id']}\n"
         f"date: {doc.get('date')}\n"
         f"title: {doc.get('title')}\n"
         f"doc_initiating_country: {doc.get('initiating_country')}\n"
         f"doc_recipient_country: {doc.get('recipient_country')}\n"
-        f"distilled_text:\n{doc['distilled_text']}"
+        f"{text_label}:\n{text}"
     )
     gai_kwargs = {"model": model}
     if source:
@@ -349,6 +444,11 @@ def main():
                     help="Path for debug sample JSON (defaults next to --output)")
     ap.add_argument("--dry-run", action="store_true",
                     help="Scan and filter only; do not call the LLM")
+    ap.add_argument("--inspect-doc", type=int, default=None, metavar="N",
+                    help="Dump the JSON structure of the Nth doc in the first S3 file and exit. "
+                         "Use to discover where the full body text lives.")
+    ap.add_argument("--input-text", choices=["distilled", "body", "both"], default="distilled",
+                    help="Which text to feed the LLM. 'both' runs each doc twice for A/B comparison.")
     args = ap.parse_args()
 
     out_path = Path(args.output)
@@ -356,6 +456,10 @@ def main():
 
     start_d = _parse_cli_date(args.start_date)
     end_d = _parse_cli_date(args.end_date)
+
+    if args.inspect_doc is not None:
+        inspect_doc(args.s3_prefix, args.s3_files, args.inspect_doc)
+        return
 
     bucket = get_bucket_name()
     print(f"Bucket: {bucket}  Prefix: {args.s3_prefix}")
@@ -408,19 +512,22 @@ def main():
     }
     started = time.time()
 
+    sources_to_run = (["distilled", "body"] if args.input_text == "both" else [args.input_text])
+
+    # Quick sanity check: if user asked for body but no doc has body text, warn early.
+    if "body" in sources_to_run:
+        with_body = sum(1 for d in docs if d.get("body_text"))
+        print(f"  body_text available on {with_body}/{len(docs)} docs")
+        if with_body == 0:
+            print("  WARNING: no docs have body_text - resolve_body_text() needs adjustment. "
+                  "Run with --inspect-doc 0 to see the raw JSON structure.")
+
     consecutive_failures = 0
     FAIL_FAST_THRESHOLD = 3
     records: List[Dict[str, Any]] = []
 
     for i, doc in enumerate(docs, 1):
         print(f"[{i}/{len(docs)}] {doc['doc_id']} ({doc.get('date')})", flush=True)
-        parsed, err = extract_propositions(doc, args.model, source=args.gai_source)
-        stats["docs_processed"] += 1
-        if err:
-            print(f"    ERROR: {err}", flush=True)
-            consecutive_failures += 1
-        else:
-            consecutive_failures = 0
 
         record = {
             "doc_id": doc["doc_id"],
@@ -433,19 +540,39 @@ def main():
             "extractor_model": args.model,
             "extractor_version": PROPOSITION_PROMPT_VERSION,
             "extracted_at": datetime.utcnow().isoformat(),
+            "runs": {},
         }
+        stats["docs_processed"] += 1
 
-        if err:
+        any_propositions = False
+        for src in sources_to_run:
+            print(f"    [{src}]", flush=True)
+            parsed, err = extract_propositions(doc, args.model, source=args.gai_source,
+                                               input_text_source=src)
+            run_entry: Dict[str, Any] = {
+                "input_text_source": src,
+                "input_text_chars": len((doc.get("body_text") if src == "body" else doc.get("distilled_text")) or ""),
+            }
+            if err:
+                print(f"      ERROR: {err}", flush=True)
+                consecutive_failures += 1
+                run_entry["error"] = err
+                run_entry["propositions"] = []
+                stats["errors"].append({"doc_id": doc["doc_id"], "source": src, "error": err})
+            else:
+                consecutive_failures = 0
+                props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
+                run_entry["propositions"] = props
+                run_entry["proposition_count"] = len(props)
+                stats["total_propositions"] += len(props)
+                if props:
+                    any_propositions = True
+            record["runs"][src] = run_entry
+
+        if not any_propositions:
             stats["docs_failed"] += 1
-            stats["errors"].append({"doc_id": doc["doc_id"], "error": err})
-            record["error"] = err
-            record["propositions"] = []
         else:
-            props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
-            record["propositions"] = props
-            stats["total_propositions"] += len(props)
-            if props:
-                stats["docs_with_propositions"] += 1
+            stats["docs_with_propositions"] += 1
 
         records.append(record)
 
@@ -474,7 +601,15 @@ def main():
     print(f"  docs_with_propositions: {stats['docs_with_propositions']}")
     print(f"  docs_failed:            {stats['docs_failed']}")
     print(f"  total_propositions:     {stats['total_propositions']}")
-    print(f"  output:  {out_path}")
+    if args.input_text == "both":
+        print("\n  per-doc proposition counts (distilled vs body):")
+        print(f"  {'doc_id':<40}  {'distilled':>10}  {'body':>10}  {'delta':>6}")
+        for rec in records:
+            runs = rec.get("runs", {})
+            d = runs.get("distilled", {}).get("proposition_count", 0)
+            b = runs.get("body", {}).get("proposition_count", 0)
+            print(f"  {rec['doc_id']:<40}  {d:>10}  {b:>10}  {b - d:>+6}")
+    print(f"\n  output:  {out_path}")
     print(f"  summary: {summary_path}")
 
 
