@@ -97,9 +97,16 @@ def main():
         initiators = [c.strip() for c in args.initiators.split(",") if c.strip()]
     if args.recipients:
         recipients = [c.strip() for c in args.recipients.split(",") if c.strip()]
-    if initiators is None and recipients is None and not args.no_config_filter:
-        initiators, recipients = load_country_lists_from_config()
-        print(f"Filters from config.yaml: {len(initiators)} initiators, {len(recipients)} recipients")
+    # Fill in defaults INDEPENDENTLY for each axis: passing --initiators must not
+    # silently disable the recipient filter (and vice versa).
+    if not args.no_config_filter:
+        cfg_init, cfg_recip = load_country_lists_from_config()
+        if initiators is None:
+            initiators = cfg_init
+            print(f"Initiators filter from config.yaml: {len(initiators)} countries")
+        if recipients is None:
+            recipients = cfg_recip
+            print(f"Recipients filter from config.yaml: {len(recipients)} countries")
 
     start_d = _parse_cli_date(args.start_date)
     end_d = _parse_cli_date(args.end_date)
