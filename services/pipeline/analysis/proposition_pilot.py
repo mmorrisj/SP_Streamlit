@@ -264,12 +264,18 @@ def _parse_date(raw: Optional[str]) -> Optional[DateType]:
         return None
 
 
-def rejection_reason(doc: Dict[str, Any], initiators, recipients, start_date, end_date) -> Optional[str]:
+def rejection_reason(doc: Dict[str, Any], initiators, recipients, start_date, end_date,
+                     allow_self_country: bool = False) -> Optional[str]:
     """Return None if doc passes filters, else a short reason string.
 
     `initiators` and `recipients` may be None (no filter), a single string, or a
     list/set of strings. Match is case-insensitive; any-part match for semicolon
     -separated DSR values is sufficient.
+
+    By default, docs whose initiator country set equals the recipient country
+    set (e.g. "China" -> "China", "Iran;China" -> "Iran;China") are skipped.
+    These represent domestic policy coverage, not inter-country soft power.
+    Disable with allow_self_country=True.
     """
     sal = (doc.get("salience") or "").upper()
     if sal != "TRUE":
@@ -280,6 +286,11 @@ def rejection_reason(doc: Dict[str, Any], initiators, recipients, start_date, en
         return f"initiating_country={doc.get('initiating_country')!r}"
     if recipients and not _country_matches(doc.get("recipient_country"), recipients):
         return f"recipient_country={doc.get('recipient_country')!r}"
+    if not allow_self_country:
+        init_parts = {p.strip().lower() for p in (doc.get("initiating_country") or "").split(";") if p.strip()}
+        recip_parts = {p.strip().lower() for p in (doc.get("recipient_country") or "").split(";") if p.strip()}
+        if init_parts and recip_parts and init_parts == recip_parts:
+            return f"self_country={doc.get('initiating_country')!r}"
     d = doc.get("date")
     if start_date and (d is None or d < start_date):
         return f"date={d}<start"
@@ -337,7 +348,8 @@ def iter_eligible_docs(s3_prefix, specific_files, initiators, recipients,
                        start_date, end_date, limit, debug_sample=0, debug_dump_path=None,
                        skip_doc_ids: Optional[Set[str]] = None,
                        filename_contains: Optional[List[str]] = None,
-                       worker_id: int = 0, worker_count: int = 1):
+                       worker_id: int = 0, worker_count: int = 1,
+                       allow_self_country: bool = False):
     """Stream parsed+filtered DSR docs from S3 until limit is reached.
 
     initiators / recipients can be None, a single string, or a list.
@@ -421,7 +433,8 @@ def iter_eligible_docs(s3_prefix, specific_files, initiators, recipients,
             for k in (parsed.get("_gai_fields") or {}).keys():
                 seen_gai_type_keys[k] = seen_gai_type_keys.get(k, 0) + 1
 
-            reason = rejection_reason(parsed, initiators, recipients, start_date, end_date)
+            reason = rejection_reason(parsed, initiators, recipients, start_date, end_date,
+                                      allow_self_country=allow_self_country)
 
             if len(debug_samples) < debug_sample:
                 debug_samples.append({
@@ -553,6 +566,9 @@ def main():
     ap.add_argument("--recipients", help="Comma-separated recipient allowlist (defaults to config recipients)")
     ap.add_argument("--no-config-filter", action="store_true",
                     help="Disable the default config-driven initiator/recipient filter")
+    ap.add_argument("--allow-self-country", action="store_true",
+                    help="Don't skip docs where initiator country set equals recipient set "
+                         "(e.g. China -> China, Iran;China -> Iran;China). On by default.")
     ap.add_argument("--start", dest="start_date", help="YYYY-MM-DD")
     ap.add_argument("--end", dest="end_date", help="YYYY-MM-DD")
     ap.add_argument("--limit", type=int, default=50,
@@ -678,6 +694,7 @@ def main():
         filename_contains=args.filename_contains,
         worker_id=args.worker_id,
         worker_count=args.worker_count,
+        allow_self_country=args.allow_self_country,
     ))
 
     if not docs:

@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.5"
+PROPOSITION_PROMPT_VERSION = "v0.6"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -42,8 +42,10 @@ DO NOT emit propositions for:
 - Background context about historical relations unless tied to a specific present act.
 - Generic capability descriptions ("The Egyptian Space Agency operates several labs") unless they describe a concrete act being shown/used in the engagement.
 - Speculation or analyst commentary about consequences ("This visit could lead to...").
+- DOMESTIC POLICY OR INTERNAL AFFAIRS: any claim where the initiator_country and recipient_country would be the SAME country (e.g. China imposes a tax on its own citizens; Iran addresses its own population; a head of state congratulates a domestic newspaper). Soft power flows BETWEEN countries; it is not a domestic act. If the only recipient of an action is the initiator country itself (or the initiator country's own institutions, citizens, or media), DROP the proposition.
+- Multilateral statements with no identifiable foreign recipient ("China affirmed it is ready to work with all countries to promote peace") unless a specific foreign actor or country is named.
 
-When in doubt: does this proposition describe a specific act, statement, or commitment by a named actor? If no, drop it.
+When in doubt: does this proposition describe a specific act, statement, or commitment by an identifiable actor toward an identifiable foreign actor or country? If either side resolves to the same country as the other, or if the recipient is not identifiable as foreign, drop it.
 
 ==============================
 SOFT-POWER DIRECTION (read carefully)
