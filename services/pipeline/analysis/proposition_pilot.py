@@ -336,7 +336,8 @@ def scan_processed_doc_ids(output_dir: Path) -> Set[str]:
 def iter_eligible_docs(s3_prefix, specific_files, initiators, recipients,
                        start_date, end_date, limit, debug_sample=0, debug_dump_path=None,
                        skip_doc_ids: Optional[Set[str]] = None,
-                       filename_contains: Optional[List[str]] = None):
+                       filename_contains: Optional[List[str]] = None,
+                       worker_id: int = 0, worker_count: int = 1):
     """Stream parsed+filtered DSR docs from S3 until limit is reached.
 
     initiators / recipients can be None, a single string, or a list.
@@ -344,6 +345,9 @@ def iter_eligible_docs(s3_prefix, specific_files, initiators, recipients,
     filename_contains: prune S3 file list to those whose name contains any pattern
         (case-insensitive). Cheap way to avoid downloading 90 files when you only
         want a date range, e.g. ["2026"].
+    worker_id / worker_count: deterministic partitioning for concurrent runs.
+        When worker_count > 1, a doc is yielded only if
+        md5(doc_id) % worker_count == worker_id.
     """
     skip_doc_ids = skip_doc_ids or set()
     if specific_files:
@@ -397,6 +401,13 @@ def iter_eligible_docs(s3_prefix, specific_files, initiators, recipients,
             if parsed["doc_id"] in skip_doc_ids:
                 counters["rejected"]["already_processed"] = counters["rejected"].get("already_processed", 0) + 1
                 continue
+
+            if worker_count > 1:
+                import hashlib as _hl
+                h = int(_hl.md5(parsed["doc_id"].encode("utf-8")).hexdigest()[:8], 16)
+                if h % worker_count != worker_id:
+                    counters["rejected"]["other_worker"] = counters["rejected"].get("other_worker", 0) + 1
+                    continue
 
             # Track seen values regardless of filter result (helps diagnose mismatches)
             ic = parsed.get("initiating_country")
@@ -555,6 +566,12 @@ def main():
     out_group.add_argument("--output-dir", help="Directory for JSONL-per-source-CSV batch mode")
     ap.add_argument("--resume", action="store_true",
                     help="(batch mode) Skip doc_ids already present in --output-dir/*.jsonl")
+    ap.add_argument("--worker-id", type=int, default=0,
+                    help="0-based index of this worker (use with --worker-count for safe concurrency)")
+    ap.add_argument("--worker-count", type=int, default=1,
+                    help="Total concurrent workers; each worker processes docs where "
+                         "md5(doc_id) %% worker_count == worker_id and writes to JSONL "
+                         "files suffixed with .worker_<id> so they never collide.")
     ap.add_argument("--debug-sample", type=int, default=0,
                     help="Dump the first N parsed docs (passed or rejected) for inspection")
     ap.add_argument("--debug-dump", default=None,
@@ -571,6 +588,10 @@ def main():
                          "s3://bucket/prefix/. Required for --input-text body|both. "
                          "Looks up by ATOM ID column.")
     args = ap.parse_args()
+
+    if args.worker_count < 1 or args.worker_id < 0 or args.worker_id >= args.worker_count:
+        ap.error(f"Invalid worker config: worker_id={args.worker_id}, worker_count={args.worker_count}. "
+                 f"Require worker_count >= 1 and 0 <= worker_id < worker_count.")
 
     batch_mode = bool(args.output_dir)
     out_path: Optional[Path] = None
@@ -608,6 +629,9 @@ def main():
     print(f"Bucket: {bucket}  Prefix: {args.s3_prefix}")
     print(f"Filters: initiators={initiators}  recipients={recipients}  "
           f"dates={args.start_date}..{args.end_date}  limit={args.limit}")
+    if args.worker_count > 1:
+        print(f"Worker: {args.worker_id}/{args.worker_count} "
+              f"(processes docs where md5(doc_id) %% {args.worker_count} == {args.worker_id})")
     print(f"Mode: {'batch (--output-dir)' if batch_mode else 'single-file (--output)'}  "
           f"input_text={args.input_text}")
 
@@ -645,6 +669,8 @@ def main():
         debug_dump_path=debug_dump_path,
         skip_doc_ids=skip_doc_ids,
         filename_contains=args.filename_contains,
+        worker_id=args.worker_id,
+        worker_count=args.worker_count,
     ))
 
     if not docs:
@@ -706,8 +732,15 @@ def main():
     open_files: Dict[str, Any] = {}     # csv_filename -> open file handle (batch mode)
 
     def get_output_handle(source_csv: Optional[str]):
-        """Return a file handle in append mode for the given source CSV."""
-        key = (source_csv or "unknown").replace(".csv", "") + ".propositions.jsonl"
+        """Return a file handle in append mode for the given source CSV.
+
+        With concurrency, each worker writes to a worker-specific JSONL so two
+        workers never share a write target.
+        """
+        base = (source_csv or "unknown").replace(".csv", "")
+        if args.worker_count > 1:
+            base += f".worker_{args.worker_id}"
+        key = base + ".propositions.jsonl"
         if key not in open_files:
             open_files[key] = (output_dir / key).open("a")
         return open_files[key]
