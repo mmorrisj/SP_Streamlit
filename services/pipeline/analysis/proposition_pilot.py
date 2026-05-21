@@ -148,6 +148,58 @@ def _download_s3_csvs(s3_uri: str, dest_dir: Path) -> List[Path]:
     return downloaded
 
 
+def _parse_s3_uri(uri: str) -> Tuple[str, str]:
+    """Parse s3://bucket/prefix/ -> (bucket, prefix). Prefix ends with '/' if non-empty."""
+    if not uri.startswith("s3://"):
+        raise ValueError(f"Expected s3:// URI, got {uri!r}")
+    rest = uri[5:]
+    bucket, _, prefix = rest.partition("/")
+    if not bucket:
+        raise ValueError(f"Could not parse bucket from {uri!r}")
+    if prefix and not prefix.endswith("/"):
+        prefix = prefix + "/"
+    return bucket, prefix
+
+
+def download_s3_jsonl_outputs(s3_uri: str, local_dir: Path) -> int:
+    """For --resume against an S3 output dir: pull every *.jsonl under the prefix
+    into the local working dir. Returns the number of files downloaded."""
+    import boto3
+
+    bucket, prefix = _parse_s3_uri(s3_uri)
+    s3 = boto3.client("s3")
+    paginator = s3.get_paginator("list_objects_v2")
+    count = 0
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []) or []:
+            key = obj["Key"]
+            if not key.lower().endswith(".jsonl"):
+                continue
+            local = local_dir / Path(key).name
+            s3.download_file(bucket, key, str(local))
+            count += 1
+    if count:
+        print(f"  [resume] downloaded {count} existing JSONL file(s) from {s3_uri}")
+    return count
+
+
+def upload_files_to_s3(s3_uri: str, local_dir: Path, filenames) -> int:
+    """Upload the named files from local_dir to the s3 prefix. Returns count uploaded."""
+    import boto3
+
+    bucket, prefix = _parse_s3_uri(s3_uri)
+    s3 = boto3.client("s3")
+    uploaded = 0
+    for fn in filenames:
+        local = local_dir / fn
+        if not local.exists():
+            continue
+        key = prefix + fn
+        s3.upload_file(str(local), bucket, key)
+        uploaded += 1
+    return uploaded
+
+
 def load_body_csv_index(csv_paths: List[str]) -> Dict[str, Tuple[str, str]]:
     """Load ATOM CSV(s) and return {doc_id -> (body_text, source_csv_filename)}.
 
@@ -660,7 +712,15 @@ def main():
     out_group.add_argument("--output", help="Single JSON-array file (small-run / pilot mode)")
     out_group.add_argument("--output-dir", help="Directory for JSONL-per-source-CSV batch mode")
     ap.add_argument("--resume", action="store_true",
-                    help="(batch mode) Skip doc_ids already present in --output-dir/*.jsonl")
+                    help="(batch mode) Skip doc_ids already present in --output-dir/*.jsonl. "
+                         "If --output-dir is s3://, downloads existing JSONLs first to seed the "
+                         "local working dir.")
+    ap.add_argument("--local-working-dir", default=None,
+                    help="(s3 output) Local directory used as fast-write staging before sync "
+                         "to S3. Defaults to a fresh temp dir per invocation.")
+    ap.add_argument("--s3-sync-every", type=int, default=25,
+                    help="(s3 output) Upload modified JSONLs to S3 every N records (default 25). "
+                         "A final sync always runs on graceful exit.")
     ap.add_argument("--worker-id", type=int, default=0,
                     help="0-based index of this worker (use with --worker-count for safe concurrency)")
     ap.add_argument("--worker-count", type=int, default=1,
@@ -696,9 +756,26 @@ def main():
     batch_mode = bool(args.output_dir)
     out_path: Optional[Path] = None
     output_dir: Optional[Path] = None
+    s3_output_uri: Optional[str] = None
     if batch_mode:
-        output_dir = Path(args.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if args.output_dir.startswith("s3://"):
+            # S3-backed batch mode: local working dir for fast appends,
+            # periodic sync to S3, and final flush on shutdown.
+            s3_output_uri = args.output_dir
+            if not s3_output_uri.endswith("/"):
+                s3_output_uri = s3_output_uri + "/"
+            if args.local_working_dir:
+                output_dir = Path(args.local_working_dir)
+            else:
+                import tempfile
+                output_dir = Path(tempfile.mkdtemp(prefix="props_batch_"))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"S3 output: {s3_output_uri}")
+            print(f"Local working dir: {output_dir}")
+            print(f"S3 sync every {args.s3_sync_every} records (plus on shutdown)")
+        else:
+            output_dir = Path(args.output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
     else:
         out_path = Path(args.output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -757,8 +834,10 @@ def main():
     # Resume set (batch mode)
     skip_doc_ids: Set[str] = set()
     if batch_mode and args.resume:
+        if s3_output_uri:
+            download_s3_jsonl_outputs(s3_output_uri, output_dir)
         skip_doc_ids = scan_processed_doc_ids(output_dir)
-        print(f"Resume: {len(skip_doc_ids)} doc_ids already in {output_dir}; will skip")
+        print(f"Resume: {len(skip_doc_ids)} doc_ids already in {s3_output_uri or output_dir}; will skip")
 
     debug_dump_path = args.debug_dump
     if args.debug_sample and not debug_dump_path and out_path is not None:
@@ -956,6 +1035,13 @@ def main():
             else:
                 records.append(record)
 
+            # Periodic S3 sync (s3-backed batch mode only)
+            if s3_output_uri and i % args.s3_sync_every == 0:
+                touched = set(open_files.keys()) | set(dropped_files.keys())
+                if touched:
+                    n = upload_files_to_s3(s3_output_uri, output_dir, touched)
+                    print(f"    [s3-sync] uploaded {n} file(s) to {s3_output_uri}", flush=True)
+
             if consecutive_failures >= FAIL_FAST_THRESHOLD and i < len(docs):
                 print(f"\nAborting: {consecutive_failures} consecutive LLM failures. "
                       f"Fix the gai backend (see --gai-source / GAI_DEFAULT_SOURCE) and retry.",
@@ -966,6 +1052,16 @@ def main():
             fh.close()
         for fh in dropped_files.values():
             fh.close()
+        # Final S3 sync of all touched files (s3-backed batch mode only)
+        if s3_output_uri:
+            touched = set(open_files.keys()) | set(dropped_files.keys())
+            if touched:
+                try:
+                    n = upload_files_to_s3(s3_output_uri, output_dir, touched)
+                    print(f"[s3-sync] final: uploaded {n} file(s) to {s3_output_uri}")
+                except Exception as e:
+                    print(f"[s3-sync] WARNING: final upload failed: {e}. "
+                          f"Local working dir retained at {output_dir} for manual recovery.")
 
     elapsed = time.time() - started
     stats["elapsed_seconds"] = round(elapsed, 1)
@@ -973,11 +1069,22 @@ def main():
     stats["s3_prefix"] = args.s3_prefix
 
     if batch_mode:
-        stats["output_dir"] = str(output_dir)
+        stats["output_dir"] = s3_output_uri or str(output_dir)
+        stats["local_working_dir"] = str(output_dir)
         stats["output_files"] = sorted(open_files.keys())
-        summary_path = output_dir / f"_run_summary_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}.json"
+        summary_filename = f"_run_summary_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}"
+        if args.worker_count > 1:
+            summary_filename += f"_worker_{args.worker_id}"
+        summary_filename += ".json"
+        summary_path = output_dir / summary_filename
         with summary_path.open("w") as f:
             json.dump(stats, f, indent=2)
+        # Sync summary up too
+        if s3_output_uri:
+            try:
+                upload_files_to_s3(s3_output_uri, output_dir, [summary_filename])
+            except Exception as e:
+                print(f"[s3-sync] WARNING: summary upload failed: {e}")
     else:
         with out_path.open("w") as f:
             json.dump(records, f, indent=2, default=str, ensure_ascii=False)
@@ -1006,7 +1113,11 @@ def main():
             b = runs.get("body", {}).get("proposition_count", 0)
             print(f"  {rec['doc_id']:<40}  {d:>10}  {b:>10}  {b - d:>+6}")
     if batch_mode:
-        print(f"\n  output_dir: {output_dir}")
+        if s3_output_uri:
+            print(f"\n  s3_output_dir:     {s3_output_uri}")
+            print(f"  local_working_dir: {output_dir}")
+        else:
+            print(f"\n  output_dir: {output_dir}")
         for fn in sorted(open_files.keys()):
             print(f"    {fn}")
     else:
