@@ -513,6 +513,85 @@ def parse_llm_output(raw):
     return None
 
 
+def effective_model_name(cli_model: str, gai_source: Optional[str]) -> str:
+    """Resolve the model that gai() will actually call.
+
+    The CLI --model flag is the default, but for the litellm backend the
+    LITELLM_MODEL env var (if set) overrides it inside gai(). Mirror that
+    precedence here so records reflect what the LLM actually saw.
+    """
+    effective_source = gai_source or os.getenv("GAI_DEFAULT_SOURCE", "proxy")
+    if effective_source == "litellm":
+        env_model = os.getenv("LITELLM_MODEL")
+        if env_model:
+            return env_model
+    if effective_source == "azure":
+        env_dep = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        if env_dep:
+            return env_dep
+    return cli_model
+
+
+# Substrings (case-insensitive) that mark an individual as a state/official actor.
+# Matched against initiator_actor + subject combined text. If ANY substring is
+# present, the proposition is kept; otherwise a prop with initiator_actor_type
+# == "individual" is treated as a private actor and dropped.
+_STATE_TITLE_MARKERS = (
+    "president", "prime minister", "premier", "vice premier",
+    "minister", "vice minister", "deputy minister", "undersecretary",
+    "secretary general", "secretary of state", "secretary",
+    "chancellor", "chairman", "chairperson", "chairwoman",
+    "ambassador", "envoy", "consul", "diplomat", "attaché", "attache",
+    "governor", "mayor", "prefect",
+    "spokesperson", "spokesman", "spokeswoman",
+    "general", "admiral", "commander", "marshal",
+    "ministry", "embassy", "consulate", "government", "presidency", "head of state",
+    "state council", "politburo", "central committee", "communist party",
+    "deputy", "councillor", "senator", "parliament", "deputy speaker", "speaker of",
+    "ceo of", "chief executive of",
+    "central bank", "national bank", "people's bank",
+    "national security", "intelligence service",
+)
+
+
+def should_keep_proposition(prop: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Deterministic post-filter applied to every LLM-emitted proposition.
+
+    Returns (keep, drop_reason). Drop reasons:
+      - 'no_foreign_recipient': recipient_country and recipient_actor both null
+      - 'private_individual': initiator_actor_type == 'individual' and no state
+        title marker present in initiator_actor or subject
+      - 'self_country_proposition': initiator_country and recipient_country
+        are the same non-null value (last-resort guard; the prompt should
+        have dropped these already)
+    """
+    if not isinstance(prop, dict):
+        return False, "non_dict"
+
+    init_c = (prop.get("initiator_country") or "").strip().lower() or None
+    recip_c = (prop.get("recipient_country") or "").strip().lower() or None
+    recip_actor = (prop.get("recipient_actor") or "").strip() or None
+
+    # Rule 1: no identifiable foreign recipient
+    if recip_c is None and recip_actor is None:
+        return False, "no_foreign_recipient"
+
+    # Rule 2: private individual without a state title in actor or subject
+    if (prop.get("initiator_actor_type") or "").strip().lower() == "individual":
+        haystack = " ".join([
+            prop.get("initiator_actor") or "",
+            prop.get("subject") or "",
+        ]).lower()
+        if not any(m in haystack for m in _STATE_TITLE_MARKERS):
+            return False, "private_individual"
+
+    # Rule 3: same-country proposition (defensive backstop to the v0.6 prompt rule)
+    if init_c is not None and recip_c is not None and init_c == recip_c:
+        return False, "self_country_proposition"
+
+    return True, None
+
+
 def extract_propositions(doc: Dict[str, Any], model: str, source: Optional[str] = None,
                          input_text_source: str = "distilled"):
     if input_text_source == "body":
@@ -594,6 +673,11 @@ def main():
                     help="Path for debug sample JSON (defaults next to --output)")
     ap.add_argument("--dry-run", action="store_true",
                     help="Scan and filter only; do not call the LLM")
+    ap.add_argument("--no-post-filter", action="store_true",
+                    help="Disable the deterministic per-proposition filter "
+                         "(no-foreign-recipient, private-individual, self-country). "
+                         "When enabled (default), dropped props are written to a "
+                         "*.propositions.dropped.jsonl sidecar with a _drop_reason field.")
     ap.add_argument("--inspect-doc", type=int, default=None, metavar="N",
                     help="Dump the JSON structure of the Nth doc in the first S3 file and exit. "
                          "Use to discover where the full body text lives.")
@@ -741,12 +825,18 @@ def main():
         print("Nothing to process after body match. Exiting.")
         return
 
-    print(f"\nExtracting propositions from {len(docs)} docs via {args.model}...")
+    effective_model = effective_model_name(args.model, args.gai_source)
+    if effective_model != args.model:
+        print(f"\nExtracting propositions from {len(docs)} docs via "
+              f"{effective_model} (resolved from --model={args.model} via {args.gai_source} backend)...")
+    else:
+        print(f"\nExtracting propositions from {len(docs)} docs via {effective_model}...")
     stats: Dict[str, Any] = {
         "docs_processed": 0,
         "docs_with_propositions": 0,
         "docs_failed": 0,
         "total_propositions": 0,
+        "propositions_dropped": {},   # reason -> count
         "errors": [],
     }
     started = time.time()
@@ -754,6 +844,13 @@ def main():
     FAIL_FAST_THRESHOLD = 3
     records: List[Dict[str, Any]] = []  # only used in single-file mode
     open_files: Dict[str, Any] = {}     # csv_filename -> open file handle (batch mode)
+    dropped_files: Dict[str, Any] = {}  # csv_filename -> open dropped-props sidecar handle
+
+    def _key_for(source_csv: Optional[str], suffix: str) -> str:
+        base = (source_csv or "unknown").replace(".csv", "")
+        if args.worker_count > 1:
+            base += f".worker_{args.worker_id}"
+        return base + suffix
 
     def get_output_handle(source_csv: Optional[str]):
         """Return a file handle in append mode for the given source CSV.
@@ -761,13 +858,17 @@ def main():
         With concurrency, each worker writes to a worker-specific JSONL so two
         workers never share a write target.
         """
-        base = (source_csv or "unknown").replace(".csv", "")
-        if args.worker_count > 1:
-            base += f".worker_{args.worker_id}"
-        key = base + ".propositions.jsonl"
+        key = _key_for(source_csv, ".propositions.jsonl")
         if key not in open_files:
             open_files[key] = (output_dir / key).open("a")
         return open_files[key]
+
+    def get_dropped_handle(source_csv: Optional[str]):
+        """Append-mode handle for the per-CSV dropped-propositions sidecar."""
+        key = _key_for(source_csv, ".propositions.dropped.jsonl")
+        if key not in dropped_files:
+            dropped_files[key] = (output_dir / key).open("a")
+        return dropped_files[key]
 
     try:
         for i, doc in enumerate(docs, 1):
@@ -782,8 +883,11 @@ def main():
                 "doc_event_name": doc.get("event_name"),
                 "source_s3_file": doc.get("_source_s3_file"),
                 "source_body_csv": doc.get("_body_csv"),
-                "extractor_model": args.model,
+                "extractor_model": effective_model,
+                "extractor_cli_model": args.model,
+                "extractor_backend": args.gai_source or os.getenv("GAI_DEFAULT_SOURCE", "proxy"),
                 "extractor_version": PROPOSITION_PROMPT_VERSION,
+                "post_filter_applied": not args.no_post_filter,
                 "extracted_at": datetime.utcnow().isoformat(),
                 "runs": {},
             }
@@ -808,12 +912,36 @@ def main():
                     stats["errors"].append({"doc_id": doc["doc_id"], "source": src, "error": err})
                 else:
                     consecutive_failures = 0
-                    props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
-                    run_entry["propositions"] = props
-                    run_entry["proposition_count"] = len(props)
-                    stats["total_propositions"] += len(props)
-                    if props:
+                    raw_props = parsed.get("propositions", []) if isinstance(parsed, dict) else []
+                    if args.no_post_filter:
+                        kept_props, dropped_props = list(raw_props), []
+                    else:
+                        kept_props, dropped_props = [], []
+                        for p in raw_props:
+                            keep, reason = should_keep_proposition(p)
+                            if keep:
+                                kept_props.append(p)
+                            else:
+                                p_with_reason = dict(p)
+                                p_with_reason["_drop_reason"] = reason
+                                p_with_reason["_source"] = src
+                                p_with_reason["_doc_id"] = doc["doc_id"]
+                                dropped_props.append(p_with_reason)
+                                stats["propositions_dropped"][reason or "unknown"] = (
+                                    stats["propositions_dropped"].get(reason or "unknown", 0) + 1
+                                )
+                    run_entry["propositions"] = kept_props
+                    run_entry["proposition_count"] = len(kept_props)
+                    if dropped_props:
+                        run_entry["dropped_count"] = len(dropped_props)
+                    stats["total_propositions"] += len(kept_props)
+                    if kept_props:
                         any_propositions = True
+                    if batch_mode and dropped_props:
+                        fh = get_dropped_handle(doc.get("_body_csv"))
+                        for dp in dropped_props:
+                            fh.write(json.dumps(dp, default=str, ensure_ascii=False) + "\n")
+                        fh.flush()
                 record["runs"][src] = run_entry
 
             if not any_propositions:
@@ -835,6 +963,8 @@ def main():
                 break
     finally:
         for fh in open_files.values():
+            fh.close()
+        for fh in dropped_files.values():
             fh.close()
 
     elapsed = time.time() - started
@@ -861,7 +991,12 @@ def main():
     print(f"  docs_processed:         {stats['docs_processed']}")
     print(f"  docs_with_propositions: {stats['docs_with_propositions']}")
     print(f"  docs_failed:            {stats['docs_failed']}")
-    print(f"  total_propositions:     {stats['total_propositions']}")
+    print(f"  total_propositions:     {stats['total_propositions']} (kept after post-filter)")
+    if stats.get("propositions_dropped"):
+        total_dropped = sum(stats["propositions_dropped"].values())
+        print(f"  propositions_dropped:   {total_dropped}")
+        for reason, count in sorted(stats["propositions_dropped"].items(), key=lambda x: -x[1]):
+            print(f"    {reason}: {count}")
     if not batch_mode and args.input_text == "both":
         print("\n  per-doc proposition counts (distilled vs body):")
         print(f"  {'doc_id':<40}  {'distilled':>10}  {'body':>10}  {'delta':>6}")
