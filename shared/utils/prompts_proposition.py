@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.6"
+PROPOSITION_PROMPT_VERSION = "v0.7"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -44,8 +44,12 @@ DO NOT emit propositions for:
 - Speculation or analyst commentary about consequences ("This visit could lead to...").
 - DOMESTIC POLICY OR INTERNAL AFFAIRS: any claim where the initiator_country and recipient_country would be the SAME country (e.g. China imposes a tax on its own citizens; Iran addresses its own population; a head of state congratulates a domestic newspaper). Soft power flows BETWEEN countries; it is not a domestic act. If the only recipient of an action is the initiator country itself (or the initiator country's own institutions, citizens, or media), DROP the proposition.
 - Multilateral statements with no identifiable foreign recipient ("China affirmed it is ready to work with all countries to promote peace") unless a specific foreign actor or country is named.
+- ACTS BY PRIVATE INDIVIDUALS WITH NO STATE LINK: celebrities (actors, athletes, musicians, social-media figures) expressing personal opinions or running personal charity drives; private companies acting purely commercially without state backing; independent artists, journalists, or activists. These are personal acts, not country-level soft power. Drop the proposition.
+  EXCEPTION — KEEP if the individual is acting in an official state, ministry, SOE, or state-affiliated NGO capacity (presidents, ministers, ambassadors, state-media editors, state-owned enterprise executives acting in their official role).
+  Examples to DROP: "Jackie Chan expressed sorrow over Gaza"; "Hollywood actors raised $2M for Palestine"; "an Egyptian researcher published a book about China" (private scholar, no state link).
+  Examples to KEEP: "Xi Jinping sent a congratulatory message" (head of state); "Lin Xin expressed appreciation" (vice minister); "Sinopec announced a refinery investment" (state-owned enterprise); "Confucius Institute opened a branch" (state-affiliated cultural body).
 
-When in doubt: does this proposition describe a specific act, statement, or commitment by an identifiable actor toward an identifiable foreign actor or country? If either side resolves to the same country as the other, or if the recipient is not identifiable as foreign, drop it.
+When in doubt: does this proposition describe a specific act, statement, or commitment by an identifiable state/ministry/SOE/multilateral actor toward an identifiable foreign actor or country? If the actor is a private individual or company with no state link, drop it.
 
 ==============================
 SOFT-POWER DIRECTION (read carefully)
@@ -65,6 +69,17 @@ Source sentence: "Egypt's Minister of Communications traveled to Beijing to part
 - recipient_country: "Egypt"   <-- Egypt is being influenced
 - initiator_actor: "Ministry of Industry and Information Technology of China"
 - recipient_actor: "Ministry of Communications and Information Technology of Egypt"
+
+WORKED EXAMPLE OF PASSIVE ADMIRATION (also inverts direction)
+Source sentence: "Egyptian professors and Saudi research centers conduct studies to understand Chinese policies and society."
+- subject: "Egyptian professors and Saudi research centers" (grammatical actor)
+- predicate: "conduct studies to understand"
+- object: "Chinese policies and society"
+- initiator_country: "China"   <-- China is the SOURCE of attraction; its policies are being studied
+- recipient_country: "Egypt" (or "Saudi Arabia" — one proposition per recipient)
+- mechanism: "attraction"
+
+Rule of thumb: if the grammatical subject is INFLUENCED BY, DRAWN TO, STUDYING, ADMIRING, IMITATING, or LEARNING FROM the grammatical object's country, the OBJECT'S country is the initiator (it is the source of attraction) and the SUBJECT'S country is the recipient (it is the audience being influenced).
 
 If a proposition is purely a statement BY the initiator country (e.g., "Lin Xin expressed appreciation for cooperation"), the speaker's country is still the initiator IF the statement is a soft-power instrument (praise, framing, commitment-signaling).
 
