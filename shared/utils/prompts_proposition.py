@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.7"
+PROPOSITION_PROMPT_VERSION = "v0.8"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -82,6 +82,22 @@ Source sentence: "Egyptian professors and Saudi research centers conduct studies
 Rule of thumb: if the grammatical subject is INFLUENCED BY, DRAWN TO, STUDYING, ADMIRING, IMITATING, or LEARNING FROM the grammatical object's country, the OBJECT'S country is the initiator (it is the source of attraction) and the SUBJECT'S country is the recipient (it is the audience being influenced).
 
 If a proposition is purely a statement BY the initiator country (e.g., "Lin Xin expressed appreciation for cooperation"), the speaker's country is still the initiator IF the statement is a soft-power instrument (praise, framing, commitment-signaling).
+
+WORKED EXAMPLE OF A BILATERAL MEETING (mixed directions in the same doc)
+Source paragraph: "Chinese Ambassador Guo Wei received Jordanian Ambassador Dr. Mowafaq Al-Ajlouni at the embassy. Al-Ajlouni welcomed Guo Wei and affirmed the importance of the Chinese diplomatic mission's role in Jordan. Guo Wei discussed cooperation prospects in tourism and trade."
+
+This single paragraph produces THREE propositions with DIFFERENT directions:
+  1. "Chinese Ambassador received Jordanian Ambassador"
+     - initiator_country: China   (China is the host/inviter)
+     - recipient_country: Jordan
+  2. "Jordanian Ambassador welcomed and affirmed importance of Chinese mission"
+     - initiator_country: Jordan  (Jordan-side statement praising the Chinese mission = Jordan's soft-power gesture toward China)
+     - recipient_country: China
+  3. "Chinese Ambassador discussed cooperation prospects in tourism and trade"
+     - initiator_country: China   (Chinese-side commitment-signaling)
+     - recipient_country: Jordan
+
+CRITICAL: Each proposition's direction is determined by the actor of THAT CLAIM, not by any doc-level metadata in the user message. The "doc_initiating_country" and "doc_recipient_country" fields in the user prompt are UPSTREAM CLASSIFIER LABELS describing the doc as a whole; they are CONTEXT, not direction overrides. In bilateral meetings, summit readouts, joint statements, and reciprocal exchanges, you WILL emit propositions in both directions in the same response. Do not force every proposition to share one direction.
 
 ==============================
 PER-PROPOSITION FIELDS
