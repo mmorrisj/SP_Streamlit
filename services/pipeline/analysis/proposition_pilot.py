@@ -773,6 +773,26 @@ def main():
             print(f"S3 output: {s3_output_uri}")
             print(f"Local working dir: {output_dir}")
             print(f"S3 sync every {args.s3_sync_every} records (plus on shutdown)")
+            # Fail-fast write check + make the prefix appear immediately so the
+            # operator can confirm the destination is wired up correctly.
+            try:
+                import json as _json
+                marker_name = f"_started_worker_{args.worker_id}.json"
+                marker_path = output_dir / marker_name
+                marker_path.write_text(_json.dumps({
+                    "worker_id": args.worker_id,
+                    "worker_count": args.worker_count,
+                    "started_at": datetime.utcnow().isoformat(),
+                    "filters": {"initiators": args.initiators, "start": args.start_date},
+                }, indent=2))
+                upload_files_to_s3(s3_output_uri, output_dir, [marker_name])
+                print(f"  [s3-sync] startup marker written to {s3_output_uri}{marker_name} "
+                      f"(write permission confirmed)")
+            except Exception as e:
+                print(f"  ERROR: cannot write to {s3_output_uri}: {e}")
+                print("  Check that this host's AWS credentials/role have s3:PutObject on the "
+                      "bucket/prefix. Aborting before any LLM cost is incurred.")
+                return
         else:
             output_dir = Path(args.output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -1039,8 +1059,14 @@ def main():
             if s3_output_uri and i % args.s3_sync_every == 0:
                 touched = set(open_files.keys()) | set(dropped_files.keys())
                 if touched:
-                    n = upload_files_to_s3(s3_output_uri, output_dir, touched)
-                    print(f"    [s3-sync] uploaded {n} file(s) to {s3_output_uri}", flush=True)
+                    try:
+                        n = upload_files_to_s3(s3_output_uri, output_dir, touched)
+                        print(f"    [s3-sync] uploaded {n} file(s) to {s3_output_uri}", flush=True)
+                    except Exception as e:
+                        # Don't crash mid-run on a transient S3 hiccup; the final
+                        # sync (and next periodic sync) will retry. Local files persist.
+                        print(f"    [s3-sync] WARNING: periodic upload failed: {e} "
+                              f"(will retry next sync; local files intact)", flush=True)
 
             if consecutive_failures >= FAIL_FAST_THRESHOLD and i < len(docs):
                 print(f"\nAborting: {consecutive_failures} consecutive LLM failures. "
