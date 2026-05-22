@@ -200,7 +200,8 @@ def upload_files_to_s3(s3_uri: str, local_dir: Path, filenames) -> int:
     return uploaded
 
 
-def load_body_csv_index(csv_paths: List[str]) -> Dict[str, Tuple[str, str]]:
+def load_body_csv_index(csv_paths: List[str],
+                        needed_ids: Optional[Set[str]] = None) -> Dict[str, Tuple[str, str]]:
     """Load ATOM CSV(s) and return {doc_id -> (body_text, source_csv_filename)}.
 
     Tracks which CSV provided each body so batch mode can route output to a
@@ -211,6 +212,11 @@ def load_body_csv_index(csv_paths: List[str]) -> Dict[str, Tuple[str, str]]:
     Column name candidates:
       doc id: 'ATOM ID', 'atom_id', 'doc_id'
       body:   'Body', 'BODY', 'body'
+
+    If needed_ids is provided, only rows whose doc_id is in that set are
+    retained. This keeps memory proportional to the docs this worker will
+    actually process (critical when running multiple concurrent workers -
+    otherwise each holds the full ~570k-row index in RAM).
     """
     import pandas as pd
     import tempfile
@@ -253,6 +259,8 @@ def load_body_csv_index(csv_paths: List[str]) -> Dict[str, Tuple[str, str]]:
         added = 0
         for _, row in df.iterrows():
             doc_id = str(row[id_col]).strip()
+            if needed_ids is not None and doc_id not in needed_ids:
+                continue
             body = str(row[body_col]).strip()
             if doc_id and body and doc_id not in index:
                 index[doc_id] = (body, path.name)
@@ -895,8 +903,12 @@ def main():
             print("ERROR: --input-text body|both requires --body-csv pointing to ATOM CSV file(s).")
             return
         print(f"Loading body text from CSV: {args.body_csv}")
-        body_index = load_body_csv_index(args.body_csv)
-        print(f"  body index size: {len(body_index)}")
+        # Only retain bodies for the docs this worker will process. With
+        # worker partitioning each worker holds ~1/worker_count of the docs,
+        # so memory stays bounded instead of every worker loading all ~570k rows.
+        needed_ids = {d["doc_id"] for d in docs}
+        body_index = load_body_csv_index(args.body_csv, needed_ids=needed_ids)
+        print(f"  body index size: {len(body_index)} (filtered to {len(needed_ids)} eligible doc_ids)")
         matched = 0
         for d in docs:
             entry = body_index.get(d["doc_id"])
