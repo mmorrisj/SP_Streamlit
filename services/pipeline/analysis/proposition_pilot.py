@@ -757,6 +757,9 @@ def main():
                          "Looks up by ATOM ID column.")
     args = ap.parse_args()
 
+    print(f"[startup] proposition_pilot worker {args.worker_id}/{args.worker_count} "
+          f"reached main() (imports OK)", flush=True)
+
     if args.worker_count < 1 or args.worker_id < 0 or args.worker_id >= args.worker_count:
         ap.error(f"Invalid worker config: worker_id={args.worker_id}, worker_count={args.worker_count}. "
                  f"Require worker_count >= 1 and 0 <= worker_id < worker_count.")
