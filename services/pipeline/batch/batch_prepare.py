@@ -69,6 +69,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
     JOB_TYPE_EVENT_RENAME,
+    JOB_TYPE_PROPOSITION_EXTRACT,
     get_batch_file_path,
     get_model_for_job_type,
     DEFAULT_TEMPERATURE,
@@ -2109,6 +2110,155 @@ def load_documents_for_entity_extraction(
     return result
 
 
+def load_docs_for_proposition_extract(
+    s3_prefix: str = "dsr_extracts/",
+    s3_files: Optional[List[str]] = None,
+    filename_contains: Optional[List[str]] = None,
+    initiators: Optional[List[str]] = None,
+    recipients: Optional[List[str]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    body_csv: Optional[List[str]] = None,
+    input_text: str = "body",
+    limit: int = 10_000_000,
+) -> List[Dict[str, Any]]:
+    """Load eligible DSR docs from S3 for proposition extraction.
+
+    Reuses the same filter + body-lookup logic as proposition_pilot's batch
+    mode so the two paths produce identical input universes. Returns a list
+    of dicts with everything needed downstream (both for the LLM prompt and
+    for the post-processing record reconstruction).
+
+    Args:
+        s3_prefix: S3 prefix for DSR JSON files (default: dsr_extracts/).
+        s3_files: Specific filenames within s3_prefix to process.
+        filename_contains: Substring filter on filenames (case-insensitive,
+            ANY match keeps the file). Cheap way to prune 90 files down.
+        initiators / recipients: Country allowlists. None falls back to
+            shared/config/config.yaml's influencers / recipients.
+        start_date / end_date: YYYY-MM-DD strings.
+        body_csv: List of CSV sources (local paths, directories, or
+            s3://bucket/prefix/ URIs) supplying body text per ATOM ID.
+            Required when input_text is body or both.
+        input_text: "distilled" | "body". (No "both" for batch - one source
+            per job.)
+        limit: Max docs to include.
+
+    Returns:
+        List of dicts; each contains doc_id, doc_date, doc_title, country
+        fields, event_name, source_s3_file, source_body_csv, distilled_text,
+        body_text, and input_text_source (which one will be used for the LLM
+        call). Docs missing the requested input_text are filtered out.
+    """
+    # Import lazily to avoid cycles: proposition_pilot imports from batch
+    # config via shared modules, and we want this module to load even if
+    # proposition_pilot's dotenv side-effects haven't run.
+    from services.pipeline.analysis.proposition_pilot import (
+        iter_eligible_docs,
+        load_body_csv_index,
+        load_country_lists_from_config,
+    )
+
+    if initiators is None and recipients is None:
+        initiators, recipients = load_country_lists_from_config()
+        print(f"[proposition_extract] Filters from config.yaml: "
+              f"{len(initiators)} initiators, {len(recipients)} recipients")
+
+    start_d = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+    end_d = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+
+    if input_text not in ("distilled", "body"):
+        raise ValueError(f"input_text must be 'distilled' or 'body' (got {input_text!r})")
+
+    print(f"[proposition_extract] Scanning S3 prefix={s3_prefix} "
+          f"input_text={input_text} limit={limit}")
+    docs = list(iter_eligible_docs(
+        s3_prefix=s3_prefix,
+        specific_files=s3_files,
+        initiators=initiators,
+        recipients=recipients,
+        start_date=start_d,
+        end_date=end_d,
+        limit=limit,
+        filename_contains=filename_contains,
+    ))
+    print(f"[proposition_extract] {len(docs)} eligible docs after filters")
+
+    if input_text == "body":
+        if not body_csv:
+            raise ValueError("input_text='body' requires body_csv source(s)")
+        print(f"[proposition_extract] Loading body text from CSV: {body_csv}")
+        body_index = load_body_csv_index(body_csv)
+        print(f"[proposition_extract] body index size: {len(body_index)}")
+        matched = 0
+        for d in docs:
+            entry = body_index.get(d["doc_id"])
+            if entry:
+                d["body_text"], d["_body_csv"] = entry
+                matched += 1
+        print(f"[proposition_extract] body_text matched on {matched}/{len(docs)} docs")
+        # Drop docs with no body match - they can't be processed in body mode
+        before = len(docs)
+        docs = [d for d in docs if d.get("body_text")]
+        print(f"[proposition_extract] dropped {before - len(docs)} docs with no body match")
+    else:
+        # Distilled-only: drop docs with no distilled_text (rare; filter already
+        # rejected most via no_distilled_text, this is a defensive second pass).
+        before = len(docs)
+        docs = [d for d in docs if d.get("distilled_text")]
+        if before - len(docs):
+            print(f"[proposition_extract] dropped {before - len(docs)} docs missing distilled_text")
+
+    # Build the records the batch pipeline expects - one per doc.
+    result: List[Dict[str, Any]] = []
+    for d in docs:
+        result.append({
+            "doc_id": d["doc_id"],
+            "doc_date": str(d.get("date")) if d.get("date") else None,
+            "doc_title": d.get("title"),
+            "doc_initiating_country": d.get("initiating_country"),
+            "doc_recipient_country": d.get("recipient_country"),
+            "doc_event_name": d.get("event_name"),
+            "source_s3_file": d.get("_source_s3_file"),
+            "source_body_csv": d.get("_body_csv"),
+            "distilled_text": d.get("distilled_text"),
+            "body_text": d.get("body_text"),
+            "input_text_source": input_text,
+        })
+    return result
+
+
+def build_proposition_extract_prompt(doc: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
+    """Build the messages array for one proposition extraction request.
+
+    Pairs the project's proposition_extraction_prompt (v0.5+) as the system
+    message with a structured user message containing the doc metadata and
+    the chosen input text (body or distilled).
+    """
+    from shared.utils.prompts_proposition import proposition_extraction_prompt
+
+    src = doc.get("input_text_source", "distilled")
+    text = doc.get("body_text") if src == "body" else doc.get("distilled_text")
+    if not text:
+        # Should not happen if load_docs_for_proposition_extract did its job.
+        raise ValueError(f"No {src} text for doc {doc.get('doc_id')!r}")
+
+    user_msg = (
+        f"doc_id: {doc.get('doc_id')}\n"
+        f"date: {doc.get('doc_date')}\n"
+        f"title: {doc.get('doc_title')}\n"
+        f"doc_initiating_country: {doc.get('doc_initiating_country')}\n"
+        f"doc_recipient_country: {doc.get('doc_recipient_country')}\n"
+        f"{src}:\n{text}"
+    )
+    return {
+        "messages": [
+            {"role": "system", "content": proposition_extraction_prompt},
+            {"role": "user", "content": user_msg},
+        ]
+    }
+
+
 # ---- Entity Description Generation ----
 
 ENTITY_DESCRIPTION_SYS_PROMPT = (
@@ -3073,6 +3223,24 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_PROPOSITION_EXTRACT:
+        # records is a list of doc dicts from load_docs_for_proposition_extract
+        for doc in records:
+            custom_id = generate_custom_id(job_type, doc['doc_id'])
+            prompt_data = build_proposition_extract_prompt(doc)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": temperature,
+                    "response_format": response_format
+                }
+            })
+
     return batch_requests
 
 
@@ -3124,7 +3292,8 @@ def main():
                                JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
                                JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
                                JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
-                               JOB_TYPE_EVENT_RENAME],
+                               JOB_TYPE_EVENT_RENAME,
+                               JOB_TYPE_PROPOSITION_EXTRACT],
                        help='Type of batch job to prepare')
     parser.add_argument('--model', type=str,
                        help='OpenAI model to use (default: auto-detect from job type)')
@@ -3154,6 +3323,24 @@ def main():
                        help='Period type filter for summary materiality scoring (default: all)')
 
     # Output configuration
+    # Proposition extraction specific
+    parser.add_argument('--s3-prefix', type=str, default='dsr_extracts/',
+                        help='[proposition_extract] S3 prefix for DSR JSON files')
+    parser.add_argument('--s3-files', nargs='+',
+                        help='[proposition_extract] Specific DSR filenames within --s3-prefix')
+    parser.add_argument('--filename-contains', nargs='+', default=None,
+                        help='[proposition_extract] Substring filter on DSR filenames before download')
+    parser.add_argument('--initiators', type=str,
+                        help='[proposition_extract] Comma-separated initiator allowlist (defaults to config influencers)')
+    parser.add_argument('--recipients', type=str,
+                        help='[proposition_extract] Comma-separated recipient allowlist (defaults to config recipients)')
+    parser.add_argument('--body-csv', nargs='+', default=None,
+                        help='[proposition_extract] ATOM CSV source(s): file, directory, or s3://bucket/prefix/')
+    parser.add_argument('--input-text', choices=['distilled', 'body'], default='body',
+                        help='[proposition_extract] Which text to feed the LLM (default: body)')
+    parser.add_argument('--limit', type=int, default=10_000_000,
+                        help='[proposition_extract] Cap on docs to include')
+
     parser.add_argument('--output', type=str, help='Output JSONL file path (optional, auto-generated if not provided)')
     parser.add_argument('--dry-run', action='store_true', help='Preview without creating files or database records')
     parser.add_argument('--verbose', action='store_true', default=True, help='Verbose output')
@@ -3348,6 +3535,24 @@ def main():
             )
             print(f"Found {len(records)} raw events for rename")
 
+        elif args.job_type == JOB_TYPE_PROPOSITION_EXTRACT:
+            # S3-driven loader; no DB query. session arg is unused for this path.
+            initiators = [c.strip() for c in args.initiators.split(",")] if args.initiators else None
+            recipients = [c.strip() for c in args.recipients.split(",")] if args.recipients else None
+            records = load_docs_for_proposition_extract(
+                s3_prefix=args.s3_prefix,
+                s3_files=args.s3_files,
+                filename_contains=args.filename_contains,
+                initiators=initiators,
+                recipients=recipients,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                body_csv=args.body_csv,
+                input_text=args.input_text,
+                limit=args.limit,
+            )
+            print(f"Found {len(records)} docs for proposition extraction")
+
         else:
             print(f"Error: Unsupported job type: {args.job_type}")
             return
@@ -3424,6 +3629,30 @@ def main():
             # Write JSONL file
             print(f"Writing JSONL file to: {output_file}")
             write_jsonl(output_file, batch_requests)
+
+            # For proposition_extract, also write a sidecar metadata JSON so
+            # the post-process step can reconstruct per-doc output records
+            # (source_body_csv, doc_title, countries, etc.) without re-fetching
+            # from S3. The sidecar is keyed by doc_id and lives next to the
+            # input JSONL with suffix _metadata.json.
+            if args.job_type == JOB_TYPE_PROPOSITION_EXTRACT:
+                import json as _json
+                sidecar_path = output_file.replace('.jsonl', '_metadata.json')
+                sidecar: Dict[str, Dict[str, Any]] = {}
+                for doc in chunk:
+                    sidecar[doc['doc_id']] = {
+                        'doc_date': doc.get('doc_date'),
+                        'doc_title': doc.get('doc_title'),
+                        'doc_initiating_country': doc.get('doc_initiating_country'),
+                        'doc_recipient_country': doc.get('doc_recipient_country'),
+                        'doc_event_name': doc.get('doc_event_name'),
+                        'source_s3_file': doc.get('source_s3_file'),
+                        'source_body_csv': doc.get('source_body_csv'),
+                        'input_text_source': doc.get('input_text_source'),
+                    }
+                with open(sidecar_path, 'w') as _f:
+                    _json.dump(sidecar, _f, indent=2, default=str, ensure_ascii=False)
+                print(f"Writing proposition metadata sidecar to: {sidecar_path}")
 
             import os as _os
             file_size_mb = _os.path.getsize(output_file) / (1024 * 1024)

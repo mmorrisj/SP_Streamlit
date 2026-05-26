@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -45,6 +45,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
     JOB_TYPE_CLASSIFY_ENTITY_RELATIONSHIPS,
     JOB_TYPE_EVENT_RENAME,
+    JOB_TYPE_PROPOSITION_EXTRACT,
     DEFAULT_CHECKPOINT_FREQUENCY
 )
 from services.pipeline.batch.batch_tracker import BatchJobTracker
@@ -2089,6 +2090,130 @@ def process_event_rename_result(
         raise
 
 
+# ===================================================================
+# proposition_extract: cache + processor + sidecar loader
+# ===================================================================
+# Module-level caches keyed by input JSONL path so we don't re-load the
+# sidecar metadata and don't re-open output file handles per record.
+_PROPOSITION_SIDECAR_CACHE: Dict[str, Dict[str, Dict[str, Any]]] = {}
+_PROPOSITION_OUTPUT_HANDLES: Dict[str, Any] = {}
+_PROPOSITION_OUTPUT_DIR: Optional[str] = None
+
+
+def _proposition_load_sidecar(input_file_path: str) -> Dict[str, Dict[str, Any]]:
+    """Load the per-doc metadata sidecar written by batch_prepare."""
+    if input_file_path in _PROPOSITION_SIDECAR_CACHE:
+        return _PROPOSITION_SIDECAR_CACHE[input_file_path]
+    sidecar_path = input_file_path.replace('.jsonl', '_metadata.json')
+    if not Path(sidecar_path).exists():
+        print(f"  Warning: proposition metadata sidecar not found at {sidecar_path}; "
+              f"records will be written with empty doc metadata")
+        _PROPOSITION_SIDECAR_CACHE[input_file_path] = {}
+        return {}
+    import json as _json
+    with open(sidecar_path) as f:
+        data = _json.load(f)
+    _PROPOSITION_SIDECAR_CACHE[input_file_path] = data
+    print(f"  Loaded sidecar metadata: {len(data)} docs from {sidecar_path}")
+    return data
+
+
+def _proposition_get_handle(source_csv: Optional[str]) -> Any:
+    """Open (or reuse) the append-mode file handle for the given source CSV."""
+    global _PROPOSITION_OUTPUT_DIR
+    if _PROPOSITION_OUTPUT_DIR is None:
+        # Default sink: <repo>/pilot_outputs/proposition_batch/ - overridable via env.
+        import os as _os
+        _PROPOSITION_OUTPUT_DIR = _os.environ.get(
+            "PROPOSITION_BATCH_OUTPUT_DIR",
+            str(Path(__file__).parent.parent.parent.parent / "pilot_outputs" / "proposition_batch"),
+        )
+        Path(_PROPOSITION_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    key = (source_csv or "unknown_csv").replace(".csv", "") + ".propositions.jsonl"
+    if key not in _PROPOSITION_OUTPUT_HANDLES:
+        path = Path(_PROPOSITION_OUTPUT_DIR) / key
+        _PROPOSITION_OUTPUT_HANDLES[key] = path.open("a")
+    return _PROPOSITION_OUTPUT_HANDLES[key]
+
+
+def proposition_close_output_handles():
+    """Close all proposition output handles. Called at end of run."""
+    for fh in _PROPOSITION_OUTPUT_HANDLES.values():
+        try:
+            fh.close()
+        except Exception:
+            pass
+    _PROPOSITION_OUTPUT_HANDLES.clear()
+
+
+def process_proposition_extract_result(
+    session,
+    doc_id: str,
+    llm_response: Dict[str, Any],
+    input_file_path: Optional[str] = None,
+    verbose: bool = False,
+) -> Dict[str, Any]:
+    """Parse a batch result for a proposition extraction request and write
+    one JSONL record to the per-CSV output file.
+
+    Args:
+        session: SQLAlchemy session (unused for the JSONL sink, but kept
+            to match the dispatcher signature used by other processors).
+        doc_id: The doc_id parsed from custom_id.
+        llm_response: The parsed JSON returned by the LLM, expected shape
+            { "doc_id": ..., "propositions": [...] }.
+        input_file_path: Path to the input JSONL (used to find the sidecar
+            metadata JSON written by batch_prepare).
+        verbose: Print per-record info.
+    """
+    stats = {"records_written": 0, "propositions": 0, "errors": 0}
+
+    try:
+        sidecar = _proposition_load_sidecar(input_file_path) if input_file_path else {}
+        meta = sidecar.get(doc_id, {})
+
+        if not isinstance(llm_response, dict):
+            if verbose:
+                print(f"  proposition_extract {doc_id}: unexpected response shape {type(llm_response).__name__}")
+            stats["errors"] += 1
+            return stats
+
+        props = llm_response.get("propositions", []) if isinstance(llm_response, dict) else []
+        if not isinstance(props, list):
+            props = []
+
+        record = {
+            "doc_id": doc_id,
+            "doc_date": meta.get("doc_date"),
+            "doc_title": meta.get("doc_title"),
+            "doc_initiating_country": meta.get("doc_initiating_country"),
+            "doc_recipient_country": meta.get("doc_recipient_country"),
+            "doc_event_name": meta.get("doc_event_name"),
+            "source_s3_file": meta.get("source_s3_file"),
+            "source_body_csv": meta.get("source_body_csv"),
+            "input_text_source": meta.get("input_text_source"),
+            "extracted_at": datetime.utcnow().isoformat(),
+            "propositions": props,
+        }
+
+        import json as _json
+        fh = _proposition_get_handle(meta.get("source_body_csv"))
+        fh.write(_json.dumps(record, default=str, ensure_ascii=False) + "\n")
+        fh.flush()
+
+        stats["records_written"] = 1
+        stats["propositions"] = len(props)
+        if verbose:
+            print(f"  proposition_extract {doc_id}: wrote {len(props)} propositions to "
+                  f"{meta.get('source_body_csv') or 'unknown_csv'}")
+        return stats
+
+    except Exception as e:
+        print(f"  Error processing proposition_extract result for {doc_id}: {e}")
+        stats["errors"] += 1
+        return stats
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Stage 4: Process batch results and update database",
@@ -2271,6 +2396,13 @@ def main():
                                 stats = process_event_rename_result(
                                     session, record_id, llm_response, verbose=args.verbose
                                 )
+                            elif job_type == JOB_TYPE_PROPOSITION_EXTRACT:
+                                # JSONL sink, not DB - sidecar metadata routes per-CSV.
+                                stats = process_proposition_extract_result(
+                                    session, record_id, llm_response,
+                                    input_file_path=batch_job.input_file_path,
+                                    verbose=args.verbose,
+                                )
                             else:
                                 savepoint.rollback()
                                 print(f"  Warning: Unknown job type '{job_type}' for {custom_id}")
@@ -2342,6 +2474,12 @@ def main():
             elif batch_job.job_type == JOB_TYPE_EVENT_RENAME:
                 print(f"Events renamed: {overall_stats.get('events_renamed', 0)}")
                 print(f"Skipped (low confidence): {overall_stats.get('skipped_low_confidence', 0)}")
+            elif batch_job.job_type == JOB_TYPE_PROPOSITION_EXTRACT:
+                proposition_close_output_handles()
+                print(f"Records written: {overall_stats.get('records_written', 0)}")
+                print(f"Propositions extracted: {overall_stats.get('propositions', 0)}")
+                if _PROPOSITION_OUTPUT_DIR:
+                    print(f"Output directory: {_PROPOSITION_OUTPUT_DIR}")
 
             print("=" * 80)
 
