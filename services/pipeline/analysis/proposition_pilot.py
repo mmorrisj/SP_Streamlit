@@ -628,19 +628,30 @@ def should_keep_proposition(prop: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     if not isinstance(prop, dict):
         return False, "non_dict"
 
-    init_c = (prop.get("initiator_country") or "").strip().lower() or None
-    recip_c = (prop.get("recipient_country") or "").strip().lower() or None
-    recip_actor = (prop.get("recipient_actor") or "").strip() or None
+    def _coerce_str(val: Any) -> str:
+        """LLMs occasionally return lists/dicts where strings are expected.
+        Coerce defensively rather than crashing the worker."""
+        if val is None:
+            return ""
+        if isinstance(val, str):
+            return val
+        if isinstance(val, list):
+            return " ".join(_coerce_str(v) for v in val)
+        return str(val)
+
+    init_c = _coerce_str(prop.get("initiator_country")).strip().lower() or None
+    recip_c = _coerce_str(prop.get("recipient_country")).strip().lower() or None
+    recip_actor = _coerce_str(prop.get("recipient_actor")).strip() or None
 
     # Rule 1: no identifiable foreign recipient
     if recip_c is None and recip_actor is None:
         return False, "no_foreign_recipient"
 
     # Rule 2: private individual without a state title in actor or subject
-    if (prop.get("initiator_actor_type") or "").strip().lower() == "individual":
+    if _coerce_str(prop.get("initiator_actor_type")).strip().lower() == "individual":
         haystack = " ".join([
-            prop.get("initiator_actor") or "",
-            prop.get("subject") or "",
+            _coerce_str(prop.get("initiator_actor")),
+            _coerce_str(prop.get("subject")),
         ]).lower()
         if not any(m in haystack for m in _STATE_TITLE_MARKERS):
             return False, "private_individual"
