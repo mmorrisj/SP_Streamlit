@@ -1,0 +1,172 @@
+# ============================================
+# Enterprise Deployment - External / Hosted PostgreSQL
+#
+# Use this stack when the database is provided by an enterprise-managed
+# PostgreSQL service (e.g. internal pg18 + pgvector) instead of a
+# self-hosted pgvector container.
+#
+# Differences from docker-compose.production.yml:
+#   - NO `db` service and NO `prod_pgdata` volume. The database lives on
+#     the hosted service; this stack only runs the app + Redis (+ migrate).
+#   - DB connection points at ${DB_HOST}:${DB_PORT} from .env (the hosted
+#     service), NOT 127.0.0.1. There is no `depends_on: db`.
+#   - ENVIRONMENT=production by default, which makes the app connect with
+#     sslmode=require (shared/database/database.py). Set ENVIRONMENT to a
+#     non-production value in .env if the hosted service does not offer TLS.
+#
+# NETWORKING: still uses host networking (network_mode: host) so it works
+# on hardened enterprise / kiosk Docker daemons that cannot create
+# per-container network namespaces. Services reach the host-side LLM/S3
+# proxy and Redis via 127.0.0.1:<port>; the database is reached over the
+# network at ${DB_HOST}:${DB_PORT}.
+#
+# Prerequisites on the hosted service (one-time, done by you or a DBA):
+#   CREATE DATABASE softpower_db;
+#   CREATE EXTENSION IF NOT EXISTS vector;
+#   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+#
+# Usage:
+#   # First time — run migrations against the hosted DB:
+#   docker compose -f docker-compose.enterprise.yml --profile migrate up
+#
+#   # Start the stack:
+#   docker compose -f docker-compose.enterprise.yml up -d
+#
+#   # Tear down (the hosted DB is untouched):
+#   docker compose -f docker-compose.enterprise.yml down
+#
+# Or use scripts/docker/enterprise-deploy.sh which wraps all of the above
+# with connectivity / extension pre-flight checks.
+# ============================================
+
+name: softpower_enterprise
+
+services:
+  # -----------------------
+  # Redis Cache
+  # Bound to 127.0.0.1 only — host networking exposes ports on the host.
+  # Replace image with your enterprise hardened Redis image if required
+  # (e.g., dhi/redis:7) via the REDIS_IMAGE env var.
+  # -----------------------
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    container_name: sp_ent_redis
+    restart: unless-stopped
+    network_mode: host
+    command: ["redis-server", "--bind", "127.0.0.1", "--port", "${REDIS_PORT:-6379}"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "${REDIS_PORT:-6379}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # -----------------------
+  # SoftPower Analytics (FastAPI + Streamlit via supervisord)
+  # Single consolidated container from Docker Hub.
+  # Binds host:${API_PORT:-8000} (FastAPI) and host:${STREAMLIT_PORT:-8501} (Streamlit).
+  # Connects to the hosted PostgreSQL at ${DB_HOST}:${DB_PORT}.
+  # -----------------------
+  app:
+    image: ${APP_IMAGE:-mmorrisj/softpower-analytics:1.8.6}
+    container_name: sp_ent_app
+    restart: unless-stopped
+    network_mode: host
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      DOCKER_ENV: "true"
+      # ENVIRONMENT=production => app connects with sslmode=require.
+      # Override in .env (e.g. ENVIRONMENT=enterprise) to disable TLS enforcement.
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      # ---- Hosted database connection (from .env) ----
+      DB_HOST: ${DB_HOST:?Set DB_HOST to the hosted PostgreSQL host in .env}
+      DB_PORT: ${DB_PORT:-5432}
+      POSTGRES_HOST: ${DB_HOST:?Set DB_HOST to the hosted PostgreSQL host in .env}
+      POSTGRES_PORT: ${DB_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
+      # be URL-encoded here. The app also builds the URL from individual vars
+      # (with auto-encoding), so you can omit DATABASE_URL entirely and rely on
+      # DB_HOST/DB_PORT/POSTGRES_* above.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@${DB_HOST:?Set DB_HOST in .env}:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      API_PORT: ${API_PORT:-8000}
+      STREAMLIT_PORT: ${STREAMLIT_PORT:-8501}
+      # Host-side proxy for LLM/S3 calls — runs on the same host, reachable at 127.0.0.1
+      # LLM_PROXY_PORT defaults to 7001; set LLM_PROXY_PORT in .env to override
+      API_URL: http://127.0.0.1:${LLM_PROXY_PORT:-7001}
+      S3_PROXY_URL: http://127.0.0.1:${LLM_PROXY_PORT:-7001}
+      USE_S3_API_CLIENT: "true"
+      # Pass through credentials from .env (will be empty if not set)
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # Connection pooling
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+      # HuggingFace offline mode (model baked into image)
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      HF_HOME: /app/.cache/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
+      TIKTOKEN_CACHE_DIR: /app/.cache/tiktoken
+      REDIS_URL: redis://127.0.0.1:${REDIS_PORT:-6379}/0
+      JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+    volumes:
+      # Persist reports to host
+      - ./reports:/app/reports
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # -----------------------
+  # Alembic Migrations (run once with --profile migrate)
+  # Targets the hosted database — no db container dependency.
+  # -----------------------
+  migrate:
+    image: ${APP_IMAGE:-mmorrisj/softpower-analytics:1.8.6}
+    container_name: sp_ent_migrate
+    network_mode: host
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      DOCKER_ENV: "true"
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DB_HOST: ${DB_HOST:?Set DB_HOST to the hosted PostgreSQL host in .env}
+      DB_PORT: ${DB_PORT:-5432}
+      POSTGRES_HOST: ${DB_HOST:?Set DB_HOST to the hosted PostgreSQL host in .env}
+      POSTGRES_PORT: ${DB_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
+      # be URL-encoded here. The app also builds the URL from individual vars
+      # (with auto-encoding) so you can omit DATABASE_URL entirely.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@${DB_HOST:?Set DB_HOST in .env}:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    command: alembic upgrade head
+    profiles:
+      - migrate
+
+# -----------------------
+# No volumes and no networks blocks:
+#   - No `prod_pgdata` volume — the database is hosted externally.
+#   - No `networks:` block — all services use host networking, which avoids
+#     the per-container netns bind mount that fails on kiosk hosts.
+# -----------------------
