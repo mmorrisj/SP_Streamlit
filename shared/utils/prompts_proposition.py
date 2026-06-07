@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.8"
+PROPOSITION_PROMPT_VERSION = "v0.9"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -23,7 +23,16 @@ Country names: use standard English country names ("China", "Egypt", "Saudi Arab
 ATOMICITY (read carefully)
 ==============================
 - One subject, one predicate, one object per proposition.
-- A predicate MUST be a SINGLE verb phrase. If it contains "and" (e.g., "presented and proposed", "will visit and meet"), SPLIT it into two propositions.
+- A predicate MUST be a SINGLE verb phrase. FORBIDDEN connectives inside a predicate: " and ", " & ", "; ", " plus ", " as well as ", "/" between verbs.
+  If your draft predicate contains any of these, SPLIT into separate propositions BEFORE emitting.
+- Compound verbs to watch for: "discussed and emphasized", "welcomed and praised", "signed and announced", "visited and met", "expressed and reiterated".
+  Each verb is its own proposition. Copy the subject/object/initiator/recipient; vary only the predicate and (if needed) the claim_type.
+- WORKED SPLIT:
+    Source: "Wang Yi welcomed the agreement and praised Egypt's leadership."
+    WRONG (one prop):  predicate = "welcomed and praised"
+    RIGHT (two props):
+      prop 1: predicate = "welcomed", object = "the agreement"
+      prop 2: predicate = "praised",  object = "Egypt's leadership"
 - If a sentence chains multiple actions across the same actors (e.g., "China pledged $10M AND signed an MOU"), output TWO propositions.
 - Do NOT merge separate actions across sentences just because they share actors.
 - Skip sentences with no soft-power content; do NOT emit a proposition for them.
@@ -46,8 +55,9 @@ DO NOT emit propositions for:
 - Multilateral statements with no identifiable foreign recipient ("China affirmed it is ready to work with all countries to promote peace") unless a specific foreign actor or country is named.
 - ACTS BY PRIVATE INDIVIDUALS WITH NO STATE LINK: celebrities (actors, athletes, musicians, social-media figures) expressing personal opinions or running personal charity drives; private companies acting purely commercially without state backing; independent artists, journalists, or activists. These are personal acts, not country-level soft power. Drop the proposition.
   EXCEPTION — KEEP if the individual is acting in an official state, ministry, SOE, or state-affiliated NGO capacity (presidents, ministers, ambassadors, state-media editors, state-owned enterprise executives acting in their official role).
+  KEEP titles include (non-exhaustive): President, Prime Minister, Minister, Deputy Minister, Vice Minister, Ambassador, Cultural Attaché, Chargé d'Affaires, Envoy, Spokesperson, Senator, Member of Parliament, Mayor, Governor, Commander, Field Marshal, General, Admiral, State Councilor, Advisor to [Head of State], Foreign Minister of [country], Speaker of Parliament, Chief of Staff. If the person's title appears in this list OR clearly maps to a government/ministry/SOE/state-media role, KEEP.
   Examples to DROP: "Jackie Chan expressed sorrow over Gaza"; "Hollywood actors raised $2M for Palestine"; "an Egyptian researcher published a book about China" (private scholar, no state link).
-  Examples to KEEP: "Xi Jinping sent a congratulatory message" (head of state); "Lin Xin expressed appreciation" (vice minister); "Sinopec announced a refinery investment" (state-owned enterprise); "Confucius Institute opened a branch" (state-affiliated cultural body).
+  Examples to KEEP: "Xi Jinping sent a congratulatory message" (head of state); "Lin Xin expressed appreciation" (vice minister); "Sinopec announced a refinery investment" (state-owned enterprise); "Confucius Institute opened a branch" (state-affiliated cultural body); "Mayor of Saida received Chinese delegation" (sub-national official acting officially); "Field Marshal Khalifa Haftar met Chinese ambassador" (military commander acting as de-facto state authority); "Cultural Attaché of Yemen in Beijing" (embassy staff).
 
 When in doubt: does this proposition describe a specific act, statement, or commitment by an identifiable state/ministry/SOE/multilateral actor toward an identifiable foreign actor or country? If the actor is a private individual or company with no state link, drop it.
 
@@ -120,6 +130,26 @@ ACTORS
 - recipient_country: country being influenced - or null.
 - recipient_actor / recipient_actor_type: same pattern.
 - third_parties: list of other involved actors (brokers, co-financiers, multilateral bodies).
+- If the recipient is a region/bloc rather than a single country, use the canonical form:
+    "Middle East", "Gulf Cooperation Council", "Arab League", "European Union", "African Union", "ASEAN", "BRICS", "Global South", "United Nations".
+  Do NOT use variant phrasings like "Middle East countries", "Middle Eastern countries", "Gulf states", "Arab countries", "GCC countries" — pick the canonical form above.
+  If the action is genuinely directed at a specific named country within the bloc, prefer the country name over the bloc.
+
+==============================
+ENUM DISCIPLINE (read carefully)
+==============================
+For every field marked "one of [...]" below, you MUST pick a value from that exact list.
+If nothing fits, use "other" (where allowed) — do NOT invent a new value.
+
+COMMON MISTAKES TO AVOID:
+- instrument_type is NOT claim_type. "action", "commitment", "statement of action" are NOT instrument_type values.
+  If the action is a public declaration, use instrument_type = "statement" (and claim_type = "action" or "commitment" as appropriate).
+  If the action is signing/MOU, use "bilateral_agreement". If it's a meeting/visit, use "state_visit".
+- sp_domain values that look right but are NOT in the list (DO NOT use): "infrastructure_project", "tourism", "environmental", "persuasion", "sports_cultural", "attraction", "training_program".
+  An infrastructure build belongs under "investment" or "economic_aid" depending on funding type. Tourism cooperation is "cultural". Environmental cooperation is "diplomatic_engagement" or "science_technology".
+- mechanism is the FOUR Nye types only: attraction, persuasion, inducement, coercion. "commitment", "perception", "denied" are NOT mechanisms — those concepts belong in claim_type or modality.
+- modality: "actual and planned" is NOT valid. Pick one; if the source describes both a completed step and a future step, emit TWO propositions.
+- date_precision: only [day, month, quarter, year, unknown]. "week" is NOT valid — round up to month.
 
 TAXONOMY (closed enums - use "other" if nothing fits, do NOT invent values)
 
@@ -190,6 +220,7 @@ GEO
 - location_name: city/region/country where the action occurs.
 - lat_long: "lat,long" string if known.
 - geo_scope: one of [bilateral, regional, multilateral, global].
+  Use "regional" when the recipient is a bloc/region (not a single country). Use "multilateral" when ≥3 named country recipients or a multilateral institution is the recipient. Use "bilateral" only when exactly one country is on each side.
 
 EVIDENCE
 - evidence_span: {"text": "<English quote / translation of the supporting source span, <=300 chars>"}
