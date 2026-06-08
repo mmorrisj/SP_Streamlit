@@ -115,13 +115,19 @@ app.add_middleware(
 )
 
 # Agent module: isolated runtime for the OSINT-style agent page.
-# Guarded so a broken agent import cannot take down the foundational API.
-try:
-    from agent.router import router as agent_router
-    app.include_router(agent_router)
-except Exception as _agent_err:  # pragma: no cover - defensive
+# EXPERIMENTAL / incomplete — see agent/README.md. Set DISABLE_AGENT=true to
+# skip mounting it (e.g. for a demo build). Guarded either way so a broken
+# agent import cannot take down the foundational API.
+if os.getenv("DISABLE_AGENT", "false").lower() == "true":
     import logging as _logging
-    _logging.getLogger(__name__).warning("agent router not loaded: %s", _agent_err)
+    _logging.getLogger(__name__).info("agent router disabled via DISABLE_AGENT")
+else:
+    try:
+        from agent.router import router as agent_router
+        app.include_router(agent_router)
+    except Exception as _agent_err:  # pragma: no cover - defensive
+        import logging as _logging
+        _logging.getLogger(__name__).warning("agent router not loaded: %s", _agent_err)
 
 def _get_narrative_for_events(session, event_names: list, country: str) -> dict:
     """

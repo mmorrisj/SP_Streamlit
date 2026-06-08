@@ -2,10 +2,12 @@
 
 ## Quick Start
 - **[QUICKSTART.md](QUICKSTART.md)** - Start here! Quick deployment guide
+- **[DEMO_RUNBOOK.md](DEMO_RUNBOOK.md)** - Stand up the full stack for a demo (default docker-compose.yml)
 
 ## Core Documentation
 - **[../README.md](../README.md)** - Project overview
 - **[../CLAUDE.md](../CLAUDE.md)** - Complete architecture and development guide
+- **[MAINTAINABILITY_ASSESSMENT.md](MAINTAINABILITY_ASSESSMENT.md)** - Maintainability review & transition roadmap
 
 ## Deployment Guides
 - **[deployment/PRODUCTION_INSTALL.md](deployment/PRODUCTION_INSTALL.md)** - Production Docker deployment (no compose)

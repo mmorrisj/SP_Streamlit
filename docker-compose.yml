@@ -1,0 +1,179 @@
+# ============================================
+# Default development / demo stack
+#
+# Zero-prerequisite entry point referenced by README.md and CLAUDE.md:
+#
+#     docker compose up -d --build      # start the full stack
+#     docker compose --profile migrate up   # run DB migrations
+#     docker compose down               # stop (data persists in the managed volume)
+#     docker compose logs -f [service]  # tail logs
+#
+# Unlike docker-compose.dev.yml this file uses Compose-managed (non-external)
+# volumes and networks, so it runs straight from a fresh checkout without first
+# creating an external volume/network. Requires a populated .env (see
+# .env.example). For the enterprise / hardened-daemon deployment use
+# docker-compose.production.yml and PRODUCTION_DOCKER_RUN.md instead.
+# ============================================
+
+name: softpower
+
+services:
+  # -----------------------
+  # PostgreSQL + pgvector
+  # -----------------------
+  db:
+    image: mmorrisj/pgvector:0.8.1-pg17
+    container_name: softpower_db
+    restart: unless-stopped
+    shm_size: "1gb"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    networks:
+      - softpower_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?Set POSTGRES_USER in .env} -d ${POSTGRES_DB:?Set POSTGRES_DB in .env}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # -----------------------
+  # FastAPI service (serves React UI + API endpoints)
+  # -----------------------
+  api:
+    image: softpower-api:latest
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: api-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@softpower_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      API_PORT: 8000
+      S3_PROXY_URL: http://host.docker.internal:${API_PORT:-7001}
+      API_URL: http://host.docker.internal:${API_PORT:-7001}
+      USE_S3_API_CLIENT: "true"
+      BATCH_SCRATCHPAD_DIR: ./services/pipeline/batch/batches
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+    ports:
+      - "${API_PORT:-7001}:8000"
+    networks:
+      - softpower_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # -----------------------
+  # Streamlit analytics dashboard
+  # -----------------------
+  dashboard:
+    image: softpower-dashboard:latest
+    build:
+      context: .
+      dockerfile: docker/dashboard.Dockerfile
+    container_name: streamlit-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@softpower_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      API_URL: http://host.docker.internal:${API_PORT:-7001}
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    networks:
+      - softpower_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+  # -----------------------
+  # Redis (API response caching)
+  # -----------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - softpower_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # -----------------------
+  # Alembic migrations (run with `--profile migrate`)
+  # -----------------------
+  migrate:
+    image: softpower-api:latest
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: alembic-migrate
+    env_file:
+      - .env
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: softpower_db
+      DB_PORT: 5432
+      POSTGRES_HOST: softpower_db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@softpower_db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    command: alembic upgrade head
+    networks:
+      - softpower_net
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+
+# -----------------------
+# Compose-managed volume (persists across `down`/`up`)
+# -----------------------
+volumes:
+  postgres_data:
+    driver: local
+
+# -----------------------
+# Compose-managed network
+# -----------------------
+networks:
+  softpower_net:
+    driver: bridge

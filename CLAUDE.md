@@ -8,12 +8,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Option 1: Docker (Recommended for Development)**
 ```bash
-# Start full stack (Streamlit, FastAPI, PostgreSQL, Redis)
-docker-compose up -d
+# Start full stack (Streamlit, FastAPI, PostgreSQL, Redis) using the
+# zero-prerequisite default compose file. Requires a populated .env
+# (copy .env.example). See docs/DEMO_RUNBOOK.md for the full walkthrough.
+docker compose up -d --build
 
 # Test database connection
 python -c "from shared.database.database import health_check; print('✅ Connected' if health_check() else '❌ Failed')"
 ```
+
+> **Compose files:** `docker-compose.yml` is the default dev/demo stack
+> (Compose-managed volume + network, no pre-steps). `docker-compose.dev.yml`
+> mirrors production with external volume/network for debugging;
+> `docker-compose.production.yml` is the enterprise/hardened-daemon stack
+> (see `PRODUCTION_DOCKER_RUN.md`). Older `docker-compose` (v1) also works.
 
 ### Database Management
 ```bash
@@ -644,7 +652,7 @@ with get_session() as session:
 
 ### Adding New Dashboard Pages
 
-1. Create page in `streamlit/pages/NewPage.py`:
+1. Create page in `services/dashboard/pages/NewPage.py`:
    ```python
    import streamlit as st
    from queries.document_queries import my_new_query
@@ -655,9 +663,9 @@ with get_session() as session:
    st.altair_chart(my_new_chart(data))
    ```
 
-2. Add query function in `streamlit/queries/document_queries.py`
+2. Add query function in `services/dashboard/queries/document_queries.py`
 
-3. Add chart function in `streamlit/charts/document_charts.py`
+3. Add chart function in `services/dashboard/charts/document_charts.py`
 
 4. Page automatically appears in Streamlit sidebar navigation
 

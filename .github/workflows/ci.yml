@@ -33,9 +33,13 @@ jobs:
       - name: Install linting tools
         run: pip install ruff black isort
 
+      # Genuine-bug rules (syntax errors, undefined names) are surfaced
+      # separately and should become blocking once the existing violations are
+      # fixed. Tracked follow-up: clean the ~412 ruff findings + 4 undefined-name
+      # bugs, then drop continue-on-error here. See MAINTAINABILITY_ASSESSMENT §6.
       - name: Run Ruff (fast Python linter)
         run: ruff check . --ignore E501
-        continue-on-error: true  # Don't fail build yet, just report
+        continue-on-error: true  # Non-blocking until the existing backlog is cleared
 
       - name: Check formatting with Black
         run: black --check --diff . || true
@@ -93,9 +97,9 @@ jobs:
           POSTGRES_PORT: 5432
           DATABASE_URL: postgresql+psycopg2://testuser:testpass@localhost:5432/testdb
           TESTING: 1
+        # Blocking: a unit-test regression must fail the build.
         run: |
-          pytest tests/ -m unit --no-header --junitxml=test-results/junit-unit.xml || echo "Unit tests failed or no tests matched"
-        continue-on-error: true
+          pytest tests/ -m unit --no-header --junitxml=test-results/junit-unit.xml
 
       - name: Run integration tests
         env:
@@ -119,8 +123,11 @@ jobs:
           POSTGRES_PORT: 5432
           DATABASE_URL: postgresql+psycopg2://testuser:testpass@localhost:5432/testdb
           TESTING: 1
+        # Blocking with a coverage floor to prevent backsliding. The floor is
+        # intentionally low to match the current baseline (~9%); ratchet it up
+        # as coverage improves. See docs/MAINTAINABILITY_ASSESSMENT.md §6.
         run: |
-          pytest tests/ --cov=shared --cov=services --cov=server --cov-config=.coveragerc --cov-report=xml --cov-report=html:htmlcov --cov-report=term-missing --junitxml=test-results/junit-all.xml
+          pytest tests/ --cov=shared --cov=services --cov=server --cov-config=.coveragerc --cov-report=xml --cov-report=html:htmlcov --cov-report=term-missing --cov-fail-under=8 --junitxml=test-results/junit-all.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
