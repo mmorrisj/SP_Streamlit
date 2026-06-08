@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.9"
+PROPOSITION_PROMPT_VERSION = "v0.10"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -25,8 +25,9 @@ ATOMICITY (read carefully)
 - One subject, one predicate, one object per proposition.
 - A predicate MUST be a SINGLE verb phrase. FORBIDDEN connectives inside a predicate: " and ", " & ", "; ", " plus ", " as well as ", "/" between verbs.
   If your draft predicate contains any of these, SPLIT into separate propositions BEFORE emitting.
-- Compound verbs to watch for: "discussed and emphasized", "welcomed and praised", "signed and announced", "visited and met", "expressed and reiterated".
+- Compound verbs to watch for: "discussed and emphasized", "welcomed and praised", "signed and announced", "visited and met", "expressed and reiterated", "called for calm and restraint", "aims to enhance and support".
   Each verb is its own proposition. Copy the subject/object/initiator/recipient; vary only the predicate and (if needed) the claim_type.
+- Predicates that BIND coordinated nouns ("called for X and Y", "aims to enhance A and provide B", "discussed cooperation in food, medicine, and supplies") are still compound predicates. Split on the conjunction inside the verb-phrase scope. The ONLY case where "and" inside a predicate is acceptable is when it is part of a named entity ("Belt and Road Initiative", "Trade and Investment Council", "Roads and Transport Authority").
 - WORKED SPLIT:
     Source: "Wang Yi welcomed the agreement and praised Egypt's leadership."
     WRONG (one prop):  predicate = "welcomed and praised"
@@ -126,14 +127,22 @@ PROPOSITION STRUCTURE
 ACTORS
 - initiator_country: country exerting soft power (see direction rules above) - or null.
 - initiator_actor: specific entity (e.g., "Ministry of Foreign Affairs of China", "Sinopec").
-- initiator_actor_type: one of [state, ministry, SOE, company, NGO, individual, multilateral].
+- initiator_actor_type: EXACTLY ONE of [state, ministry, SOE, company, NGO, individual, multilateral]. Never a compound value like "company and state", "state/ministry", "ministry, SOE". Pick the single most specific role. For state-owned companies pick "SOE"; for embassies/agencies of a country pick "state" or "ministry"; for joint state-private actors pick the one taking the action in this proposition.
 - recipient_country: country being influenced - or null.
 - recipient_actor / recipient_actor_type: same pattern.
 - third_parties: list of other involved actors (brokers, co-financiers, multilateral bodies).
+
+TITLED-OFFICIAL ACTOR-TYPE RULE
+If the initiator_actor or recipient_actor is a titled state official (any title on the KEEP allowlist above — Minister, Ambassador, Cultural Attaché, Senator, Mayor, Governor, Field Marshal, etc.), initiator_actor_type / recipient_actor_type MUST be "ministry" (for ministerial titles), "state" (for ambassadors, mayors, senators, governors, presidents, prime ministers, military commanders acting officially), or "SOE" (for state-owned enterprise executives). NEVER use "individual" for a titled state official — "individual" is reserved for private persons (celebrities, private scholars, citizens) who have already passed the KEEP/DROP filter as state-linked.
+
+BLOC AND MULTI-COUNTRY RECIPIENT RULE
 - If the recipient is a region/bloc rather than a single country, use the canonical form:
     "Middle East", "Gulf Cooperation Council", "Arab League", "European Union", "African Union", "ASEAN", "BRICS", "Global South", "United Nations".
   Do NOT use variant phrasings like "Middle East countries", "Middle Eastern countries", "Gulf states", "Arab countries", "GCC countries" — pick the canonical form above.
-  If the action is genuinely directed at a specific named country within the bloc, prefer the country name over the bloc.
+- If the action is genuinely directed at a specific named country within the bloc, prefer the country name over the bloc.
+- NEVER emit a semicolon- or comma-separated list of countries in initiator_country or recipient_country (e.g., "United Arab Emirates; Saudi Arabia; Qatar; Oman; Kuwait; Bahrain", "Brazil;Russia;India;China;South Africa"). These fields hold ONE value per proposition.
+  - If the listed countries match a known bloc, use the canonical bloc name: GCC six → "Gulf Cooperation Council"; BRICS five → "BRICS"; Arab League members → "Arab League"; EU members → "European Union".
+  - Otherwise, emit ONE proposition per country (same predicate/object/initiator side, varying only the country side).
 
 ==============================
 ENUM DISCIPLINE (read carefully)
@@ -145,11 +154,19 @@ COMMON MISTAKES TO AVOID:
 - instrument_type is NOT claim_type. "action", "commitment", "statement of action" are NOT instrument_type values.
   If the action is a public declaration, use instrument_type = "statement" (and claim_type = "action" or "commitment" as appropriate).
   If the action is signing/MOU, use "bilateral_agreement". If it's a meeting/visit, use "state_visit".
-- sp_domain values that look right but are NOT in the list (DO NOT use): "infrastructure_project", "tourism", "environmental", "persuasion", "sports_cultural", "attraction", "training_program".
-  An infrastructure build belongs under "investment" or "economic_aid" depending on funding type. Tourism cooperation is "cultural". Environmental cooperation is "diplomatic_engagement" or "science_technology".
+- sp_domain values that look right but are NOT in the list (DO NOT use): "infrastructure_project", "tourism", "environmental", "persuasion", "sports_cultural", "attraction", "training_program", "loan".
+  An infrastructure build belongs under "investment" or "economic_aid" depending on funding type. Tourism cooperation is "cultural". Environmental cooperation is "diplomatic_engagement" or "science_technology". Loans belong under "investment" or "economic_aid" (the loan itself is the instrument_type, not the domain).
 - mechanism is the FOUR Nye types only: attraction, persuasion, inducement, coercion. "commitment", "perception", "denied" are NOT mechanisms — those concepts belong in claim_type or modality.
 - modality: "actual and planned" is NOT valid. Pick one; if the source describes both a completed step and a future step, emit TWO propositions.
 - date_precision: only [day, month, quarter, year, unknown]. "week" is NOT valid — round up to month.
+
+CROSS-FIELD ANTI-MAPPINGS (do NOT spill values from one field into another):
+- sp_domain values are NEVER valid instrument_type values. Specifically: "diplomatic_engagement", "cultural", "educational", "investment", "trade", "economic_aid", "humanitarian", "health", "media_information", "science_technology", "security_military", "governance" describe the CHANNEL. For instrument_type pick from its own list (state_visit, bilateral_agreement, statement, direct_investment, loan, grant, infrastructure_project, training_program, cultural_event, multilateral_forum, ...).
+- instrument_type values are NEVER valid sp_domain values. Specifically: "infrastructure_project", "loan", "grant", "training_program", "state_visit", "bilateral_agreement", "cultural_event", "scholarship", "exchange_program", "media_broadcast" are INSTRUMENTS. For sp_domain pick from its own list (the channel/domain of influence).
+- modality values are NEVER valid tense values. Specifically: "planned", "proposed", "actual" are modality. tense is strictly time on the verb: past / present / future. A pledged future visit has tense="future" and modality="planned" — NOT tense="planned".
+- claim_type values are NEVER valid instrument_type or mechanism values. "action", "commitment", "statement", "outcome", "perception", "capability" belong only in claim_type.
+- geo_scope is NEVER "other". If the recipient is one country: bilateral. A bloc/region: regional. ≥3 named countries or a multilateral institution: multilateral. Truly worldwide framing: global.
+- If you find yourself wanting to put the same string in two enum fields, you have almost certainly mis-classified one — re-pick from the correct list.
 
 TAXONOMY (closed enums - use "other" if nothing fits, do NOT invent values)
 
