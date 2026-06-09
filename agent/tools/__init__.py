@@ -19,8 +19,9 @@ if TYPE_CHECKING:
 def get_registry() -> dict[str, "Tool"]:
     """Return the active tool registry.
 
-    Lazy import keeps the package importable even when individual tools have
-    unresolved foundation dependencies during scaffolding.
+    Lazy import keeps the package importable even when an individual tool's
+    foundation dependency (DB, rag_service, LLM provider) is unavailable in a
+    given environment.
     """
     from agent.tools import (
         briefing_generator,
