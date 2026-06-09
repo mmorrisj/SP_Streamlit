@@ -116,7 +116,7 @@ None of these block a July demo, but all of them block a clean October handoff. 
 - [ ] Decide and act on `agent/` (finish / branch / flag) and the dual reporting paths (`server/report_*` vs the pipeline-invoked `services/publication/` — pick one canonical path; do NOT just delete publication).
 - [x] Consolidate the deployment docs behind one `DEPLOYMENT.md` decision tree. *(done — additive entry point; detailed docs retained as references)*
 - [ ] Consolidate duplicate `config.yaml`. *(deferred — `shared/config/config.yaml` and `services/dashboard/config.yaml` have diverged; needs a careful merge + dashboard load-path change, not a blind dedup)*
-- [ ] Make the **production** DB external (native Postgres 18 + extensions); keep the bundled `db` container as the dev/demo default only. *(Postgres 18 + pgvector validated — removes a custom image from the prod path. See §9.)*
+- [x] Make the **production** DB external-capable (native Postgres 18 + extensions); keep the bundled `db` container as the dev/demo default only. *(done — `docker-compose.production.yml` gates `db` behind a `bundled-db` profile with `required: false` dependents and an overridable `DB_HOST`; documented in `DEPLOYMENT.md`. See §9.)*
 
 ### Phase 2 — Modularize the monoliths (August → September)
 *Goal: no single file is a bottleneck to understanding.*
@@ -165,8 +165,8 @@ quickstart continue to use the bundled container via `docker-compose.yml` and
 - **Smaller production footprint**: drops a stateful container from the prod stack.
 
 **Recommended actions:**
-- Make the `db` service **optional in the production compose** (e.g., behind a Compose profile) so prod can set `DATABASE_URL`/`DB_HOST` to the external Postgres 18 and omit the container entirely; keep `db` as the default in `docker-compose.yml` (dev/demo) and `docker-compose.dev.yml`.
-- Document the external-Postgres path in `DEPLOYMENT.md`, including the **extensions that must be pre-installed** on the target server (`pgvector`, plus any others the schema/migrations rely on).
+- [x] Make the `db` service **optional in the production compose** (behind the `bundled-db` Compose profile) so prod can set `DB_HOST`/creds to the external Postgres 18 and omit the container entirely; `db` remains the default in `docker-compose.yml` (dev/demo) and `docker-compose.dev.yml`. *(done)*
+- [x] Document the external-Postgres path in `DEPLOYMENT.md`, including the **extensions that must be pre-installed** (`vector`/pgvector, plus any others the migrations create). *(done)*
 - Once production no longer depends on it, the custom `docker/pgvector.Dockerfile` / `mmorrisj/pgvector` image can be retired from the **production** path while remaining the dev/demo default.
 
 ---

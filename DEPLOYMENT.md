@@ -44,6 +44,40 @@ bridge networks, and `--rm`. Applying permissive-daemon instructions on a
 hardened host (or vice-versa) leads to silent failures. Confirm which daemon you
 are on **before** choosing a doc.
 
+## Production database: external Postgres 18 vs. the bundled container
+
+Postgres 18 + the required extensions is validated, so **production can run
+against a native/managed Postgres instead of the bundled pgvector container.**
+In `docker-compose.production.yml` the `db` service is gated behind the
+`bundled-db` profile, and `app`/`migrate` depend on it with `required: false`.
+
+**Required Postgres extensions** (must exist in the target database):
+- `vector` (pgvector) — embeddings / semantic search
+- plus any others the migrations create (see `alembic/versions/`)
+
+**Option A — external/native Postgres 18 (recommended for production):**
+```bash
+# In .env: point at the Postgres host (defaults to 127.0.0.1, i.e. the host's
+# native Postgres under host networking) and set creds.
+#   DB_HOST=127.0.0.1        # or pg18.internal for a remote managed instance
+#   DB_PORT=5432
+#   POSTGRES_USER=... POSTGRES_PASSWORD=... POSTGRES_DB=...
+
+# Migrate, then start — NO bundled container:
+docker compose -f docker-compose.production.yml --profile migrate up
+docker compose -f docker-compose.production.yml up -d
+```
+
+**Option B — bundled pgvector container (legacy / self-contained):**
+```bash
+docker compose -f docker-compose.production.yml --profile bundled-db --profile migrate up
+docker compose -f docker-compose.production.yml --profile bundled-db up -d
+```
+
+> Development and the demo quickstart keep the bundled container by default
+> (`docker-compose.yml`, `docker-compose.dev.yml`) — no change there.
+> See `docs/MAINTAINABILITY_ASSESSMENT.md` §9 for the rationale.
+
 ## Common to all paths
 
 - Populate `.env` from `.env.example` (DB creds, `CLAUDE_KEY`, optional AWS/S3).
