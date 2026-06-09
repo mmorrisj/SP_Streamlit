@@ -63,8 +63,12 @@ def list_tools() -> ToolListResponse:
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     """Run the planner → tools → briefing pipeline.
 
-    Currently returns a static workflow plan; tool execution and briefing
-    generation are TODO until the LLM providers and tool bodies are wired.
+    Drives the LLM tool-dispatch loop in Orchestrator.analyze: the model selects
+    from the agent tool registry (document_search, entity_lookup, entity_graph,
+    event_timeline, bilateral_context, materiality_filter, country_grouping,
+    corroboration_check, citation_resolver, briefing_generator, writing
+    products), each call is persisted to agent_tool_calls, and the run ends with
+    a structured briefing.
     """
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="query must not be empty")
