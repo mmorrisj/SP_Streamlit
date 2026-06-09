@@ -126,9 +126,9 @@ class ReportWorkflowResponse(BaseModel):
 def run_report_workflow(req: ReportWorkflowRequest) -> ReportWorkflowResponse:
     """Run the report-generation workflow (12-stage DAG).
 
-    Stages are currently stubbed; the DAG runs end-to-end and persists per-stage
-    rows to agent_workflow_steps so the architecture is exercised even before
-    individual stage bodies are filled in.
+    Stages perform real DB queries and LLM calls. LLM stages authenticate via
+    the enterprise gateway JWT (see agent/llm/openai_compat.py); per-stage rows
+    are persisted to agent_workflow_steps for the UI trace.
     """
     if not (req.recipient or req.region):
         raise HTTPException(
@@ -189,10 +189,17 @@ def stream_report_workflow(req: ReportWorkflowRequest):
     event_q: queue.Queue = queue.Queue()
     SENTINEL = object()
 
+    # The DAG runs in a worker thread; contextvars don't propagate across a
+    # manually-spawned thread, so capture the gateway JWT here and re-set it
+    # inside the worker so the LLM stages can authenticate to LiteLLM.
+    from shared.utils.request_context import get_gateway_jwt, set_gateway_jwt
+    gateway_jwt = get_gateway_jwt()
+
     def on_event(event: dict) -> None:
         event_q.put(event)
 
     def worker() -> None:
+        set_gateway_jwt(gateway_jwt)
         # Lazy import keeps the workflow package off the router import path
         # for unrelated requests.
         try:

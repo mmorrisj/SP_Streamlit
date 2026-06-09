@@ -121,6 +121,7 @@ ARG CACHEBUST=1
 # Copy application code (pipeline/ingestion excluded)
 COPY shared/ ./shared/
 COPY server/ ./server/
+COPY agent/ ./agent/
 COPY services/chat/ ./services/chat/
 COPY services/dashboard/ ./services/dashboard/
 COPY scripts/create_admin.py ./scripts/create_admin.py
