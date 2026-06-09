@@ -23,12 +23,25 @@ from agent.llm.provider import LLMMessage, LLMResponse, Provider, ToolCall
 
 
 def _resolve_api_key() -> str | None:
-    """Try the agent-specific key first, then fall back to keys the rest of
-    the codebase already uses, then the OpenAI SDK's standard env var."""
+    """Resolve the bearer credential for the LLM call.
+
+    In the enterprise enclave the LiteLLM endpoint authenticates by the gateway
+    JWT (x-kiosk-gateway-jwt), captured per-request into the shared request
+    context — so it takes priority. Static keys are the dev/non-enterprise
+    fallback, matching the precedence used elsewhere in the codebase.
+    """
+    try:
+        from shared.utils.request_context import get_gateway_jwt
+        gateway_jwt = get_gateway_jwt()
+    except Exception:  # pragma: no cover - request_context always importable
+        gateway_jwt = None
+
     return (
-        os.getenv("AGENT_LLM_API_KEY")
+        gateway_jwt
+        or os.getenv("AGENT_LLM_API_KEY")
         or os.getenv("OPENAI_PROJ_API")
         or os.getenv("CLAUDE_KEY")
+        or os.getenv("LITELLM_API_KEY")
         or os.getenv("OPENAI_API_KEY")
     )
 
@@ -43,27 +56,31 @@ class OpenAICompatProvider(Provider):
     name = "openai_compat"
 
     def __init__(self) -> None:
-        self.base_url = os.getenv("AGENT_LLM_BASE_URL") or None
-        self.api_key = _resolve_api_key()
-        self.model = os.getenv("AGENT_LLM_MODEL", "gpt-4o-mini")
-        self._client = None  # lazy
+        # Fall back to the enterprise LiteLLM endpoint/model so the agent works
+        # out of the box against the same LLM the rest of the app uses, without
+        # requiring separate AGENT_LLM_* config.
+        self.base_url = os.getenv("AGENT_LLM_BASE_URL") or os.getenv("LITELLM_URL") or None
+        self.model = os.getenv("AGENT_LLM_MODEL") or os.getenv("LITELLM_MODEL") or "gpt-4o-mini"
 
     def _get_client(self):
-        if self._client is None:
-            from openai import OpenAI
+        # Built per call (not cached): the gateway JWT is per-request, so a
+        # cached client would pin a stale token across requests.
+        from openai import OpenAI
 
-            if not self.api_key:
-                raise RuntimeError(
-                    "No API key found. Set AGENT_LLM_API_KEY (or OPENAI_PROJ_API / CLAUDE_KEY)."
-                )
-            kwargs: dict[str, Any] = {
-                "api_key": self.api_key,
-                "timeout": DEFAULT_REQUEST_TIMEOUT,
-            }
-            if self.base_url:
-                kwargs["base_url"] = self.base_url
-            self._client = OpenAI(**kwargs)
-        return self._client
+        api_key = _resolve_api_key()
+        if not api_key:
+            raise RuntimeError(
+                "No LLM credential found: gateway JWT (x-kiosk-gateway-jwt) was not "
+                "present and no static key (AGENT_LLM_API_KEY / OPENAI_PROJ_API / "
+                "LITELLM_API_KEY) is set."
+            )
+        kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "timeout": DEFAULT_REQUEST_TIMEOUT,
+        }
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        return OpenAI(**kwargs)
 
     def complete(
         self,
