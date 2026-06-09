@@ -9,12 +9,27 @@
 # With host networking all services share the host's network stack and
 # reach each other via 127.0.0.1:<port> instead of by container name.
 #
-# Usage:
-#   # First time — run migrations:
-#   docker compose -f docker-compose.production.yml --profile migrate up
+# DATABASE: the bundled `db` container is OPTIONAL. Postgres 18 + the
+# required extensions (pgvector, ...) is validated, so production can run
+# against a native/managed Postgres instead. The `db` service is gated
+# behind the `bundled-db` profile and the app/migrate services depend on it
+# with `required: false`, so they start fine when it is absent.
+#   - External Postgres (default): set DB_HOST (defaults to 127.0.0.1 — the
+#     host's native Postgres under host networking) and DB creds in .env, and
+#     do NOT pass --profile bundled-db.
+#   - Bundled container: pass --profile bundled-db to also run the pgvector
+#     container (legacy behavior).
 #
-#   # Start the stack:
+# Usage:
+#   # First time — run migrations (external DB):
+#   docker compose -f docker-compose.production.yml --profile migrate up
+#   # ...or with the bundled container:
+#   docker compose -f docker-compose.production.yml --profile bundled-db --profile migrate up
+#
+#   # Start the stack (external DB):
 #   docker compose -f docker-compose.production.yml up -d
+#   # ...or with the bundled container:
+#   docker compose -f docker-compose.production.yml --profile bundled-db up -d
 #
 #   # Tear down (preserves data):
 #   docker compose -f docker-compose.production.yml down
@@ -27,14 +42,17 @@ name: softpower_production
 
 services:
   # -----------------------
-  # PostgreSQL + pgvector
-  # Listens on host:${DB_PORT:-5432}
+  # PostgreSQL + pgvector  (OPTIONAL — only with `--profile bundled-db`)
+  # Listens on host:${DB_PORT:-5432}. Omit the profile to use a native/managed
+  # Postgres 18 instead (set DB_HOST/creds in .env).
   # -----------------------
   db:
     image: mmorrisj/pgvector:0.8.1-pg17
     container_name: sp_prod_db
     restart: unless-stopped
     network_mode: host
+    profiles:
+      - bundled-db
     shm_size: "1gb"
     security_opt:
       - no-new-privileges:true
@@ -103,17 +121,20 @@ services:
       - ALL
     environment:
       DOCKER_ENV: "true"
-      DB_HOST: 127.0.0.1
+      # DB_HOST defaults to 127.0.0.1 (host networking reaches both the bundled
+      # container and a native host Postgres). Set DB_HOST in .env to point at a
+      # remote/managed Postgres 18.
+      DB_HOST: ${DB_HOST:-127.0.0.1}
       DB_PORT: ${DB_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
-      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_HOST: ${DB_HOST:-127.0.0.1}
       POSTGRES_PORT: ${DB_PORT:-5432}
       # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
       # be URL-encoded here. The app also builds the URL from individual vars
       # (with auto-encoding) so you can omit DATABASE_URL entirely.
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@127.0.0.1:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@${DB_HOST:-127.0.0.1}:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
       API_PORT: ${API_PORT:-8000}
       STREAMLIT_PORT: ${STREAMLIT_PORT:-8501}
       # Host-side proxy for LLM/S3 calls — runs on the same host, reachable at 127.0.0.1
@@ -146,6 +167,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        required: false   # bundled db is optional; external Postgres needs no wait
       redis:
         condition: service_healthy
 
@@ -162,7 +184,7 @@ services:
       - ALL
     environment:
       DOCKER_ENV: "true"
-      DB_HOST: 127.0.0.1
+      DB_HOST: ${DB_HOST:-127.0.0.1}
       DB_PORT: ${DB_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -170,11 +192,12 @@ services:
       # NOTE: If POSTGRES_PASSWORD contains special chars (@, /, #, %), they must
       # be URL-encoded here. The app also builds the URL from individual vars
       # (with auto-encoding) so you can omit DATABASE_URL entirely.
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@127.0.0.1:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@${DB_HOST:-127.0.0.1}:${DB_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB in .env}
     command: alembic upgrade head
     depends_on:
       db:
         condition: service_healthy
+        required: false   # bundled db is optional; external Postgres needs no wait
     profiles:
       - migrate
 

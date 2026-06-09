@@ -75,6 +75,15 @@ env/
 htmlcov/
 .coverage
 .coverage.*
+coverage.xml
+
+# Database dumps / local backups (do not commit)
+softpower_backup.sql
+*.dump
+
+# Visual Studio IDE artifacts
+.vs/
+*.suo
 
 # Jupyter
 .ipynb_checkpoints/

@@ -11,7 +11,7 @@
 The application is **functionally rich and reasonably well-architected at the package level** (clean `shared` / `services` / `server` / `client` separation, SQLAlchemy 2.0, pgvector RAG, a real CI pipeline, and ~13K lines of documentation). It is **not yet handoff-ready**, primarily because of:
 
 1. **A few very large "god" files** that concentrate risk and slow onboarding — most notably `server/main.py` (5,949 lines / 98 endpoints, no `APIRouter`) and the batch/report subsystems.
-2. **Dead and orphaned code shipping in the repo** — `_archive/` (34 MB, including IDE artifacts and a 23 MB data file), `services/publication/` (imported nowhere), and an incomplete experimental `agent/` subsystem (~8K lines, 21+ TODO stubs).
+2. **Dead and orphaned code shipping in the repo** — `_archive/` (34 MB, including IDE artifacts and a 23 MB data file) and an incomplete experimental `agent/` subsystem (~8K lines, 21+ TODO stubs). (An earlier draft also flagged `services/publication/` as orphaned; that was incorrect — see §4 — it is invoked by the event pipeline.)
 3. **Documentation that is broad but stale and fragmented** — the documented quickstart (`docker-compose up -d`) **does not work** because no plain `docker-compose.yml` exists, and five overlapping deployment docs give partially conflicting guidance.
 4. **Very low automated test coverage (~4% of lines)** with the largest modules effectively untested, and **non-blocking CI lint/tests** so regressions can merge silently.
 
@@ -39,7 +39,7 @@ None of these block a July demo, but all of them block a clean October handoff. 
 | `server/main.py` | **5,949 lines / 98 endpoints** | Single FastAPI file holding 16 concern-areas (auth, documents, events, summaries, influencer, metrics, bilateral, S3 proxy, chat/RAG, admin…). No `APIRouter` used at all. | **Split into `APIRouter` modules** under `server/routers/` (e.g. `documents.py`, `events.py`, `summaries.py`, `influencer.py`, `metrics.py`, `bilateral.py`, `chat.py`, `s3_proxy.py`, `admin.py`). Keep `main.py` as app assembly + middleware only. The `agent/router.py` already demonstrates the target pattern. |
 | `services/pipeline/batch/batch_prepare.py` | **3,726 lines (146 KB)** | Largest pipeline module; **zero tests**; mixes schema definitions, job-type mapping, model tiering, and orchestration. | Extract `schemas`, `job_type_mapping`, and `model_selection` into separate modules (a `batch/schemas.py` already exists — consolidate there). Add unit tests for the pure-logic pieces first. |
 | `services/pipeline/batch/batch_process_results.py` | 2,494 lines (96 KB) | Same family; parsing + DB writes intertwined. | Separate result parsing (pure) from persistence (I/O) to make it testable. |
-| `server/report_generator.py` + `report_exporter.py` + `report_batch.py` + `report_validator.py` | **~5,755 lines across 4 files** | Whole reporting subsystem lives in `server/`, lazily imported inside endpoint bodies in `main.py`. Overlaps conceptually with the orphaned `services/publication/`. | Move the reporting subsystem into `services/reporting/` as a cohesive package with a small public interface. Decide one canonical reporting path (see §4). |
+| `server/report_generator.py` + `report_exporter.py` + `report_batch.py` + `report_validator.py` | **~5,755 lines across 4 files** | Whole reporting subsystem lives in `server/`, lazily imported inside endpoint bodies in `main.py`. Overlaps conceptually with `services/publication/` (a second, pipeline-invoked reporting path). | Move the reporting subsystem into `services/reporting/` as a cohesive package with a small public interface. Decide one canonical reporting path (see §4). |
 | `services/chat/rag_service.py` | 2,029 lines | Large but **cohesive and well-tested** (46 tests). | Lower priority; optionally split retrieval vs. generation, but not urgent. |
 | `shared/models/models.py` | 1,731 lines | All ORM models in one file. | Optional: split by domain (`documents`, `events`, `entities`, `summaries`) into a `shared/models/` package; manageable as-is. |
 
@@ -52,7 +52,7 @@ None of these block a July demo, but all of them block a clean October handoff. 
 | Item | Status | Evidence | Action |
 |---|---|---|---|
 | `_archive/` (34 MB) | **Dead** | No active code imports from it (verified). Contains Visual Studio `.suo`, `.vs/slnx.sqlite`, a **23 MB `processed.bak`**, `.pptx` decks, old Flask backend, legacy Streamlit. | **Delete from the working tree.** History is preserved in git; nothing should ship a 34 MB archive. If retention is required, move to a separate `-archive` repo or a tagged commit. |
-| `services/publication/` | **Orphaned** | Imported nowhere outside itself; superseded by `server/report_generator.py`. Its own `__init__.py` even calls the prior pipeline "deprecated." | **Remove** (or formally re-integrate if the CLI path is still wanted — but pick one reporting path, not two). |
+| `services/publication/` | **In use (not orphaned)** | No *Python imports* outside itself, but `services/pipeline/events/run_full_pipeline.py` invokes `generate_publication.py` as a subprocess step, and it's documented in `README_EVENT_SUMMARIES.md`. Overlaps conceptually with `server/report_generator.py`. | **Do NOT delete.** Pick one canonical reporting path: either route the pipeline through the `server/reporting` package or keep `services/publication` as the batch/CLI path — but document which is authoritative. |
 | `agent/` (~8K lines, 48 files) | **Experimental / incomplete** | Mounted defensively but **21+ `TODO` stubs**: LLM providers (`agent/llm/anthropic.py`), tool bodies (`agent/tools/*`), and `agent/router.py:67` ("tool execution … are TODO"). Not wired into either frontend. | **Decide explicitly before handoff:** (a) finish it as a roadmap feature, (b) move it to a feature branch / separate repo, or (c) keep it mounted-but-dormant **with a clear `EXPERIMENTAL` README and a feature flag**. Do not hand it off in an ambiguous half-state. |
 | `coverage.xml` (572 KB) | **Stray artifact, git-tracked** | Generated file committed to repo (paths show a Windows dev machine). `.coverage` is gitignored but `coverage.xml` is not. | **Remove from git; add to `.gitignore`.** |
 | `softpower_backup.sql` (0 bytes) | **Stray artifact** | Empty file committed at repo root. | Delete; add `*.sql` backups to `.gitignore`. |
@@ -112,10 +112,11 @@ None of these block a July demo, but all of them block a clean October handoff. 
 
 ### Phase 1 — De-bloat & clarify (July → August)
 *Goal: what's in the repo is what's alive.*
-- [ ] Remove `_archive/`, `coverage.xml`, `softpower_backup.sql`, `.vs/` artifacts; update `.gitignore`.
-- [ ] Decide and act on `services/publication/` (remove) and `agent/` (finish / branch / flag).
-- [ ] Consolidate the five deployment docs into one `DEPLOYMENT.md` decision tree.
-- [ ] Consolidate duplicate `config.yaml`.
+- [x] Remove `_archive/`, `coverage.xml`, `softpower_backup.sql`, `.vs/` artifacts; update `.gitignore`. *(done — repo working tree ~42 MB → ~8 MB; history preserved)*
+- [ ] Decide and act on `agent/` (finish / branch / flag) and the dual reporting paths (`server/report_*` vs the pipeline-invoked `services/publication/` — pick one canonical path; do NOT just delete publication).
+- [x] Consolidate the deployment docs behind one `DEPLOYMENT.md` decision tree. *(done — additive entry point; detailed docs retained as references)*
+- [ ] Consolidate duplicate `config.yaml`. *(deferred — `shared/config/config.yaml` and `services/dashboard/config.yaml` have diverged; needs a careful merge + dashboard load-path change, not a blind dedup)*
+- [x] Make the **production** DB external-capable (native Postgres 18 + extensions); keep the bundled `db` container as the dev/demo default only. *(done — `docker-compose.production.yml` gates `db` behind a `bundled-db` profile with `required: false` dependents and an overridable `DB_HOST`; documented in `DEPLOYMENT.md`. See §9.)*
 
 ### Phase 2 — Modularize the monoliths (August → September)
 *Goal: no single file is a bottleneck to understanding.*
@@ -145,12 +146,37 @@ The direct-DB access in Streamlit also means schema changes can silently break i
 
 ---
 
-## 9. Quick-Reference: Top 10 Actions by Leverage
+## 9. Infrastructure Simplification: Native Postgres 18 vs. the Bundled DB Container
+
+**Update — validated:** Postgres 18 with the required extensions (including
+`pgvector`) has been validated. This **removes the need to run the bundled custom
+database container in production** — the `db` service uses
+`mmorrisj/pgvector:0.8.1-pg17` (container `softpower_db`) across all three compose
+files. Production deployments can instead point at a native/managed Postgres 18
+via `DATABASE_URL` / `DB_HOST`.
+
+**Development keeps the container.** Local/home development and the demo
+quickstart continue to use the bundled container via `docker-compose.yml` and
+`docker-compose.dev.yml` — no change for those workflows.
+
+**Why this matters for maintainability & handoff:**
+- **One fewer custom image** to build, patch, and CVE-scan (`docker/pgvector.Dockerfile`). The custom pgvector image has been a recurring maintenance + security-exception burden (see `docs/CVE_MITIGATION_REPORT.md` and the enterprise CVE-exception template).
+- **Easier enterprise approval/operation**: a native or managed Postgres 18 is far simpler for an enterprise DBA team to run on a hardened host than a custom container.
+- **Smaller production footprint**: drops a stateful container from the prod stack.
+
+**Recommended actions:**
+- [x] Make the `db` service **optional in the production compose** (behind the `bundled-db` Compose profile) so prod can set `DB_HOST`/creds to the external Postgres 18 and omit the container entirely; `db` remains the default in `docker-compose.yml` (dev/demo) and `docker-compose.dev.yml`. *(done)*
+- [x] Document the external-Postgres path in `DEPLOYMENT.md`, including the **extensions that must be pre-installed** (`vector`/pgvector and `pg_trgm`). *(done)*
+- Once production no longer depends on it, the custom `docker/pgvector.Dockerfile` / `mmorrisj/pgvector` image can be retired from the **production** path while remaining the dev/demo default.
+
+---
+
+## 10. Quick-Reference: Top 10 Actions by Leverage
 
 1. Fix the broken `docker-compose` quickstart (demo blocker).
 2. Make CI lint/tests blocking (stops new regressions).
 3. Delete `_archive/` + stray artifacts (`coverage.xml`, empty `.sql`, `.vs/`).
-4. Resolve `agent/` status (finish / branch / flag) and remove `services/publication/`.
+4. Resolve `agent/` status (finish / branch / flag) and consolidate the dual reporting paths (`server/report_*` vs pipeline-invoked `services/publication/`).
 5. Split `server/main.py` into routers.
 6. Consolidate 5 deployment docs → 1 decision tree; fix `streamlit/` path in `CLAUDE.md`.
 7. Add tests around `batch_prepare.py` while refactoring it.
