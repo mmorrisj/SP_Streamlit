@@ -116,6 +116,7 @@ None of these block a July demo, but all of them block a clean October handoff. 
 - [ ] Decide and act on `agent/` (finish / branch / flag) and the dual reporting paths (`server/report_*` vs the pipeline-invoked `services/publication/` — pick one canonical path; do NOT just delete publication).
 - [x] Consolidate the deployment docs behind one `DEPLOYMENT.md` decision tree. *(done — additive entry point; detailed docs retained as references)*
 - [ ] Consolidate duplicate `config.yaml`. *(deferred — `shared/config/config.yaml` and `services/dashboard/config.yaml` have diverged; needs a careful merge + dashboard load-path change, not a blind dedup)*
+- [ ] Make the **production** DB external (native Postgres 18 + extensions); keep the bundled `db` container as the dev/demo default only. *(Postgres 18 + pgvector validated — removes a custom image from the prod path. See §9.)*
 
 ### Phase 2 — Modularize the monoliths (August → September)
 *Goal: no single file is a bottleneck to understanding.*
@@ -145,7 +146,32 @@ The direct-DB access in Streamlit also means schema changes can silently break i
 
 ---
 
-## 9. Quick-Reference: Top 10 Actions by Leverage
+## 9. Infrastructure Simplification: Native Postgres 18 vs. the Bundled DB Container
+
+**Update — validated:** Postgres 18 with the required extensions (including
+`pgvector`) has been validated. This **removes the need to run the bundled custom
+database container in production** — the `db` service uses
+`mmorrisj/pgvector:0.8.1-pg17` (container `softpower_db`) across all three compose
+files. Production deployments can instead point at a native/managed Postgres 18
+via `DATABASE_URL` / `DB_HOST`.
+
+**Development keeps the container.** Local/home development and the demo
+quickstart continue to use the bundled container via `docker-compose.yml` and
+`docker-compose.dev.yml` — no change for those workflows.
+
+**Why this matters for maintainability & handoff:**
+- **One fewer custom image** to build, patch, and CVE-scan (`docker/pgvector.Dockerfile`). The custom pgvector image has been a recurring maintenance + security-exception burden (see `docs/CVE_MITIGATION_REPORT.md` and the enterprise CVE-exception template).
+- **Easier enterprise approval/operation**: a native or managed Postgres 18 is far simpler for an enterprise DBA team to run on a hardened host than a custom container.
+- **Smaller production footprint**: drops a stateful container from the prod stack.
+
+**Recommended actions:**
+- Make the `db` service **optional in the production compose** (e.g., behind a Compose profile) so prod can set `DATABASE_URL`/`DB_HOST` to the external Postgres 18 and omit the container entirely; keep `db` as the default in `docker-compose.yml` (dev/demo) and `docker-compose.dev.yml`.
+- Document the external-Postgres path in `DEPLOYMENT.md`, including the **extensions that must be pre-installed** on the target server (`pgvector`, plus any others the schema/migrations rely on).
+- Once production no longer depends on it, the custom `docker/pgvector.Dockerfile` / `mmorrisj/pgvector` image can be retired from the **production** path while remaining the dev/demo default.
+
+---
+
+## 10. Quick-Reference: Top 10 Actions by Leverage
 
 1. Fix the broken `docker-compose` quickstart (demo blocker).
 2. Make CI lint/tests blocking (stops new regressions).
