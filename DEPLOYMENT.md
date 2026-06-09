@@ -53,7 +53,13 @@ In `docker-compose.production.yml` the `db` service is gated behind the
 
 **Required Postgres extensions** (must exist in the target database):
 - `vector` (pgvector) — embeddings / semantic search
-- plus any others the migrations create (see `alembic/versions/`)
+- `pg_trgm` — fuzzy / similarity matching (e.g. entity name resolution in the chat/RAG service)
+
+Enable them once per database (superuser):
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+```
 
 **Option A — external/native Postgres 18 (recommended for production):**
 ```bash

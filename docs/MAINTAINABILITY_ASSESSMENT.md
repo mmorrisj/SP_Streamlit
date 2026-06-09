@@ -166,7 +166,7 @@ quickstart continue to use the bundled container via `docker-compose.yml` and
 
 **Recommended actions:**
 - [x] Make the `db` service **optional in the production compose** (behind the `bundled-db` Compose profile) so prod can set `DB_HOST`/creds to the external Postgres 18 and omit the container entirely; `db` remains the default in `docker-compose.yml` (dev/demo) and `docker-compose.dev.yml`. *(done)*
-- [x] Document the external-Postgres path in `DEPLOYMENT.md`, including the **extensions that must be pre-installed** (`vector`/pgvector, plus any others the migrations create). *(done)*
+- [x] Document the external-Postgres path in `DEPLOYMENT.md`, including the **extensions that must be pre-installed** (`vector`/pgvector and `pg_trgm`). *(done)*
 - Once production no longer depends on it, the custom `docker/pgvector.Dockerfile` / `mmorrisj/pgvector` image can be retired from the **production** path while remaining the dev/demo default.
 
 ---
