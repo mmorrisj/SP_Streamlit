@@ -844,6 +844,17 @@ def _get_proxy_stream_url():
     return f"{api_url.rstrip('/')}/proxy_query_stream"
 
 
+def _proxy_stream_headers():
+    """Headers for the loopback proxy call.
+
+    Forwards the enterprise gateway JWT so the proxy can authenticate the
+    downstream LiteLLM call (proxy + LiteLLM sit behind the same gateway).
+    """
+    from shared.utils.request_context import get_gateway_jwt, ENTERPRISE_JWT_HEADER
+    token = get_gateway_jwt()
+    return {ENTERPRISE_JWT_HEADER: token} if token else {}
+
+
 # =============================================================================
 # Layered Context: Strategic summaries + Event discovery
 # =============================================================================
@@ -1737,7 +1748,7 @@ Provide a structured comparative assessment following AP style guidelines. This 
             "max_tokens": 4000,
         }
 
-        with http_requests.post(stream_url, json=payload, stream=True, timeout=120) as resp:
+        with http_requests.post(stream_url, json=payload, headers=_proxy_stream_headers(), stream=True, timeout=120) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data: "):
@@ -1821,7 +1832,7 @@ Provide a structured assessment following AP style guidelines. This accompanies 
             "max_tokens": 4000,
         }
 
-        with http_requests.post(stream_url, json=payload, stream=True, timeout=120) as resp:
+        with http_requests.post(stream_url, json=payload, headers=_proxy_stream_headers(), stream=True, timeout=120) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data: "):
@@ -1907,7 +1918,7 @@ Answer using ONLY the numbered CONTEXT DOCUMENTS above. Follow AP style guidelin
             "max_tokens": 4000
         }
 
-        with http_requests.post(stream_url, json=payload, stream=True, timeout=120) as resp:
+        with http_requests.post(stream_url, json=payload, headers=_proxy_stream_headers(), stream=True, timeout=120) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data: "):

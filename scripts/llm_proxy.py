@@ -36,10 +36,14 @@ import tempfile
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, File, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+# The enterprise gateway passes the caller's JWT in this header. The LiteLLM
+# endpoint authenticates by that JWT (no API key needed in production).
+ENTERPRISE_JWT_HEADER = "x-kiosk-gateway-jwt"
 
 # Load .env file if python-dotenv is available
 try:
@@ -144,22 +148,25 @@ def health():
 # ============================================================
 
 @app.post("/proxy_query")
-def proxy_query(input: QueryInput):
+def proxy_query(input: QueryInput, request: Request = None):
     """
     LLM query endpoint with environment-based routing.
     Priority: LiteLLM > Azure (production) > OpenAI (development)
     """
     from openai import OpenAI
 
-    # 1. Try LiteLLM first
+    # 1. Try LiteLLM first. The enterprise LiteLLM endpoint authenticates by the
+    # gateway JWT forwarded on the request; LITELLM_API_KEY is a dev fallback.
     litellm_url = os.getenv('LITELLM_URL', '').strip()
-    litellm_key = os.getenv('LITELLM_API_KEY', '').strip()
+    gateway_jwt = request.headers.get(ENTERPRISE_JWT_HEADER) if request is not None else None
+    litellm_bearer = (gateway_jwt or os.getenv('LITELLM_API_KEY', '').strip())
 
-    if litellm_url and litellm_key:
+    if litellm_url and litellm_bearer:
         litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
         try:
-            print(f"  [LITELLM] Calling {litellm_url} with model {litellm_model}")
-            client = OpenAI(api_key=litellm_key, base_url=litellm_url)
+            print(f"  [LITELLM] Calling {litellm_url} with model {litellm_model} "
+                  f"(auth: {'gateway JWT' if gateway_jwt else 'LITELLM_API_KEY'})")
+            client = OpenAI(api_key=litellm_bearer, base_url=litellm_url)
             completion = client.chat.completions.create(
                 model=litellm_model,
                 messages=[
@@ -228,15 +235,88 @@ def proxy_query(input: QueryInput):
 
 
 @app.post("/query")
-def query_gai(input: QueryInput):
+def query_gai(input: QueryInput, request: Request = None):
     """Alias for /proxy_query."""
-    return proxy_query(input)
+    return proxy_query(input, request)
 
 
 @app.post("/material_query")
-def material_query_compat(input: QueryInput):
+def material_query_compat(input: QueryInput, request: Request = None):
     """Backward-compat alias for /proxy_query."""
-    return proxy_query(input)
+    return proxy_query(input, request)
+
+
+class StreamQueryInput(BaseModel):
+    model: str = "gpt-4o-mini"
+    sys_prompt: str
+    prompt: str
+    temperature: float = 0.4
+    max_tokens: int = 4000
+
+
+@app.post("/proxy_query_stream")
+def proxy_query_stream(input: StreamQueryInput, request: Request = None):
+    """
+    Streaming LLM query endpoint (Server-Sent Events). Same routing as
+    /proxy_query: LiteLLM (gateway-JWT auth) > Azure (production) > OpenAI.
+    The chat UI streams from here via API_URL/proxy_query_stream.
+    """
+    from openai import AzureOpenAI as _AzureOpenAI, OpenAI as _OpenAI
+
+    messages = [
+        {"role": "system", "content": input.sys_prompt},
+        {"role": "user", "content": input.prompt},
+    ]
+
+    def _get_stream():
+        # LiteLLM — gateway JWT (forwarded header) or dev LITELLM_API_KEY.
+        litellm_url = os.getenv('LITELLM_URL', '').strip()
+        gateway_jwt = request.headers.get(ENTERPRISE_JWT_HEADER) if request is not None else None
+        litellm_bearer = gateway_jwt or os.getenv('LITELLM_API_KEY', '').strip()
+        litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
+
+        if litellm_url and litellm_bearer:
+            client = _OpenAI(base_url=litellm_url, api_key=litellm_bearer)
+            return client.chat.completions.create(
+                model=litellm_model, messages=messages, stream=True,
+                temperature=input.temperature, max_tokens=input.max_tokens,
+            )
+
+        env = os.getenv('ENV', 'development').lower()
+        azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', '').strip()
+        azure_key = os.getenv('AZURE_OPENAI_API_KEY', '').strip()
+        if env == 'production' and azure_endpoint and azure_key:
+            client = _AzureOpenAI(
+                azure_endpoint=azure_endpoint, api_key=azure_key,
+                api_version=os.getenv('AZURE_OPENAI_API_VERSION', '2024-08-01-preview'),
+            )
+            deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT', input.model)
+            return client.chat.completions.create(
+                model=deployment, messages=messages, stream=True,
+                temperature=input.temperature, max_tokens=input.max_tokens,
+            )
+
+        api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise HTTPException(status_code=500, detail="No LLM credential configured")
+        client = _OpenAI(api_key=api_key)
+        extra = {} if input.model.startswith("gpt-5") else {"temperature": input.temperature}
+        return client.chat.completions.create(
+            model=input.model, messages=messages, stream=True,
+            max_tokens=input.max_tokens, **extra,
+        )
+
+    def event_generator():
+        try:
+            for chunk in _get_stream():
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    yield f"data: {json.dumps({'content': delta})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 def _parse_response(content):

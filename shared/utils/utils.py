@@ -212,7 +212,7 @@ def fetch_gai_response(sys_prompt,prompt,model):
 
 
 @rate_limit(min_interval=10.0)
-def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source=None, use_proxy=None, azure_use_env=False):
+def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source=None, use_proxy=None, azure_use_env=False, jwt=None):
     """
     Unified LLM call supporting multiple backends.
 
@@ -224,11 +224,16 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source=None, use_proxy=Non
                 When None (default), reads GAI_DEFAULT_SOURCE env var, falling back to "proxy".
         use_proxy: [DEPRECATED] Use source="proxy" instead. Maintained for backward compatibility.
         azure_use_env: If True with source="azure", use env vars instead of AWS Secrets Manager
+        jwt: Explicit enterprise gateway JWT to authenticate the LiteLLM call. When
+             None, the JWT is read from the current request context (set by the
+             gateway-JWT middleware). The enterprise LiteLLM endpoint authenticates
+             by this JWT, so no API key is required in production.
 
     Environment Variables:
         GAI_DEFAULT_SOURCE: Selects backend when source= isn't passed (proxy|litellm|azure|openai).
         API_URL: Required for source="proxy" (base URL, e.g. http://localhost:5001)
-        LITELLM_URL, LITELLM_API_KEY: Required for source="litellm"
+        LITELLM_URL: Required for source="litellm". Authentication uses the enterprise
+            gateway JWT; LITELLM_API_KEY is an optional fallback for non-enterprise/dev setups.
         LITELLM_MODEL: Optional model override for LITELLM (if not set, uses 'model' parameter)
         AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY: Required for source="azure" with azure_use_env=True
         OPENAI_PROJ_API: Required for source="openai"
@@ -241,6 +246,7 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source=None, use_proxy=Non
         requests.RequestException: If FastAPI proxy call fails
     """
     import requests
+    from shared.utils.request_context import get_gateway_jwt
 
     # Handle backward compatibility with use_proxy parameter
     if use_proxy is not None:
@@ -317,16 +323,27 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source=None, use_proxy=Non
             from openai import OpenAI
 
             litellm_url = os.getenv('LITELLM_URL')
-            litellm_key = os.getenv('LITELLM_API_KEY')
             litellm_model = os.getenv('LITELLM_MODEL', model)  # Use LITELLM_MODEL if set, otherwise use passed model
 
-            if not litellm_url or not litellm_key:
-                raise ValueError("LITELLM_URL and LITELLM_API_KEY must be set in environment")
+            if not litellm_url:
+                raise ValueError("LITELLM_URL must be set in environment for source='litellm'")
 
-            print(f"  [LITELLM] Using model: {litellm_model}")
+            # Enterprise LiteLLM authenticates by the gateway JWT (the OpenAI SDK
+            # sends api_key as 'Authorization: Bearer <token>'). Fall back to a
+            # static LITELLM_API_KEY only for non-enterprise/dev setups.
+            bearer = jwt or get_gateway_jwt() or os.getenv('LITELLM_API_KEY')
+            if not bearer:
+                raise ValueError(
+                    "No credential for LiteLLM: enterprise gateway JWT "
+                    "(x-kiosk-gateway-jwt) was not present in the request context "
+                    "and LITELLM_API_KEY is not set."
+                )
+
+            print(f"  [LITELLM] Using model: {litellm_model} (auth: "
+                  f"{'gateway JWT' if (jwt or get_gateway_jwt()) else 'LITELLM_API_KEY'})")
 
             client = OpenAI(
-                api_key=litellm_key,
+                api_key=bearer,
                 base_url=litellm_url,
             )
 
@@ -415,8 +432,16 @@ def gai(sys_prompt, user_prompt, model="gpt-4o-mini", source=None, use_proxy=Non
             "model": model
         }
 
+        # Forward the enterprise gateway JWT so the proxy can authenticate the
+        # downstream LiteLLM call (the proxy lives behind the same gateway).
+        from shared.utils.request_context import ENTERPRISE_JWT_HEADER
+        headers = {}
+        proxy_jwt = jwt or get_gateway_jwt()
+        if proxy_jwt:
+            headers[ENTERPRISE_JWT_HEADER] = proxy_jwt
+
         try:
-            response = requests.post(fastapi_url, json=payload, timeout=120)
+            response = requests.post(fastapi_url, json=payload, headers=headers, timeout=120)
             response.raise_for_status()
 
             data = response.json()
