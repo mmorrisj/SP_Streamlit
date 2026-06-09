@@ -96,8 +96,12 @@ DB_PORT=5432
 # ==========================================
 # OPTION A: LiteLLM (enterprise endpoint — MOST LIKELY for enterprise)
 LITELLM_URL=https://your-enterprise-litellm-endpoint/v1
-LITELLM_API_KEY=your-litellm-api-key
 LITELLM_MODEL=gpt-4o-mini
+# Authentication: the enterprise LiteLLM endpoint authenticates by the gateway
+# JWT (x-kiosk-gateway-jwt), which the app forwards automatically — no API key
+# is needed in production. LITELLM_API_KEY is an OPTIONAL fallback for
+# non-enterprise/dev setups where the endpoint expects a static key instead.
+# LITELLM_API_KEY=your-litellm-api-key
 
 # OPTION B: Azure OpenAI
 # ENV=production

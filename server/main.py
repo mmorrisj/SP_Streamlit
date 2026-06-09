@@ -110,6 +110,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Capture the enterprise gateway JWT into the request context so downstream LLM
+# calls (in-process gai() and the loopback proxy hop) can authenticate to the
+# LiteLLM endpoint with it. See shared/utils/request_context.py for why this is
+# pure ASGI middleware rather than BaseHTTPMiddleware.
+from shared.utils.request_context import GatewayJWTMiddleware
+
+app.add_middleware(GatewayJWTMiddleware)
+
 # Agent module: isolated runtime for the OSINT-style agent page.
 # EXPERIMENTAL / incomplete — see agent/README.md. Set DISABLE_AGENT=true to
 # skip mounting it (e.g. for a demo build). Guarded either way so a broken
@@ -3274,12 +3282,13 @@ def proxy_gai_query(input: QueryInput):
     LLM query endpoint with environment-based routing.
     Priority: LITELLM > Azure (production) > OpenAI (development)
     """
-    # Check for LITELLM configuration first
+    # Check for LITELLM configuration first. The enterprise LiteLLM endpoint
+    # authenticates by the gateway JWT (captured into the request context by
+    # GatewayJWTMiddleware), so only LITELLM_URL is required here — no API key.
     litellm_url = os.getenv('LITELLM_URL', '').strip()
-    litellm_key = os.getenv('LITELLM_API_KEY', '').strip()
     litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
 
-    if litellm_url and litellm_key and gai:
+    if litellm_url and gai:
         try:
             content = gai(input.sys_prompt, input.prompt, litellm_model, source="litellm")
             return {"response": content}
@@ -3340,13 +3349,15 @@ def proxy_gai_query_stream(input: StreamQueryInput):
     ]
 
     def _get_stream():
-        # LiteLLM
+        # LiteLLM — authenticate with the enterprise gateway JWT (from the
+        # request context), falling back to LITELLM_API_KEY for dev setups.
+        from shared.utils.request_context import get_gateway_jwt
         litellm_url = os.getenv('LITELLM_URL', '').strip()
-        litellm_key = os.getenv('LITELLM_API_KEY', '').strip()
+        litellm_bearer = get_gateway_jwt() or os.getenv('LITELLM_API_KEY', '').strip()
         litellm_model = os.getenv('LITELLM_MODEL', input.model).strip()
 
-        if litellm_url and litellm_key:
-            client = _OpenAI(base_url=litellm_url, api_key=litellm_key)
+        if litellm_url and litellm_bearer:
+            client = _OpenAI(base_url=litellm_url, api_key=litellm_bearer)
             return client.chat.completions.create(
                 model=litellm_model, messages=messages, stream=True,
                 temperature=input.temperature, max_tokens=input.max_tokens
