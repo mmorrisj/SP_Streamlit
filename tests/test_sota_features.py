@@ -13,9 +13,16 @@ from datetime import date
 from pathlib import Path
 import importlib.util
 
-# Mock torch before any rag_service imports (torch may not be in test venv)
-if 'torch' not in sys.modules:
-    sys.modules['torch'] = MagicMock()
+# Mock torch only if it is genuinely not installed (it may be absent from a
+# lightweight test venv). Use find_spec rather than checking sys.modules so we
+# never shadow a real, installed torch that simply hasn't been imported yet.
+# The stub exposes a real `Tensor` class because scipy/sklearn probe torch via
+# `issubclass(x, torch.Tensor)`; a bare MagicMock there raises TypeError and
+# poisons array validation for the whole test session.
+if importlib.util.find_spec('torch') is None:
+    _torch_stub = MagicMock()
+    _torch_stub.Tensor = type('Tensor', (), {})
+    sys.modules['torch'] = _torch_stub
 
 
 # =============================================================================
@@ -563,25 +570,20 @@ class TestHyDE:
         """On success, HyDE should return a non-empty string."""
         from services.chat.rag_service import generate_hyde_document
 
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "China has invested $5B in African ports."
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-
+        # generate_hyde_document calls the `gai` helper and returns its string.
         with patch('services.chat.rag_service.ENABLE_HYDE', True), \
-             patch('services.chat.rag_service.get_llm_client', return_value=(mock_client, "openai")):
+             patch('services.chat.rag_service.gai',
+                   return_value="China has invested $5B in African ports."):
             result = generate_hyde_document("What is China doing in Africa?")
             assert isinstance(result, str)
             assert len(result) > 0
 
     def test_hyde_graceful_fallback_on_error(self):
-        """If LLM call fails, HyDE should return None (not raise)."""
+        """If the LLM call fails, HyDE should return None (not raise)."""
         from services.chat.rag_service import generate_hyde_document
 
         with patch('services.chat.rag_service.ENABLE_HYDE', True), \
-             patch('services.chat.rag_service.get_llm_client', side_effect=Exception("API error")):
+             patch('services.chat.rag_service.gai', side_effect=Exception("API error")):
             result = generate_hyde_document("test query")
             assert result is None
 
