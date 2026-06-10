@@ -31,6 +31,10 @@ class LLMMessage:
     content: str
     tool_call_id: str | None = None
     name: str | None = None
+    # Tool calls the assistant requested in this turn. Must be echoed back on
+    # the assistant message that precedes role="tool" results — OpenAI-compatible
+    # servers reject tool messages whose IDs don't match a prior tool_calls list.
+    tool_calls: list["ToolCall"] | None = None
 
 
 @dataclass

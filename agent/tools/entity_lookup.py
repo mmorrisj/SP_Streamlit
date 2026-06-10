@@ -78,7 +78,7 @@ class EntityLookupTool(Tool):
         except Exception as e:  # pragma: no cover
             return ToolResult(ok=False, error=f"database unavailable: {e}")
 
-        params: dict[str, Any] = {"name": name, "ilike": f"%{name}%", "limit": limit}
+        params: dict[str, Any] = {"name": name, "ilike": f"%{_escape_like(name)}%", "limit": limit}
         etype_clause = ""
         if entity_type:
             etype_clause = "AND lower(entity_type::text) = lower(:etype)"
@@ -125,6 +125,12 @@ def _shape(r: dict[str, Any]) -> dict[str, Any]:
 
 def _d(v: Any) -> str | None:
     return v.isoformat() if hasattr(v, "isoformat") else (str(v) if v is not None else None)
+
+
+def _escape_like(s: str) -> str:
+    """Escape LIKE/ILIKE wildcards in user input so 'X%' matches literally.
+    Postgres's default escape character is backslash."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 TOOL = EntityLookupTool()
