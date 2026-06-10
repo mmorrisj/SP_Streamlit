@@ -4,7 +4,7 @@ Inputs are docs already filtered as soft-power relevant upstream, so there
 is no relevance gate. Field names match shared/models/proposition_models.py.
 """
 
-PROPOSITION_PROMPT_VERSION = "v0.10"
+PROPOSITION_PROMPT_VERSION = "v0.11"
 
 
 proposition_extraction_prompt = '''You are an expert in international relations tracking inter-country soft-power engagements. The provided text has already been identified as soft-power relevant. Decompose it into ATOMIC PROPOSITIONS: each proposition expresses ONE claim about ONE actor doing/saying/committing ONE thing toward ONE recipient.
@@ -27,7 +27,10 @@ ATOMICITY (read carefully)
   If your draft predicate contains any of these, SPLIT into separate propositions BEFORE emitting.
 - Compound verbs to watch for: "discussed and emphasized", "welcomed and praised", "signed and announced", "visited and met", "expressed and reiterated", "called for calm and restraint", "aims to enhance and support".
   Each verb is its own proposition. Copy the subject/object/initiator/recipient; vary only the predicate and (if needed) the claim_type.
-- Predicates that BIND coordinated nouns ("called for X and Y", "aims to enhance A and provide B", "discussed cooperation in food, medicine, and supplies") are still compound predicates. Split on the conjunction inside the verb-phrase scope. The ONLY case where "and" inside a predicate is acceptable is when it is part of a named entity ("Belt and Road Initiative", "Trade and Investment Council", "Roads and Transport Authority").
+- Predicates that BIND coordinated nouns ("called for X and Y", "aims to enhance A and provide B", "discussed cooperation in food, medicine, and supplies") are still compound predicates. Split on the conjunction inside the verb-phrase scope.
+- EXCEPTIONS where "and" inside a predicate is acceptable (do NOT split):
+  (a) named entities: "Belt and Road Initiative", "Trade and Investment Council", "Roads and Transport Authority";
+  (b) fixed diplomatic word-pairs expressing ONE stance (hendiadys): "calm and restraint", "opposition and condemnation", "peace and stability", "unity and sovereignty", "law and order". These are single concepts — keep as one proposition.
 - WORKED SPLIT:
     Source: "Wang Yi welcomed the agreement and praised Egypt's leadership."
     WRONG (one prop):  predicate = "welcomed and praised"
@@ -154,8 +157,8 @@ COMMON MISTAKES TO AVOID:
 - instrument_type is NOT claim_type. "action", "commitment", "statement of action" are NOT instrument_type values.
   If the action is a public declaration, use instrument_type = "statement" (and claim_type = "action" or "commitment" as appropriate).
   If the action is signing/MOU, use "bilateral_agreement". If it's a meeting/visit, use "state_visit".
-- sp_domain values that look right but are NOT in the list (DO NOT use): "infrastructure_project", "tourism", "environmental", "persuasion", "sports_cultural", "attraction", "training_program", "loan".
-  An infrastructure build belongs under "investment" or "economic_aid" depending on funding type. Tourism cooperation is "cultural". Environmental cooperation is "diplomatic_engagement" or "science_technology". Loans belong under "investment" or "economic_aid" (the loan itself is the instrument_type, not the domain).
+- sp_domain values that look right but are NOT in the list (DO NOT use): "infrastructure_project", "tourism", "environmental", "persuasion", "sports_cultural", "attraction", "training_program", "loan", "multilateral_forum".
+  An infrastructure build belongs under "investment" or "economic_aid" depending on funding type. Tourism cooperation is "cultural". Environmental/climate/green-energy cooperation is "science_technology" (or "investment" if it is a funded project). Loans belong under "investment" or "economic_aid" (the loan itself is the instrument_type, not the domain).
 - mechanism is the FOUR Nye types only: attraction, persuasion, inducement, coercion. "commitment", "perception", "denied" are NOT mechanisms — those concepts belong in claim_type or modality.
 - modality: "actual and planned" is NOT valid. Pick one; if the source describes both a completed step and a future step, emit TWO propositions.
 - date_precision: only [day, month, quarter, year, unknown]. "week" is NOT valid — round up to month.
@@ -167,6 +170,12 @@ CROSS-FIELD ANTI-MAPPINGS (do NOT spill values from one field into another):
 - claim_type values are NEVER valid instrument_type or mechanism values. "action", "commitment", "statement", "outcome", "perception", "capability" belong only in claim_type.
 - geo_scope is NEVER "other". If the recipient is one country: bilateral. A bloc/region: regional. ≥3 named countries or a multilateral institution: multilateral. Truly worldwide framing: global.
 - If you find yourself wanting to put the same string in two enum fields, you have almost certainly mis-classified one — re-pick from the correct list.
+
+NEVER OMIT REQUIRED ENUM FIELDS. The anti-mappings above tell you WHICH list to pick from — they never mean "leave the field out" or "set it to null". sp_domain, instrument_type, and mechanism are REQUIRED on EVERY proposition, no exceptions. If you are unsure after applying the rules:
+- sp_domain: pick the closest fit, or "other" as last resort.
+- instrument_type: pick the closest fit, or "other" as last resort.
+- mechanism: there is no "other" — always pick the closest of the four. Default heuristics: statements/praise/framing → "persuasion"; money, projects, aid, market access → "inducement"; culture/education/lifestyle appeal → "attraction"; threats/sanctions → "coercion".
+A proposition with any of these three fields missing or null is INVALID OUTPUT.
 
 TAXONOMY (closed enums - use "other" if nothing fits, do NOT invent values)
 
