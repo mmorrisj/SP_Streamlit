@@ -127,6 +127,23 @@ def _to_api_message(m: LLMMessage) -> dict[str, Any]:
         if m.name:
             out["name"] = m.name
         return out
+    if m.role == "assistant" and m.tool_calls:
+        return {
+            "role": "assistant",
+            # The API requires content to be null (not "") when tool_calls are set.
+            "content": m.content or None,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": json.dumps(tc.arguments),
+                    },
+                }
+                for tc in m.tool_calls
+            ],
+        }
     return {"role": m.role, "content": m.content}
 
 

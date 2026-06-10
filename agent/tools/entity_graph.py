@@ -81,7 +81,9 @@ class EntityGraphTool(Tool):
             binds.append(bindparam("rtypes", type_=ARRAY(SAString)))
         stmt = text(sql).bindparams(*binds)
 
-        nodes: dict[str, dict[str, Any]] = {root: {"canonical_id": root, "name": None, "hop": 0}}
+        nodes: dict[str, dict[str, Any]] = {
+            root: {"canonical_id": root, "name": None, "entity_type": None, "hop": 0}
+        }
         edges: list[dict[str, Any]] = []
         seen_edges: set[tuple[str, str, str]] = set()
         frontier = [root]

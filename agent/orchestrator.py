@@ -179,12 +179,15 @@ class Orchestrator:
                 # Model produced final answer.
                 return self._parse_final_briefing(response.text, ctx)
 
-            # Echo the assistant turn that requested the tool calls so the
-            # follow-up tool messages have the right linkage.
+            # Echo the assistant turn that requested the tool calls, including
+            # the tool_calls list itself — OpenAI-compatible servers reject
+            # role="tool" messages whose tool_call_id doesn't match a tool_calls
+            # entry on the preceding assistant message.
             messages.append(
                 LLMMessage(
                     role="assistant",
                     content=response.text or "",
+                    tool_calls=response.tool_calls,
                 )
             )
 

@@ -85,8 +85,13 @@ class EventTimelineTool(Tool):
             influencer_clause = "AND lower(initiating_country) = lower(:influencer)"
             params["influencer"] = kwargs["influencer"]
         if kwargs.get("recipient"):
-            # primary_recipients is a JSONB object keyed by country name.
-            recipient_clause = "AND primary_recipients ? :recipient"
+            # primary_recipients is a JSONB object keyed by country name; match
+            # keys case-insensitively to stay consistent with the influencer
+            # filter ("egypt" should match "Egypt").
+            recipient_clause = (
+                "AND EXISTS (SELECT 1 FROM jsonb_object_keys(primary_recipients) rk "
+                "WHERE lower(rk) = lower(:recipient))"
+            )
             params["recipient"] = kwargs["recipient"]
         if kwargs.get("canonical_entity_id"):
             entity_clause = (
