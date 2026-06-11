@@ -62,13 +62,16 @@ docker exec -it softpower_db psql -U $POSTGRES_USER -d $POSTGRES_DB
 ### Pipeline Processing Scripts
 ```bash
 # Document ingestion
-python services/pipeline/ingestion/atom.py                # Document ingestion
+# Raw ATOM CSV exports: salience gate + initial extraction -> results.json + Postgres
+python services/pipeline/ingestion/atom_pipeline.py export.csv
+python services/pipeline/ingestion/atom_pipeline.py export.csv --status     # Counts only
+python services/pipeline/ingestion/atom_pipeline.py export.csv --dry-run    # No DB writes
+# Pre-extracted DSR JSON exports
 python services/pipeline/ingestion/dsr.py                 # Process JSON files from S3
 python services/pipeline/ingestion/dsr.py --status        # Check processing status
 python services/pipeline/ingestion/dsr.py --no-embed      # Process without embeddings
 
 # AI analysis
-python services/pipeline/analysis/atom_extraction.py      # AI analysis
 python services/pipeline/analysis/phase0_event_analysis.py  # Event analysis
 
 # Event Processing Pipeline
@@ -190,8 +193,8 @@ SP_Streamlit/
 │   │   └── charts/            # Chart components
 │   │
 │   └── pipeline/               # Data processing pipeline
-│       ├── ingestion/         # Document ingestion (atom.py, dsr.py)
-│       ├── analysis/          # AI analysis (atom_extraction.py)
+│       ├── ingestion/         # Document ingestion (atom_pipeline.py, dsr.py)
+│       ├── analysis/          # AI analysis (phase0_event_analysis.py)
 │       ├── events/            # Event processing (news_event_tracker.py)
 │       ├── embeddings/        # Vector embeddings (s3_to_pgvector.py)
 │       ├── migrations/        # Data migrations
@@ -646,7 +649,7 @@ with get_session() as session:
    alembic upgrade head
    ```
 
-4. Update extraction logic in `services/pipeline/analysis/atom_extraction.py`
+4. Update extraction logic in `services/pipeline/ingestion/atom_pipeline.py` (ATOM CSV) or the upstream DSR prompt
 
 5. Update prompts if needed in `shared/utils/prompts.py`
 

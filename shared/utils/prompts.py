@@ -2156,3 +2156,93 @@ model = '''{{
             "significance": "<EVENT SIGNIFICANCE>",
             "sources": [<LIST OF ATOM IDs]
         }}'''
+
+
+# ---------------------------------------------------------------------------
+# ATOM CSV pipeline (services/pipeline/ingestion/atom_pipeline.py)
+#
+# Modern replacements for the per-script inline prompts that lived in the
+# legacy atom_salience.py / atom_extraction.py. Output keys are hyphenated to
+# match the DSR export convention (dsr.py maps hyphen -> underscore onto the
+# Document model).
+# ---------------------------------------------------------------------------
+
+atom_salience_prompt = '''You are an international relations expert on the use of Soft Power influence from one country towards another country. Soft power is the ability of a country to shape the preferences and behaviors of other nations through appeal and attraction rather than coercion or payment. This influence is exerted through cultural diplomacy, values, policies, political ideals, educational exchanges, and media, fostering goodwill and fostering mutual understanding. Soft power aims to build positive relationships and international cooperation by enhancing a country's reputation and credibility globally.
+
+Please execute the following steps,
+
+1. Assess whether the given text is an example of the use of soft power influence as defined above.
+2. Output the result in json, for example {"salience": true } or {"salience": false}
+IMPORTANT: ONLY OUTPUT THE JSON RESULT.'''
+
+atom_extraction_prompt = '''You are an expert in tracking and identifying inter-country 'soft power' engagements, where one country through economic, social, cultural, or political means, fosters influence over another country.
+
+Please execute the following steps and output the results using the provided json template.
+1. Determine if the focus of the following text is a soft power-related event or influence activity of one country towards another. Ensure that the context in which soft power is discussed is significant and substantial, not merely a passing reference. Avoid flagging articles that only broadly mention a soft power relevant event without focusing on specific events or initiatives. Exclude articles that primarily focus on unrelated topics with only a tangential mention of a soft power relevant event.
+2. If it is, in 200 words or less, explain why the text was determined to be either an example of soft power or not an example of soft power.
+3. If the text is an example of soft power, identify the nature of the activity and output one or more of the following categories, if more than one topic is relevant, separate them by semicolons.
+          1)  "Economic":  Characterized by the use of economic tools and policies to influence other countries' behaviors and attitudes. Articles should be classified as Economic only if a specific deal, exchange, or market is referenced, otherwise general non-specific discussions of economic ties should be binned under "Diplomacy".
+          2)  "Social":  Characterized by the use of cultural, ideological, and social tools to influence other countries' behaviors and attitudes, fostering admiration, respect, and alignment with a country's values and way of life. This category includes financial and material donations or aid.
+          3)  "Diplomacy":  Characterized by the use of diplomatic channels, negotiations, and international relations to shape the preferences, attitudes, and behaviors of other nations in a way that aligns with a country's interests.
+          4)  "Military": Characterized by the strategic use of military resources and capabilities to build goodwill, foster international cooperation, and project a positive image without engaging in direct military conflict or coercion.
+4. In 200 words or less, explain why the specific category or categories was selected.
+5. Next, from the provided text, determine which of the following subcategories aligns best to the context of the provided text as a whole. Each category MUST have a sub-category.
+
+    If the overall category is "Economic", determine which of the following sub-categories aligns best to the context of the text:
+    A. Trade
+    B. Food
+    C. Finance
+    D. Technology
+    E. Transportation
+    F. Tourism
+    G. Industrial
+    H. Raw Materials
+    I. Infrastructure
+    J. If the economic activity doesn't fall within any of the above categories, return "Other-" with a one word label of the activity.
+
+    If the overall category is "Social", determine which of the following sub-categories aligns best to the context of the text:
+    A. Cultural
+    B. Education
+    C. Healthcare
+    D. Housing
+    E. Media
+    F. Politics
+    G. Religious
+    H. Aid/Donation
+    I. If the social activity doesn't fit any of the above categories, return "Other-" with a one word label of the activity.
+
+    If the nature of the activity is "Diplomacy", determine which of the following diplomacy subcategories the activity falls under:
+    A. Multilateral/Bilateral Commitments
+    B. International Negotiations
+    C. Conflict Resolution
+    D. Global Governance Participation
+    E. Diaspora Engagement
+    F. If the Diplomacy activity doesn't fit any of the above categories, return "Other-" with a one word label of the activity.
+
+    If the overall category is "Military", determine which of the following sub-categories aligns best to the context of the text:
+    A. Sales
+    B. Joint Exercises
+    C. Training
+    D. Conferences
+    E. If the military activity doesn't fall under any of these, return "Other-" with a one word label of the activity.
+6. Determine the country initiating the softpower exchange from the provided text.  If more than one initiating country is identified, separate them with semicolons.
+
+7. Determine the recipient country of the softpower exchange from the provided text. If more than one recipient country is identified, separate them with semicolons. The initiating and recipient country should never be the same.
+
+8. Identify specific projects, conferences, or initiative names, for example, "Maputo Central Hospital," "National Theater Renovation Project," or "Tengchong-Myitkyina Road Construction Project;Opium Alternative Planting Project." If more than one is found, separate them with semicolons.
+
+9. Provide the approximate latitude and longitude of the activity, if unavailable, provide the Latitude and longitude of the nearest locality or recipient country.
+
+10. Provide the nearest locality of the event, for example "Tehran, Iran".
+
+11. Identify and output the monetary commitment of the activity of commitment in USD, for example "$100,000,000."
+
+12. Distill the content of the text to only the context relevant to a soft power exchange. All locations, persons, projects, and monetary values should remain in the distilled output. Provide this output in english.
+
+13. Produce a SPECIFIC event name that uniquely identifies the soft power interaction described. The event name MUST include the specific activity (e.g., "signs port construction MOU", "launches Confucius Institute", "mediates nuclear talks"), key actors or entities involved, and geographic specificity when relevant. The name should be specific enough that it could NOT describe a different event between the same two countries.
+    GOOD event names: "China-Egypt Suez Canal Economic Zone Phase 2 Expansion", "Oman Mediates Iran-US Nuclear Backchannel Talks", "Turkey-Qatar Eagle Shield Joint Military Exercise 2024", "2024 BRICS Summit in Kazan"
+    BAD event names (NEVER produce these): "China-Egypt Bilateral Relations", "Iran Cultural Diplomacy", "Turkey-Qatar Military Cooperation", "Diplomatic Meeting", "Trade Agreement"
+
+14. Output the result in json, for example {"salience-justification": "Reason the text is an example of soft power.", "salience-bool": <BOOLEAN>, "category": "<CATEGORY TEXT>", "category-justification": "<JUSTIFICATION TEXT>", "subcategory": "<SUBCATEGORY TEXT>", "initiating-country": "<COUNTRY TEXT>", "recipient-country": "<COUNTRY TEXT>", "projects": "<REFERENCED PROJECTS LIST>", "LAT_LONG": "<LATITUDE AND LONGITUDE>","location": "<LOCATION TEXT>", "monetary-commitment": "<REFERENCED MONETARY VALUES>", "distilled-text": "<DISTILLED TEXT>","event-name": "<SPECIFIC EVENT NAME>"}, {"salience-justification": "<JUSTIFICATION TEXT>", "salience-bool": false}.
+
+IMPORTANT: ONLY output the json. ONLY use the json format. ALL output values should ONLY be in English.'''

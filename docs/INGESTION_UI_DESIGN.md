@@ -46,6 +46,14 @@ schema-evolution handling in `parse_doc`, clear two-step load-then-embed separat
 
 ### 1.2 The `atom.csv` path — legacy and currently broken
 
+> **Status update:** the modernization described in §2.4 V2 has landed as
+> `services/pipeline/ingestion/atom_pipeline.py` (salience gate + initial extraction via
+> the shared `gai()` proxy/LiteLLM path, resumable `results.json` artifact, Postgres
+> `Document` upsert reusing `dsr.py`'s `flatten_all_relationships`). The legacy
+> `atom.py` / `atom_salience.py` / `atom_extraction.py` described below have been
+> removed. Remaining deltas vs. this design: extraction is synchronous `gai()` calls
+> (not the OpenAI Batch API), and the UI/job-table layers (Part 2) are not yet built.
+
 The atom path never reaches the production Postgres database:
 
 - **`services/pipeline/ingestion/atom.py`** only cleans CSV → XLSX into a `processed/`
