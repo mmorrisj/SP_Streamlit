@@ -332,11 +332,20 @@ def process_atom_csv(
     limit: Optional[int] = None,
     salience_model: str = SALIENCE_MODEL,
     extraction_model: str = EXTRACTION_MODEL,
+    progress_cb=None,
+    should_cancel=None,
 ) -> dict[str, Any]:
     """Run the full pipeline over one CSV export.
 
     Returns a summary dict: counts of records seen, skipped (already in DB or
-    results.json), gated out as non-salient, extracted, persisted, and errored.
+    results.json), gated out as non-salient, extracted, persisted, and errored,
+    plus persisted_doc_ids (for a follow-on embedding step) and cancelled.
+
+    progress_cb(summary) is invoked after every processed record so a caller
+    (e.g. the ingestion UI worker) can surface live counts. should_cancel() is
+    checked at each record boundary; when it returns True the run stops
+    gracefully — results.json is flushed and already-extracted documents are
+    still persisted, so the run can resume later without re-paying LLM calls.
     """
     results_path = results_path or os.path.join(
         os.path.dirname(os.path.abspath(csv_path)),
@@ -359,6 +368,8 @@ def process_atom_csv(
         "extracted": 0,
         "persisted": 0,
         "errors": 0,
+        "persisted_doc_ids": [],
+        "cancelled": False,
     }
 
     pending_docs: list = []
@@ -367,6 +378,9 @@ def process_atom_csv(
 
     for record in records:
         if limit is not None and processed >= limit:
+            break
+        if should_cancel is not None and should_cancel():
+            summary["cancelled"] = True
             break
         if record.atom_id in skip_ids and not reprocess:
             summary["skipped_existing"] += 1
@@ -404,13 +418,18 @@ def process_atom_csv(
             _save_results(results_path, results)
             since_flush = 0
             logger.info("flushed results.json (%d entries)", len(results))
+        if progress_cb is not None:
+            progress_cb(dict(summary))
 
     _save_results(results_path, results)
 
     if pending_docs:
         _persist_documents(pending_docs)
         summary["persisted"] = len(pending_docs)
+        summary["persisted_doc_ids"] = [d.doc_id for d in pending_docs]
 
+    if progress_cb is not None:
+        progress_cb(dict(summary))
     return summary
 
 

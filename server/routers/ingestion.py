@@ -149,11 +149,9 @@ def start_job(
                 status_code=409,
                 detail=f"Job is '{job.status}' — only validated jobs in 'ready' state can be started",
             )
-        if job.file_type != ingestion_service.FILE_TYPE_DSR:
-            raise HTTPException(
-                status_code=409,
-                detail="Atom CSV ingestion is not yet runnable from the UI (validation report only)",
-            )
+        # Both file types are runnable (DSR JSON via the loader, atom CSV via
+        # the salience+extraction pipeline); the validation report's
+        # `runnable` flag is the single gate.
         if not (job.validation_report or {}).get("runnable", False):
             raise HTTPException(
                 status_code=409,

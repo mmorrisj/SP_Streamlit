@@ -268,12 +268,13 @@ def _validate_dsr(file_path: str) -> Tuple[dict, List[dict]]:
 
 def _validate_atom_csv(file_path: str) -> Tuple[dict, List[dict]]:
     """
-    Validate an atom CSV upload: structural preview only.
+    Validate an atom CSV upload: structural preview plus run-readiness.
 
-    The atom path requires LLM soft-power extraction before documents are
-    database-ready; that pipeline is not yet wired to the UI (Phase 3 in
-    docs/INGESTION_UI_DESIGN.md), so atom jobs are never runnable — users
-    still get a structure/duplication report out of the upload.
+    Atom CSVs are runnable via services/pipeline/ingestion/atom_pipeline.py
+    (salience gate + LLM extraction). The report carries the usable-row count
+    and how many of those rows already exist in the database, plus an explicit
+    note that starting the job spends paid LLM calls per new row — the UI
+    surfaces that before Start.
     """
     import pandas as pd
 
@@ -321,19 +322,48 @@ def _validate_atom_csv(file_path: str) -> Tuple[dict, List[dict]]:
     sample_cols = [c for c in ["Title", "Collection Name", "Source Name", "Source Date, Start"] if c in columns]
     sample = df[sample_cols].head(SAMPLE_SIZE).fillna("").to_dict(orient="records") if sample_cols else []
 
+    # Run-readiness: load through the actual pipeline loader (same dedupe /
+    # body-drop rules the run will apply) and count rows already ingested.
+    runnable = True
+    not_runnable_reason = None
+    usable_rows = 0
+    already_in_db = 0
+    try:
+        from services.pipeline.ingestion.atom_pipeline import load_atom_csv
+
+        records = load_atom_csv(file_path)
+        usable_rows = len(records)
+        already_in_db = len(_existing_doc_ids([r.atom_id for r in records]))
+        if usable_rows == 0:
+            runnable = False
+            not_runnable_reason = "No usable rows after dropping empty bodies and duplicate titles."
+    except ValueError as exc:
+        runnable = False
+        not_runnable_reason = str(exc)
+
+    new_rows = usable_rows - already_in_db
+    if runnable and new_rows == 0:
+        runnable = False
+        not_runnable_reason = "Every usable row is already in the database."
+
     report = {
         "file_type": FILE_TYPE_ATOM,
         "total_records": int(len(df)),
-        "parseable": int(len(df) - (empty_body or 0)),
+        "parseable": usable_rows or int(len(df) - (empty_body or 0)),
         "parse_errors": 0,
         "columns": [str(c) for c in columns],
         "collections": {str(k): int(v) for k, v in collections.items()},
         "warnings": warnings,
         "sample": sample,
-        "runnable": False,
-        "not_runnable_reason": (
-            "Atom CSV ingestion requires the LLM soft-power extraction pipeline, "
-            "which is not yet available from the UI. Validation report only."
+        "usable_rows": usable_rows,
+        "already_in_db": already_in_db,
+        "new_rows": max(new_rows, 0),
+        "runnable": runnable,
+        "not_runnable_reason": not_runnable_reason,
+        "llm_cost_note": (
+            f"Running this job will make LLM calls for up to {max(new_rows, 0)} new rows "
+            "(salience gate per row; full extraction for salient rows)."
+            if runnable else None
         ),
     }
     return report, []
@@ -367,7 +397,12 @@ def _run_ingestion_inner(job_id: str) -> None:
     with get_session() as session:
         job = session.get(IngestionJob, job_id)
         file_path = job.file_path
+        file_type = job.file_type
         options = dict(job.options or {})
+
+    if file_type == FILE_TYPE_ATOM:
+        _run_atom_ingestion(job_id, file_path, options)
+        return
 
     embed_now = bool(options.get("embed_now", True))
     reflatten_duplicates = bool(options.get("reflatten_duplicates", False))
@@ -459,6 +494,113 @@ def _run_ingestion_inner(job_id: str) -> None:
         return
 
     # ----- Embedding stage -------------------------------------------------
+    if embed_now and new_doc_ids:
+        progress["stage"] = "embedding"
+        _update_job(job_id, status=IngestionJobStatus.EMBEDDING.value, progress=dict(progress))
+        embed_errors, embedded, cancelled = _embed_documents(
+            job_id, new_doc_ids, embed_batch_size, progress
+        )
+        all_errors = (all_errors + embed_errors)[:MAX_ERROR_LOG_ENTRIES]
+        progress["embedded"] = embedded
+        if cancelled:
+            _update_job(
+                job_id,
+                status=IngestionJobStatus.CANCELLED.value,
+                progress=dict(progress),
+                error_log=all_errors,
+                finished_at=datetime.utcnow(),
+            )
+            return
+
+    progress["stage"] = "done"
+    final_status = (
+        IngestionJobStatus.COMPLETED_WITH_ERRORS.value
+        if all_errors else IngestionJobStatus.COMPLETED.value
+    )
+    _update_job(
+        job_id,
+        status=final_status,
+        progress=dict(progress),
+        error_log=all_errors,
+        finished_at=datetime.utcnow(),
+    )
+
+
+def _run_atom_ingestion(job_id: str, file_path: str, options: dict) -> None:
+    """
+    Atom CSV run: salience gate + LLM extraction + Document upsert via
+    services/pipeline/ingestion/atom_pipeline.process_atom_csv, then the same
+    optional embedding stage the DSR path uses.
+
+    Progress counters are pushed after every processed row; the cancel flag is
+    re-read per row (each row is an LLM call, so row boundaries are the natural
+    checkpoint). atom_pipeline's results.json artifact lands next to the staged
+    upload, making interrupted/cancelled jobs resumable without re-paying for
+    completed LLM calls.
+    """
+    from services.pipeline.ingestion.atom_pipeline import process_atom_csv
+
+    embed_now = bool(options.get("embed_now", True))
+    embed_batch_size = int(options.get("embed_batch_size", 50))
+
+    _update_job(job_id, status=IngestionJobStatus.LOADING.value, started_at=datetime.utcnow())
+
+    progress = {
+        "stage": "extracting",
+        "total_records": 0,
+        "skipped_existing": 0,
+        "non_salient": 0,
+        "extracted": 0,
+        "loaded": 0,
+        "errors": 0,
+        "embedded": 0,
+        "embed_total": 0,
+    }
+    _update_job(job_id, progress=dict(progress))
+
+    def on_progress(summary: dict) -> None:
+        progress.update({
+            "total_records": summary.get("total_rows", 0),
+            "skipped_existing": summary.get("skipped_existing", 0),
+            "non_salient": summary.get("non_salient", 0),
+            "extracted": summary.get("extracted", 0),
+            "loaded": summary.get("persisted", 0),
+            "errors": summary.get("errors", 0),
+        })
+        _update_job(job_id, progress=dict(progress))
+
+    summary = process_atom_csv(
+        csv_path=file_path,
+        reprocess=bool(options.get("reprocess", False)),
+        progress_cb=on_progress,
+        should_cancel=lambda: _cancel_requested(job_id),
+    )
+    on_progress(summary)
+
+    # Per-row LLM failures recorded by the pipeline into results.json; surface
+    # the count in the error log shape the UI already renders.
+    all_errors: List[dict] = []
+    if summary.get("errors"):
+        all_errors.append({
+            "doc_id": "*",
+            "reason": (
+                f"{summary['errors']} row(s) failed salience/extraction — see "
+                f"{summary.get('results_json')} for per-row detail; re-running the "
+                "job retries only the failed rows."
+            ),
+        })
+
+    if summary.get("cancelled"):
+        _update_job(
+            job_id,
+            status=IngestionJobStatus.CANCELLED.value,
+            progress=dict(progress),
+            error_log=all_errors,
+            finished_at=datetime.utcnow(),
+        )
+        return
+
+    new_doc_ids = list(summary.get("persisted_doc_ids") or [])
     if embed_now and new_doc_ids:
         progress["stage"] = "embedding"
         _update_job(job_id, status=IngestionJobStatus.EMBEDDING.value, progress=dict(progress))
