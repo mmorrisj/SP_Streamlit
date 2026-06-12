@@ -1,5 +1,5 @@
 # ============================================
-# PostgreSQL 16 + pgvector Extension
+# PostgreSQL 17 + pgvector Extension
 # ============================================
 # Custom build to ensure base image is current
 # and pgvector extension is compiled from source.
@@ -8,19 +8,20 @@
 # unfixed CVEs due to stale base image.
 #
 # Usage:
-#   docker build -f docker/pgvector.Dockerfile -t mmorrisj/pgvector:0.8.1-pg17 .
-#   docker push mmorrisj/pgvector:0.8.1-pg17
+#   docker buildx build -f docker/pgvector.Dockerfile \
+#       --sbom=true --provenance=mode=max \
+#       -t mmorrisj/pgvector:0.8.2-pg17 --push .
 # ============================================
 
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # PostgreSQL 17 for performance improvements (incremental backup, vacuum, JSON_TABLE).
-FROM postgres:17-bookworm@sha256:0042a9d3d3365f837bd561981a9098518ed529b801fb2f655338d49108a464d5
+FROM postgres:17-bookworm@sha256:517f51201e18a12503a42945ef0b434d65a5297d72a4180f11905d905fcc5612
 
 # pgvector version and immutable commit SHA for supply-chain pinning.
 # SHA must match the tag; verify with:
-#   gh api repos/pgvector/pgvector/git/refs/tags/v0.8.1 --jq '.object.sha'
-ARG PGVECTOR_VERSION=0.8.1
-ARG PGVECTOR_SHA=778dacf20c07caf904557a88705142631818d8cb
+#   gh api repos/pgvector/pgvector/git/refs/tags/v0.8.2 --jq '.object.sha'
+ARG PGVECTOR_VERSION=0.8.2
+ARG PGVECTOR_SHA=cab9da72c04353f143bb06b42ab70a403daac64a
 
 # Install build dependencies and compile pgvector.
 # Clone by tag for shallow-clone efficiency, then verify the commit SHA

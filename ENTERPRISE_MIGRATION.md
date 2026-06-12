@@ -60,7 +60,7 @@ sudo docker load -i pgvector-pg17.tar
 
 # If pulling from a registry:
 sudo docker pull mmorrisj/softpower-analytics:latest
-sudo docker pull mmorrisj/pgvector:0.8.1-pg17
+sudo docker pull mmorrisj/pgvector:0.8.2-pg17
 
 # Verify images are available
 sudo docker images | grep -E "softpower|pgvector"
@@ -212,7 +212,7 @@ sudo docker start sp_prod_db 2>/dev/null || sudo docker run -d \
     -e PGPORT="${DB_PORT:-5432}" \
     -v softpower_production_prod_pgdata:/var/lib/postgresql/data \
     --shm-size=1g \
-    mmorrisj/pgvector:0.8.1-pg17
+    mmorrisj/pgvector:0.8.2-pg17
 ```
 
 ### 3.2 Wait for the database to be ready
@@ -288,7 +288,7 @@ sudo docker run -d \
     -e PGPORT="${DB_PORT:-5432}" \
     -v softpower_production_prod_pgdata:/var/lib/postgresql/data \
     --shm-size=1g \
-    mmorrisj/pgvector:0.8.1-pg17
+    mmorrisj/pgvector:0.8.2-pg17
 ```
 
 (`sp_prod_db` from before is stopped and ignored. From this point on, use `sp_prod_db_fresh` as the canonical DB container.)

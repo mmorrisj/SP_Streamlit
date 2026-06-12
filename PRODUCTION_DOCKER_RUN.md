@@ -94,7 +94,7 @@ docker start sp_db 2>/dev/null || docker run -d \
     -e PGPORT=5432 \
     -v sp_db_data:/var/lib/postgresql/data \
     --shm-size=1g \
-    mmorrisj/pgvector:0.8.1-pg17
+    mmorrisj/pgvector:0.8.2-pg17
 ```
 
 Notes on the flags:
