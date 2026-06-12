@@ -56,6 +56,7 @@ COPY shared shared/
 COPY server server/
 COPY agent agent/
 COPY services/chat services/chat/
+COPY services/pipeline services/pipeline/
 COPY alembic alembic/
 COPY alembic.ini .
 
