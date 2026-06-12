@@ -8,9 +8,11 @@
 # This is the CI counterpart of scripts/docker/push-to-registry.sh, so a
 # release no longer requires a local Docker daemon.
 #
-# Trigger either way:
-#   * push a tag:        git tag v1.8.11 && git push origin v1.8.11
-#   * manual dispatch:   Actions -> "Release Registry Image" -> Run workflow
+# Trigger any of three ways:
+#   * push a tag:             git tag v1.8.11 && git push origin v1.8.11
+#   * push a release branch:  git push origin main:release/v1.8.11
+#     (exists because some environments can push branches but not tags)
+#   * manual dispatch:        Actions -> "Release Registry Image" -> Run workflow
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   DOCKERHUB_USERNAME   Docker Hub username (e.g. mmorrisj)
@@ -21,6 +23,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'release/v*'
   workflow_dispatch:
     inputs:
       version:
@@ -47,8 +51,11 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ inputs.version }}"
+          elif [[ "${GITHUB_REF_NAME}" == release/v* ]]; then
+            # release branch (release/v1.8.11 -> 1.8.11)
+            VERSION="${GITHUB_REF_NAME#release/v}"
           else
-            # strip the leading "v" from the tag (v1.8.11 -> 1.8.11)
+            # tag (v1.8.11 -> 1.8.11)
             VERSION="${GITHUB_REF_NAME#v}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
