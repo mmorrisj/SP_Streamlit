@@ -34,6 +34,7 @@ import DrilldownPage from './pages/DrilldownPage'
 import AlertsPage from './pages/AlertsPage'
 import CompetingInfluencePage from './pages/CompetingInfluencePage'
 import EntityProfilePage from './pages/EntityProfilePage'
+import DataIngestionPage from './pages/DataIngestionPage'
 
 const queryClient = new QueryClient()
 
@@ -79,6 +80,13 @@ function App() {
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="competing/:recipient" element={<CompetingInfluencePage />} />
               <Route path="entity/:entityId" element={<EntityProfilePage />} />
+
+              {/* Analyst+ routes */}
+              <Route path="ingestion" element={
+                <ProtectedRoute requiredRole="analyst">
+                  <DataIngestionPage />
+                </ProtectedRoute>
+              } />
 
               {/* Admin-only routes */}
               <Route path="admin/users" element={
