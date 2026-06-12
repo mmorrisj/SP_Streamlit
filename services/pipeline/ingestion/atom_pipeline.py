@@ -312,7 +312,7 @@ def _existing_doc_ids(atom_ids: list[str]) -> set[str]:
 def _persist_documents(documents: list) -> None:
     """Insert new Documents and flatten their multi-value fields, reusing
     dsr.py's normalization so both ingest paths stay identical downstream."""
-    from services.pipeline.ingestion.dsr import flatten_all_relationships
+    from services.pipeline.ingestion.dsr_core import flatten_all_relationships
     from shared.database.database import get_session
 
     if not documents:

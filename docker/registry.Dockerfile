@@ -7,7 +7,7 @@
 #   - ML packages (torch, sentence-transformers) baked in
 #   - HuggingFace model (nomic-ai/nomic-embed-text-v1.5) baked in
 #   - React frontend built and included
-#   - No pipeline/ingestion code
+#   - Pipeline modules included (ingestion UI runs them server-side)
 #   - Pull-and-run: no manual setup steps required
 #
 # Image size: ~1.7-2.2GB
@@ -124,12 +124,18 @@ print(f'Tiktoken encoding cached: {enc.name}') \
 # copy of all application code including migrations.
 ARG CACHEBUST=1
 
-# Copy application code (pipeline/ingestion excluded)
+# Copy application code.
+# services/pipeline/ is required: server/routers/ingestion.py imports
+# services.pipeline.ingestion at startup (FastAPI crash-loops without it),
+# and the ingestion UI runs the atom/DSR pipelines + embedding stage from
+# these modules. Heavy deps (torch, sentence-transformers) are already baked
+# into the image; this only adds the .py sources.
 COPY shared/ ./shared/
 COPY server/ ./server/
 COPY agent/ ./agent/
 COPY services/chat/ ./services/chat/
 COPY services/dashboard/ ./services/dashboard/
+COPY services/pipeline/ ./services/pipeline/
 COPY scripts/create_admin.py ./scripts/create_admin.py
 COPY scripts/generate_report.py ./scripts/generate_report.py
 COPY scripts/db_import.py ./scripts/db_import.py
