@@ -1,0 +1,22 @@
+# Keep digest-pinned base images fresh.
+# Docker Scout's "no outdated base images" policy compares each image's base
+# layers against the current upstream tag; our FROM lines pin digests for
+# reproducibility, so without automation every upstream rebuild of
+# python:3.13-slim-trixie / node:22-bookworm-slim re-flags the image.
+# Dependabot bumps the pinned digests via PRs instead.
+version: 2
+updates:
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
