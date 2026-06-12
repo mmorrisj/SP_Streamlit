@@ -4,6 +4,15 @@
 `results.json` (DSR extract) or `atom.csv` file, review what will be ingested, run the
 pipeline, and watch progress — with a persistent history of every ingestion run.
 
+> **Implementation status (Phase 1 shipped):** the `IngestionJob` model
+> (`shared/models/models.py` + `alembic/versions/20260612_add_ingestion_jobs_table.py`),
+> the validation/ingestion workers (`services/pipeline/ingestion/ingestion_service.py`),
+> the `/api/ingestion/*` router (`server/routers/ingestion.py`), and the React
+> `/ingestion` page (`client/src/pages/DataIngestionPage.tsx`) are implemented.
+> DSR parsing/flattening was extracted to `services/pipeline/ingestion/dsr_core.py`
+> (light import for the server; `dsr.py` re-exports it for the CLI). Atom CSV uploads
+> get a validation report only — running them awaits the Phase 3 extraction rework.
+
 ---
 
 ## Part 1: Review of the current ingestion pipeline

@@ -1730,4 +1730,123 @@ export const testAlertRule = async (ruleId: string): Promise<{ triggered: boolea
   return data
 }
 
+// ============================================================================
+// Data Ingestion
+// ============================================================================
+
+export interface IngestionWarning {
+  code: string
+  message: string
+  count: number
+}
+
+export interface IngestionValidationReport {
+  file_type: 'dsr_json' | 'atom_csv'
+  total_records: number
+  parseable: number
+  parse_errors: number
+  new_documents?: number
+  existing_documents?: number
+  within_file_duplicates?: number
+  date_range?: { min: string; max: string } | null
+  collections?: Record<string, number>
+  top_initiating_countries?: { country: string; count: number }[]
+  top_recipient_countries?: { country: string; count: number }[]
+  columns?: string[]
+  warnings: IngestionWarning[]
+  sample: Record<string, string | null>[]
+  runnable: boolean
+  not_runnable_reason: string | null
+}
+
+export interface IngestionProgress {
+  stage: 'loading' | 'embedding' | 'done'
+  total_records: number
+  parsed: number
+  loaded: number
+  duplicates: number
+  errors: number
+  relationships: Record<string, number>
+  embedded: number
+  embed_total: number
+}
+
+export interface IngestionJob {
+  id: string
+  filename: string
+  file_type: 'dsr_json' | 'atom_csv'
+  file_size_bytes: number | null
+  status:
+    | 'uploaded'
+    | 'validating'
+    | 'ready'
+    | 'validation_failed'
+    | 'loading'
+    | 'embedding'
+    | 'completed'
+    | 'completed_with_errors'
+    | 'failed'
+    | 'cancelled'
+  cancel_requested: boolean
+  options: Record<string, unknown> | null
+  validation_report: IngestionValidationReport | null
+  progress: IngestionProgress | null
+  error_count: number
+  error_message: string | null
+  created_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_by: string | null
+}
+
+export interface StartIngestionOptions {
+  embed_now: boolean
+  reflatten_duplicates: boolean
+  doc_batch_size?: number
+  embed_batch_size?: number
+}
+
+export const uploadIngestionFile = async (
+  file: File
+): Promise<{ job_id: string; file_type: string; size_bytes: number }> => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await api.post('/ingestion/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000,
+  })
+  return data
+}
+
+export const fetchIngestionJobs = async (params?: {
+  limit?: number
+  offset?: number
+}): Promise<{ jobs: IngestionJob[]; total: number }> => {
+  const { data } = await api.get('/ingestion/jobs', { params })
+  return data
+}
+
+export const fetchIngestionJob = async (jobId: string): Promise<IngestionJob> => {
+  const { data } = await api.get(`/ingestion/jobs/${jobId}`)
+  return data
+}
+
+export const startIngestionJob = async (
+  jobId: string,
+  options: StartIngestionOptions
+): Promise<{ job_id: string; status: string }> => {
+  const { data } = await api.post(`/ingestion/jobs/${jobId}/start`, options)
+  return data
+}
+
+export const cancelIngestionJob = async (
+  jobId: string
+): Promise<{ job_id: string; status: string; cancel_requested: boolean }> => {
+  const { data } = await api.post(`/ingestion/jobs/${jobId}/cancel`)
+  return data
+}
+
+export const ingestionErrorsUrl = (jobId: string): string =>
+  `/api/ingestion/jobs/${jobId}/errors`
+
 export default api

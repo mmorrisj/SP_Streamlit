@@ -137,6 +137,10 @@ else:
 from server.routers import influencer as _influencer_router
 app.include_router(_influencer_router.router)
 
+# Data ingestion endpoints (upload → validate → run pipeline; analyst/admin only)
+from server.routers import ingestion as _ingestion_router
+app.include_router(_ingestion_router.router)
+
 
 
 class DocumentStats(BaseModel):

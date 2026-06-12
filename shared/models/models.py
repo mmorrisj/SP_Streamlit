@@ -1513,6 +1513,97 @@ class BatchJob(Base):
         }
 
 
+class IngestionJobStatus(PyEnum):
+    UPLOADED = "uploaded"                        # File staged, validation not started
+    VALIDATING = "validating"                    # Dry-run parse/duplicate check running
+    READY = "ready"                              # Validation report available, awaiting start
+    VALIDATION_FAILED = "validation_failed"      # File unusable (wrong structure, unreadable)
+    LOADING = "loading"                          # Documents being parsed/committed/flattened
+    EMBEDDING = "embedding"                      # Vector embeddings being generated
+    COMPLETED = "completed"
+    COMPLETED_WITH_ERRORS = "completed_with_errors"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class IngestionJob(Base):
+    """
+    Tracks file-upload ingestion runs driven from the web UI.
+
+    One row per uploaded results.json / atom.csv file. Persists the dry-run
+    validation report, live per-stage progress counters (polled by the UI),
+    and a structured per-document error log — replacing the console prints
+    and S3 tracker file as the system of record for ingestion.
+    """
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Uploaded file
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'dsr_json' | 'atom_csv'
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)  # Staged location on disk
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer)
+
+    # Status tracking
+    status: Mapped[str] = mapped_column(
+        String(30),
+        default=IngestionJobStatus.UPLOADED.value,
+        nullable=False
+    )
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Run configuration chosen in the UI: {embed_now, reflatten_duplicates,
+    # doc_batch_size, embed_batch_size}
+    options: Mapped[Optional[Dict]] = mapped_column(JSONB)
+
+    # Dry-run validation output: counts, distributions, warnings, sample rows
+    validation_report: Mapped[Optional[Dict]] = mapped_column(JSONB)
+
+    # Live per-stage counters: {stage, total, parsed, loaded, duplicates,
+    # errors, embedded, embed_total, relationships}
+    progress: Mapped[Optional[Dict]] = mapped_column(JSONB)
+
+    # Structured per-document errors: [{doc_id, stage, reason}]
+    error_log: Mapped[Optional[List]] = mapped_column(JSONB)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)  # Job-level fatal error
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    # Audit trail
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+
+    __table_args__ = (
+        Index("idx_ingestion_jobs_status", "status"),
+        Index("idx_ingestion_jobs_created", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<IngestionJob(id='{self.id}', file='{self.filename}', status='{self.status}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'filename': self.filename,
+            'file_type': self.file_type,
+            'file_size_bytes': self.file_size_bytes,
+            'status': self.status.value if isinstance(self.status, IngestionJobStatus) else self.status,
+            'cancel_requested': self.cancel_requested,
+            'options': self.options,
+            'validation_report': self.validation_report,
+            'progress': self.progress,
+            'error_count': len(self.error_log) if self.error_log else 0,
+            'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'finished_at': self.finished_at.isoformat() if self.finished_at else None,
+            'created_by': self.created_by,
+        }
+
+
 # ============================================================================
 # USER AUTHENTICATION MODELS
 # ============================================================================

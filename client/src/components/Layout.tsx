@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud } from 'lucide-react'
 import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
@@ -86,6 +86,23 @@ export default function Layout() {
               </NavLink>
             ))}
           </div>
+
+          {/* Data section — analyst and admin only */}
+          {(user?.role === 'admin' || user?.role === 'analyst') && (
+            <div className="nav-section">
+              <div className="nav-section-title">
+                <Database size={16} />
+                <span>Data</span>
+              </div>
+              <NavLink
+                to="/ingestion"
+                className={({ isActive }) => `nav-item nav-sub-item ${isActive ? 'active' : ''}`}
+              >
+                <UploadCloud size={16} />
+                <span>Ingestion</span>
+              </NavLink>
+            </div>
+          )}
 
           {/* Admin section */}
           {user?.role === 'admin' && (
