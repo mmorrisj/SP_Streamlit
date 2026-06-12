@@ -143,27 +143,123 @@ class TestValidateDsr:
         assert report["parseable"] == 2
 
 
+ATOM_CSV = (
+    '"ATOM ID","Title","Body","Source Name","Source Date, Start","Collection Name"\n'
+    '"A1","Article A","Some body text","Reuters","2024-08-01T00:00:00Z","ne_auto"\n'
+    '"A2","Article A","Other text","AP","2024-08-02T00:00:00Z","ne_auto"\n'
+    '"A3","Article B","","AP","2024-08-03T00:00:00Z","ne_auto"\n'
+)
+
+
 @pytest.mark.unit
 class TestValidateAtomCsv:
-    def test_structure_report_not_runnable(self, tmp_path):
+    def test_runnable_with_counts(self, tmp_path, monkeypatch):
         path = tmp_path / "atom.csv"
-        path.write_text(
-            "Title,Body,Collection Name\n"
-            "Article A,Some body text,ne_auto\n"
-            "Article A,Other text,ne_auto\n"
-            "Article B,,ne_auto\n"
-        )
+        path.write_text(ATOM_CSV)
+        monkeypatch.setattr(svc, "_existing_doc_ids", lambda ids, chunk_size=1000: set())
+
         report, errors = svc._validate_atom_csv(str(path))
 
         assert report["file_type"] == svc.FILE_TYPE_ATOM
         assert report["total_records"] == 3
-        assert report["runnable"] is False
+        # A2 duplicate title dropped, A3 empty body dropped -> 1 usable row
+        assert report["usable_rows"] == 1
+        assert report["new_rows"] == 1
+        assert report["runnable"] is True
+        assert "LLM calls" in report["llm_cost_note"]
         assert errors == []
 
         warning_codes = {w["code"] for w in report["warnings"]}
         assert "empty_body" in warning_codes
         assert "duplicate_titles" in warning_codes
         assert report["collections"] == {"ne_auto": 3}
+
+    def test_all_rows_already_ingested_not_runnable(self, tmp_path, monkeypatch):
+        path = tmp_path / "atom.csv"
+        path.write_text(ATOM_CSV)
+        monkeypatch.setattr(svc, "_existing_doc_ids", lambda ids, chunk_size=1000: {"A1"})
+
+        report, _ = svc._validate_atom_csv(str(path))
+        assert report["already_in_db"] == 1
+        assert report["new_rows"] == 0
+        assert report["runnable"] is False
+        assert "already in the database" in report["not_runnable_reason"]
+
+    def test_missing_atom_id_column_not_runnable(self, tmp_path):
+        path = tmp_path / "atom.csv"
+        path.write_text(
+            "Title,Body,Collection Name\n"
+            "Article A,Some body text,ne_auto\n"
+        )
+        report, _ = svc._validate_atom_csv(str(path))
+        assert report["runnable"] is False
+        assert report["not_runnable_reason"]
+
+
+@pytest.mark.unit
+class TestRunAtomIngestion:
+    def _capture_updates(self, monkeypatch):
+        updates = []
+        monkeypatch.setattr(svc, "_update_job", lambda job_id, **f: updates.append(f))
+        monkeypatch.setattr(svc, "_cancel_requested", lambda job_id: False)
+        return updates
+
+    def test_completed_run_maps_progress_and_embeds(self, monkeypatch):
+        updates = self._capture_updates(monkeypatch)
+        embed_calls = []
+        monkeypatch.setattr(
+            svc, "_embed_documents",
+            lambda job_id, ids, bs, progress: (embed_calls.append(ids) or ([], len(ids), False)),
+        )
+
+        def fake_process(csv_path, reprocess, progress_cb, should_cancel):
+            progress_cb({"total_rows": 2, "extracted": 1, "non_salient": 1,
+                         "skipped_existing": 0, "persisted": 0, "errors": 0})
+            return {
+                "total_rows": 2, "extracted": 1, "non_salient": 1,
+                "skipped_existing": 0, "persisted": 1, "errors": 0,
+                "persisted_doc_ids": ["A1"], "cancelled": False,
+                "results_json": "/tmp/results.json",
+            }
+
+        monkeypatch.setattr(
+            "services.pipeline.ingestion.atom_pipeline.process_atom_csv", fake_process
+        )
+
+        svc._run_atom_ingestion("job-1", "/tmp/atom.csv", {"embed_now": True})
+
+        assert embed_calls == [["A1"]]
+        final = updates[-1]
+        assert final["status"] == svc.IngestionJobStatus.COMPLETED.value
+        assert final["progress"]["loaded"] == 1
+        assert final["progress"]["non_salient"] == 1
+        assert final["progress"]["stage"] == "done"
+
+    def test_cancelled_run_finalizes_cancelled(self, monkeypatch):
+        updates = self._capture_updates(monkeypatch)
+        monkeypatch.setattr(
+            "services.pipeline.ingestion.atom_pipeline.process_atom_csv",
+            lambda **kw: {"total_rows": 5, "extracted": 1, "non_salient": 0,
+                          "skipped_existing": 0, "persisted": 1, "errors": 0,
+                          "persisted_doc_ids": ["A1"], "cancelled": True,
+                          "results_json": "/tmp/r.json"},
+        )
+        svc._run_atom_ingestion("job-1", "/tmp/atom.csv", {"embed_now": True})
+        assert updates[-1]["status"] == svc.IngestionJobStatus.CANCELLED.value
+
+    def test_row_errors_yield_completed_with_errors(self, monkeypatch):
+        updates = self._capture_updates(monkeypatch)
+        monkeypatch.setattr(
+            "services.pipeline.ingestion.atom_pipeline.process_atom_csv",
+            lambda **kw: {"total_rows": 3, "extracted": 1, "non_salient": 1,
+                          "skipped_existing": 0, "persisted": 1, "errors": 1,
+                          "persisted_doc_ids": ["A1"], "cancelled": False,
+                          "results_json": "/tmp/r.json"},
+        )
+        svc._run_atom_ingestion("job-1", "/tmp/atom.csv", {"embed_now": False})
+        final = updates[-1]
+        assert final["status"] == svc.IngestionJobStatus.COMPLETED_WITH_ERRORS.value
+        assert "failed salience/extraction" in final["error_log"][0]["reason"]
 
 
 @pytest.mark.unit
