@@ -84,6 +84,10 @@ jobs:
             CACHEBUST=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Supply-chain attestations (Docker Scout health check):
+          # SLSA provenance + SBOM attached to the image as OCI artifacts.
+          provenance: mode=max
+          sbom: true
 
       - name: Summary
         run: |
