@@ -18,7 +18,7 @@
 #   AGENT_TEST_VOLUME      target docker volume name      (default postgres_data_agent_test)
 #   AGENT_TEST_PORT        host port for target Postgres  (default 5433)
 #   AGENT_SOURCE_CONTAINER source container name to copy  (default softpower_db)
-#   AGENT_PGVECTOR_IMAGE   image to use for the target    (default mmorrisj/pgvector:0.8.1-pg17)
+#   AGENT_PGVECTOR_IMAGE   image to use for the target    (default mmorrisj/pgvector:0.8.2-pg17)
 #   AGENT_NETWORK          docker network                 (default softpower_net)
 
 set -euo pipefail
@@ -29,7 +29,7 @@ TEST_CONTAINER="${AGENT_TEST_CONTAINER:-softpower_db_agent_test}"
 TEST_VOLUME="${AGENT_TEST_VOLUME:-postgres_data_agent_test}"
 TEST_PORT="${AGENT_TEST_PORT:-5433}"
 SOURCE_CONTAINER="${AGENT_SOURCE_CONTAINER:-softpower_db}"
-PGVECTOR_IMAGE="${AGENT_PGVECTOR_IMAGE:-mmorrisj/pgvector:0.8.1-pg17}"
+PGVECTOR_IMAGE="${AGENT_PGVECTOR_IMAGE:-mmorrisj/pgvector:0.8.2-pg17}"
 NETWORK="${AGENT_NETWORK:-softpower_net}"
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
