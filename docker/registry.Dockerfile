@@ -40,13 +40,19 @@ FROM python:3.13-slim-trixie@sha256:dc1546eefcbe8caaa1f004f16ab76b204b5e1dbd58ff
 WORKDIR /app
 
 # System dependencies
+# - dist-upgrade first: the base image is digest-pinned for reproducibility,
+#   which freezes OS packages at pin time; pulling current patch releases here
+#   clears Scout's "fixable critical/high vulnerabilities" findings without
+#   giving up the pin.
 # - build-essential: required by some Python packages at install time
 # Note: curl removed to eliminate CVE-2025-13034 (libcurl4t64).
 # Note: postgresql-client removed — app uses psycopg2-binary which bundles
 #       its own libpq; pg_isready runs in the DB container, not here;
 #       no CLI tools (psql/pg_isready) are used at runtime. Removing it
 #       eliminates libpq5 → libldap2 → libtasn1 and Kerberos library chains.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update \
+    && apt-get dist-upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
