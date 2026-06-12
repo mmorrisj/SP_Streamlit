@@ -1,0 +1,128 @@
+# ============================================
+# Laptop / local-testing stack (Windows & macOS friendly)
+# ============================================
+# Runs the prebuilt registry image (ML stack + models baked in) with normal
+# bridge networking and port mappings — no 20-minute local ML build (unlike
+# docker-compose.yml, which builds from source) and no --network host (unlike
+# docker-compose.production.yml / production-deploy.sh, which Docker Desktop
+# only supports behind an opt-in setting).
+#
+# Usage (PowerShell or any shell):
+#   cp .env.example .env    # set the values listed in the README section below
+#   docker compose -f docker-compose.laptop.yml up -d
+#   docker compose -f docker-compose.laptop.yml --profile migrate up
+#   # UI: http://localhost:8000   Dashboard: http://localhost:8501
+#
+# Minimal .env for off-enterprise-network use:
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB   (any values)
+#   DEV_AUTH_BYPASS=true                              (no enterprise JWT gateway)
+#   DEV_AUTH_ROLE=admin
+#   GAI_DEFAULT_SOURCE=openai                         (direct OpenAI, no LiteLLM)
+#   OPENAI_PROJ_API=sk-...
+#   APP_VERSION=1.8.13                                (optional; defaults below)
+
+services:
+  db:
+    image: mmorrisj/pgvector:0.8.1-pg17
+    container_name: sp_laptop_db
+    restart: unless-stopped
+    shm_size: "1gb"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - laptop_pgdata:/var/lib/postgresql/data
+    ports:
+      # Exposed so host-side tools (pg_restore, psql, db_import.py) can load data
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: sp_laptop_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.13}
+    container_name: sp_laptop_app
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"     # FastAPI + React UI
+      - "${DASHBOARD_PORT:-8501}:8501"  # Streamlit
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      API_PORT: 8000
+      STREAMLIT_PORT: 8501
+      REDIS_URL: redis://redis:6379/0
+      # --- Local auth: no enterprise JWT gateway on a laptop ---
+      DEV_AUTH_BYPASS: ${DEV_AUTH_BYPASS:-true}
+      DEV_AUTH_USERNAME: ${DEV_AUTH_USERNAME:-dev-admin}
+      DEV_AUTH_ROLE: ${DEV_AUTH_ROLE:-admin}
+      JWT_SECRET: ${JWT_SECRET:-softpower-jwt-secret-change-in-production-min32chars}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+      # --- LLM: direct OpenAI by default (no LiteLLM/gateway off-network) ---
+      GAI_DEFAULT_SOURCE: ${GAI_DEFAULT_SOURCE:-openai}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
+      # Optional S3 (leave blank to skip)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # Models are baked into the image — no network fetch at runtime
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      HF_HOME: /app/.cache/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
+      TIKTOKEN_CACHE_DIR: /app/.cache/tiktoken
+      # Connection pooling
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+    volumes:
+      - ./reports:/app/reports
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # One-off: docker compose -f docker-compose.laptop.yml --profile migrate up
+  migrate:
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.13}
+    container_name: sp_laptop_migrate
+    profiles: ["migrate"]
+    command: alembic upgrade head
+    environment:
+      DOCKER_ENV: "true"
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  laptop_pgdata:
