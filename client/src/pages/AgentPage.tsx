@@ -61,17 +61,17 @@ type RunState = {
 
 type ChatMessage =
   | { id: string; role: 'user'; type: 'text'; content: string }
-  | { id: string; role: 'assistant'; type: 'text'; content: string; action?: ChatTurnResponse['action']; ready_to_run?: boolean }
+  | { id: string; role: 'assistant'; type: 'text'; content: string; action?: ChatTurnResponse['action']; ready_to_run?: boolean; seed?: boolean }
   | { id: string; role: 'assistant'; type: 'workflow'; run: RunState; scope_at_run: ChatScope }
 
 const CATEGORY_OPTIONS = ['Economic', 'Diplomacy', 'Social', 'Military']
 
 const defaultScope = (): ChatScope => ({
-  influencer: 'China',
-  recipient: 'Egypt',
+  influencer: null,
+  recipient: null,
   region: null,
-  start_date: '2026-01-01',
-  end_date: '2026-03-31',
+  start_date: null,
+  end_date: null,
   category: null,
   subcategory: null,
   category_mode: 'flat',
@@ -91,8 +91,11 @@ export default function AgentPage() {
       id: newMessageId(),
       role: 'assistant',
       type: 'text',
+      // seed: UI-only greeting. Excluded from the history sent to the
+      // classifier so its example countries/dates don't bias the first query.
+      seed: true,
       content:
-        "Hi — describe what you want a brief on, or set filters on the right and hit Run. Examples: \"brief on China-Egypt this quarter\" / \"economic activity by China in the Middle East last 30 days\".",
+        "Hi — describe what you want a brief on, or set filters on the right and hit Run. For example: \"economic activity by China in the Middle East last 30 days\", or \"Russia's diplomatic engagements in Africa this quarter\".",
     },
   ])
   const [isClassifying, setIsClassifying] = useState(false)
@@ -129,9 +132,11 @@ export default function AgentPage() {
       setMessages((m) => [...m, userMsg])
       setIsClassifying(true)
 
-      // Build server-side history shape from chat thread
+      // Build server-side history shape from chat thread. Exclude UI-only
+      // seed messages (the greeting) so their example text never enters the
+      // classifier's context and biases the query.
       const history: ChatTurn[] = messages
-        .filter((m) => m.type === 'text')
+        .filter((m) => m.type === 'text' && !(m as any).seed)
         .map((m) => ({
           role: m.role,
           content: (m as any).content as string,
