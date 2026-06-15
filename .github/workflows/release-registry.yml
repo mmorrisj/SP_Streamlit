@@ -83,7 +83,10 @@ jobs:
           build-args: |
             CACHEBUST=${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # ignore-error: a GHA-cache backend hiccup on export ("error writing
+          # layer blob: not_found") happens AFTER the image push and must not
+          # fail a release whose image already landed on Docker Hub.
+          cache-to: type=gha,mode=max,ignore-error=true
           # Supply-chain attestations (Docker Scout health check):
           # SLSA provenance + SBOM attached to the image as OCI artifacts.
           provenance: mode=max
