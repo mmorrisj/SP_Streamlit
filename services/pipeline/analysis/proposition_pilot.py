@@ -569,7 +569,12 @@ def parse_llm_output(raw):
             return json.loads(raw)
         except json.JSONDecodeError:
             objs = find_json_objects(raw)
-            return objs[0] if objs else None
+            # find_json_objects may return a dict (single object) or a list.
+            if isinstance(objs, dict):
+                return objs
+            if isinstance(objs, list) and objs:
+                return objs[0] if isinstance(objs[0], dict) else None
+            return None
     return None
 
 
@@ -691,7 +696,10 @@ def extract_propositions(doc: Dict[str, Any], model: str, source: Optional[str] 
     except Exception as e:
         return None, f"llm_call_failed: {type(e).__name__}: {e}"
 
-    parsed = parse_llm_output(raw)
+    try:
+        parsed = parse_llm_output(raw)
+    except Exception as e:
+        return None, f"parse_failed: {type(e).__name__}: {e}; raw={str(raw)[:200]}"
     if parsed is None:
         return None, f"unparseable_output: {str(raw)[:300]}"
     return parsed, None
