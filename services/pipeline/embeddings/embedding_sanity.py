@@ -46,11 +46,17 @@ def run(probe: str, keyword: str, sample: int) -> None:
     with get_session() as session:
         # Inline the query vector (our own numeric string) — SQLAlchemy text()
         # can't bind a param directly before the ::vector cast. kw/n stay bound.
+        # Scope to the chunk_embeddings collection: doc_ids also appear in other
+        # collections (summary/event stores) which weren't necessarily re-embedded;
+        # an unscoped join would read a stale cross-collection vector.
         sql = f"""
             SELECT d.doc_id, d.title, d.distilled_text,
                    1 - (e.embedding <=> '{qstr}'::vector) AS stored_sim
             FROM documents d
-            JOIN langchain_pg_embedding e ON e.cmetadata->>'doc_id' = d.doc_id
+            JOIN langchain_pg_collection c ON c.name = 'chunk_embeddings'
+            JOIN langchain_pg_embedding e
+              ON e.collection_id = c.uuid
+             AND e.cmetadata->>'doc_id' = d.doc_id
             WHERE d.initiating_country ILIKE '%China%'
               AND d.distilled_text ILIKE :kw
             LIMIT :n
