@@ -21,9 +21,17 @@ pgvector>=0.2.5,<0.4
 
 # Embeddings & NLP
 # -----------------------------------------------
-sentence-transformers
+# Cap majors to nomic-embed-text-v1.5's compatible line. Its trust_remote_code
+# modeling file targets the transformers 4.x API; transformers 5.x mis-maps the
+# checkpoint (encoder.encoder.* key mismatch) and loads RANDOM weights -> every
+# embedding is noise. huggingface_hub must stay <1.0 to match the 4.x line.
+sentence-transformers>=3.3.1,<4
 nltk
-transformers
+transformers>=4.44,<5
+huggingface_hub<1.0
+# torch from default PyPI resolves the CUDA-enabled wheel on Linux x86_64
+# (needed for GPU embedding via docker-compose.preprocessing.yml); the
+# CPU-only registry image overrides this with the pytorch CPU index.
 torch>=2.6.0
 boto3
 
