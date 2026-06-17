@@ -72,3 +72,25 @@ if "auto_map" in cfg:
     with open(cfg_path, "w") as f:
         json.dump(cfg, f, indent=2)
     print("Patched nomic config.json auto_map for offline loading")
+
+# 6. Verify the saved model loads REAL weights (not random init).
+# nomic-embed-text-v1.5 ships trust_remote_code modeling code for the
+# transformers 4.x API. An incompatible transformers (e.g. 5.x) silently fails
+# to map the checkpoint and random-initializes the weights, which makes every
+# embedding noise and breaks all retrieval. Two independent loads of the saved
+# model must produce the same vector for the same text; if they don't, weights
+# aren't loading and the build must FAIL rather than ship garbage embeddings.
+import numpy as _np
+
+_probe = "embedding weight-load verification probe"
+_a = SentenceTransformer(emb_path, trust_remote_code=True).encode([_probe], normalize_embeddings=True)[0]
+_b = SentenceTransformer(emb_path, trust_remote_code=True).encode([_probe], normalize_embeddings=True)[0]
+_cos = float(_np.dot(_a, _b) / (_np.linalg.norm(_a) * _np.linalg.norm(_b)))
+print(f"Embedding weight-load determinism: cos={_cos:.4f}")
+if _cos < 0.99:
+    raise SystemExit(
+        f"FATAL: nomic weights did not load deterministically (cos={_cos:.3f}). "
+        "transformers/sentence-transformers are incompatible with the nomic "
+        "trust_remote_code model — fix the version pins before shipping."
+    )
+print("Embedding model weight loading verified — embeddings are real.")

@@ -18,9 +18,11 @@ torch>=2.6.0
 # RANDOM weights (encoder.encoder.* key mismatch) -> garbage embeddings.
 transformers>=4.44,<5
 sentence-transformers>=3.3.1,<4
-# Pin huggingface_hub >=1.0 — older 0.x versions can't resolve local cached
-# modules for trust_remote_code in offline/airgapped environments
-huggingface_hub>=1.0
+# huggingface_hub must stay <1.0 to match the transformers 4.x line (5.x +
+# hub 1.0 broke nomic's trust_remote_code loading). transformers pins a
+# compatible hub (~0.36); offline trust_remote_code still works because
+# bake_models.py rewrites nomic's auto_map to local module paths.
+huggingface_hub<1.0
 
 # LangChain HuggingFace wrapper (for RAG embedding)
 # Pulls: langchain-core
