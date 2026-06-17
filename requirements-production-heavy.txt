@@ -13,7 +13,11 @@ torch>=2.6.0
 
 # Sentence-transformers + transitive deps (~300MB)
 # Pulls: transformers, scipy, scikit-learn, tokenizers, safetensors, nltk, Pillow
-sentence-transformers>=3.3.1
+# Cap majors: nomic-embed-text-v1.5's trust_remote_code model targets the
+# transformers 4.x API. transformers 5.x mis-maps the checkpoint and loads
+# RANDOM weights (encoder.encoder.* key mismatch) -> garbage embeddings.
+transformers>=4.44,<5
+sentence-transformers>=3.3.1,<4
 # Pin huggingface_hub >=1.0 — older 0.x versions can't resolve local cached
 # modules for trust_remote_code in offline/airgapped environments
 huggingface_hub>=1.0
