@@ -69,6 +69,11 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
       DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+    volumes:
+      # Mount source so code fixes land via `git pull` — no CUDA-image rebuild.
+      # Baked models live under /app/.cache (not shadowed by these mounts).
+      - ./shared:/app/shared
+      - ./services/pipeline:/app/services/pipeline
     depends_on:
       db:
         condition: service_healthy
