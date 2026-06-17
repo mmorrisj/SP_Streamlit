@@ -1,0 +1,74 @@
+# ============================================
+# Laptop GPU embedding runner (overlay on docker-compose.laptop.yml)
+# ============================================
+# Why this exists:
+#   The published app image (mmorrisj/softpower-analytics) ships CPU-only
+#   torch, so it can never use the GPU. Bulk re-embedding the corpus needs a
+#   CUDA torch build — that's the preprocessing image (docker/preprocessing.
+#   Dockerfile installs torch from default PyPI = the CUDA wheel on Linux, and
+#   bakes the same nomic + reranker models). This overlay runs that image as a
+#   one-off job INSIDE the laptop compose project, so it shares the laptop's
+#   default network and reaches the DB by its service name "db" — no enterprise
+#   (sp_prod_db / softpower_net) wiring.
+#
+# Prerequisites (Windows desktop):
+#   - Docker Desktop with the WSL2 backend
+#   - Up-to-date NVIDIA driver (GPU shows up in `wsl -- nvidia-smi`)
+#     Docker Desktop provides the NVIDIA Container Toolkit via WSL2.
+#
+# Build the GPU image once (runs bake_models.py; needs network for the
+# model download; the build asserts the nomic weights load non-randomly):
+#   docker compose -f docker-compose.laptop.yml -f docker-compose.laptop.embed.yml build embed
+#
+# Verify the GPU is actually selected (should print "Embedding device
+# selected: cuda" and cos ~= 1.0):
+#   docker compose -f docker-compose.laptop.yml -f docker-compose.laptop.embed.yml \
+#     run --rm embed python -m services.pipeline.embeddings.embedding_model_check
+#
+# Full corpus re-embed (after clearing the stale chunk_embeddings rows — see
+# the re-embed runbook; this step is destructive and done separately):
+#   docker compose -f docker-compose.laptop.yml -f docker-compose.laptop.embed.yml \
+#     run --rm embed python services/pipeline/embeddings/embed_missing_documents.py
+#
+# Entity 384->768 migration:
+#   docker compose -f docker-compose.laptop.yml -f docker-compose.laptop.embed.yml \
+#     run --rm embed python -m services.pipeline.embeddings.reembed_entities --all
+# ============================================
+
+services:
+  embed:
+    image: sp-preprocessing:latest
+    build:
+      context: .
+      dockerfile: docker/preprocessing.Dockerfile
+    profiles: ["embed"]   # never starts on `up`; only via `run --rm embed ...`
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+    environment:
+      DOCKER_ENV: "true"
+      # Reach the laptop DB by its compose service name on the shared network.
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Models are baked into the image — no HuggingFace fetch at runtime.
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      HF_HOME: /app/.cache/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+    depends_on:
+      db:
+        condition: service_healthy
