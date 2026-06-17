@@ -62,13 +62,19 @@ RUN pip install --no-cache-dir -r requirements-production.txt
 
 # Install heavy ML dependencies
 # PyTorch CPU-only from the official PyTorch index (avoids pulling CUDA variant)
-# sentence-transformers and langchain-huggingface from PyPI
+# sentence-transformers and langchain-huggingface from PyPI.
+# IMPORTANT: cap transformers < 5 and sentence-transformers < 4. The embedding
+# model nomic-embed-text-v1.5 ships a trust_remote_code modeling file written
+# for the transformers 4.x API; transformers 5.x silently fails to map the
+# checkpoint (encoder.encoder.* key mismatch) and loads RANDOM weights, making
+# every embedding noise. Pin to the 4.x-compatible line.
 COPY requirements-production-heavy.txt ./
 RUN pip install --no-cache-dir \
         torch>=2.6.0 \
         --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
-        sentence-transformers>=3.3.1 \
+        'transformers>=4.44,<5' \
+        'sentence-transformers>=3.3.1,<4' \
         'langchain-huggingface>=1.0' \
         'langchain-postgres>=0.0.16,<0.1.0'
 
