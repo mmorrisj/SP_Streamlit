@@ -111,7 +111,7 @@ services:
   # Binds host:${API_PORT:-8000} (FastAPI) and host:${STREAMLIT_PORT:-8501} (Streamlit)
   # -----------------------
   app:
-    image: mmorrisj/softpower-analytics:1.8.16
+    image: mmorrisj/softpower-analytics:1.8.17
     container_name: sp_prod_app
     restart: unless-stopped
     network_mode: host
@@ -175,7 +175,7 @@ services:
   # Alembic Migrations (run once with --profile migrate)
   # -----------------------
   migrate:
-    image: mmorrisj/softpower-analytics:1.8.16
+    image: mmorrisj/softpower-analytics:1.8.17
     container_name: sp_prod_migrate
     network_mode: host
     security_opt:
