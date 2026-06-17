@@ -218,10 +218,18 @@ class _NomicEmbeddings:
     def __init__(self, model):
         self._model = model
 
+    # nomic task prefixes. Passed as literal `prompt=` strings (prepended to
+    # each text) rather than `prompt_name=`, because the baked model ships an
+    # empty prompts dict — a name lookup raises KeyError. The prefixes are part
+    # of nomic-embed-text-v1.5's contract and must match between indexing and
+    # query for retrieval to work.
+    _DOC_PREFIX = "search_document: "
+    _QUERY_PREFIX = "search_query: "
+
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         embeddings = self._model.encode(
             texts,
-            prompt_name="document",
+            prompt=self._DOC_PREFIX,
             normalize_embeddings=True,
             batch_size=32,
             show_progress_bar=len(texts) > 100,
@@ -231,7 +239,7 @@ class _NomicEmbeddings:
     def embed_query(self, text: str) -> list[float]:
         embedding = self._model.encode(
             text,
-            prompt_name="query",
+            prompt=self._QUERY_PREFIX,
             normalize_embeddings=True,
             show_progress_bar=False,
         )
