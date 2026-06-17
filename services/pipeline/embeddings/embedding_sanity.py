@@ -51,7 +51,8 @@ def run(probe: str, keyword: str, sample: int) -> None:
         # an unscoped join would read a stale cross-collection vector.
         sql = f"""
             SELECT d.doc_id, d.title, d.distilled_text,
-                   1 - (e.embedding <=> '{qstr}'::vector) AS stored_sim
+                   1 - (e.embedding <=> '{qstr}'::vector) AS stored_sim,
+                   e.embedding::text AS stored_vec
             FROM documents d
             JOIN langchain_pg_collection c ON c.name = 'chunk_embeddings'
             JOIN langchain_pg_embedding e
@@ -71,28 +72,39 @@ def run(probe: str, keyword: str, sample: int) -> None:
         return
 
     texts = [r.distilled_text or "" for r in rows]
-    fresh = emb.embed_documents(texts)
+    fresh_doc = emb.embed_documents(texts)      # search_document prefix
+    fresh_qry = [emb.embed_query(t) for t in texts]  # search_query prefix
+
+    def _parse(v):
+        return [float(x) for x in v.strip("[]").split(",")]
 
     print(f"probe: {probe!r}")
-    print(f"{'stored':>8}  {'fresh':>8}   title")
-    print("-" * 70)
-    stored_avg = fresh_avg = 0.0
-    for r, fv in zip(rows, fresh):
-        fs = _cos(qvec, fv)
+    print(f"{'stored':>8}  {'fresh':>8}  | {'cos(stored,':>12} {'cos(stored,':>12}")
+    print(f"{'sim->q':>8}  {'sim->q':>8}  | {'embed_doc)':>12} {'embed_qry)':>12}  title")
+    print("-" * 88)
+    stored_avg = fresh_avg = sdoc_avg = sqry_avg = 0.0
+    for r, fd, fq in zip(rows, fresh_doc, fresh_qry):
         ss = float(r.stored_sim)
-        stored_avg += ss
-        fresh_avg += fs
-        print(f"{ss:8.3f}  {fs:8.3f}   {(r.title or '')[:55]}")
+        fs = _cos(qvec, fd)
+        sv = _parse(r.stored_vec)
+        c_doc = _cos(sv, fd)   # ~1.0 if stored used search_document prefix
+        c_qry = _cos(sv, fq)   # ~1.0 if stored used search_query prefix
+        stored_avg += ss; fresh_avg += fs; sdoc_avg += c_doc; sqry_avg += c_qry
+        print(f"{ss:8.3f}  {fs:8.3f}  | {c_doc:12.3f} {c_qry:12.3f}  {(r.title or '')[:40]}")
     n = len(rows)
-    print("-" * 70)
-    print(f"{stored_avg / n:8.3f}  {fresh_avg / n:8.3f}   AVG")
+    print("-" * 88)
+    print(f"{stored_avg/n:8.3f}  {fresh_avg/n:8.3f}  | {sdoc_avg/n:12.3f} {sqry_avg/n:12.3f}  AVG")
     print()
-    if fresh_avg - stored_avg > 0.15 * n:
-        print("=> Stored embeddings look INCOMPATIBLE with the current model "
-              "(fresh >> stored). Re-embed the corpus.")
+    # Verdict from the direct stored-vs-prefix cosines (independent of the query).
+    if sdoc_avg / n > 0.98:
+        print("=> Stored docs use the correct search_document prefix — OPTIMAL. No re-embed needed.")
+    elif sqry_avg / n > 0.98:
+        print("=> Stored docs were indexed with the search_QUERY prefix (wrong side). "
+              "Re-embed with embed_documents for best recall.")
+    elif max(sdoc_avg, sqry_avg) / n < 0.9:
+        print("=> Stored docs match neither current prefix — different model/convention. Re-embed.")
     else:
-        print("=> Stored embeddings look consistent with the current model. "
-              "Retrieval issue is elsewhere (HyDE, rerank, chunking).")
+        print("=> Stored docs partially match; consider re-embedding for optimal recall.")
 
 
 def main() -> None:
