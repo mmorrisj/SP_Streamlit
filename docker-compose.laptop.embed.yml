@@ -81,10 +81,11 @@ services:
       # Baked models live under /app/.cache (not shadowed by these mounts).
       - ./shared:/app/shared
       - ./services/pipeline:/app/services/pipeline
-      # Local DSR ingest: dsr.py --source local reads cfg.dsr_data ('./data')
-      # which resolves to /app/services/data inside the container. Drop new
-      # *.json into ./data on the host; processed files move to ./data/processed.
-      - ./data:/app/services/data
+      # Local DSR ingest: dsr.py --source local reads cfg.dsr_data, which the
+      # Config layer resolves to an absolute /app/data inside the container.
+      # Drop new *.json into ./data on the host; processed files move to
+      # ./data/processed. (Mount target matches docker-compose.preprocessing.yml.)
+      - ./data:/app/data
     depends_on:
       db:
         condition: service_healthy
