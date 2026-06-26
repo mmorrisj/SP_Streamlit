@@ -78,10 +78,13 @@ services:
       CLAUDE_KEY: ${CLAUDE_KEY:-}
       # Batch API proxy: batch_api_client posts to {API_URL}/batch/* , which
       # server/main.py serves (it holds OPENAI_PROJ_API). The laptop `app`
-      # container runs it on 8000; reachable container-to-container by service
+      # container runs it on 8000; reach it container-to-container by service
       # name on the shared laptop network. Requires `app` to be up.
-      API_URL: ${API_URL:-http://app:8000}
-      S3_PROXY_URL: ${S3_PROXY_URL:-http://app:8000}
+      # HARD-PINNED (not ${API_URL:-...}): the host .env sets API_URL to
+      # localhost:8000 for host-side tools, but inside this container localhost
+      # is the container itself — it must target the `app` service by name.
+      API_URL: "http://app:8000"
+      S3_PROXY_URL: "http://app:8000"
     volumes:
       # Mount source so code fixes land via `git pull` — no CUDA-image rebuild.
       # Baked models live under /app/.cache (not shadowed by these mounts).
