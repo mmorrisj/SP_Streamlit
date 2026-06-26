@@ -69,6 +69,13 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface/hub
       DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      # LLM access for the steps beyond pure embedding — llm_deconflict_*,
+      # generate_event_summaries, bilateral summaries. Direct OpenAI off-network
+      # (matches the laptop app), so the full event pipeline runs in this one
+      # GPU container, not just the embed/cluster stages.
+      GAI_DEFAULT_SOURCE: ${GAI_DEFAULT_SOURCE:-openai}
+      OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      CLAUDE_KEY: ${CLAUDE_KEY:-}
     volumes:
       # Mount source so code fixes land via `git pull` — no CUDA-image rebuild.
       # Baked models live under /app/.cache (not shadowed by these mounts).
