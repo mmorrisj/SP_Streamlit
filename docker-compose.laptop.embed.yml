@@ -76,15 +76,16 @@ services:
       GAI_DEFAULT_SOURCE: ${GAI_DEFAULT_SOURCE:-openai}
       OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
       CLAUDE_KEY: ${CLAUDE_KEY:-}
-      # Batch API proxy: batch_api_client posts to {API_URL}/batch/* , which
-      # server/main.py serves (it holds OPENAI_PROJ_API). The laptop `app`
-      # container runs it on 8000; reach it container-to-container by service
-      # name on the shared laptop network. Requires `app` to be up.
-      # HARD-PINNED (not ${API_URL:-...}): the host .env sets API_URL to
-      # localhost:8000 for host-side tools, but inside this container localhost
-      # is the container itself — it must target the `app` service by name.
-      API_URL: "http://app:8000"
-      S3_PROXY_URL: "http://app:8000"
+      # Batch/S3/LLM proxy: batch_api_client posts to {API_URL}/batch/* , served
+      # by server/main.py (which holds OPENAI_PROJ_API + AWS creds). Per the
+      # tested docker-compose.preprocessing.yml, the proxy runs on the HOST at
+      # port 7001, reached from containers via host.docker.internal.
+      # HARD-PINNED literal (not ${API_URL}/${API_PORT}): the host .env sets
+      # API_URL=http://localhost:8000 / API_PORT=8000 for host-side tools, and
+      # inside this container localhost is the container itself. Requires the
+      # host proxy to be running: uvicorn server.main:app --port 7001.
+      API_URL: "http://host.docker.internal:7001"
+      S3_PROXY_URL: "http://host.docker.internal:7001"
     volumes:
       # Mount source so code fixes land via `git pull` — no CUDA-image rebuild.
       # Baked models live under /app/.cache (not shadowed by these mounts).
@@ -95,6 +96,11 @@ services:
       # Drop new *.json into ./data on the host; processed files move to
       # ./data/processed. (Mount target matches docker-compose.preprocessing.yml.)
       - ./data:/app/data
+    extra_hosts:
+      # Resolve host.docker.internal to the host so the container can reach the
+      # host-run proxy at :7001 (automatic on Docker Desktop; explicit here for
+      # portability, matching docker-compose.preprocessing.yml).
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
