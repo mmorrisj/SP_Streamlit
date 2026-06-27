@@ -96,6 +96,11 @@ services:
       # Drop new *.json into ./data on the host; processed files move to
       # ./data/processed. (Mount target matches docker-compose.preprocessing.yml.)
       - ./data:/app/data
+      # Persist the batch scratchpad across container runs. batch_prepare writes
+      # JSONL input files to /app/_data/batch and batch results download there;
+      # without a volume they vanish when a `run --rm` container exits, so a
+      # later queue-runner/process invocation can't find them ("File not found").
+      - embed_batch_data:/app/_data
     extra_hosts:
       # Resolve host.docker.internal to the host so the container can reach the
       # host-run proxy at :7001 (automatic on Docker Desktop; explicit here for
@@ -104,3 +109,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+volumes:
+  # Named volume for the batch scratchpad (/app/_data) so JSONL inputs and
+  # downloaded results survive across separate `run --rm` invocations and
+  # mid-run crashes — required for resuming/retrying batch jobs.
+  embed_batch_data:
