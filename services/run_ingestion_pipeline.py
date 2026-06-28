@@ -155,8 +155,9 @@ def run_batch_job(
         queue_cmd.extend(["--country", country])
     if retry_failed:
         queue_cmd.append("--retry-failed")
-    if stall_timeout != 120:
-        queue_cmd.extend(["--stall-timeout", str(stall_timeout)])
+    # Always propagate explicitly so the orchestrator's value (default 0)
+    # governs, regardless of the queue runner's own default.
+    queue_cmd.extend(["--stall-timeout", str(stall_timeout)])
     run_command(
         queue_cmd,
         f"Batch Queue Runner ({job_type}) - {country or 'all'}",
@@ -439,7 +440,13 @@ def main() -> None:
 
     parser.add_argument("--max-concurrent", type=int, default=5, help="Batch queue max concurrent jobs")
     parser.add_argument("--poll-interval", type=int, default=60, help="Batch queue poll interval (seconds)")
-    parser.add_argument("--stall-timeout", type=int, default=120, help="Minutes with 0%% progress before marking a batch stalled/failed (0=disabled)")
+    # Default 0 (disabled): OpenAI's Batch API is best-effort within a 24h
+    # window and batches routinely sit with no visible progress for well over
+    # an hour when OpenAI's queue is busy. A non-zero stall timeout cancels and
+    # FAILS those valid-but-slow batches prematurely (and wastes partial spend).
+    # Let OpenAI's own 24h expiry be the timeout; set a large value (e.g. 720)
+    # only if you want a safety net against a genuinely dead batch.
+    parser.add_argument("--stall-timeout", type=int, default=0, help="Minutes with 0%% progress before marking a batch stalled/failed (0=disabled, recommended for Batch API)")
 
     parser.add_argument("--force-clustering", action="store_true", help="Force re-cluster already clustered dates")
     parser.add_argument(

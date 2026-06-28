@@ -62,6 +62,11 @@ services:
       - ./shared:/app/shared
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      # Persist the batch scratchpad (BATCH_SCRATCHPAD_DIR=/app/_data/batch).
+      # batch_prepare writes JSONL inputs here and batch results download here;
+      # without a volume they vanish when a `run --rm` container exits, so
+      # resuming/retrying/processing a batch later fails "File not found".
+      - preproc_batch_data:/app/_data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -70,3 +75,8 @@ services:
 networks:
   softpower_net:
     external: true
+
+volumes:
+  # Named volume for the batch scratchpad so JSONL inputs + downloaded results
+  # survive across separate `run --rm` invocations and mid-run crashes.
+  preproc_batch_data:
