@@ -23,7 +23,13 @@ sys.path.insert(0, str(project_root))
 
 from shared.database.database import get_session
 
-PASS, FAIL, WARN, SKIP = "\033[92mPASS\033[0m", "\033[91mFAIL\033[0m", "\033[93mWARN\033[0m", "SKIP"
+PASS, FAIL, WARN, SKIP = "PASS", "FAIL", "WARN", "SKIP"
+_COLOR = {
+    "PASS": "\033[92mPASS\033[0m",
+    "FAIL": "\033[91mFAIL\033[0m",
+    "WARN": "\033[93mWARN\033[0m",
+    "SKIP": "SKIP",
+}
 _counts = {"PASS": 0, "FAIL": 0, "WARN": 0, "SKIP": 0}
 
 
@@ -39,9 +45,8 @@ def _table_exists(session, name: str) -> bool:
 
 
 def check(label: str, verdict: str, detail: str = ""):
-    tag = {"PASS": PASS, "FAIL": FAIL, "WARN": WARN, "SKIP": SKIP}[verdict]
     _counts[verdict] += 1
-    print(f"  [{tag}] {label}" + (f" — {detail}" if detail else ""))
+    print(f"  [{_COLOR[verdict]}] {label}" + (f" — {detail}" if detail else ""))
 
 
 def section(title: str):
