@@ -11,7 +11,7 @@ AGENT_LLM_TOOL_MODE=json_fallback.
 Env vars (in priority order for credentials):
     AGENT_LLM_API_KEY  > OPENAI_PROJ_API > CLAUDE_KEY
     AGENT_LLM_BASE_URL (optional; omit for api.openai.com)
-    AGENT_LLM_MODEL    (default: gpt-4o-mini)
+    AGENT_LLM_MODEL    (default: gpt-4.1-mini)
 """
 from __future__ import annotations
 
@@ -60,7 +60,11 @@ class OpenAICompatProvider(Provider):
         # out of the box against the same LLM the rest of the app uses, without
         # requiring separate AGENT_LLM_* config.
         self.base_url = os.getenv("AGENT_LLM_BASE_URL") or os.getenv("LITELLM_URL") or None
-        self.model = os.getenv("AGENT_LLM_MODEL") or os.getenv("LITELLM_MODEL") or "gpt-4o-mini"
+        # Default to gpt-4.1-mini: at temp 0.1 it reliably applies the intent
+        # classifier's "China-Egypt -> influencer/recipient" conventions and date
+        # inference, where gpt-4o-mini intermittently fell back to clarify with an
+        # empty scope. AGENT_LLM_MODEL / LITELLM_MODEL still override.
+        self.model = os.getenv("AGENT_LLM_MODEL") or os.getenv("LITELLM_MODEL") or "gpt-4.1-mini"
 
     def _get_client(self):
         # Built per call (not cached): the gateway JWT is per-request, so a
