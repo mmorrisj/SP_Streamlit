@@ -34,10 +34,17 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 @router.get("/health")
 def agent_health() -> dict:
+    # Report the model the provider will actually use (resolved default),
+    # not just the raw AGENT_LLM_MODEL env which is unset in dev/laptop.
+    try:
+        from agent.llm.provider import get_provider
+        resolved_model = getattr(get_provider(), "model", None)
+    except Exception:  # pragma: no cover - defensive
+        resolved_model = None
     return {
         "status": "ok",
         "provider": os.getenv("AGENT_LLM_PROVIDER", "openai_compat"),
-        "model": os.getenv("AGENT_LLM_MODEL"),
+        "model": os.getenv("AGENT_LLM_MODEL") or resolved_model,
         "tool_mode": os.getenv("AGENT_LLM_TOOL_MODE", "native"),
     }
 

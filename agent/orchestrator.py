@@ -202,8 +202,26 @@ class Orchestrator:
                     )
                 )
 
-        logger.warning("agent hit MAX_TURNS=%d without a final answer", MAX_TURNS)
-        return None
+        # Budget exhausted. Rather than discard everything the analyst is
+        # waiting on, force one final synthesis turn with tools disabled so the
+        # model must commit to a briefing from the evidence gathered so far.
+        logger.warning("agent hit MAX_TURNS=%d; forcing final synthesis", MAX_TURNS)
+        messages.append(
+            LLMMessage(
+                role="user",
+                content=(
+                    "You have reached the tool-call budget. Do not call any more "
+                    "tools. Produce the final briefing now as a single JSON object "
+                    "matching the required schema, using the evidence gathered so far."
+                ),
+            )
+        )
+        try:
+            final = provider.complete(messages=messages, tools=None)
+            return self._parse_final_briefing(final.text, ctx)
+        except Exception:
+            logger.exception("forced final synthesis failed after MAX_TURNS")
+            return None
 
     def _dispatch(self, ctx: _RunCtx, call: ToolCall) -> ToolResult:
         tool = self.tools.get(call.name)
@@ -274,15 +292,15 @@ class Orchestrator:
         return Briefing(
             title=parsed.get("title") or _default_title(ctx.request.query),
             executive_summary=parsed.get("executive_summary", ""),
-            key_judgments=parsed.get("key_judgments", []) or [],
+            key_judgments=_coerce_str_list(parsed.get("key_judgments")),
             timeline=parsed.get("timeline", []) or [],
             key_entities=parsed.get("key_entities", []) or [],
             evidence=parsed.get("evidence", []) or [
                 EvidenceItem(source_id=did) for did in dict.fromkeys(ctx.citations)
             ],
             confidence_assessment=parsed.get("confidence_assessment"),
-            information_gaps=parsed.get("information_gaps", []) or [],
-            recommended_followup=parsed.get("recommended_followup", []) or [],
+            information_gaps=_coerce_str_list(parsed.get("information_gaps")),
+            recommended_followup=_coerce_str_list(parsed.get("recommended_followup")),
         )
 
     # ----- persistence ------------------------------------------------------
@@ -413,6 +431,42 @@ def _jsonable(obj: Any) -> Any:
 def _default_title(query: str) -> str:
     q = query.strip()
     return q if len(q) <= 120 else q[:117] + "…"
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    """Normalize a model-supplied list into list[str].
+
+    The briefing prompt asks for key_judgments as
+    ``[{"judgment": "...", "confidence": "HIGH"}]`` objects, while the Briefing
+    schema declares ``list[str]``. Rather than let one well-formed-but-richer
+    item crash the entire run (dropping the briefing the analyst is waiting on),
+    flatten dicts into a readable string and preserve any confidence label.
+    """
+    if not value:
+        return []
+    if not isinstance(value, list):
+        value = [value]
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict):
+            text = (
+                item.get("judgment")
+                or item.get("text")
+                or item.get("claim")
+                or item.get("gap")
+                or item.get("item")
+            )
+            if text is None:
+                # Unknown shape — stringify the whole object so nothing is lost.
+                out.append(json.dumps(item, default=str))
+                continue
+            conf = item.get("confidence")
+            out.append(f"{text} (confidence: {conf})" if conf else str(text))
+        else:
+            out.append(str(item))
+    return out
 
 
 # ---------------------------------------------------------------------------
