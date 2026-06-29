@@ -30,6 +30,11 @@ langchain-core>=1.0
 # AI/LLM
 openai>=2.14.0
 tiktoken>=0.7.0
+# mcp powers the agent writing-product tools (list/recommend/get_writing_template),
+# which spawn agent.mcp_servers.* subprocesses. Without it those tools raise
+# "No module named 'mcp'" at runtime. httpx>=0.27.1 (mcp's floor) is already
+# satisfied by the resolved 0.28.x; no upper cap needed outside the test suite.
+mcp>=1.0.0
 boto3
 
 # API Service (FastAPI)
