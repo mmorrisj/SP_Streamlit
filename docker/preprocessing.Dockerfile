@@ -9,7 +9,7 @@
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # Digest-pinned for Docker Scout base image compliance.
 # Update digest with: docker pull python:3.13-slim-trixie && docker inspect python:3.13-slim-trixie --format='{{index .RepoDigests 0}}'
-FROM python:3.13-slim-trixie
+FROM python:3.14-slim-trixie
 
 WORKDIR /app
 

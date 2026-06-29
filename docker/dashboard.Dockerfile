@@ -1,5 +1,5 @@
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
-FROM python:3.13-slim-trixie
+FROM python:3.14-slim-trixie
 
 WORKDIR /app
 
