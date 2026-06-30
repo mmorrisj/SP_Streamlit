@@ -83,6 +83,9 @@ services:
       # --- LLM: direct OpenAI by default (no LiteLLM/gateway off-network) ---
       GAI_DEFAULT_SOURCE: ${GAI_DEFAULT_SOURCE:-openai}
       OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
+      # Proxy endpoint for pipeline scripts that call gai(use_proxy=True). The host
+      # runs server/main.py via uvicorn on 0.0.0.0:7001; containers reach it here.
+      API_URL: ${API_URL:-http://host.docker.internal:7001}
       CLAUDE_KEY: ${CLAUDE_KEY:-}
       # Optional S3 (leave blank to skip)
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
@@ -98,6 +101,9 @@ services:
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
     volumes:
       - ./reports:/app/reports
+      # Durable config override (e.g. default_model: gpt-4.1-mini) — survives recreate
+      # without rebuilding the image. Read-only; remove to fall back to the baked config.
+      - ./shared/config/config.yaml:/app/shared/config/config.yaml:ro
     depends_on:
       db:
         condition: service_healthy

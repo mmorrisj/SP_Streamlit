@@ -6,13 +6,15 @@ dsr_data: './data'
 start_date: '2024-08-01'
 sql: './sql'
 report_directory: './'
+# Top-level default model — read by the summary generators via config.default_model
+default_model: "gpt-4.1-mini"
 aws:
   secret_name: "AZURE_OPENAI_API_KEY_NORTHCENTRALUS"
   region_name: "us-east-1"
   api_version: "2024-08-01-preview"
-  4_1_model: gpt-4o-mini
+  4_1_model: gpt-4.1-mini
   4_1_version: '2025-04-14'
-  default_model: "gpt-4o-mini"
+  default_model: "gpt-4.1-mini"
 
 # S3 Configuration - Override these for different environments
 s3:
