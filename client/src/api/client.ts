@@ -859,9 +859,15 @@ export interface ReportEntityGroup {
 export interface ReportMetrics {
   total_documents: number
   total_events: number
-  category_distribution: { category: string; count: number }[]
+  provenance?: {
+    total_documents: number
+    corroborated_documents: number
+    self_report_share: number
+  }
+  category_distribution: { category: string; count: number; corroborated?: number }[]
   subcategory_distribution: { subcategory: string; count: number }[]
-  recipient_distribution: { recipient: string; count: number }[]
+  recipient_distribution: { recipient: string; count: number; corroborated?: number }[]
+  provenance_quadrant?: { recipient: string; raw: number; corroborated: number; corroborated_share: number }[]
   materiality_histogram: { bin: string; count: number }[]
 }
 

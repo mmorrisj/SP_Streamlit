@@ -2,7 +2,9 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, LineChart, Line, Legend
+  ResponsiveContainer, Cell, LineChart, Line, Legend,
+  ScatterChart, Scatter, ZAxis, ReferenceLine, LabelList,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts'
 import { FileBarChart, ExternalLink, Users, Building2, MapPin, Briefcase, X, Download } from 'lucide-react'
 import {
@@ -14,6 +16,7 @@ import type {
   ReportRequest,
   ValidationStatus,
   SectionValidation,
+  ReportMetrics,
 } from '../api/client'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
 import { ValidationIndicator } from '../components/ValidationIndicator'
@@ -24,6 +27,46 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Diplomacy': '#7c3aed',
   'Social': '#059669',
   'Military': '#dc2626',
+}
+
+const PILLARS = ['Economic', 'Social', 'Military', 'Diplomacy']
+
+/** Influence Signature — category mix as a radar; overlays raw vs. corroborated share so
+ *  the gap reveals where reporting is self-generated (state-media projection). */
+function SignatureRadar({ metrics }: { metrics: ReportMetrics }) {
+  const cats = metrics.category_distribution
+  const totalRaw = cats.reduce((s, c) => s + c.count, 0)
+  const hasCorr = cats.some(c => c.corroborated != null)
+  const totalCorr = cats.reduce((s, c) => s + (c.corroborated ?? c.count), 0)
+  const data = PILLARS.map(p => {
+    const row = cats.find(c => c.category === p)
+    const raw = row?.count ?? 0
+    const corr = row?.corroborated ?? raw
+    return {
+      category: p,
+      raw: totalRaw ? +(100 * raw / totalRaw).toFixed(1) : 0,
+      corroborated: totalCorr ? +(100 * corr / totalCorr).toFixed(1) : 0,
+    }
+  })
+  return (
+    <div className="chart-card" style={{ marginBottom: '1.5rem' }}>
+      <h3>Influence Signature</h3>
+      <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.25rem 0 0.5rem' }}>
+        Share of effort across the four instruments.{hasCorr ? ' The corroborated profile strips the initiator’s own state-media coverage — the gap shows where reporting is self-generated.' : ''}
+      </p>
+      <ResponsiveContainer width="100%" height={300}>
+        <RadarChart data={data} outerRadius="72%">
+          <PolarGrid />
+          <PolarAngleAxis dataKey="category" tick={{ fontSize: 12 }} />
+          <PolarRadiusAxis angle={90} tick={{ fontSize: 9 }} />
+          {hasCorr && <Radar name="Raw %" dataKey="raw" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.15} />}
+          <Radar name={hasCorr ? 'Corroborated %' : 'Share %'} dataKey="corroborated" stroke="#1a365d" fill="#1a365d" fillOpacity={0.35} />
+          <Legend />
+          <Tooltip formatter={(v: number) => `${v}%`} />
+        </RadarChart>
+      </ResponsiveContainer>
+    </div>
+  )
 }
 
 const getMaterialityColor = (score: number): string => {
@@ -79,6 +122,8 @@ export default function ReportPage() {
   const [includeMetrics, setIncludeMetrics] = useState(true)
   const [includePersons, setIncludePersons] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
+  // Provenance view: 'corroborated' strips the initiator's own state-media coverage
+  const [provMode, setProvMode] = useState<'raw' | 'corroborated'>('corroborated')
 
   // Report generation from context (persists across navigation)
   const {
@@ -903,20 +948,43 @@ export default function ReportPage() {
             </div>
           )}
 
+          {/* Influence Signature radar (category mix; raw vs. corroborated) */}
+          {report.metrics.category_distribution.length > 0 && <SignatureRadar metrics={report.metrics} />}
+
           {/* Metrics Dashboard — 2x2 Quadrant */}
           <div className="chart-card" style={{ marginBottom: '1.5rem' }}>
-            <h3>Metrics Dashboard</h3>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ margin: 0 }}>Metrics Dashboard</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {report.metrics.provenance && (
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    {report.metrics.provenance.corroborated_documents.toLocaleString()} corroborated of {report.metrics.provenance.total_documents.toLocaleString()} ·{' '}
+                    <strong style={{ color: report.metrics.provenance.self_report_share >= 0.5 ? '#b91c1c' : '#047857' }}>
+                      {Math.round(report.metrics.provenance.self_report_share * 100)}% self-reported
+                    </strong>
+                  </span>
+                )}
+                <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }} title="Corroborated strips the initiator's own state-media coverage">
+                  {(['raw', 'corroborated'] as const).map(m => (
+                    <button key={m} onClick={() => setProvMode(m)} style={{
+                      padding: '0.25rem 0.6rem', fontSize: '0.72rem', border: 'none', cursor: 'pointer',
+                      background: provMode === m ? '#1a365d' : '#fff', color: provMode === m ? '#fff' : '#475569',
+                    }}>{m === 'raw' ? 'Raw' : 'Corroborated'}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginTop: '1rem' }}>
               {/* Q1: Category Distribution */}
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem' }}>
                 <h4 style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Category Distribution</h4>
                 <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={report.metrics.category_distribution} layout="vertical" margin={{ left: 0, right: 10 }}>
+                  <BarChart data={report.metrics.category_distribution.map(d => ({ ...d, value: (provMode === 'corroborated' && d.corroborated != null) ? d.corroborated : d.count }))} layout="vertical" margin={{ left: 0, right: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" tick={{ fontSize: 10 }} />
                     <YAxis dataKey="category" type="category" width={70} tick={{ fontSize: 10 }} />
                     <Tooltip />
-                    <Bar dataKey="count" fill="#1a365d">
+                    <Bar dataKey="value" fill="#1a365d">
                       {report.metrics.category_distribution.map((entry) => (
                         <Cell key={entry.category} fill={CATEGORY_COLORS[entry.category] || '#1a365d'} />
                       ))}
@@ -943,12 +1011,12 @@ export default function ReportPage() {
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem' }}>
                 <h4 style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Top Recipient Countries</h4>
                 <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={report.metrics.recipient_distribution.slice(0, 8)} layout="vertical" margin={{ left: 0, right: 10 }}>
+                  <BarChart data={report.metrics.recipient_distribution.slice(0, 8).map(d => ({ ...d, value: (provMode === 'corroborated' && d.corroborated != null) ? d.corroborated : d.count }))} layout="vertical" margin={{ left: 0, right: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" tick={{ fontSize: 10 }} />
                     <YAxis dataKey="recipient" type="category" width={90} tick={{ fontSize: 9 }} />
                     <Tooltip />
-                    <Bar dataKey="count" fill="#059669" radius={[0, 3, 3, 0]} />
+                    <Bar dataKey="value" fill="#059669" radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -970,6 +1038,32 @@ export default function ReportPage() {
               )}
             </div>
           </div>
+
+          {/* Provenance Quadrant — narrative projection vs. genuine traction */}
+          {report.metrics.provenance_quadrant && report.metrics.provenance_quadrant.length > 0 && (
+            <div className="chart-card" style={{ marginBottom: '1.5rem' }}>
+              <h3>Narrative Projection vs. Genuine Traction</h3>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.25rem 0 0.75rem' }}>
+                Each recipient by raw coverage (x) vs. third-party-corroborated share (y). Lower band = high volume but low corroboration (state-media projection); upper band = genuine traction. Bubble size = corroborated documents.
+              </p>
+              <ResponsiveContainer width="100%" height={300}>
+                <ScatterChart margin={{ top: 10, right: 30, bottom: 24, left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" dataKey="raw" name="raw docs" scale="log" domain={['auto', 'auto']} tick={{ fontSize: 10 }}
+                    label={{ value: 'raw documents (log)', position: 'insideBottom', offset: -12, fontSize: 11 }} />
+                  <YAxis type="number" dataKey="corroborated_share" name="corroborated share" domain={[0, 1]} tick={{ fontSize: 10 }}
+                    label={{ value: 'corroborated share', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+                  <ZAxis type="number" dataKey="corroborated" range={[50, 400]} name="corroborated docs" />
+                  <ReferenceLine y={0.5} stroke="#cbd5e1" strokeDasharray="4 4" />
+                  <Tooltip cursor={{ strokeDasharray: '3 3' }}
+                    formatter={(v: number | string, n: string) => [typeof v === 'number' ? v.toLocaleString() : v, n]} />
+                  <Scatter data={report.metrics.provenance_quadrant} fill="#1a365d" fillOpacity={0.8}>
+                    <LabelList dataKey="recipient" position="top" style={{ fontSize: 9, fill: '#475569' }} />
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Materiality Trends + Top Entities — side by side */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>

@@ -111,7 +111,14 @@ def get_top_events_by_category(
         }
 
         if recipient:
-            recipient_clause = "AND ce.primary_recipients ? :recipient"
+            # Validate PRIMARY recipient (rank-1), not a peripheral mention — an event
+            # naming the recipient at low weight (e.g. aid-to-Israel that mentions Lebanon)
+            # is not "about" this recipient.
+            recipient_clause = (
+                "AND ce.primary_recipients ? :recipient "
+                "AND :recipient = (SELECT k FROM jsonb_each_text(ce.primary_recipients) "
+                "AS j(k, v) ORDER BY (v)::numeric DESC LIMIT 1)"
+            )
             params['recipient'] = recipient
 
         query = text(f"""
@@ -300,7 +307,12 @@ def _deduplicate_and_backfill(
         }
 
         if recipient:
-            recipient_clause = "AND ce.primary_recipients ? :recipient"
+            # Same primary-recipient validation as the main query (rank-1, not peripheral).
+            recipient_clause = (
+                "AND ce.primary_recipients ? :recipient "
+                "AND :recipient = (SELECT k FROM jsonb_each_text(ce.primary_recipients) "
+                "AS j(k, v) ORDER BY (v)::numeric DESC LIMIT 1)"
+            )
             params['recipient'] = recipient
 
         # Build exclude clause — cast text list to UUID for type match
@@ -430,7 +442,57 @@ def _deduplicate_and_backfill(
         if backfilled > 0:
             print(f"[Report] Backfilled {backfilled} events into {category}")
 
+    # Collapse near-duplicate event names within each category (e.g. several near-identical
+    # "$25B Hormoz Nuclear Power Plant" master events), keeping the highest-coverage one.
+    for category in deduped:
+        deduped[category] = _dedup_event_names(deduped[category])
+
     return deduped
+
+
+def _norm_event_name(name: str) -> str:
+    """Lowercase, strip punctuation/whitespace runs for fuzzy comparison."""
+    return re.sub(r'[^a-z0-9]+', ' ', (name or '').lower()).strip()
+
+
+def _dedup_event_names(events: List[Dict], threshold: float = 0.85) -> List[Dict]:
+    """Remove near-duplicate events by name similarity, keeping the one with the most
+    articles (then highest materiality). Order-preserving."""
+    from difflib import SequenceMatcher
+    kept: List[Dict] = []
+    kept_norms: List[str] = []
+    for ev in sorted(events, key=lambda e: (e.get('article_count', 0), e.get('materiality_score', 0)), reverse=True):
+        norm = _norm_event_name(ev.get('event_name', ''))
+        if not norm:
+            kept.append(ev); kept_norms.append(norm); continue
+        dup = any(
+            norm == k or SequenceMatcher(None, norm, k).ratio() >= threshold
+            for k in kept_norms
+        )
+        if not dup:
+            kept.append(ev); kept_norms.append(norm)
+    return kept
+
+
+def _clean_subcat(label: str) -> str:
+    """Normalize a subcategory label: strip 'A. '/'I. ' enumeration prefixes leaked by the
+    extraction prompt, and the 'Other-' prefix. ('I. Infrastructure' -> 'Infrastructure')."""
+    s = re.sub(r'^[A-Z]\.\s*', '', (label or '').strip())
+    if s.lower().startswith('other-'):
+        s = s[6:].strip()
+    return s
+
+
+def _normalize_subcat_dist(subcategory_dist) -> List[Dict]:
+    """Re-aggregate raw subcategory rows under cleaned labels (summing merged duplicates),
+    sorted by count desc."""
+    merged: Dict[str, int] = defaultdict(int)
+    for row in subcategory_dist:
+        merged[_clean_subcat(row.subcategory)] += row.count
+    return [
+        {'subcategory': k, 'count': v}
+        for k, v in sorted(merged.items(), key=lambda x: x[1], reverse=True)
+    ]
 
 
 def get_document_details(session: Session, doc_ids: List[str]) -> List[Dict]:
@@ -552,13 +614,30 @@ def compute_metrics(
 
     total_documents = doc_query.scalar() or 0
 
+    # Provenance: "corroborated" = coverage NOT from the initiator's own state media
+    # (source_geofocus not naming the initiator) — the bias correction separating genuine
+    # third-party traction from state-media narrative projection.
+    corr = func.coalesce(Document.source_geofocus, '').notilike(f'%{country}%')
+    corr_q = session.query(func.count(func.distinct(Document.doc_id))).join(
+        InitiatingCountry, InitiatingCountry.doc_id == Document.doc_id
+    )
+    if recipient:
+        corr_q = corr_q.join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(RecipientCountry.recipient_country == recipient, *base_filters, corr)
+    else:
+        corr_q = corr_q.filter(*base_filters, corr)
+    corroborated_documents = corr_q.scalar() or 0
+    self_report_share = round(1 - corroborated_documents / total_documents, 3) if total_documents else 0.0
+
     # Total events
     total_events = sum(len(events) for events in events_by_category.values())
 
-    # Category distribution
+    # Category distribution (raw count + provenance-corroborated count)
     cat_query = session.query(
         Category.category,
-        func.count(func.distinct(Category.doc_id)).label('count')
+        func.count(func.distinct(Category.doc_id)).label('count'),
+        func.count(func.distinct(Category.doc_id)).filter(corr).label('corroborated')
     ).join(
         Document, Category.doc_id == Document.doc_id
     ).join(
@@ -600,7 +679,8 @@ def compute_metrics(
     # Recipient distribution
     recip_query = session.query(
         RecipientCountry.recipient_country,
-        func.count(func.distinct(RecipientCountry.doc_id)).label('count')
+        func.count(func.distinct(RecipientCountry.doc_id)).label('count'),
+        func.count(func.distinct(RecipientCountry.doc_id)).filter(corr).label('corroborated')
     ).join(
         Document, RecipientCountry.doc_id == Document.doc_id
     ).join(
@@ -636,16 +716,28 @@ def compute_metrics(
     return {
         'total_documents': total_documents,
         'total_events': total_events,
+        'provenance': {
+            'total_documents': total_documents,
+            'corroborated_documents': corroborated_documents,
+            'self_report_share': self_report_share,
+        },
         'category_distribution': [
-            {'category': row.category, 'count': row.count}
+            {'category': row.category, 'count': row.count,
+             'corroborated': int(row.corroborated or 0)}
             for row in category_dist
         ],
-        'subcategory_distribution': [
-            {'subcategory': row.subcategory, 'count': row.count}
-            for row in subcategory_dist
-        ],
+        'subcategory_distribution': _normalize_subcat_dist(subcategory_dist),
         'recipient_distribution': [
-            {'recipient': row.recipient_country, 'count': row.count}
+            {'recipient': row.recipient_country, 'count': row.count,
+             'corroborated': int(row.corroborated or 0)}
+            for row in recipient_dist
+        ],
+        # provenance scatter: per recipient, raw vs. corroborated share (narrative
+        # projection vs. genuine traction)
+        'provenance_quadrant': [
+            {'recipient': row.recipient_country, 'raw': row.count,
+             'corroborated': int(row.corroborated or 0),
+             'corroborated_share': round((row.corroborated or 0) / row.count, 3) if row.count else 0.0}
             for row in recipient_dist
         ],
         'materiality_histogram': [
