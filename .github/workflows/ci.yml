@@ -130,7 +130,7 @@ jobs:
           pytest tests/ --cov=shared --cov=services --cov=server --cov-config=.coveragerc --cov-report=xml --cov-report=html:htmlcov --cov-report=term-missing --cov-fail-under=8 --junitxml=test-results/junit-all.xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: ./coverage.xml
           flags: unittests
