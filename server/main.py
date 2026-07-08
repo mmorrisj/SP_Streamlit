@@ -1425,6 +1425,7 @@ class InfluencerMetrics(BaseModel):
     recipient_breakdown: list
     monthly_trend: list
     source_breakdown: list
+    provenance: dict = {}
 
 class BilateralMetrics(BaseModel):
     influencer: str
@@ -1605,6 +1606,18 @@ def get_influencer_metrics(country: str):
             InitiatingCountry.initiating_country != RecipientCountry.recipient_country
         ).scalar() or 0
 
+        # Provenance: corroborated = docs NOT from this initiator's own state media
+        corroborated_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == country,
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            ~func.coalesce(Document.source_geofocus, '').ilike(f'%{country}%'),
+        ).scalar() or 0
+
         # Category breakdown
         category_breakdown = session.query(
             Category.category,
@@ -1686,7 +1699,12 @@ def get_influencer_metrics(country: str):
             subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
             recipient_breakdown=[{"recipient": recip, "count": count} for recip, count in recipient_breakdown],
             monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
-            source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown]
+            source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown],
+            provenance={
+                "total_documents": total_docs,
+                "corroborated_documents": corroborated_docs,
+                "self_report_share": round(1 - corroborated_docs / total_docs, 3) if total_docs else 0.0,
+            },
         )
 
 @app.get("/api/metrics/bilateral/{influencer}/{recipient}", response_model=BilateralMetrics)

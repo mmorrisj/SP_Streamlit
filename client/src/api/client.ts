@@ -202,6 +202,7 @@ export interface InfluencerMetrics {
   recipient_breakdown: { recipient: string; count: number }[]
   monthly_trend: { month: string; count: number }[]
   source_breakdown: { source: string; count: number }[]
+  provenance?: { total_documents: number; corroborated_documents: number; self_report_share: number }
 }
 
 export interface BilateralMetrics {
