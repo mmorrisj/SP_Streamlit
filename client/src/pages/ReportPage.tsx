@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, LineChart, Line, Legend,
+  ResponsiveContainer, Cell, Legend,
   ScatterChart, Scatter, ZAxis, ReferenceLine, LabelList,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts'
@@ -1067,89 +1067,48 @@ export default function ReportPage() {
 
           {/* Materiality Trends + Top Entities — side by side */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-            {/* Materiality Trends Chart */}
-            {report.materiality_trends && report.materiality_trends.overall_series.length > 1 ? (() => {
-              const trends = report.materiality_trends
-              const allMonths = new Set<string>()
-              trends.overall_series.forEach(p => allMonths.add(p.month))
-              Object.values(trends.recipient_series).forEach(series =>
-                series.forEach(p => allMonths.add(p.month))
-              )
-              const sortedMonths = Array.from(allMonths).sort()
-              const recipients = Object.keys(trends.recipient_series)
-
-              const chartData = sortedMonths.map(month => {
-                const row: Record<string, string | number> = {
-                  month: new Date(month + 'T00:00:00').toLocaleDateString('en-US', { year: '2-digit', month: 'short' })
-                }
-                const overall = trends.overall_series.find(p => p.month === month)
-                if (overall) row['Overall'] = overall.avg_score
-                for (const r of recipients) {
-                  const pt = trends.recipient_series[r].find(p => p.month === month)
-                  if (pt) row[r] = pt.avg_score
-                }
-                return row
-              })
-
-              const TREND_COLORS = ['#2563eb', '#7c3aed', '#059669', '#ea580c', '#dc2626']
-
+            {/* Materiality × Reach — which events are both high-volume and high-impact */}
+            {(() => {
+              const pts = (report.categories || []).flatMap(cat =>
+                (cat.events || []).map(e => ({
+                  x: e.article_count, y: e.materiality_score, name: e.event_name,
+                  category: cat.category,
+                }))
+              ).filter(p => p.x > 0 && p.y > 0)
+              if (pts.length === 0) return <div />
+              const cats = Array.from(new Set(pts.map(p => p.category)))
               return (
                 <div className="chart-card" style={{ margin: 0 }}>
-                  <h3 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Materiality Trends</h3>
+                  <h3 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Materiality &times; Reach</h3>
                   <p style={{ fontSize: '0.75rem', color: '#666', margin: '0 0 0.5rem' }}>
-                    Avg materiality by month (3-month lookback)
+                    Each event by coverage (x) vs. materiality (y). Upper-right = high-volume and high-impact.
                   </p>
-
-                  {trends.significant_changes.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem' }}>
-                      {trends.significant_changes.map((sc, idx) => (
-                        <span key={idx} style={{
-                          display: 'inline-block',
-                          padding: '0.15rem 0.5rem',
-                          borderRadius: '12px',
-                          fontSize: '0.65rem',
-                          fontWeight: 600,
-                          color: sc.direction === 'increase' ? '#dc2626' : '#059669',
-                          background: sc.direction === 'increase' ? '#fef2f2' : '#f0fdf4',
-                          border: `1px solid ${sc.direction === 'increase' ? '#fca5a5' : '#86efac'}`,
-                        }}>
-                          {sc.recipient}: {sc.direction === 'increase' ? '▲' : '▼'} {Math.abs(sc.delta).toFixed(1)} ({new Date(sc.month + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' })})
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
                   <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                    <ScatterChart margin={{ top: 5, right: 12, bottom: 16, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" tick={{ fontSize: 9 }} />
-                      <YAxis domain={[0, 10]} tick={{ fontSize: 9 }} label={{ value: 'Avg Score', angle: -90, position: 'insideLeft', style: { fontSize: 9 } }} />
-                      <Tooltip />
-                      <Legend wrapperStyle={{ fontSize: '0.7rem' }} />
-                      <Line
-                        type="monotone"
-                        dataKey="Overall"
-                        stroke="#1a365d"
-                        strokeWidth={2.5}
-                        dot={{ r: 3 }}
-                        activeDot={{ r: 5 }}
-                      />
-                      {recipients.map((r, i) => (
-                        <Line
-                          key={r}
-                          type="monotone"
-                          dataKey={r}
-                          stroke={TREND_COLORS[i % TREND_COLORS.length]}
-                          strokeWidth={1.5}
-                          strokeDasharray="5 3"
-                          dot={{ r: 2 }}
-                        />
+                      <XAxis type="number" dataKey="x" name="articles" scale="log" domain={['auto', 'auto']} tick={{ fontSize: 9 }}
+                        label={{ value: 'articles (log)', position: 'insideBottom', offset: -8, style: { fontSize: 9 } }} />
+                      <YAxis type="number" dataKey="y" name="materiality" domain={[0, 10]} tick={{ fontSize: 9 }}
+                        label={{ value: 'materiality', angle: -90, position: 'insideLeft', style: { fontSize: 9 } }} />
+                      <Tooltip cursor={{ strokeDasharray: '3 3' }} content={(props: any) => {
+                        const p = props?.payload?.[0]?.payload
+                        if (!props?.active || !p) return null
+                        return (
+                          <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6, padding: '0.4rem 0.6rem', fontSize: '0.72rem', maxWidth: 260 }}>
+                            <div style={{ fontWeight: 600, marginBottom: 2 }}>{p.name}</div>
+                            <div style={{ color: '#475569' }}>{p.category} &middot; {p.x.toLocaleString()} articles &middot; materiality {p.y.toFixed(1)}</div>
+                          </div>
+                        )
+                      }} />
+                      {cats.map(c => (
+                        <Scatter key={c} name={c} data={pts.filter(p => p.category === c)} fill={CATEGORY_COLORS[c] || '#6b7280'} fillOpacity={0.75} />
                       ))}
-                    </LineChart>
+                      <Legend wrapperStyle={{ fontSize: '0.7rem' }} />
+                    </ScatterChart>
                   </ResponsiveContainer>
                 </div>
               )
-            })() : <div />}
+            })()}
 
             {/* Top Entities by References Chart */}
             {(() => {
