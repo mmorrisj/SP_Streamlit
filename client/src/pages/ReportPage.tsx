@@ -62,7 +62,7 @@ function SignatureRadar({ metrics }: { metrics: ReportMetrics }) {
           {hasCorr && <Radar name="Raw %" dataKey="raw" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.15} />}
           <Radar name={hasCorr ? 'Corroborated %' : 'Share %'} dataKey="corroborated" stroke="#1a365d" fill="#1a365d" fillOpacity={0.35} />
           <Legend />
-          <Tooltip formatter={(v: number) => `${v}%`} />
+          <Tooltip formatter={(v) => `${v}%`} />
         </RadarChart>
       </ResponsiveContainer>
     </div>
@@ -1056,7 +1056,7 @@ export default function ReportPage() {
                   <ZAxis type="number" dataKey="corroborated" range={[50, 400]} name="corroborated docs" />
                   <ReferenceLine y={0.5} stroke="#cbd5e1" strokeDasharray="4 4" />
                   <Tooltip cursor={{ strokeDasharray: '3 3' }}
-                    formatter={(v: number | string, n: string) => [typeof v === 'number' ? v.toLocaleString() : v, n]} />
+                    formatter={(v, n) => [typeof v === 'number' ? v.toLocaleString() : v, n]} />
                   <Scatter data={report.metrics.provenance_quadrant} fill="#1a365d" fillOpacity={0.8}>
                     <LabelList dataKey="recipient" position="top" style={{ fontSize: 9, fill: '#475569' }} />
                   </Scatter>
