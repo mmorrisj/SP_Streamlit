@@ -257,6 +257,47 @@ export default function CompetingInfluencePage() {
         ))}
       </div>
 
+      {/* Corroborated Share of Attention — provenance-normalized dominance */}
+      <div className="competing-section">
+        <h2>Corroborated Share of Attention</h2>
+        <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 0.75rem' }}>
+          Share of third-party-corroborated coverage (excluding each actor&rsquo;s own state media) toward {data.recipient}.
+          Corrects for state-media volume &mdash; an actor&rsquo;s raw lead can collapse once its own outlets are stripped.
+        </p>
+        {(() => {
+          const rows = data.influencer_summary.filter(i => (i.corroborated ?? 0) > 0)
+          const total = rows.reduce((s, i) => s + i.corroborated, 0) || 1
+          const sorted = [...rows].sort((a, b) => b.corroborated - a.corroborated)
+          return (
+            <>
+              <div style={{ display: 'flex', width: '100%', height: 34, borderRadius: 6, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                {sorted.map(i => {
+                  const pct = 100 * i.corroborated / total
+                  return (
+                    <div key={i.influencer} title={`${i.influencer}: ${i.corroborated.toLocaleString()} (${pct.toFixed(0)}%)`}
+                      style={{ width: `${pct}%`, background: INFLUENCER_COLORS[i.influencer] || '#999',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.72rem', fontWeight: 600 }}>
+                      {pct >= 8 ? `${pct.toFixed(0)}%` : ''}
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.85rem', marginTop: '0.6rem' }}>
+                {sorted.map(i => (
+                  <span key={i.influencer} style={{ fontSize: '0.75rem', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: INFLUENCER_COLORS[i.influencer] || '#999' }} />
+                    {i.influencer}: {i.corroborated.toLocaleString()}
+                    {i.self_report_share >= 0.3 && (
+                      <em style={{ color: '#b91c1c' }}> ({Math.round(i.self_report_share * 100)}% self-rep., raw {i.doc_count.toLocaleString()})</em>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </>
+          )
+        })()}
+      </div>
+
       {/* Timeline Section */}
       <div className="competing-section">
         <h2>Monthly Activity by Influencer</h2>

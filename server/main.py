@@ -4910,6 +4910,24 @@ def get_competing_influence(
         ).all()
         inf_doc_map = {inf: count for inf, count in inf_docs}
 
+        # Corroborated docs per influencer — coverage NOT from that influencer's own state
+        # media (source_geofocus not naming the initiator). Provenance bias correction so
+        # cross-actor comparison isn't skewed by one actor's state-media volume.
+        inf_corr = session.query(
+            InitiatingCountry.initiating_country,
+            func.count(func.distinct(InitiatingCountry.doc_id)).label('corr')
+        ).join(
+            Document, Document.doc_id == InitiatingCountry.doc_id
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == InitiatingCountry.doc_id
+        ).filter(
+            *base_filters,
+            ~func.coalesce(Document.source_geofocus, '').ilike(
+                func.concat('%', InitiatingCountry.initiating_country, '%')
+            ),
+        ).group_by(InitiatingCountry.initiating_country).all()
+        inf_corr_map = {inf: c for inf, c in inf_corr}
+
         # Event counts + avg materiality per influencer (from CanonicalEvent via primary_recipients JSONB)
         inf_events = session.query(
             CanonicalEvent.initiating_country,
@@ -4945,9 +4963,13 @@ def get_competing_influence(
         for inf in INFLUENCERS:
             ec, am = inf_event_map.get(inf, (0, None))
             top_cat, _ = top_cat_map.get(inf, (None, 0))
+            doc_c = inf_doc_map.get(inf, 0)
+            corr_c = inf_corr_map.get(inf, 0)
             influencer_summary.append({
                 "influencer": inf,
-                "doc_count": inf_doc_map.get(inf, 0),
+                "doc_count": doc_c,
+                "corroborated": corr_c,
+                "self_report_share": round(1 - corr_c / doc_c, 3) if doc_c else 0.0,
                 "event_count": ec or 0,
                 "top_category": top_cat,
                 "avg_materiality": round(float(am), 2) if am else None,

@@ -1606,6 +1606,8 @@ export const updateProjectDocumentNotes = async (projectId: string, docId: strin
 export interface CompetingInfluenceSummary {
   influencer: string
   doc_count: number
+  corroborated: number
+  self_report_share: number
   event_count: number
   top_category: string | null
   avg_materiality: number | null
