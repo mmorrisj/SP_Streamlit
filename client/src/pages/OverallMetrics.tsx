@@ -100,6 +100,19 @@ export default function OverallMetrics() {
           </p>
         </div>
 
+        {metrics.provenance && (
+          <div className="stat-card" title="Documents not sourced from the initiating actor's own state media. Corrects for state-media volume.">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Activity size={24} color="#047857" />
+              <h3>Corroborated</h3>
+            </div>
+            <p className="stat-value">{metrics.provenance.corroborated_documents.toLocaleString()}</p>
+            <p style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.5rem', color: metrics.provenance.self_report_share >= 0.5 ? '#b91c1c' : '#047857' }}>
+              {Math.round(metrics.provenance.self_report_share * 100)}% self-reported (state media)
+            </p>
+          </div>
+        )}
+
         <div className="stat-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Globe size={24} color="#2d4a7c" />

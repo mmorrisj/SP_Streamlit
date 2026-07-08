@@ -1416,6 +1416,7 @@ class OverallMetrics(BaseModel):
     influencer_comparison: list
     monthly_trend: list
     category_by_influencer: list
+    provenance: dict = {}
 
 class InfluencerMetrics(BaseModel):
     influencer: str
@@ -1446,6 +1447,7 @@ class RecipientMetrics(BaseModel):
     monthly_trend: list
     source_breakdown: list
     recent_events: list
+    provenance: dict = {}
 
 @app.get("/api/metrics/overall", response_model=OverallMetrics)
 @cache(ttl=600, prefix="metrics_overall")
@@ -1462,6 +1464,20 @@ def get_overall_metrics():
             InitiatingCountry.initiating_country.in_(INFLUENCERS),
             RecipientCountry.recipient_country.in_(RECIPIENTS),
             InitiatingCountry.initiating_country != RecipientCountry.recipient_country
+        ).scalar() or 0
+
+        # Provenance: corroborated = docs NOT from the initiating actor's own state media
+        corroborated_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            RecipientCountry.recipient_country.in_(RECIPIENTS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            ~func.coalesce(Document.source_geofocus, '').ilike(
+                func.concat('%', InitiatingCountry.initiating_country, '%')
+            ),
         ).scalar() or 0
 
         # Total relationships
@@ -1583,7 +1599,12 @@ def get_overall_metrics():
             subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
             influencer_comparison=[{"influencer": inf, "count": count} for inf, count in influencer_comparison],
             monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
-            category_by_influencer=category_by_influencer
+            category_by_influencer=category_by_influencer,
+            provenance={
+                "total_documents": total_docs,
+                "corroborated_documents": corroborated_docs,
+                "self_report_share": round(1 - corroborated_docs / total_docs, 3) if total_docs else 0.0,
+            },
         )
 
 @app.get("/api/metrics/influencer/{country}", response_model=InfluencerMetrics)
@@ -1855,6 +1876,20 @@ def get_recipient_metrics(country: str):
             InitiatingCountry.initiating_country != RecipientCountry.recipient_country
         ).scalar() or 0
 
+        # Provenance: corroborated = docs NOT from the initiating actor's own state media
+        corroborated_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            RecipientCountry.recipient_country == country,
+            InitiatingCountry.initiating_country.in_(INFLUENCERS),
+            InitiatingCountry.initiating_country != RecipientCountry.recipient_country,
+            ~func.coalesce(Document.source_geofocus, '').ilike(
+                func.concat('%', InitiatingCountry.initiating_country, '%')
+            ),
+        ).scalar() or 0
+
         # Influencer breakdown (which influencers engage with this recipient)
         influencer_breakdown = session.query(
             InitiatingCountry.initiating_country,
@@ -1985,7 +2020,12 @@ def get_recipient_metrics(country: str):
             subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
             monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
             source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown],
-            recent_events=events
+            recent_events=events,
+            provenance={
+                "total_documents": total_docs,
+                "corroborated_documents": corroborated_docs,
+                "self_report_share": round(1 - corroborated_docs / total_docs, 3) if total_docs else 0.0,
+            },
         )
 
 # ===== BILATERAL RELATIONSHIP ENDPOINTS =====

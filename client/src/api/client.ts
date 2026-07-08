@@ -184,6 +184,7 @@ export interface FilterOptions {
 
 export interface OverallMetrics {
   total_documents: number
+  provenance?: { total_documents: number; corroborated_documents: number; self_report_share: number }
   total_relationships: number
   active_influencers: number
   active_recipients: number
@@ -227,6 +228,7 @@ export interface BilateralMetrics {
 export interface RecipientMetrics {
   recipient: string
   total_documents: number
+  provenance?: { total_documents: number; corroborated_documents: number; self_report_share: number }
   influencer_breakdown: { influencer: string; count: number }[]
   category_breakdown: { category: string; count: number }[]
   subcategory_breakdown: { subcategory: string; count: number }[]
