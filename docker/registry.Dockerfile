@@ -18,7 +18,7 @@
 # ============================================
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # Node 22 is the current LTS (supported through April 2027).
-FROM node:22-bookworm-slim@sha256:813a7480f28fdadac1f7f5c824bcdad435b5bc1322a5968bbbdef8d058f9dff4 AS frontend-builder
+FROM node:22-bookworm-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf AS frontend-builder
 
 WORKDIR /app/client
 
