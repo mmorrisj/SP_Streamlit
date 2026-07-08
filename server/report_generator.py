@@ -746,155 +746,6 @@ def compute_metrics(
     }
 
 
-def compute_materiality_trends(
-    session: Session,
-    country: str,
-    start_date: date,
-    end_date: date,
-    recipient: Optional[str] = None,
-    valid_recipients: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """
-    Compute average materiality score over time by top recipients.
-    Extends 3 months before start_date for comparison context.
-    Returns {recipient_series, overall_series, significant_changes, trend_start}.
-    """
-    trend_start = start_date - timedelta(days=90)
-
-    # Build recipient filter clause (always exclude self-references)
-    if recipient:
-        recip_filter = "AND r.key = :recipient"
-    elif valid_recipients:
-        recip_filter = "AND r.key = ANY(:valid_recipients) AND r.key != :country"
-    else:
-        recip_filter = "AND r.key != :country"
-
-    query = text("""
-        WITH recipient_events AS (
-            SELECT
-                ce.id,
-                DATE_TRUNC('month', ce.first_mention_date)::date AS month,
-                ce.material_score,
-                r.key AS recipient
-            FROM canonical_events ce,
-                 jsonb_each_text(ce.primary_recipients) AS r(key, value)
-            WHERE ce.initiating_country = :country
-              AND ce.master_event_id IS NULL
-              AND ce.material_score IS NOT NULL
-              AND ce.first_mention_date >= :trend_start
-              AND ce.first_mention_date <= :end_date
-              {recipient_filter}
-        ),
-        top_recipients AS (
-            SELECT recipient, COUNT(*) AS cnt
-            FROM recipient_events
-            GROUP BY recipient
-            ORDER BY cnt DESC
-            LIMIT 5
-        )
-        SELECT
-            re.month,
-            re.recipient,
-            AVG(re.material_score)::numeric(4,2) AS avg_score,
-            COUNT(*) AS event_count
-        FROM recipient_events re
-        JOIN top_recipients tr ON re.recipient = tr.recipient
-        GROUP BY re.month, re.recipient
-        ORDER BY re.month, re.recipient
-    """.format(recipient_filter=recip_filter))
-
-    params: Dict[str, Any] = {
-        'country': country,
-        'trend_start': trend_start,
-        'end_date': end_date,
-    }
-    if recipient:
-        params['recipient'] = recipient
-    elif valid_recipients:
-        params['valid_recipients'] = valid_recipients
-
-    rows = session.execute(query, params).fetchall()
-
-    # Also get overall monthly averages
-    overall_query = text("""
-        SELECT
-            DATE_TRUNC('month', ce.first_mention_date)::date AS month,
-            AVG(ce.material_score)::numeric(4,2) AS avg_score,
-            COUNT(*) AS event_count
-        FROM canonical_events ce
-        WHERE ce.initiating_country = :country
-          AND ce.master_event_id IS NULL
-          AND ce.material_score IS NOT NULL
-          AND ce.first_mention_date >= :trend_start
-          AND ce.first_mention_date <= :end_date
-        GROUP BY DATE_TRUNC('month', ce.first_mention_date)::date
-        ORDER BY month
-    """)
-    overall_rows = session.execute(overall_query, {
-        'country': country,
-        'trend_start': trend_start,
-        'end_date': end_date,
-    }).fetchall()
-
-    # Build recipient series: {recipient: [{month, avg_score, event_count}, ...]}
-    recipient_series: Dict[str, list] = defaultdict(list)
-    for row in rows:
-        recipient_series[row.recipient].append({
-            'month': row.month.isoformat(),
-            'avg_score': float(row.avg_score),
-            'event_count': int(row.event_count),
-        })
-
-    # Build overall series
-    overall_series = [
-        {
-            'month': row.month.isoformat(),
-            'avg_score': float(row.avg_score),
-            'event_count': int(row.event_count),
-        }
-        for row in overall_rows
-    ]
-
-    # Detect significant changes (>1.5 point month-over-month shift)
-    significant_changes = []
-    for recip, series in recipient_series.items():
-        for i in range(1, len(series)):
-            prev = series[i - 1]['avg_score']
-            curr = series[i]['avg_score']
-            delta = curr - prev
-            if abs(delta) >= 1.5:
-                significant_changes.append({
-                    'recipient': recip,
-                    'month': series[i]['month'],
-                    'previous_score': prev,
-                    'current_score': curr,
-                    'delta': round(delta, 2),
-                    'direction': 'increase' if delta > 0 else 'decrease',
-                })
-
-    # Also check overall
-    for i in range(1, len(overall_series)):
-        prev = overall_series[i - 1]['avg_score']
-        curr = overall_series[i]['avg_score']
-        delta = curr - prev
-        if abs(delta) >= 1.5:
-            significant_changes.append({
-                'recipient': 'Overall',
-                'month': overall_series[i]['month'],
-                'previous_score': prev,
-                'current_score': curr,
-                'delta': round(delta, 2),
-                'direction': 'increase' if delta > 0 else 'decrease',
-            })
-
-    return {
-        'trend_start': trend_start.isoformat(),
-        'recipient_series': dict(recipient_series),
-        'overall_series': overall_series,
-        'significant_changes': significant_changes,
-    }
-
-
 def generate_event_narrative(
     event: Dict,
     config: Config,
@@ -1853,22 +1704,14 @@ def generate_report(
             print("[Report] Skipping entities (disabled)")
             entities_by_type = {}
 
-        # Step 3c: Compute materiality trends
-        if include_metrics:
-            print("[Report] Computing materiality trends...")
-            materiality_trends = compute_materiality_trends(
-                session, country, start_date, end_date, recipient,
-                valid_recipients=config.recipients
-            )
-            print(f"[Report] Materiality trends: {len(materiality_trends['overall_series'])} months, "
-                  f"{len(materiality_trends['significant_changes'])} significant changes")
-        else:
-            materiality_trends = {
-                'trend_start': (start_date - timedelta(days=90)).isoformat(),
-                'recipient_series': {},
-                'overall_series': [],
-                'significant_changes': []
-            }
+        # Materiality trends removed — the trends line chart was replaced by the client-side
+        # "Materiality x Reach" scatter (built from event data). Empty payload for compatibility.
+        materiality_trends = {
+            'trend_start': (start_date - timedelta(days=90)).isoformat(),
+            'recipient_series': {},
+            'overall_series': [],
+            'significant_changes': []
+        }
 
         # Load entity document details for citation support
         entity_docs_by_id = {}
@@ -2481,20 +2324,13 @@ def generate_report_stream(
         else:
             entities_by_type = {}
 
-        # Materiality trends
-        if include_metrics:
-            print("[Report SSE] Computing materiality trends...")
-            materiality_trends = compute_materiality_trends(
-                session, country, start_date, end_date, recipient,
-                valid_recipients=config.recipients
-            )
-        else:
-            materiality_trends = {
-                'trend_start': (start_date - timedelta(days=90)).isoformat(),
-                'recipient_series': {},
-                'overall_series': [],
-                'significant_changes': []
-            }
+        # Materiality trends removed (see generate_report) — empty payload for compatibility.
+        materiality_trends = {
+            'trend_start': (start_date - timedelta(days=90)).isoformat(),
+            'recipient_series': {},
+            'overall_series': [],
+            'significant_changes': []
+        }
 
         # Load entity document details for citation support
         entity_docs_by_id = {}

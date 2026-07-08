@@ -5044,12 +5044,36 @@ def get_competing_influence(
                 for e in events
             ]
 
+        # Corroborated category matrix — per (influencer, category), excluding that
+        # influencer's own state media (source_geofocus). Feeds the heatmap's Corroborated toggle.
+        cat_corr = session.query(
+            InitiatingCountry.initiating_country,
+            Category.category,
+            func.count(func.distinct(Category.doc_id)).label('count')
+        ).join(
+            Category, Category.doc_id == InitiatingCountry.doc_id
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == InitiatingCountry.doc_id
+        ).join(
+            Document, Document.doc_id == InitiatingCountry.doc_id
+        ).filter(
+            *base_filters,
+            ~func.coalesce(Document.source_geofocus, '').ilike(
+                func.concat('%', InitiatingCountry.initiating_country, '%')
+            ),
+        ).group_by(InitiatingCountry.initiating_country, Category.category).all()
+        ccorr = {}
+        for inf, cat, count in cat_corr:
+            ccorr.setdefault(inf, {"influencer": inf})[cat] = count
+        category_matrix_corroborated = [ccorr.get(inf, {"influencer": inf}) for inf in INFLUENCERS]
+
         return {
             "recipient": recipient,
             "total_documents": total_docs,
             "influencer_summary": influencer_summary,
             "monthly_by_influencer": monthly_by_influencer,
             "category_matrix": category_matrix,
+            "category_matrix_corroborated": category_matrix_corroborated,
             "recent_events": recent_events,
         }
 

@@ -68,6 +68,8 @@ export default function CompetingInfluencePage() {
   const [assessmentLoading, setAssessmentLoading] = useState(false)
   const [assessmentGenerated, setAssessmentGenerated] = useState(false)
   const [sourcesExpanded, setSourcesExpanded] = useState(false)
+  // Heatmap provenance view: 'corroborated' strips each actor's own state media
+  const [heatMode, setHeatMode] = useState<'raw' | 'corroborated'>('corroborated')
   const assessmentRef = useRef<HTMLDivElement>(null)
 
   const { data, isLoading } = useQuery({
@@ -165,18 +167,22 @@ export default function CompetingInfluencePage() {
     setAssessmentGenerated(false)
   }
 
-  // Find max value in category matrix for heatmap scaling
+  // Active heatmap matrix — corroborated (state-media stripped) or raw
+  const heatMatrix = (heatMode === 'corroborated' && data?.category_matrix_corroborated)
+    ? data.category_matrix_corroborated
+    : (data?.category_matrix ?? [])
+
+  // Find max value in the active matrix for heatmap scaling
   const maxCatValue = useMemo(() => {
-    if (!data?.category_matrix) return 1
     let max = 0
-    for (const row of data.category_matrix) {
+    for (const row of heatMatrix) {
       for (const cat of CATEGORIES) {
         const v = (row[cat] as number) || 0
         if (v > max) max = v
       }
     }
     return max || 1
-  }, [data])
+  }, [heatMatrix])
 
   const handleRecipientChange = (newRecipient: string) => {
     navigate(`/competing/${encodeURIComponent(newRecipient)}`)
@@ -340,7 +346,18 @@ export default function CompetingInfluencePage() {
 
       {/* Category Heatmap */}
       <div className="competing-section">
-        <h2>Category Breakdown by Influencer</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <h2 style={{ margin: 0 }}>Category Breakdown by Influencer</h2>
+          <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}
+               title="Corroborated strips each actor's own state media (source_geofocus)">
+            {(['raw', 'corroborated'] as const).map(mode => (
+              <button key={mode} onClick={() => setHeatMode(mode)} style={{
+                padding: '0.25rem 0.6rem', fontSize: '0.72rem', border: 'none', cursor: 'pointer',
+                background: heatMode === mode ? '#1a365d' : '#fff', color: heatMode === mode ? '#fff' : '#475569',
+              }}>{mode === 'raw' ? 'Raw' : 'Corroborated'}</button>
+            ))}
+          </div>
+        </div>
         <div className="heatmap-container">
           <table className="heatmap-table">
             <thead>
@@ -362,7 +379,7 @@ export default function CompetingInfluencePage() {
                     {cat}
                   </td>
                   {INFLUENCERS.map(inf => {
-                    const row = data.category_matrix.find(
+                    const row = heatMatrix.find(
                       (r: Record<string, unknown>) => r.influencer === inf
                     )
                     const val = (row?.[cat] as number) || 0

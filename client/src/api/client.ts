@@ -1627,6 +1627,7 @@ export interface CompetingInfluenceData {
   influencer_summary: CompetingInfluenceSummary[]
   monthly_by_influencer: Record<string, unknown>[]
   category_matrix: Record<string, unknown>[]
+  category_matrix_corroborated?: Record<string, unknown>[]
   recent_events: Record<string, CompetingInfluenceEvent[]>
 }
 
