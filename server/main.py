@@ -1437,6 +1437,7 @@ class BilateralMetrics(BaseModel):
     monthly_trend: list
     source_breakdown: list
     recent_highlights: list
+    provenance: dict = {}
 
 class RecipientMetrics(BaseModel):
     recipient: str
@@ -1749,6 +1750,17 @@ def get_bilateral_metrics(influencer: str, recipient: str):
             RecipientCountry.recipient_country == recipient
         ).scalar() or 0
 
+        # Provenance: corroborated = docs NOT from this influencer's own state media
+        corroborated_docs = session.query(func.count(func.distinct(Document.doc_id))).join(
+            InitiatingCountry
+        ).join(
+            RecipientCountry, RecipientCountry.doc_id == Document.doc_id
+        ).filter(
+            InitiatingCountry.initiating_country == influencer,
+            RecipientCountry.recipient_country == recipient,
+            ~func.coalesce(Document.source_geofocus, '').ilike(f'%{influencer}%'),
+        ).scalar() or 0
+
         # Category breakdown
         category_breakdown = session.query(
             Category.category,
@@ -1853,7 +1865,12 @@ def get_bilateral_metrics(influencer: str, recipient: str):
             subcategory_breakdown=[{"subcategory": subcat, "count": count} for subcat, count in subcategory_breakdown],
             monthly_trend=[{"month": str(month.date()) if month else None, "count": count} for month, count in reversed(monthly_trend)],
             source_breakdown=[{"source": source, "count": count} for source, count in source_breakdown],
-            recent_highlights=highlights
+            recent_highlights=highlights,
+            provenance={
+                "total_documents": total_docs,
+                "corroborated_documents": corroborated_docs,
+                "self_report_share": round(1 - corroborated_docs / total_docs, 3) if total_docs else 0.0,
+            },
         )
 
 @app.get("/api/metrics/recipient/{country}", response_model=RecipientMetrics)

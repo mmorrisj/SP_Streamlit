@@ -97,6 +97,19 @@ export default function BilateralMetricsPage() {
           <p className="stat-value">{metrics.total_documents.toLocaleString()}</p>
         </div>
 
+        {metrics.provenance && (
+          <div className="stat-card" title="Documents not sourced from this influencer's own state media. Corrects for state-media volume.">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <FileText size={24} color="#047857" />
+              <h3>Corroborated</h3>
+            </div>
+            <p className="stat-value">{metrics.provenance.corroborated_documents.toLocaleString()}</p>
+            <p style={{ fontSize: '0.8rem', fontWeight: 600, margin: '0.15rem 0 0', color: metrics.provenance.self_report_share >= 0.5 ? '#b91c1c' : '#047857' }}>
+              {Math.round(metrics.provenance.self_report_share * 100)}% self-reported
+            </p>
+          </div>
+        )}
+
         <div className="stat-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '24px' }}>📊</span>

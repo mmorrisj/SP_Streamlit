@@ -210,6 +210,7 @@ export interface BilateralMetrics {
   influencer: string
   recipient: string
   total_documents: number
+  provenance?: { total_documents: number; corroborated_documents: number; self_report_share: number }
   category_breakdown: { category: string; count: number }[]
   subcategory_breakdown: { subcategory: string; count: number }[]
   monthly_trend: { month: string; count: number }[]
