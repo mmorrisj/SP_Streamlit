@@ -194,8 +194,8 @@ def get_top_events_by_category(
                     AND d4.date >= :start_date AND d4.date <= :end_date
                 )
                 {recipient_clause}
-            ORDER BY materiality_score DESC, period_article_count DESC
-            LIMIT :top_n
+            ORDER BY category_doc_count DESC, materiality_score DESC, period_article_count DESC
+            LIMIT :top_n * 8
         """)
 
         result = session.execute(query, params).fetchall()
@@ -212,6 +212,18 @@ def get_top_events_by_category(
 
             # Use period-scoped dates and article count from date-filtered docs
             period_doc_count = len(set(doc_ids))
+
+            # Significant-share filter: keep the event in this category only if a meaningful
+            # share of its in-period coverage is actually in-category (>=25%, min 2 docs).
+            # The SQL admits any event with >=1 category doc and now ranks by category_doc_count,
+            # so without this a high-materiality cross-category event (e.g. a diplomacy summit
+            # with a couple of incidentally military-tagged docs) would pollute unrelated
+            # categories. (n + 3) // 4 == ceil(0.25 * n) without importing math.
+            if len(events_by_category[category]) >= top_n:
+                break
+            if (row.category_doc_count or 0) < max(2, (period_doc_count + 3) // 4):
+                continue
+
             period_first = row.period_first_date.isoformat() if row.period_first_date else (
                 row.first_mention_date.isoformat() if row.first_mention_date else None
             )
@@ -396,8 +408,8 @@ def _deduplicate_and_backfill(
                 )
                 {exclude_clause}
                 {recipient_clause}
-            ORDER BY materiality_score DESC, period_article_count DESC
-            LIMIT :backfill_limit
+            ORDER BY category_doc_count DESC, materiality_score DESC, period_article_count DESC
+            LIMIT :backfill_limit * 8
         """)
 
         result = session.execute(query, params).fetchall()
@@ -413,6 +425,14 @@ def _deduplicate_and_backfill(
                         doc_ids.append(doc_id_item)
 
             period_doc_count = len(set(doc_ids))
+
+            # Significant-share filter (mirrors the main query): only backfill events that are
+            # genuinely about this category (>=25% of in-period coverage, min 2 docs).
+            if backfilled >= need:
+                break
+            if (row.category_doc_count or 0) < max(2, (period_doc_count + 3) // 4):
+                continue
+
             period_first = row.period_first_date.isoformat() if row.period_first_date else (
                 row.first_mention_date.isoformat() if row.first_mention_date else None
             )

@@ -43,6 +43,12 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# On Windows/Git-Bash the MSYS path (/c/Users/...) is rejected by Docker Desktop as a
+# build context. Convert to a native path (C:/Users/...) when cygpath is available;
+# no-op on Linux/macOS where cygpath does not exist.
+if command -v cygpath >/dev/null 2>&1; then
+    PROJECT_ROOT="$(cygpath -m "$PROJECT_ROOT")"
+fi
 
 # Parse positional and flag arguments
 # Positional form: [mode] [username] [version]
