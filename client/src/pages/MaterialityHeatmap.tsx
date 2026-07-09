@@ -1,189 +1,204 @@
-import { useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Flame, Calendar } from 'lucide-react'
-import { fetchMaterialityHeatmap } from '../api/client'
+import {
+  ComposedChart, Line, Bar, BarChart, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer, Cell,
+} from 'recharts'
+import { Flame, Sparkles, Loader2 } from 'lucide-react'
+import { fetchMaterialityAnalysis, generateMaterialitySummary } from '../api/client'
 import './Pages.css'
 
-const COUNTRY_ORDER = ['China', 'Iran', 'Russia', 'Turkey', 'United States']
-
-// material_score is a ~1-10 scale; monthly averages cluster in ~3.2-6.0, so the ramp is
-// calibrated across that band (not 0-4, which made every cell red).
-function getHeatColor(score: number | null): string {
-  if (score == null) return '#f1f5f9'
-  if (score >= 5.5) return '#b91c1c'  // deep red
-  if (score >= 5.0) return '#f97316'  // orange
-  if (score >= 4.5) return '#facc15'  // amber
-  if (score >= 4.0) return '#a3e635'  // lime
-  if (score >= 3.5) return '#4ade80'  // green
-  return '#bbf7d0'                     // pale green (< 3.5)
+const INFLUENCERS = ['China', 'Iran', 'Russia', 'Turkey', 'United States']
+const RECIPIENTS = ['Bahrain', 'Cyprus', 'Egypt', 'Iran', 'Iraq', 'Israel', 'Jordan', 'Kuwait',
+  'Lebanon', 'Libya', 'Oman', 'Palestine', 'Qatar', 'Saudi Arabia', 'Syria',
+  'Turkey', 'United Arab Emirates', 'Yemen']
+const COLORS: Record<string, string> = {
+  China: '#dc2626', Iran: '#059669', Russia: '#2563eb', Turkey: '#d97706', 'United States': '#7c3aed',
 }
-
-function getTextColor(score: number | null): string {
-  if (score == null) return '#94a3b8'
-  if (score >= 5.0) return 'white'
-  return '#1e293b'
+// score -> color for histogram bars (cool = low materiality, hot = high)
+function barColor(score: number): string {
+  if (score >= 7) return '#b91c1c'
+  if (score >= 6) return '#ea580c'
+  if (score >= 5) return '#f97316'
+  if (score >= 4) return '#facc15'
+  if (score >= 3) return '#a3e635'
+  return '#86efac'
 }
 
 export default function MaterialityHeatmap() {
+  const [initiator, setInitiator] = useState('China')
+  const [recipient, setRecipient] = useState('')          // '' = all recipients (country-level)
+  const [summary, setSummary] = useState('')
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
+
   const { data, isLoading } = useQuery({
-    queryKey: ['materiality-heatmap'],
-    queryFn: fetchMaterialityHeatmap,
+    queryKey: ['materiality-analysis', initiator, recipient],
+    queryFn: () => fetchMaterialityAnalysis(initiator, recipient ? { recipient } : undefined),
   })
 
-  // Build monthly matrix grouped by country and month
-  const matrixByCountry = useMemo(() => {
-    if (!data?.monthly_matrix) return {}
-    const grouped: Record<string, Record<string, { avg: number | null; count: number; docs: number }>> = {}
-    for (const entry of data.monthly_matrix) {
-      if (!grouped[entry.country]) grouped[entry.country] = {}
-      grouped[entry.country][entry.month] = {
-        avg: entry.avg_materiality,
-        count: entry.event_count,
-        docs: entry.total_docs,
-      }
+  const color = COLORS[initiator] || '#1a365d'
+  const scopeLabel = recipient ? `${initiator} → ${recipient}` : `${initiator} (all recipients)`
+
+  const buildContext = useMemo(() => () => {
+    if (!data) return ''
+    const s = data.stats
+    const trend = data.trend.map(t => `${t.month}: avg ${t.avg_materiality} (${t.event_count} events)`).join('; ')
+    const hist = data.histogram.map(h => `${h.bin}: ${h.count}`).join(', ')
+    const tops = data.top_events.map(e => `"${e.event_name}" (score ${e.material_score}, ${e.date})`).join('; ')
+    return `Materiality analysis for ${scopeLabel}. material_score is a 1-10 significance scale.\n` +
+      `Events: ${s.event_count}. Avg: ${s.avg}, Median: ${s.median}, Range: ${s.min}-${s.max}.\n` +
+      `Monthly trend — ${trend}.\n` +
+      `Score distribution (bin: count) — ${hist}.\n` +
+      `Top events — ${tops}.`
+  }, [data, scopeLabel])
+
+  async function onGenerate() {
+    setSummaryLoading(true); setSummaryError(''); setSummary('')
+    try {
+      const res = await generateMaterialitySummary(buildContext())
+      setSummary(res.summary || '')
+    } catch {
+      setSummaryError('Summary generation failed. Check the LLM proxy is running.')
+    } finally {
+      setSummaryLoading(false)
     }
-    return grouped
-  }, [data])
+  }
 
-  // Get all unique months sorted
-  const allMonths = useMemo(() => {
-    if (!data?.monthly_matrix) return []
-    const set = new Set(data.monthly_matrix.map(e => e.month))
-    return Array.from(set).sort()
-  }, [data])
-
-  // Daily heatmap: get last 90 days for the "recent activity" strip
-  const recentDailyByCountry = useMemo(() => {
-    if (!data?.daily_heatmap) return {}
-    const result: Record<string, { date: string; avg: number | null; count: number }[]> = {}
-    for (const [country, days] of Object.entries(data.daily_heatmap)) {
-      result[country] = days.slice(-90).map(d => ({
-        date: d.date,
-        avg: d.avg_materiality,
-        count: d.event_count,
-      }))
-    }
-    return result
-  }, [data])
-
-  if (isLoading) return <div className="page"><div className="loading">Loading heatmap data...</div></div>
+  const s = data?.stats
+  const hasData = !!data && (data.stats.event_count > 0)
 
   return (
     <div className="page">
       <header className="page-header">
-        <h1>
-          <Flame size={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />
-          Materiality Heatmap
-        </h1>
-        <p>Event materiality scores across countries and time periods</p>
+        <h1><Flame size={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />Materiality Analysis</h1>
+        <p>Event materiality trends, distribution, and standout events — by country or bilateral pair</p>
       </header>
 
-      {/* Monthly Matrix Table */}
-      {allMonths.length > 0 && (
-        <div style={{ marginBottom: '2rem' }}>
-          <h2 style={{ fontSize: '1.1rem', color: '#1a365d', marginBottom: '0.75rem' }}>
-            <Calendar size={18} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-            Monthly Materiality Matrix
-          </h2>
-          <div className="table-container" style={{ overflowX: 'auto' }}>
-            <table className="data-table" style={{ fontSize: '0.8rem', minWidth: '600px' }}>
-              <thead>
-                <tr>
-                  <th style={{ position: 'sticky', left: 0, background: '#f8fafc', zIndex: 1 }}>Country</th>
-                  {allMonths.map(m => (
-                    <th key={m} style={{ textAlign: 'center', padding: '0.5rem 0.375rem', whiteSpace: 'nowrap' }}>
-                      {m}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {COUNTRY_ORDER.filter(c => matrixByCountry[c]).map(country => (
-                  <tr key={country}>
-                    <td style={{ fontWeight: 500, position: 'sticky', left: 0, background: 'white', zIndex: 1 }}>
-                      {country}
-                    </td>
-                    {allMonths.map(month => {
-                      const cell = matrixByCountry[country]?.[month]
-                      return (
-                        <td key={month} style={{
-                          textAlign: 'center',
-                          padding: '0.375rem',
-                          backgroundColor: cell ? getHeatColor(cell.avg) : '#f8fafc',
-                          color: cell ? getTextColor(cell.avg) : '#d1d5db',
-                          fontWeight: cell?.avg != null && cell.avg >= 3 ? 600 : 400,
-                          borderRadius: '2px',
-                        }}>
-                          {cell ? (
-                            <div>
-                              <div>{cell.avg != null ? cell.avg.toFixed(1) : '—'}</div>
-                              <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>{cell.count}e</div>
-                            </div>
-                          ) : '—'}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* Controls */}
+      <div className="chart-card" style={{ marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
+        <label style={{ fontSize: '0.85rem', color: '#475569' }}>
+          <div style={{ marginBottom: 4, fontWeight: 600 }}>Initiator</div>
+          <select value={initiator} onChange={e => { setInitiator(e.target.value); if (e.target.value === recipient) setRecipient('') }}
+            style={{ padding: '0.4rem 0.6rem', borderRadius: 6, border: '1px solid #cbd5e1', minWidth: 160 }}>
+            {INFLUENCERS.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: '0.85rem', color: '#475569' }}>
+          <div style={{ marginBottom: 4, fontWeight: 600 }}>Recipient (bilateral)</div>
+          <select value={recipient} onChange={e => setRecipient(e.target.value)}
+            style={{ padding: '0.4rem 0.6rem', borderRadius: 6, border: '1px solid #cbd5e1', minWidth: 200 }}>
+            <option value="">All recipients (country-level)</option>
+            {RECIPIENTS.filter(r => r !== initiator).map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <button onClick={onGenerate} disabled={!hasData || summaryLoading}
+          style={{ marginLeft: 'auto', padding: '0.5rem 0.9rem', borderRadius: 6, border: 'none', cursor: hasData ? 'pointer' : 'not-allowed',
+            background: hasData ? '#1a365d' : '#cbd5e1', color: '#fff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {summaryLoading ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+          Generate Summary
+        </button>
+      </div>
 
-          {/* Legend */}
-          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b', alignItems: 'center' }}>
-            <span>Score:</span>
-            {[
-              { label: '< 3.5', color: '#bbf7d0' },
-              { label: '3.5-4', color: '#4ade80' },
-              { label: '4-4.5', color: '#a3e635' },
-              { label: '4.5-5', color: '#facc15' },
-              { label: '5-5.5', color: '#f97316' },
-              { label: '5.5+', color: '#b91c1c' },
-            ].map(({ label, color }) => (
-              <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                <span style={{ width: 14, height: 14, backgroundColor: color, borderRadius: 2, display: 'inline-block' }} />
-                {label}
-              </span>
-            ))}
-          </div>
+      {isLoading && <div className="loading">Loading materiality data…</div>}
+
+      {!isLoading && !hasData && (
+        <div className="empty-state-card">
+          <Flame size={48} />
+          <h3>No materiality data</h3>
+          <p>No scored events for {scopeLabel} in range.</p>
         </div>
       )}
 
-      {/* Daily Activity Strips (last 90 days) */}
-      {Object.keys(recentDailyByCountry).length > 0 && (
-        <div>
-          <h2 style={{ fontSize: '1.1rem', color: '#1a365d', marginBottom: '0.75rem' }}>
-            Recent Daily Activity (Last 90 Days)
-          </h2>
-          {COUNTRY_ORDER.filter(c => recentDailyByCountry[c]).map(country => (
-            <div key={country} style={{ marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '0.9rem', color: '#475569', marginBottom: '0.375rem' }}>{country}</h3>
-              <div style={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {(recentDailyByCountry[country] || []).map((day, i) => (
-                  <div
-                    key={i}
-                    title={`${day.date}: ${day.avg != null ? day.avg.toFixed(1) : 'N/A'} (${day.count} events)`}
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 2,
-                      backgroundColor: getHeatColor(day.avg),
-                      cursor: 'default',
-                    }}
-                  />
+      {hasData && s && (
+        <>
+          {/* Stats strip */}
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: '1.25rem' }}>
+            {[
+              { label: 'Scored events', val: s.event_count.toLocaleString() },
+              { label: 'Avg materiality', val: s.avg?.toFixed(2) ?? '—' },
+              { label: 'Median', val: s.median?.toFixed(1) ?? '—' },
+              { label: 'Peak', val: s.max?.toFixed(1) ?? '—' },
+            ].map(c => (
+              <div className="stat-card" key={c.label}>
+                <h3 style={{ fontSize: '0.8rem' }}>{c.label}</h3>
+                <p className="stat-value" style={{ color }}>{c.val}</p>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+            {/* Trend */}
+            <div className="chart-card">
+              <h3>Materiality trend — {scopeLabel}</h3>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.15rem 0 0.5rem' }}>
+                Monthly average materiality (line); event count (bars) flags thin-sample months.
+              </p>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={data.trend} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" tick={{ fontSize: 9 }} />
+                  <YAxis yAxisId="mat" domain={[0, 10]} tick={{ fontSize: 10 }}
+                    label={{ value: 'avg materiality', angle: -90, position: 'insideLeft', style: { fontSize: 10 } }} />
+                  <YAxis yAxisId="cnt" orientation="right" tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: '0.72rem' }} />
+                  <Bar yAxisId="cnt" dataKey="event_count" name="events" fill="#e2e8f0" />
+                  <Line yAxisId="mat" type="monotone" dataKey="avg_materiality" name="avg materiality"
+                    stroke={color} strokeWidth={2.5} dot={{ r: 2 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Distribution */}
+            <div className="chart-card">
+              <h3>Score distribution</h3>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.15rem 0 0.5rem' }}>
+                How events spread across the 1-10 materiality scale.
+              </p>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={data.histogram} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="bin" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="events" radius={[3, 3, 0, 0]}>
+                    {data.histogram.map(h => <Cell key={h.bin} fill={barColor(h.score)} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Top events + Summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+            <div className="chart-card">
+              <h3>Top events by materiality</h3>
+              <div style={{ marginTop: '0.5rem' }}>
+                {data.top_events.map((e, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0', borderBottom: '1px solid #f1f5f9' }}>
+                    <span style={{ minWidth: 34, textAlign: 'center', fontWeight: 700, color: '#fff', background: barColor(e.material_score ?? 0), borderRadius: 4, padding: '0.1rem 0' }}>
+                      {e.material_score?.toFixed(1) ?? '—'}
+                    </span>
+                    <span style={{ fontSize: '0.82rem' }}>{e.event_name}<span style={{ color: '#94a3b8' }}> · {e.date}</span></span>
+                  </div>
                 ))}
               </div>
             </div>
-          ))}
-        </div>
-      )}
 
-      {allMonths.length === 0 && Object.keys(recentDailyByCountry).length === 0 && (
-        <div className="empty-state-card">
-          <Flame size={48} />
-          <h3>No Materiality Data</h3>
-          <p>Materiality scores will appear here once events have been analyzed.</p>
-        </div>
+            <div className="chart-card">
+              <h3><Sparkles size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />Analytical Summary</h3>
+              {!summary && !summaryLoading && !summaryError && (
+                <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                  Click <strong>Generate Summary</strong> for an LLM read of the trend, distribution, and standout events for {scopeLabel}.
+                </p>
+              )}
+              {summaryLoading && <p style={{ color: '#64748b', marginTop: '0.5rem' }}><Loader2 size={14} className="spin" style={{ verticalAlign: 'middle' }} /> Analyzing…</p>}
+              {summaryError && <p style={{ color: '#b91c1c', marginTop: '0.5rem', fontSize: '0.85rem' }}>{summaryError}</p>}
+              {summary && <div style={{ fontSize: '0.85rem', lineHeight: 1.55, color: '#334155', whiteSpace: 'pre-wrap', marginTop: '0.5rem' }}>{summary}</div>}
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

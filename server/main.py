@@ -1180,6 +1180,98 @@ def get_materiality_heatmap():
         return {"daily_heatmap": heatmap, "monthly_matrix": monthly}
 
 
+@app.get("/api/materiality/analysis")
+@cache(ttl=600, prefix="materiality_analysis")
+def get_materiality_analysis(
+    initiator: str,
+    recipient: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
+    """Materiality analysis for a country (or initiator->recipient pair): monthly trend,
+    score distribution, summary stats, and top events. Source: master canonical_events."""
+    from sqlalchemy import text as sql_text
+    with get_session() as session:
+        if initiator not in INFLUENCERS:
+            raise HTTPException(status_code=404, detail=f"{initiator} is not a recognized initiator")
+        if recipient and recipient not in RECIPIENTS:
+            raise HTTPException(status_code=404, detail=f"{recipient} is not a recognized recipient")
+
+        where = ["ce.master_event_id IS NULL", "ce.material_score IS NOT NULL",
+                 "ce.initiating_country = :initiator"]
+        params: dict = {"initiator": initiator}
+        if recipient:
+            where.append("ce.primary_recipients ? :recipient"); params["recipient"] = recipient
+        if start_date:
+            where.append("ce.first_mention_date >= :start"); params["start"] = start_date
+        if end_date:
+            where.append("ce.first_mention_date <= :end"); params["end"] = end_date
+        w = " AND ".join(where)
+
+        stats = session.execute(sql_text(f"""
+            SELECT count(*) n, round(avg(material_score)::numeric, 2) avg,
+                   round(percentile_cont(0.5) WITHIN GROUP (ORDER BY material_score)::numeric, 2) median,
+                   min(material_score) mn, max(material_score) mx
+            FROM canonical_events ce WHERE {w}"""), params).fetchone()
+        trend_rows = session.execute(sql_text(f"""
+            SELECT to_char(date_trunc('month', first_mention_date), 'YYYY-MM') AS "month",
+                   round(avg(material_score)::numeric, 2) avg_materiality, count(*) event_count
+            FROM canonical_events ce WHERE {w} GROUP BY 1 ORDER BY 1"""), params).fetchall()
+        hist_rows = session.execute(sql_text(f"""
+            SELECT floor(material_score)::int b, count(*) c
+            FROM canonical_events ce WHERE {w} GROUP BY 1 ORDER BY 1"""), params).fetchall()
+        top_rows = session.execute(sql_text(f"""
+            SELECT canonical_name, material_score, first_mention_date
+            FROM canonical_events ce WHERE {w}
+            ORDER BY material_score DESC, first_mention_date DESC LIMIT 6"""), params).fetchall()
+
+        return {
+            "initiator": initiator,
+            "recipient": recipient,
+            "stats": {
+                "event_count": stats.n or 0,
+                "avg": float(stats.avg) if stats.avg is not None else None,
+                "median": float(stats.median) if stats.median is not None else None,
+                "min": float(stats.mn) if stats.mn is not None else None,
+                "max": float(stats.mx) if stats.mx is not None else None,
+            },
+            "trend": [{"month": r.month, "avg_materiality": float(r.avg_materiality),
+                       "event_count": r.event_count} for r in trend_rows],
+            "histogram": [{"bin": f"{r.b}-{r.b + 1}", "score": r.b, "count": r.c} for r in hist_rows],
+            "top_events": [{"event_name": r.canonical_name,
+                            "material_score": float(r.material_score) if r.material_score is not None else None,
+                            "date": str(r.first_mention_date) if r.first_mention_date else None}
+                           for r in top_rows],
+        }
+
+
+class MaterialitySummaryRequest(BaseModel):
+    metrics_context: str  # pre-formatted metrics string from the frontend
+
+
+@app.post("/api/materiality/summary")
+def generate_materiality_summary(payload: MaterialitySummaryRequest):
+    """LLM narrative interpreting a materiality selection: trajectory, distribution shape,
+    and standout high-materiality events."""
+    if gai is None:
+        raise HTTPException(status_code=503, detail="LLM backend unavailable")
+    sys_prompt = (
+        "You are an intelligence analyst. Write a concise, factual materiality assessment "
+        "(3-4 short paragraphs) from the provided metrics. Cover: (1) the trend trajectory over "
+        "time, (2) the shape of the materiality distribution (where the mass sits; skew toward "
+        "low-grade activity vs. high-impact events), and (3) the specific named standout events. "
+        "material_score is a 1-10 significance scale. Be specific and cite the numbers/events "
+        "given; do not speculate beyond them, and avoid filler or hedging."
+    )
+    try:
+        response = gai(sys_prompt=sys_prompt, user_prompt=payload.metrics_context, use_proxy=True)
+        text_out = response if isinstance(response, str) else (
+            response.get("response") if isinstance(response, dict) else str(response))
+        return {"summary": text_out}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summary generation failed: {e}")
+
+
 @app.get("/api/bilateral", response_model=BilateralResponse)
 def get_bilateral_relationships():
     with get_session() as session:

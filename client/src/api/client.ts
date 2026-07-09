@@ -308,6 +308,28 @@ export const fetchMaterialityHeatmap = async (): Promise<MaterialityHeatmapData>
   return data
 }
 
+export interface MaterialityAnalysis {
+  initiator: string
+  recipient: string | null
+  stats: { event_count: number; avg: number | null; median: number | null; min: number | null; max: number | null }
+  trend: { month: string; avg_materiality: number; event_count: number }[]
+  histogram: { bin: string; score: number; count: number }[]
+  top_events: { event_name: string; material_score: number | null; date: string | null }[]
+}
+
+export const fetchMaterialityAnalysis = async (
+  initiator: string,
+  params?: { recipient?: string; start_date?: string; end_date?: string }
+): Promise<MaterialityAnalysis> => {
+  const { data } = await api.get('/materiality/analysis', { params: { initiator, ...params } })
+  return data
+}
+
+export const generateMaterialitySummary = async (metricsContext: string): Promise<{ summary: string }> => {
+  const { data } = await api.post('/materiality/summary', { metrics_context: metricsContext })
+  return data
+}
+
 export const fetchFilterOptions = async (): Promise<FilterOptions> => {
   const { data } = await api.get('/filters')
   return data
