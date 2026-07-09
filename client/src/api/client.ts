@@ -314,7 +314,7 @@ export interface MaterialityAnalysis {
   stats: { event_count: number; avg: number | null; median: number | null; min: number | null; max: number | null }
   trend: { month: string; avg_materiality: number; event_count: number }[]
   histogram: { bin: string; score: number; count: number }[]
-  top_events: { event_name: string; material_score: number | null; date: string | null }[]
+  top_events: { event_name: string; material_score: number | null; date: string | null; description: string | null }[]
 }
 
 export const fetchMaterialityAnalysis = async (

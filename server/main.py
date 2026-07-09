@@ -1220,10 +1220,18 @@ def get_materiality_analysis(
         hist_rows = session.execute(sql_text(f"""
             SELECT floor(material_score)::int b, count(*) c
             FROM canonical_events ce WHERE {w} GROUP BY 1 ORDER BY 1"""), params).fetchall()
+        # Pull substantive content from the source documents mapped to each event
+        # (canonical_events -> daily_event_mentions.doc_ids -> documents.distilled_text),
+        # since consolidated_description is largely unpopulated.
         top_rows = session.execute(sql_text(f"""
-            SELECT canonical_name, material_score, first_mention_date
+            SELECT ce.canonical_name, ce.material_score, ce.first_mention_date,
+                   (SELECT left(d.distilled_text, 320)
+                    FROM daily_event_mentions dem, unnest(dem.doc_ids) AS did
+                    JOIN documents d ON d.doc_id = did
+                    WHERE dem.canonical_event_id = ce.id AND d.distilled_text IS NOT NULL
+                    ORDER BY length(d.distilled_text) DESC LIMIT 1) AS content
             FROM canonical_events ce WHERE {w}
-            ORDER BY material_score DESC, first_mention_date DESC LIMIT 6"""), params).fetchall()
+            ORDER BY ce.material_score DESC, ce.first_mention_date DESC LIMIT 10"""), params).fetchall()
 
         return {
             "initiator": initiator,
@@ -1240,7 +1248,8 @@ def get_materiality_analysis(
             "histogram": [{"bin": f"{r.b}-{r.b + 1}", "score": r.b, "count": r.c} for r in hist_rows],
             "top_events": [{"event_name": r.canonical_name,
                             "material_score": float(r.material_score) if r.material_score is not None else None,
-                            "date": str(r.first_mention_date) if r.first_mention_date else None}
+                            "date": str(r.first_mention_date) if r.first_mention_date else None,
+                            "description": r.content}
                            for r in top_rows],
         }
 
@@ -1256,12 +1265,22 @@ def generate_materiality_summary(payload: MaterialitySummaryRequest):
     if gai is None:
         raise HTTPException(status_code=503, detail="LLM backend unavailable")
     sys_prompt = (
-        "You are an intelligence analyst. Write a concise, factual materiality assessment "
-        "(3-4 short paragraphs) from the provided metrics. Cover: (1) the trend trajectory over "
-        "time, (2) the shape of the materiality distribution (where the mass sits; skew toward "
-        "low-grade activity vs. high-impact events), and (3) the specific named standout events. "
-        "material_score is a 1-10 significance scale. Be specific and cite the numbers/events "
-        "given; do not speculate beyond them, and avoid filler or hedging."
+        "You are an intelligence analyst writing a substantive materiality assessment "
+        "(4-5 paragraphs). Go beyond the numbers: explain WHAT is actually driving materiality — "
+        "the specific agreements, deals, projects, and developments described in the events — not "
+        "just the scores.\n"
+        "Cover:\n"
+        "1) TRAJECTORY: the trend over time, and tie notable rises/falls to the specific events, "
+        "initiatives, or themes driving them (use the event descriptions and their dates).\n"
+        "2) SUBSTANCE: discuss the content of the standout events — name the deals, agreements, "
+        "infrastructure projects, and actors, and explain what makes them consequential. Identify "
+        "recurring themes across the high-materiality events (e.g. energy, ports, reconstruction, "
+        "arms, summitry).\n"
+        "3) DISTRIBUTION: what the score spread implies — whether this actor's engagement is "
+        "mostly routine/low-grade or punctuated by high-impact moves.\n"
+        "material_score is a 1-10 significance scale. Ground every claim in the provided events "
+        "and metrics; be concrete and name specifics; no filler, hedging, or speculation beyond "
+        "the evidence."
     )
     try:
         response = gai(sys_prompt=sys_prompt, user_prompt=payload.metrics_context, use_proxy=True)

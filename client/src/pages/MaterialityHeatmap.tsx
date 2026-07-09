@@ -45,12 +45,14 @@ export default function MaterialityHeatmap() {
     const s = data.stats
     const trend = data.trend.map(t => `${t.month}: avg ${t.avg_materiality} (${t.event_count} events)`).join('; ')
     const hist = data.histogram.map(h => `${h.bin}: ${h.count}`).join(', ')
-    const tops = data.top_events.map(e => `"${e.event_name}" (score ${e.material_score}, ${e.date})`).join('; ')
+    const tops = data.top_events.map(e =>
+      `- "${e.event_name}" (score ${e.material_score}, ${e.date}): ${e.description || 'no description available'}`
+    ).join('\n')
     return `Materiality analysis for ${scopeLabel}. material_score is a 1-10 significance scale.\n` +
-      `Events: ${s.event_count}. Avg: ${s.avg}, Median: ${s.median}, Range: ${s.min}-${s.max}.\n` +
-      `Monthly trend — ${trend}.\n` +
-      `Score distribution (bin: count) — ${hist}.\n` +
-      `Top events — ${tops}.`
+      `Events: ${s.event_count}. Avg: ${s.avg}, Median: ${s.median}, Range: ${s.min}-${s.max}.\n\n` +
+      `Monthly trend (month: avg materiality, event count) — ${trend}.\n\n` +
+      `Score distribution (bin: count) — ${hist}.\n\n` +
+      `Top events with descriptions (use these to explain what drives materiality):\n${tops}`
   }, [data, scopeLabel])
 
   async function onGenerate() {
@@ -176,11 +178,18 @@ export default function MaterialityHeatmap() {
               <h3>Top events by materiality</h3>
               <div style={{ marginTop: '0.5rem' }}>
                 {data.top_events.map((e, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0', borderBottom: '1px solid #f1f5f9' }}>
-                    <span style={{ minWidth: 34, textAlign: 'center', fontWeight: 700, color: '#fff', background: barColor(e.material_score ?? 0), borderRadius: 4, padding: '0.1rem 0' }}>
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
+                    <span style={{ minWidth: 34, textAlign: 'center', fontWeight: 700, color: '#fff', background: barColor(e.material_score ?? 0), borderRadius: 4, padding: '0.1rem 0', flexShrink: 0 }}>
                       {e.material_score?.toFixed(1) ?? '—'}
                     </span>
-                    <span style={{ fontSize: '0.82rem' }}>{e.event_name}<span style={{ color: '#94a3b8' }}> · {e.date}</span></span>
+                    <div style={{ fontSize: '0.82rem', minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>{e.event_name}<span style={{ color: '#94a3b8', fontWeight: 400 }}> · {e.date}</span></div>
+                      {e.description && (
+                        <div style={{ color: '#64748b', fontSize: '0.76rem', marginTop: 2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {e.description}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
