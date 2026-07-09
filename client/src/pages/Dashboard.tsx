@@ -385,38 +385,48 @@ export default function Dashboard() {
             <Zap size={20} style={{ marginRight: 6, verticalAlign: 'middle' }} />
             Recent Intelligence
           </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            {/* Weekly column */}
-            {intelligence.weekly && intelligence.weekly.length > 0 && (
-              <div>
-                <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Weekly</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {intelligence.weekly.slice(0, 5).map(item => (
-                    <IntelCard
-                      key={item.id}
-                      item={item}
-                      onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
-                    />
+          {/* Latest Weekly — one column per influencer, top 5 each */}
+          {intelligence.weekly_by_influencer && Object.keys(intelligence.weekly_by_influencer).length > 0 && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Weekly by Influencer</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', alignItems: 'start' }}>
+                {['China', 'Iran', 'Russia', 'Turkey']
+                  .filter(inf => (intelligence.weekly_by_influencer[inf]?.length || 0) > 0)
+                  .map(inf => (
+                    <div key={inf}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem', paddingBottom: '0.35rem', borderBottom: `2px solid ${INFLUENCER_COLORS[inf] || '#cbd5e1'}` }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: INFLUENCER_COLORS[inf] || '#64748b', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{inf}</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {intelligence.weekly_by_influencer[inf].map(item => (
+                          <IntelCard
+                            key={item.id}
+                            item={item}
+                            onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
-                </div>
               </div>
-            )}
-            {/* Monthly column */}
-            {intelligence.monthly && intelligence.monthly.length > 0 && (
-              <div>
-                <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Monthly</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {intelligence.monthly.slice(0, 5).map(item => (
-                    <IntelCard
-                      key={item.id}
-                      item={item}
-                      onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
-                    />
-                  ))}
-                </div>
+            </div>
+          )}
+          {/* Latest Monthly — blended MENA top 5 */}
+          {intelligence.monthly && intelligence.monthly.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Monthly</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
+                {intelligence.monthly.slice(0, 5).map(item => (
+                  <IntelCard
+                    key={item.id}
+                    item={item}
+                    onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
+                  />
+                ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 

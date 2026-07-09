@@ -928,30 +928,51 @@ def get_summaries(
 @cache(ttl=600, prefix="dashboard_intel")
 def get_dashboard_intelligence():
     """Get recent weekly/monthly event summaries for the dashboard intelligence section."""
+    # MENA-active initiators; the US is only incidentally captured in this rival-centric
+    # corpus, so it's excluded from the "recent/latest" lists (it otherwise dominates them
+    # by sheer recency/volume). Order matches the app's influencer palette.
+    MENA_INFLUENCERS = ["China", "Iran", "Russia", "Turkey"]
+
+    def _serialize(s):
+        ns = s.narrative_summary or {}
+        overview = ns.get("overview") or ns.get("monthly_overview") or ""
+        return {
+            "id": str(s.id),
+            "event_name": s.event_name,
+            "country": s.initiating_country,
+            "period_start": str(s.period_start) if s.period_start else None,
+            "period_end": str(s.period_end) if s.period_end else None,
+            "overview": overview,
+            "material_score": float(s.material_score) if s.material_score else None,
+            "count_by_category": s.count_by_category or {},
+            "count_by_recipient": s.count_by_recipient or {},
+            "canonical_event_id": str(s.canonical_event_id) if s.canonical_event_id else None,
+        }
+
     with get_session() as session:
         result = {"weekly": [], "monthly": []}
 
         for period_type, key in [(PeriodType.WEEKLY, "weekly"), (PeriodType.MONTHLY, "monthly")]:
             summaries = session.query(EventSummary).filter(
                 EventSummary.period_type == period_type,
-                EventSummary.is_deleted == False
+                EventSummary.is_deleted == False,
+                EventSummary.initiating_country.in_(MENA_INFLUENCERS),
             ).order_by(EventSummary.period_start.desc()).limit(10).all()
 
-            for s in summaries:
-                ns = s.narrative_summary or {}
-                overview = ns.get("overview") or ns.get("monthly_overview") or ""
-                result[key].append({
-                    "id": str(s.id),
-                    "event_name": s.event_name,
-                    "country": s.initiating_country,
-                    "period_start": str(s.period_start) if s.period_start else None,
-                    "period_end": str(s.period_end) if s.period_end else None,
-                    "overview": overview,
-                    "material_score": float(s.material_score) if s.material_score else None,
-                    "count_by_category": s.count_by_category or {},
-                    "count_by_recipient": s.count_by_recipient or {},
-                    "canonical_event_id": str(s.canonical_event_id) if s.canonical_event_id else None,
-                })
+            result[key] = [_serialize(s) for s in summaries]
+
+        # Latest weekly grouped by influencer — top 5 most-recent weekly summaries per actor,
+        # so the dashboard can show a per-influencer column instead of one blended list.
+        weekly_by_influencer = {}
+        for inf in MENA_INFLUENCERS:
+            rows = session.query(EventSummary).filter(
+                EventSummary.period_type == PeriodType.WEEKLY,
+                EventSummary.is_deleted == False,
+                EventSummary.initiating_country == inf,
+            ).order_by(EventSummary.period_start.desc()).limit(5).all()
+            if rows:
+                weekly_by_influencer[inf] = [_serialize(s) for s in rows]
+        result["weekly_by_influencer"] = weekly_by_influencer
 
         # Period-over-period comparison: count events by period
         from sqlalchemy import text as sql_text

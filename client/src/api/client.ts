@@ -93,6 +93,7 @@ export interface DashboardIntelligenceItem {
 export interface DashboardIntelligence {
   weekly: DashboardIntelligenceItem[]
   monthly: DashboardIntelligenceItem[]
+  weekly_by_influencer: Record<string, DashboardIntelligenceItem[]>
   period_stats: { country: string; period_type: string; event_count: number; avg_materiality: number | null }[]
 }
 
