@@ -88,6 +88,12 @@
   grid-column: 1 / -1;
 }
 
+/* Filter/config cards: opt out of the 380px chart min-height + heavy padding */
+.chart-card.compact {
+  min-height: auto;
+  padding: 1.25rem 1.5rem;
+}
+
 .chart-card h3 {
   font-size: 1rem;
   color: #333;

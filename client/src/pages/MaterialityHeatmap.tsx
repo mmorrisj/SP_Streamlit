@@ -78,7 +78,7 @@ export default function MaterialityHeatmap() {
       </header>
 
       {/* Controls */}
-      <div className="chart-card" style={{ marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
+      <div className="chart-card compact" style={{ marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
         <label style={{ fontSize: '0.85rem', color: '#475569' }}>
           <div style={{ marginBottom: 4, fontWeight: 600 }}>Initiator</div>
           <select value={initiator} onChange={e => { setInitiator(e.target.value); if (e.target.value === recipient) setRecipient('') }}

@@ -294,7 +294,7 @@ export default function ReportPage() {
       </div>
 
       {/* Configuration Panel */}
-      <div className="chart-card" style={{ marginBottom: '1.5rem' }}>
+      <div className="chart-card compact" style={{ marginBottom: '1.5rem' }}>
         <h3>Report Configuration</h3>
         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'end', marginTop: '1rem' }}>
           <div>
