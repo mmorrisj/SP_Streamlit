@@ -668,6 +668,13 @@ def should_keep_proposition(prop: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
+# LLM-call retry policy: ride through transient proxy/backend blips before
+# declaring a hard failure. Backoff is _GAI_BACKOFF_BASE * 2**attempt seconds
+# (2s, 4s, 8s for the default 3 attempts / 2 retries).
+_GAI_MAX_ATTEMPTS = 3
+_GAI_BACKOFF_BASE = 2.0
+
+
 def extract_propositions(doc: Dict[str, Any], model: str, source: Optional[str] = None,
                          input_text_source: str = "distilled"):
     if input_text_source == "body":
@@ -691,10 +698,23 @@ def extract_propositions(doc: Dict[str, Any], model: str, source: Optional[str] 
     gai_kwargs = {"model": model}
     if source:
         gai_kwargs["source"] = source
-    try:
-        raw = gai(proposition_extraction_prompt, user_prompt, **gai_kwargs)
-    except Exception as e:
-        return None, f"llm_call_failed: {type(e).__name__}: {e}"
+    # Retry the LLM call to ride through transient proxy/backend blips. Without
+    # this, a single hiccup returns llm_call_failed, and 3 in a row trip the
+    # FAIL_FAST_THRESHOLD and kill the whole worker mid-partition.
+    raw = None
+    last_exc = None
+    for attempt in range(_GAI_MAX_ATTEMPTS):
+        try:
+            raw = gai(proposition_extraction_prompt, user_prompt, **gai_kwargs)
+            last_exc = None
+            break
+        except Exception as e:
+            last_exc = e
+            if attempt < _GAI_MAX_ATTEMPTS - 1:
+                time.sleep(_GAI_BACKOFF_BASE * (2 ** attempt))
+    if last_exc is not None:
+        return None, (f"llm_call_failed after {_GAI_MAX_ATTEMPTS} attempts: "
+                      f"{type(last_exc).__name__}: {last_exc}")
 
     try:
         parsed = parse_llm_output(raw)
