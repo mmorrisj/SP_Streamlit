@@ -6,18 +6,21 @@ import './Pages.css'
 
 const COUNTRY_ORDER = ['China', 'Iran', 'Russia', 'Turkey', 'United States']
 
+// material_score is a ~1-10 scale; monthly averages cluster in ~3.2-6.0, so the ramp is
+// calibrated across that band (not 0-4, which made every cell red).
 function getHeatColor(score: number | null): string {
   if (score == null) return '#f1f5f9'
-  if (score >= 4) return '#dc2626'
-  if (score >= 3) return '#f97316'
-  if (score >= 2) return '#facc15'
-  if (score >= 1) return '#a3e635'
-  return '#e2e8f0'
+  if (score >= 5.5) return '#b91c1c'  // deep red
+  if (score >= 5.0) return '#f97316'  // orange
+  if (score >= 4.5) return '#facc15'  // amber
+  if (score >= 4.0) return '#a3e635'  // lime
+  if (score >= 3.5) return '#4ade80'  // green
+  return '#bbf7d0'                     // pale green (< 3.5)
 }
 
 function getTextColor(score: number | null): string {
   if (score == null) return '#94a3b8'
-  if (score >= 3) return 'white'
+  if (score >= 5.0) return 'white'
   return '#1e293b'
 }
 
@@ -130,11 +133,12 @@ export default function MaterialityHeatmap() {
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b', alignItems: 'center' }}>
             <span>Score:</span>
             {[
-              { label: '< 1', color: '#e2e8f0' },
-              { label: '1-2', color: '#a3e635' },
-              { label: '2-3', color: '#facc15' },
-              { label: '3-4', color: '#f97316' },
-              { label: '4+', color: '#dc2626' },
+              { label: '< 3.5', color: '#bbf7d0' },
+              { label: '3.5-4', color: '#4ade80' },
+              { label: '4-4.5', color: '#a3e635' },
+              { label: '4.5-5', color: '#facc15' },
+              { label: '5-5.5', color: '#f97316' },
+              { label: '5.5+', color: '#b91c1c' },
             ].map(({ label, color }) => (
               <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                 <span style={{ width: 14, height: 14, backgroundColor: color, borderRadius: 2, display: 'inline-block' }} />
