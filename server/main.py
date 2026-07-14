@@ -141,6 +141,10 @@ app.include_router(_influencer_router.router)
 from server.routers import ingestion as _ingestion_router
 app.include_router(_ingestion_router.router)
 
+# Finished intelligence products from docs/reports/ (read-only markdown + assets)
+from server.routers import intel_reports as _intel_reports_router
+app.include_router(_intel_reports_router.router)
+
 
 
 class DocumentStats(BaseModel):

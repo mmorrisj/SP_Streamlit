@@ -60,6 +60,9 @@ COPY services/pipeline services/pipeline/
 COPY alembic alembic/
 COPY alembic.ini .
 
+# Finished intelligence products served by /api/intel-reports/* (markdown + chart assets)
+COPY docs/reports docs/reports/
+
 # Copy built React app from frontend-builder stage
 COPY --from=frontend-builder /app/client/dist client/dist/
 

@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud, BookOpenText } from 'lucide-react'
 import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
@@ -17,6 +17,7 @@ const navItems = [
 ]
 
 const intelligenceItems = [
+  { path: '/intel-reports', label: 'Intel Reports', icon: BookOpenText },
   { path: '/events/comparison', label: 'Country Comparison', icon: Globe },
   { path: '/events/materiality', label: 'Materiality Map', icon: Flame },
   { path: '/competing/Egypt', label: 'Competing Influence', icon: TrendingUp },

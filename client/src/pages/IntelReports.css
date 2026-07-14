@@ -1,0 +1,438 @@
+/* ============ Intel Reports — index cards ============ */
+
+.ir-group {
+  margin-bottom: 2rem;
+}
+
+.ir-group-title {
+  font-size: 1.05rem;
+  color: #1a365d;
+  margin-bottom: 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.ir-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: white;
+  padding: 1.25rem 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid transparent;
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.ir-card:hover {
+  box-shadow: 0 4px 12px rgba(26, 54, 93, 0.15);
+  border-color: #cbd5e1;
+  transform: translateY(-2px);
+}
+
+.ir-card-featured {
+  border-color: #1a365d;
+  background: linear-gradient(180deg, #f8fafc 0%, white 45%);
+}
+
+.ir-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #1a365d;
+}
+
+.ir-card h3 {
+  font-size: 1rem;
+  color: #1e293b;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.ir-card-desc {
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.45;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ir-card-meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.ir-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ir-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ir-badge-theater { background: #1a365d; color: white; }
+.ir-badge-initiator { background: #dbeafe; color: #1e40af; }
+.ir-badge-category { background: #fef3c7; color: #92400e; }
+.ir-badge-recipient { background: #dcfce7; color: #166534; }
+
+/* ============ Intel Reports — viewer ============ */
+
+.ir-viewer-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.ir-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #1a365d;
+  text-decoration: none;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+.ir-back-btn:hover {
+  border-color: #1a365d;
+}
+
+.ir-updated {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-left: auto;
+}
+
+.ir-viewer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .ir-viewer-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ir-toc {
+    display: none;
+  }
+}
+
+.ir-article {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 2.5rem 3rem;
+  max-width: 900px;
+  font-size: 0.925rem;
+  line-height: 1.65;
+  color: #334155;
+}
+
+.ir-article-title {
+  font-size: 1.5rem;
+  color: #1a365d;
+  line-height: 1.3;
+  margin-bottom: 0.75rem;
+}
+
+.ir-article h2 {
+  font-size: 1.2rem;
+  color: #1a365d;
+  margin: 2rem 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid #e2e8f0;
+  scroll-margin-top: 1rem;
+}
+
+.ir-article h3 {
+  font-size: 1rem;
+  color: #1e293b;
+  margin: 1.4rem 0 0.5rem;
+}
+
+.ir-article p {
+  margin: 0.7rem 0;
+}
+
+.ir-article ul,
+.ir-article ol {
+  margin: 0.7rem 0;
+  padding-left: 1.5rem;
+}
+
+.ir-article li {
+  margin: 0.3rem 0;
+}
+
+.ir-article blockquote {
+  margin: 1rem 0;
+  padding: 0.6rem 1rem;
+  border-left: 3px solid #1a365d;
+  background: #f8fafc;
+  border-radius: 0 8px 8px 0;
+  color: #475569;
+}
+
+.ir-article blockquote p {
+  margin: 0.3rem 0;
+}
+
+.ir-article hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1.75rem 0;
+}
+
+.ir-article strong {
+  color: #1e293b;
+}
+
+.ir-article code {
+  background: #f1f5f9;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: #0f172a;
+}
+
+.ir-article em {
+  color: #475569;
+}
+
+/* figures */
+.ir-figure-img {
+  display: block;
+  max-width: 100%;
+  margin: 1.25rem auto 0.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+
+/* caption idiom: the italic paragraph immediately following an image */
+.ir-figure-img + em,
+.ir-article p:has(> .ir-figure-img) + p > em:first-child {
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+/* tables */
+.ir-table-wrap {
+  overflow-x: auto;
+  margin: 1rem 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.ir-article table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.ir-article th {
+  background: #f8fafc;
+  color: #1a365d;
+  text-align: left;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.ir-article td {
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+
+.ir-article tr:last-child td {
+  border-bottom: none;
+}
+
+.ir-csv-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #1a365d;
+}
+
+/* table of contents */
+.ir-toc {
+  position: sticky;
+  top: 1.5rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+}
+
+.ir-toc-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+}
+
+.ir-toc-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: #475569;
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+.ir-toc-item:hover {
+  background: #f1f5f9;
+  color: #1a365d;
+}
+
+/* lightbox */
+.ir-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  cursor: zoom-out;
+}
+
+.ir-lightbox img {
+  max-width: 95vw;
+  max-height: 85vh;
+  border-radius: 8px;
+  background: white;
+  cursor: default;
+}
+
+.ir-lightbox-caption {
+  color: #cbd5e1;
+  font-size: 0.85rem;
+  margin-top: 0.75rem;
+  max-width: 900px;
+  text-align: center;
+}
+
+.ir-lightbox-close {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.5rem;
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+}
+
+/* ============ Intel Reports — interactive figures (Phase 2) ============ */
+
+.ir-figure-block {
+  display: block;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.ir-figure {
+  display: block;
+}
+
+.ir-figure-interactive {
+  display: block;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem 0.25rem;
+  background: #fdfdfc;
+}
+
+.ir-figure-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+.ir-fig-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: #64748b;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.ir-fig-btn:hover {
+  border-color: #1a365d;
+  color: #1a365d;
+}
+
+.ir-fig-btn.active {
+  background: #1a365d;
+  border-color: #1a365d;
+  color: white;
+}
+
+.ir-figure-chart {
+  display: block;
+  width: 100%;
+}
+
+.ir-figure-interactive .ir-figure-img {
+  margin: 0.25rem auto;
+  border: none;
+}
+
+/* figure captions (italic text inside/after a figure block) */
+.ir-figure-block em {
+  display: block;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-top: 0.45rem;
+}
+
+/* drill hint in figure toolbar */
+.ir-fig-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin-right: auto;
+  padding: 0.2rem 0;
+}

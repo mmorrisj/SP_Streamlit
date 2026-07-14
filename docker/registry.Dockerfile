@@ -148,6 +148,9 @@ COPY scripts/db_import.py ./scripts/db_import.py
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
+# Finished intelligence products served by /api/intel-reports/* (markdown + chart assets)
+COPY docs/reports/ ./docs/reports/
+
 # Copy built React app from Stage 1
 COPY --from=frontend-builder /app/client/dist ./client/dist
 

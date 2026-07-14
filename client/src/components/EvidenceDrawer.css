@@ -1,0 +1,249 @@
+.ev-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ev-drawer {
+  width: min(520px, 94vw);
+  height: 100%;
+  background: white;
+  box-shadow: -8px 0 32px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  animation: ev-slide-in 0.18s ease-out;
+}
+
+@keyframes ev-slide-in {
+  from { transform: translateX(40px); opacity: 0.4; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.ev-header {
+  padding: 1rem 1.25rem 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+  border-top: 4px solid #1a365d;
+}
+
+.ev-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.ev-actor {
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+}
+
+.ev-close {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0.2rem;
+}
+
+.ev-close:hover { color: #1a365d; }
+
+.ev-header h2 {
+  font-size: 1rem;
+  line-height: 1.35;
+  color: #1e293b;
+  margin: 0 0 0.45rem;
+}
+
+.ev-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.ev-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ev-loading {
+  padding: 2rem;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.ev-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.ev-stats {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.ev-stat {
+  flex: 1;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.ev-stat-n {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1a365d;
+}
+
+.ev-stat-l {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.ev-recipients,
+.ev-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ev-chip {
+  font-size: 0.72rem;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+
+.ev-chip-self {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ev-desc {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #334155;
+  margin: 0;
+}
+
+.ev-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.ev-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ev-doclist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+.ev-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: #475569;
+  cursor: pointer;
+}
+
+.ev-doclist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.ev-doc {
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  background: #fdfdfc;
+}
+
+.ev-doc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.ev-doc-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #1a365d;
+}
+
+.ev-ico-third { color: #166534; }
+.ev-ico-self { color: #b45309; }
+
+.ev-doc-date {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.ev-doc-title {
+  font-size: 0.82rem;
+  color: #1e293b;
+  line-height: 1.4;
+  margin-bottom: 0.2rem;
+}
+
+.ev-doc-snippet {
+  font-size: 0.76rem;
+  color: #64748b;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ev-event-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: flex-start;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: white;
+  background: #1a365d;
+  border-radius: 8px;
+  padding: 0.45rem 0.9rem;
+  text-decoration: none;
+}
+
+.ev-event-link:hover {
+  background: #234a7d;
+}

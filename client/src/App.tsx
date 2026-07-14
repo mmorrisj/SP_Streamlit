@@ -35,6 +35,8 @@ import AlertsPage from './pages/AlertsPage'
 import CompetingInfluencePage from './pages/CompetingInfluencePage'
 import EntityProfilePage from './pages/EntityProfilePage'
 import DataIngestionPage from './pages/DataIngestionPage'
+import IntelReportsPage from './pages/IntelReportsPage'
+import IntelReportViewerPage from './pages/IntelReportViewerPage'
 
 const queryClient = new QueryClient()
 
@@ -80,6 +82,8 @@ function App() {
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="competing/:recipient" element={<CompetingInfluencePage />} />
               <Route path="entity/:entityId" element={<EntityProfilePage />} />
+              <Route path="intel-reports" element={<IntelReportsPage />} />
+              <Route path="intel-reports/:slug" element={<IntelReportViewerPage />} />
 
               {/* Analyst+ routes */}
               <Route path="ingestion" element={

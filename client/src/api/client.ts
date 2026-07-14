@@ -1885,4 +1885,73 @@ export const cancelIngestionJob = async (
 export const ingestionErrorsUrl = (jobId: string): string =>
   `/api/ingestion/jobs/${jobId}/errors`
 
+// ============ Intel Reports (finished products from docs/reports/) ============
+
+export interface IntelReportMeta {
+  slug: string
+  title: string
+  description: string | null
+  group: 'Theater' | 'Initiator' | 'Category' | 'Recipient'
+  updated: string
+  figure_count: number
+}
+
+export interface IntelReportContent {
+  slug: string
+  title: string
+  group: string
+  updated: string
+  markdown: string
+}
+
+export const fetchIntelReports = async (): Promise<IntelReportMeta[]> => {
+  const { data } = await api.get('/intel-reports')
+  return data.reports
+}
+
+export const fetchIntelReport = async (slug: string): Promise<IntelReportContent> => {
+  const { data } = await api.get(`/intel-reports/${slug}`)
+  return data
+}
+
+export interface EvidenceDocument {
+  doc_id: string
+  date: string | null
+  source_name: string | null
+  title: string | null
+  snippet: string | null
+  self_reported: boolean
+}
+
+export interface EvidenceSource {
+  source_name: string
+  docs: number
+  self_reported: boolean
+}
+
+export interface EvidenceResponse {
+  event_id: string
+  canonical_name: string
+  initiating_country: string
+  description: string | null
+  material_score: number | null
+  material_justification: string | null
+  first_mention_date: string | null
+  last_mention_date: string | null
+  top_recipients: string[]
+  total_docs: number
+  third_party_docs: number
+  distinct_sources: number
+  sources: EvidenceSource[]
+  documents: EvidenceDocument[]
+}
+
+export const fetchIntelEvidence = async (
+  name: string,
+  actor?: string
+): Promise<EvidenceResponse> => {
+  const { data } = await api.get('/intel-evidence', { params: { name, actor } })
+  return data
+}
+
 export default api
