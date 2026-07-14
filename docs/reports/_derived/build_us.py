@@ -46,6 +46,7 @@ def build(s):
           AND ic.initiating_country <> rc.recipient_country
           AND c.category IN ('Economic','Social','Military','Diplomacy')
           AND d.date >= '2024-08-01'
+          AND d.date < '2026-07-01'
     """).bindparams(m=MENA))
     s.execute(text("CREATE INDEX ix_us_rc ON analytics.us_report_base (recipient_country, category)"))
     s.execute(text("CREATE INDEX ix_us_month ON analytics.us_report_base (month)"))

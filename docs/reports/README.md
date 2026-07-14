@@ -6,6 +6,10 @@
 **third-party-corroborated** (excluding the initiator's own state media), distinct-document basis.*
 
 ## Reports
+- **[MENA Theater Assessment](mena_theater/report.md)** — the cross-actor synthesis: initiative-grain
+  analysis (corroboration-gated), empirical recipient blocs, substitution/handoff detection,
+  changepoint tempo, network wiring, and the H2-2026 early-warning watchboard. *Newest product;
+  window through 2026-06-30.*
 - [China](china/report.md) — economic statecraft, Gulf + Egypt strongholds
 - [Iran](iran/report.md) — religious projection, Resistance-axis traction (media-inflated)
 - [Russia](russia/report.md) — great-power diplomacy, the Iran axis + El Dabaa

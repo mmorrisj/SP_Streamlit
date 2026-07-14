@@ -21,6 +21,7 @@ MENA = ('Bahrain', 'Cyprus', 'Egypt', 'Iraq', 'Israel', 'Jordan', 'Kuwait', 'Leb
         'Libya', 'Oman', 'Palestine', 'Qatar', 'Saudi Arabia', 'Syria',
         'United Arab Emirates', 'UAE', 'Yemen', 'Iran', 'Turkey')
 START = '2024-08-01'
+END = '2026-07-01'   # exclusive — last full month is June 2026 (avoid partial-month artifacts)
 
 
 def build(session):
@@ -52,7 +53,8 @@ def build(session):
           AND ic.initiating_country <> rc.recipient_country
           AND c.category IN ('Economic','Social','Military','Diplomacy')
           AND d.date >= :start
-    """).bindparams(inits=INITIATORS, mena=MENA, start=START))
+          AND d.date < :end
+    """).bindparams(inits=INITIATORS, mena=MENA, start=START, end=END))
     session.execute(text("CREATE INDEX ix_rb_irc ON analytics.report_base "
                          "(initiating_country, recipient_country, category)"))
     session.execute(text("CREATE INDEX ix_rb_month ON analytics.report_base (month)"))
