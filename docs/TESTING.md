@@ -271,6 +271,12 @@ def test_salience_threshold(salience, expected):
 
 ## CI/CD Integration
 
+> **Honest status (2026-07):** the workflows exist (`.github/workflows/ci.yml`, `cd.yml`,
+> `release-registry.yml`) but CI is **non-blocking** and line coverage is low (~4% per the
+> [maintainability assessment](MAINTAINABILITY_ASSESSMENT.md)). The coverage targets below
+> are aspirational. This section replaces the former `CI_CD_SUMMARY.md`, which overstated
+> maturity and was removed.
+
 ### GitHub Actions Workflow
 
 The CI pipeline runs automatically on:
@@ -322,7 +328,7 @@ open htmlcov/index.html
 
 ### Coverage Configuration
 
-Coverage is configured in [.coveragerc](.coveragerc):
+Coverage is configured in [.coveragerc](../.coveragerc):
 
 - **Source directories**: `shared/`, `services/`, `server/`
 - **Omitted**: Tests, migrations, config files, Streamlit pages
@@ -516,6 +522,6 @@ When adding new features:
 
 For questions about testing:
 - Check existing tests for examples
-- Review [conftest.py](tests/conftest.py) for available fixtures
-- See [pytest.ini](pytest.ini) for configuration
+- Review [conftest.py](../tests/conftest.py) for available fixtures
+- See [pytest.ini](../pytest.ini) for configuration
 - Ask in GitHub Issues or PR discussions

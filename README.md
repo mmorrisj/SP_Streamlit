@@ -1,61 +1,147 @@
 # Soft Power Analytics Platform
 
-Soft Power Analytics is a platform that ingests open source documents, runs AI/ML pipelines for event detection, entity resolution, and materiality scoring, then serves interactive analytics through FastAPI, React, and Streamlit.
-
-## Architecture
+Soft Power Analytics ingests open-source news reporting about state influence activity in the
+Middle East & North Africa, runs an AI/ML pipeline that turns ~765K documents into named
+events, resolved entities, and materiality-scored initiatives, and serves the results as
+interactive analytics, a research assistant, and finished intelligence products.
 
 ```
-client/            React + TypeScript frontend (Vite, served by FastAPI)
-server/            FastAPI server (API + React UI + Chat/RAG + S3/Batch proxy)
-services/
-  dashboard/       Streamlit analytics dashboard
-  chat/            RAG service (semantic search + LLM response generation)
-  pipeline/        Data processing pipeline
-    ingestion/       Document ingestion (atom.py, dsr.py)
-    analysis/        AI analysis (atom_extraction.py)
-    events/          Event clustering and consolidation
-    entities/        Entity resolution
-    embeddings/      Vector embeddings (pgvector)
-    summaries/       Bilateral relationship summaries
-shared/            SQLAlchemy models, DB/session management, config, utilities
-docker/            Dockerfiles (registry, production, pgvector, dev)
-scripts/           Deployment, testing, and utility scripts
-alembic/           Database migrations
-```
-
-## Quick Start
-
-### Docker Compose (Development)
-
-```bash
-cp .env.example .env                        # Configure credentials
-docker compose -f docker-compose.dev.yml up -d
-docker compose -f docker-compose.dev.yml --profile migrate up migrate
-```
-
-- React UI + API: http://localhost:8000
-- Streamlit Dashboard: http://localhost:8501
-
-### Production Deployment (Docker, No Compose)
-
-Uses `scripts/docker/production-deploy.sh` — raw Docker commands, no compose required.
-Supports both Docker Hub registry images and locally-built slim images.
-
-```bash
-# Fresh deploy from Docker Hub
-./scripts/docker/production-deploy.sh start
-./scripts/docker/production-deploy.sh migrate
-
-# Or restore from a database backup
-./scripts/docker/production-deploy.sh start
-./scripts/docker/production-deploy.sh restore backup.dump
+raw documents ─► salience gate ─► LLM extraction ─► normalized DB ─► embeddings
+      ─► event clustering & consolidation ─► entity resolution ─► summaries & materiality
+      ─► React app · Streamlit dashboard · RAG chat · generated intelligence reports
 ```
 
 ---
 
-## Production Deploy Commands
+## What You Can Do
 
-All production Docker operations go through a single script:
+### Web application (React + FastAPI, `:8000`)
+
+**Situational awareness**
+- **Dashboard** — weekly activity tempo by influencer, recent intelligence, category mix
+- **Events** — canonical events with detail pages, source mentions, and cross-period views
+- **Documents / Summaries / Bilateral** — the corpus, AI narratives, and pair-level rollups
+- **Influencer profiles** — China, Iran, Russia, Turkey, United States one-pagers
+- **Country Comparison · Materiality Map · Competing Influence** — cross-actor views
+
+**Research**
+- **Research (chat)** — RAG over the corpus with entity-aware retrieval, inline source
+  citations, and research projects that collect documents toward a report
+- **Agent** — experimental multi-step agentic report workflow
+
+**Intelligence products**
+- **Intel Reports** — the finished assessments from [`docs/reports/`](docs/reports/README.md)
+  rendered in-app: report figures hydrate into interactive charts from their audit CSVs
+  (Chart / Figure / Data toggle), and initiative charts are **click-to-drill** — every named
+  initiative traces back to its canonical event and the source documents behind it, with
+  self-reported vs third-party provenance flagged per document
+- **Publication** — parameterized report generator (per influencer/recipient/period) with
+  claim-vs-source validation and Word export
+
+**Operations**
+- **Alerts** — rule-based monitoring with in-app notifications
+- **Ingestion** — upload → validate → run pipeline from the browser (analyst+)
+
+### Streamlit dashboard (`:8501`)
+
+Exploratory analytics over the same database — trends, distributions, drilldowns — for
+analysis that hasn't yet earned a first-class React page.
+
+### Finished intelligence products (`docs/reports/`)
+
+Version-controlled markdown assessments with charts and per-figure audit CSVs, produced by an
+agentic investigation pipeline with adversarial verification of every finding:
+
+| Product | Scope |
+|---|---|
+| [MENA Theater Assessment](docs/reports/mena_theater/report.md) | Cross-actor synthesis: influence market, contested terrain, initiative ledger, networks, early warning |
+| 5 × [initiator deep dives](docs/reports/README.md) | China, Iran, Russia, Turkey (+ U.S. relational lens) |
+| 3 × category contests | Economic, Military, Social — cross-actor |
+| 17 × recipient cards | "Who courts X?" for each MENA state |
+
+---
+
+## Methodology
+
+The full doctrine lives in [`docs/INTEL_REPORT_PROMPT.md`](docs/INTEL_REPORT_PROMPT.md) and the
+[white paper](docs/Soft_Power_Analytics_White_Paper.md); this is the short version.
+
+**Pipeline lineage** (what a number in the app actually is):
+
+1. **Source** — open-source news/media (ATOM CSV + DSR JSON exports). The corpus reflects
+   *media reporting*, not a ground-truth ledger of activity. Coverage begins 2024-08-01.
+2. **Salience gate** — an LLM judges whether each document describes a genuine soft-power
+   influence event; non-salient documents are dropped.
+3. **Extraction** — an LLM extracts category (Economic / Social / Military / Diplomacy),
+   subcategory, initiating and recipient countries, named projects, location + lat/long,
+   monetary commitment, and a distilled text. These are model inferences and carry error.
+4. **Normalization** — PostgreSQL with many-to-many tables for multi-valued fields.
+5. **Embeddings** — Nomic v1.5 (768-dim) vectors for documents, events, and entities (pgvector).
+6. **Event detection** — two stages: same-day DBSCAN clustering with LLM deconfliction into
+   canonical events, then cross-date consolidation into multi-day events. Every event links
+   back to its source documents.
+7. **Entity resolution** — canonical entities (people, orgs, SOEs, ministries) with a
+   co-occurrence relationship graph.
+8. **Scoring & summaries** — an LLM materiality score (~1–10) per event, plus bilateral and
+   category rollup narratives.
+
+**Analytic doctrine** (how the reports read the data):
+
+- **Volume ≠ activity.** Raw document counts measure media attention. The corpus over-indexes
+  on Iranian state media, so raw cross-actor comparisons are not apples-to-apples.
+- **Provenance normalization.** Every document is classified self-reported (the initiator's
+  own media ecosystem) vs third-party via `source_geofocus`; magnitudes are reported on the
+  third-party-corroborated basis.
+- **The initiative gate.** The honest unit of analysis is the named canonical event, gated at
+  ≥50% third-party coverage from ≥3 independent outlets — not the article.
+- **Traceability.** Every event, chart, and report finding can be walked back to source
+  documents (`daily_event_mentions` → `documents`); report figures ship their underlying
+  numbers as sibling CSVs.
+
+**Standing caveats:** category/recipient/entity labels are LLM-extracted; `material_score` is
+a model judgment, not a measured outcome; monetary figures are *announced*, not verified;
+absence of reporting is not evidence of absence of activity.
+
+---
+
+## Quick Start
+
+The zero-prerequisite path — full stack (React+API, Streamlit, PostgreSQL+pgvector, Redis)
+from a fresh checkout:
+
+```bash
+cp .env.example .env                    # add credentials (see Environment Variables)
+docker compose up -d --build            # default docker-compose.yml
+docker compose --profile migrate up     # run DB migrations
+```
+
+- React app + API: http://localhost:8000
+- Streamlit dashboard: http://localhost:8501
+
+Full walkthrough (including demo data): [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md).
+
+### Deploying somewhere real?
+
+**[`DEPLOYMENT.md`](DEPLOYMENT.md) is the decision tree — start there.** Summary:
+
+| Scenario | Path |
+|---|---|
+| Local demo / first run | default `docker-compose.yml` + [DEMO_RUNBOOK](docs/DEMO_RUNBOOK.md) |
+| Development with hot-reload | `docker-compose.dev.yml` + [DOCKER_WORKFLOW.md](DOCKER_WORKFLOW.md) |
+| Standard production | `docker-compose.production.yml` / `scripts/docker/production-deploy.sh` |
+| Enterprise / hardened daemon | [`PRODUCTION_DOCKER_RUN.md`](PRODUCTION_DOCKER_RUN.md) (raw `docker run`, no exec) |
+| Pipeline-only worker | `docker/preprocessing.Dockerfile` (see Pipeline below) |
+
+Published images: `mmorrisj/softpower-analytics:1.8.26` (self-contained app, SBOM +
+provenance attestations) and `mmorrisj/pgvector:0.8.2-pg17`. Releases are built and pushed via
+`scripts/docker/push-to-registry.sh` (always `--pull --sbom=true --provenance=mode=max`).
+Deploy targets do **not** auto-pull — `docker pull` the new tag before deploying.
+
+---
+
+## Production Operations
+
+All production Docker operations go through one script:
 
 ```bash
 ./scripts/docker/production-deploy.sh <command>
@@ -63,191 +149,59 @@ All production Docker operations go through a single script:
 
 | Command | Description |
 |---|---|
-| `start` | Start all services (DB + Redis + App) |
-| `stop` | Stop all services (preserves data) |
-| `restart` | Stop then start |
+| `start` / `stop` / `restart` | Manage all services (DB + Redis + App) |
 | `migrate` | Run Alembic migrations |
-| `status` | Show container and image status |
-| `backup [file]` | Create pg_dump backup |
-| `restore <file>` | Restore from backup (replaces data) |
-| `import <files\|dir>` | Import dump files additively (no drops) |
-| `rebuild-db [file]` | Drop database, recreate schema, optionally restore |
-| `psql [sql]` | Interactive psql or execute SQL |
-| `logs [container]` | Tail container logs |
+| `status` | Container and image status |
+| `backup [file]` / `restore <file>` | pg_dump backup / full restore |
+| `import <files\|dir>` | Import dump files additively |
+| `rebuild-db [file]` | Drop DB, recreate schema, optionally restore |
+| `psql [sql]` | Interactive psql or one-shot SQL |
+| `logs [container]` | Tail logs |
 | `load [dir]` | Load images from tar files |
 
-### First-Time Deploy (Registry Images)
+Wipe-and-rebuild (preserves users by default): `./scripts/docker/production-wipe.sh`.
+
+### Database export / import
 
 ```bash
-./scripts/docker/production-deploy.sh start
-./scripts/docker/production-deploy.sh migrate
-```
+# Binary (includes embeddings) — chunked by default, good for transfer
+python scripts/db_export.py --output-dir ./db_export            # add --single-file, --docker-container
+./scripts/docker/production-deploy.sh import ./db_export/       # or: restore <file>
 
----
-
-## Wipe and Rebuild (Enterprise)
-
-For enterprise deployments where wiping and rebuilding is easier than maintaining migrations:
-
-```bash
-# Wipe everything, preserve user accounts (default)
-./scripts/docker/production-wipe.sh
-
-# Wipe everything including users
-./scripts/docker/production-wipe.sh --wipe-users
-
-# Skip confirmation prompt (scripting)
-./scripts/docker/production-wipe.sh --yes
-```
-
-The wipe script:
-1. Creates a safety backup before destroying anything
-2. Exports users table (unless `--wipe-users`)
-3. Stops and removes all containers
-4. Destroys the database volume
-5. Starts a fresh DB, runs migrations, restores users
-6. Stops DB so `production-deploy.sh start` manages the full stack
-
-After wipe, deploy normally:
-
-```bash
-./scripts/docker/production-deploy.sh start
-# Schema + users already in place; import data:
-./scripts/docker/production-deploy.sh restore backup.dump
-```
-
----
-
-## Database Export and Import
-
-### Option 1: pg_dump (Binary, Includes Embeddings)
-
-```bash
-# Export — single file
-python scripts/db_export.py --output-dir ./db_export --single-file
-
-# Export — chunked (default 750MB chunks, good for large DBs / transfer)
-python scripts/db_export.py --output-dir ./db_export
-
-# Export from Docker container
-python scripts/db_export.py --output-dir ./db_export --docker-container
-
-# Import via production-deploy.sh
-./scripts/docker/production-deploy.sh restore ./db_export/chunk_001.dump
-# Or for chunked exports:
-./scripts/docker/production-deploy.sh import ./db_export/
-
-# Import directly
-python scripts/db_import.py --input-dir ./db_export
-```
-
-### Option 2: CSV (Human-Readable, Embeddings Separate)
-
-```bash
-# Export all tables to CSV (skips embedding tables by default)
+# CSV (human-readable; embeddings skipped by default)
 python scripts/db_export_csv.py --output-dir ./db_csv_export
-
-# Include embeddings (large!)
-python scripts/db_export_csv.py --output-dir ./db_csv_export --include-embeddings
-
-# Export from Docker container
-python scripts/db_export_csv.py --output-dir ./db_csv_export --docker-container
-
-# Import
 python scripts/db_import_csv.py --input-dir ./db_csv_export --docker-container
 ```
 
-### Embeddings (Parquet Backup — Fast Restore)
-
-CSV export skips embedding tables by default. Use the dedicated Parquet system instead:
-
-```bash
-# Export (~45 hours of embeddings saved as Parquet files)
-python services/pipeline/embeddings/export_embeddings.py \
-    --output-dir ./embedding_backups --include-event-summaries
-
-# Restore (15-20 min vs 45 hours regeneration)
-python services/pipeline/embeddings/import_embeddings.py \
-    --input-dir ./embedding_backups
-```
+**Embeddings** regenerate in ~45 hours but restore from Parquet in ~15–20 minutes — always
+back them up separately: see
+[`services/pipeline/embeddings/README_BACKUP_RESTORE.md`](services/pipeline/embeddings/README_BACKUP_RESTORE.md).
 
 ---
 
 ## Ingestion Pipeline
 
-Primary orchestrator: `services/run_ingestion_pipeline.py`
+Primary orchestrator (also runnable from the in-app Ingestion page):
 
 ```bash
-# Full pipeline
 python services/run_ingestion_pipeline.py \
     --start-date 2026-02-18 --end-date 2026-02-24 --source local
-
-# Run specific profiles
-python services/run_ingestion_pipeline.py \
-    --start-date 2026-02-18 --end-date 2026-02-24 --profile events
-
-python services/run_ingestion_pipeline.py \
-    --start-date 2026-02-18 --end-date 2026-02-24 --profile summaries
-
-python services/run_ingestion_pipeline.py \
-    --start-date 2026-02-18 --end-date 2026-02-24 --profile entities
-
-# Dry run
-python services/run_ingestion_pipeline.py \
-    --start-date 2026-02-18 --end-date 2026-02-24 --dry-run
+# Focused runs: --profile events | summaries | entities   ·   Preview: --dry-run
 ```
 
-### Individual Pipeline Steps
+Individual stages (ingestion, embeddings, two-stage event clustering, entity resolution,
+bilateral summaries) are documented in [CLAUDE.md](CLAUDE.md) and the service READMEs
+([events](services/pipeline/events/README_EVENT_SUMMARIES.md),
+[publication](services/publication/README.md)).
+
+**Pipeline-only container** (no web stack):
 
 ```bash
-# Document ingestion
-python services/pipeline/ingestion/dsr.py --source local
-
-# Embeddings
-python services/pipeline/embeddings/embed_missing_documents.py --yes
-
-# Event clustering
-python services/pipeline/events/batch_cluster_events.py \
-    --country China --start-date 2024-08-01 --end-date 2024-08-31
-
-# LLM event deconfliction
-python services/pipeline/events/llm_deconflict_clusters.py \
-    --country China --start-date 2024-08-01 --end-date 2024-08-31
-
-# Cross-date consolidation
-python services/pipeline/events/consolidate_all_events.py --influencers
-python services/pipeline/events/llm_deconflict_canonical_events.py --influencers
-python services/pipeline/events/merge_canonical_events.py --influencers
-
-# Bilateral summaries
-python services/pipeline/summaries/generate_bilateral_summaries.py \
-    --init-country China --recipient-country Egypt
-```
-
----
-
-## Preprocessing Container
-
-For running pipeline scripts in an isolated container without the full web stack:
-
-```bash
-# Build
 docker build -f docker/preprocessing.Dockerfile -t softpower-preprocessing:latest .
-
-# Run as persistent worker
-docker run -d --name sp-preprocess \
-    --restart unless-stopped \
-    --env-file .env.docker \
-    -v "${PWD}/data:/app/data" \
-    -v "${PWD}/_data:/app/_data" \
-    softpower-preprocessing:latest \
-    sleep infinity
-
-# Execute pipeline commands
-docker exec -it sp-preprocess python services/pipeline/ingestion/dsr.py --source local
-docker exec -it sp-preprocess python services/pipeline/embeddings/embed_missing_documents.py --yes
-docker exec -it sp-preprocess python services/pipeline/events/batch_cluster_events.py \
-    --country Iran --start-date 2026-02-18 --end-date 2026-02-24
+docker run -d --name sp-preprocess --restart unless-stopped --env-file .env.docker \
+    -v "${PWD}/data:/app/data" softpower-preprocessing:latest sleep infinity
+docker exec -it sp-preprocess python services/run_ingestion_pipeline.py --dry-run \
+    --start-date 2026-02-18 --end-date 2026-02-24
 ```
 
 ---
@@ -258,9 +212,7 @@ docker exec -it sp-preprocess python services/pipeline/events/batch_cluster_even
 
 | Variable | Description |
 |---|---|
-| `POSTGRES_USER` | Database username |
-| `POSTGRES_PASSWORD` | Database password |
-| `POSTGRES_DB` | Database name |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Database credentials |
 | `DB_HOST` | Database host (`localhost` or container name) |
 
 ### Optional
@@ -270,69 +222,61 @@ docker exec -it sp-preprocess python services/pipeline/events/batch_cluster_even
 | `DB_PORT` | `5432` | Database port |
 | `API_PORT` | `8000` | FastAPI port |
 | `STREAMLIT_PORT` | `8501` | Streamlit port |
-| `JWT_SECRET` | built-in default | JWT signing key (min 32 chars, change for production) |
+| `JWT_SECRET` | built-in default | JWT signing key (min 32 chars — change for production) |
 | `JWT_EXPIRATION_HOURS` | `24` | Token lifetime |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection |
-| `CLAUDE_KEY` | — | API key for LLM chat/RAG |
-| `AWS_ACCESS_KEY_ID` | — | AWS credentials for S3 |
-| `AWS_SECRET_ACCESS_KEY` | — | AWS credentials for S3 |
+| `CLAUDE_KEY` | — | **LLM API key (OpenAI-compatible).** Historical name — this is the OpenAI key used by extraction, chat/RAG, and report generation |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | — | S3 credentials |
 | `LLM_PROXY_PORT` | `7001` | Host-side LLM/S3 proxy port (0 to disable) |
-| `DOCKER_ENV` | — | Set `true` inside containers |
-
-Docker containers detect their environment automatically via `DOCKER_ENV=true`. When running outside Docker, values come from `.env`.
+| `DOCKER_ENV` | — | Set `true` inside containers (compose files do this) |
 
 ---
 
 ## Database
 
-### Connection
-
 ```bash
-# Docker production
-./scripts/docker/production-deploy.sh psql
-
-# Docker compose dev
-docker exec -it softpower_db psql -U $POSTGRES_USER -d $POSTGRES_DB
-
-# Local
-psql -h localhost -U $POSTGRES_USER -d $POSTGRES_DB
+./scripts/docker/production-deploy.sh psql            # Docker production
+docker exec -it softpower_db psql -U $POSTGRES_USER -d $POSTGRES_DB   # compose dev
+alembic upgrade head                                   # apply migrations (local)
+alembic revision --autogenerate -m "description"       # new migration after model changes
 ```
-
-### Migrations
-
-```bash
-# Apply migrations
-alembic upgrade head
-
-# Create new migration after model changes
-alembic revision --autogenerate -m "description"
-
-# Docker production
-./scripts/docker/production-deploy.sh migrate
-```
-
-### Health Check
 
 ```python
 from shared.database.database import health_check, get_pool_status
-print("Connected" if health_check() else "Failed")
-print(get_pool_status())
+print("Connected" if health_check() else "Failed"); print(get_pool_status())
 ```
 
 ---
 
 ## Troubleshooting
 
-**Container cannot reach DB** (`localhost` connection refused):
-- Inside a container, `localhost` means the container itself
-- Use `host.docker.internal` (host DB) or the container name (compose DB)
+- **Container can't reach DB** (`localhost` refused): inside a container `localhost` is the
+  container itself — use `host.docker.internal` (host DB) or the container name (compose DB).
+- **Port already in use:** change in `.env` (`API_PORT=5002`, `STREAMLIT_PORT=8502`).
+- **Module import errors:** run from the project root with the venv active; all imports use
+  the `shared.` prefix.
 
-**Port already in use:**
-- Change ports in `.env`: `API_PORT=5002`, `STREAMLIT_PORT=8502`
+---
 
-**Module import errors:**
-- Ensure you're in the project root with venv activated
-- All imports use `shared.` prefix (e.g., `from shared.database.database import get_session`)
+## Repository Layout
+
+```
+client/            React + TypeScript frontend (Vite; served by FastAPI in production)
+server/            FastAPI server (API + React UI + chat/RAG + intel reports + S3/LLM proxy)
+  routers/         Extracted API routers (influencer, ingestion, intel_reports)
+services/
+  dashboard/       Streamlit analytics dashboard
+  chat/            RAG service (semantic search + LLM responses)
+  publication/     Word-document publication generator
+  pipeline/        Ingestion, analysis, events, entities, embeddings, summaries
+shared/            SQLAlchemy models, DB/session management, config, utilities
+docs/
+  reports/         Finished intelligence products (served in-app at /intel-reports)
+  INTEL_REPORT_PROMPT.md   Report-generation doctrine & methodology
+docker/            Dockerfiles (registry, production, pgvector, preprocessing, dev)
+scripts/           Deployment, release, export/import, and utility scripts
+alembic/           Database migrations
+```
 
 ---
 
@@ -340,7 +284,13 @@ print(get_pool_status())
 
 | Document | Description |
 |---|---|
+| [DEPLOYMENT.md](DEPLOYMENT.md) | **Start here for any deployment** — the decision tree |
+| [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md) | Zero-prerequisite demo walkthrough |
+| [PRODUCTION_DOCKER_RUN.md](PRODUCTION_DOCKER_RUN.md) | Enterprise / hardened-daemon deployment |
+| [DOCKER_WORKFLOW.md](DOCKER_WORKFLOW.md) | Development workflow and image builds |
 | [CLAUDE.md](CLAUDE.md) | Complete architecture and development guide |
-| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Quick deployment guide |
-| [docs/DOCKERHUB_README.md](docs/DOCKERHUB_README.md) | Docker Hub image documentation |
-| [DOCKER_WORKFLOW.md](DOCKER_WORKFLOW.md) | Docker workflow and build guide |
+| [docs/Soft_Power_Analytics_White_Paper.md](docs/Soft_Power_Analytics_White_Paper.md) | Platform white paper |
+| [docs/INTEL_REPORT_PROMPT.md](docs/INTEL_REPORT_PROMPT.md) | Analytic methodology & report doctrine |
+| [docs/reports/README.md](docs/reports/README.md) | The intelligence products + cross-actor synthesis |
+| [docs/TESTING.md](docs/TESTING.md) | Test suite usage |
+| [docs/INDEX.md](docs/INDEX.md) | Full documentation index |

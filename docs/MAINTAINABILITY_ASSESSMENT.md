@@ -4,6 +4,18 @@
 **Context:** Demo target **July 2026**; potential handoff to a new maintainer by **October 2026**.
 **Scope:** Whole-repo review of code structure, documentation, tests/CI, and deployment, with prioritized recommendations to (a) de-risk the July demo and (b) make the codebase handoff-ready by October.
 
+> **Status addendum (2026-07-14).** Several headline findings have since been resolved and
+> this document should be read with those corrections:
+> - §1(3)/§3: a plain **`docker-compose.yml` now exists** (zero-prerequisite default stack);
+>   the quickstart is no longer broken. `DEPLOYMENT.md` provides the deployment decision
+>   tree, and the quickstart fragmentation was consolidated in the July 2026 doc overhaul
+>   (CI_CD_SUMMARY.md deleted into TESTING.md; DOCKERHUB_README re-pinned to current tags).
+> - §1(1): `server/main.py` has begun router extraction (`server/routers/`: influencer,
+>   ingestion, intel_reports) — partial, still large.
+> - §9: compose files now use `pgvector:0.8.2-pg17` and app images through `1.8.26`;
+>   newer `docker-compose.laptop*.yml` / `enterprise.yml` variants exist.
+> - The coverage/CI findings (§1(4)) remain accurate and open.
+
 ---
 
 ## 1. Executive Summary

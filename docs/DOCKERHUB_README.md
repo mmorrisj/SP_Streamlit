@@ -6,10 +6,14 @@ All-in-one container for the Soft Power Analytics Dashboard — a diplomatic doc
 
 This image bundles everything into a single container managed by supervisord:
 
-- **FastAPI** — React web UI + REST API (port 8000)
+- **FastAPI** — React web UI + REST API (port 8000), including the in-app Intel Reports viewer
 - **Streamlit** — Analytics & data exploration dashboard (port 8501)
-- **ML Model** — Sentence-transformers (all-MiniLM-L6-v2) pre-downloaded for offline embedding generation
+- **ML Models** — Nomic Embed v1.5 (768-dim) + MiniLM reranker pre-baked for offline embedding/RAG
+- **Intelligence reports** — finished assessments baked in at `docs/reports/`, served at `/intel-reports`
 - **Alembic** — Database migration tooling included
+
+> Use tag **`1.8.18` or newer** — earlier tags predate the embedding-model fix.
+> Current release: **`1.8.26`**.
 
 ## Quick Start
 
@@ -19,7 +23,7 @@ This image bundles everything into a single container managed by supervisord:
 # docker-compose.production.yml
 services:
   db:
-    image: mmorrisj/pgvector:0.8.1-pg16
+    image: mmorrisj/pgvector:0.8.2-pg17
     environment:
       POSTGRES_USER: softpower
       POSTGRES_PASSWORD: changeme
@@ -40,7 +44,7 @@ services:
     image: redis:7-alpine
 
   app:
-    image: mmorrisj/softpower-analytics:1.7.2
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.26}
     environment:
       DOCKER_ENV: "true"
       DB_HOST: db
@@ -62,7 +66,7 @@ services:
         condition: service_started
 
   migrate:
-    image: mmorrisj/softpower-analytics:1.7.2
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.26}
     environment:
       DOCKER_ENV: "true"
       DATABASE_URL: postgresql+psycopg2://softpower:changeme@db:5432/softpower-db
@@ -142,13 +146,13 @@ docker exec <app-container> python scripts/create_admin.py \
 | `JWT_SECRET` | JWT signing key (min 32 chars) | Built-in default (change for production) |
 | `JWT_EXPIRATION_HOURS` | Token lifetime | `24` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
-| `CLAUDE_KEY` | API key for LLM-powered chat/RAG | — |
+| `CLAUDE_KEY` | LLM API key (OpenAI-compatible; historical name) for chat/RAG and report generation | — |
 | `AWS_ACCESS_KEY_ID` | AWS credentials for S3 integration | — |
 | `AWS_SECRET_ACCESS_KEY` | AWS credentials for S3 integration | — |
 
 ## Database
 
-This image is designed to work with [`mmorrisj/pgvector:0.8.1-pg16`](https://hub.docker.com/r/mmorrisj/pgvector) — PostgreSQL 16 with the pgvector extension compiled from source for vector similarity search.
+This image is designed to work with [`mmorrisj/pgvector:0.8.2-pg17`](https://hub.docker.com/r/mmorrisj/pgvector) — PostgreSQL 17 with the pgvector extension compiled from source for vector similarity search.
 
 ## Windows / Git Bash Note
 
