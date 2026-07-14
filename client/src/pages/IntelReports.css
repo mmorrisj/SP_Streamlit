@@ -436,3 +436,11 @@
   margin-right: auto;
   padding: 0.2rem 0;
 }
+
+.ir-disclaimer {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-style: italic;
+  margin-top: 0.35rem;
+  max-width: 720px;
+}

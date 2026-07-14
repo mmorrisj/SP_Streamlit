@@ -1,15 +1,15 @@
 # Who Courts Oman? A Cross-Initiator Influence Assessment
-### China · Iran · Russia · Turkey · United States — for U.S. Decision-Makers
+### China · Iran · Russia · Turkey · United States — for Policy Analysis
 
 *Open-source media corpus, 2024-08-01 to 2026-06-15. Method/caveats per
-`../../INTEL_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
+`../../INSIGHT_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
 coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)**.*
 
 > **Hedging profile: balancing (multi-patron).** Lead actor: **Iran** (35% of external attention).
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **Oman balances multiple patrons** — Iran leads (35%) but engages U.S., China substantially too. **(M)**
 - **Division of labor by instrument:** Economic→**China**, Social→**China**, Military→**Iran**, Diplomacy→**Iran**. **(H)**
@@ -81,4 +81,4 @@ passing on another country's initiative — e.g., regional spillover) were exclu
 ---
 
 *Visuals plot corroborated/registered influence; underlying numbers in sibling CSVs under `assets/`.
-Index: [`../README.md`](../README.md). Method: `docs/INTEL_REPORT_PROMPT.md`.*
+Index: [`../README.md`](../README.md). Method: `docs/INSIGHT_REPORT_PROMPT.md`.*

@@ -1,14 +1,14 @@
 # Russia's Soft-Power Influence in the Middle East & North Africa
-### A Strategic Influence Assessment for U.S. Decision-Makers
+### A Strategic Influence Assessment for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Prepared from the
-Soft Power Analytics database; method, scope, and caveats per `docs/INTEL_REPORT_PROMPT.md`.
+Soft Power Analytics database; method, scope, and caveats per `docs/INSIGHT_REPORT_PROMPT.md`.
 Intensity is measured in **third-party-corroborated** documents unless noted. Confidence tags:
 **(H)** high, **(M)** moderate, **(L)** low.*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **Russia's MENA influence is diplomacy-dominated and highly credible.** Diplomacy alone is
   62.6% of its profile — the most diplomacy-heavy posture of the four actors — and its coverage
@@ -129,11 +129,11 @@ summitry (St. Petersburg Forum) and its Iran/Egypt files. **(M)**
 
 ---
 
-## 7. Intelligence Gaps & Collection Priorities
+## 7. Data Gaps & Coverage Priorities
 
 - **Hard power is out of frame.** The soft-power lens omits Russia's military footprint (Syrian
   bases, arms transfers, PMC activity). The 4% military-category share badly understates
-  Russia's true security role. **Collection priority:** fuse this with basing/arms/PMC reporting.
+  Russia's true security role. **Coverage priority:** fuse this with basing/arms/PMC reporting.
 - **Watch El Dabaa as a strategic indicator.** It is Russia's most durable MENA asset; milestones
   and financing on the plant are leading indicators of Russia-Egypt alignment.
 - **The Russia-Iran axis is the key relationship to monitor** — its depth here (the densest

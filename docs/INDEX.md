@@ -10,8 +10,8 @@
 - **[MAINTAINABILITY_ASSESSMENT.md](MAINTAINABILITY_ASSESSMENT.md)** - Maintainability review & transition roadmap
 
 ## Analytics & Methodology
-- **[../docs/reports/README.md](reports/README.md)** - The intelligence products: MENA theater assessment, initiator/category/recipient reports (served in-app at `/intel-reports`)
-- **[INTEL_REPORT_PROMPT.md](INTEL_REPORT_PROMPT.md)** - Analytic doctrine: provenance normalization, the corroborated-initiative gate, report-generation playbook
+- **[../docs/reports/README.md](reports/README.md)** - The analytic insight reports: MENA theater assessment, initiator/category/recipient reports (served in-app at `/intel-reports`)
+- **[INSIGHT_REPORT_PROMPT.md](INSIGHT_REPORT_PROMPT.md)** - Analytic doctrine: provenance normalization, the corroborated-initiative gate, report-generation playbook
 - **[reports/_derived/manifest.md](reports/_derived/manifest.md)** - Derived analytics artifacts (DDL + promotion recommendations)
 - **[Soft_Power_Analytics_White_Paper.md](Soft_Power_Analytics_White_Paper.md)** - Platform white paper (v4.0)
 

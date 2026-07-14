@@ -1,9 +1,9 @@
 # The Social & Cultural Influence Contest in MENA
-### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for U.S. Decision-Makers
+### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Category filter:
 **Social** only — cultural diplomacy, humanitarian aid, education, religion, media, and health.
-Method/caveats per `docs/INTEL_REPORT_PROMPT.md`. Intensity = **third-party-corroborated**
+Method/caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Intensity = **third-party-corroborated**
 documents (U.S. = registered coverage). Confidence: **(H)/(M)/(L)**.*
 
 > **Third in the per-category series** (after Economic and Military). The economic and military
@@ -13,7 +13,7 @@ documents (U.S. = registered coverage). Confidence: **(H)/(M)/(L)**.*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **Turkey is the social and cultural-influence leader in MENA** — 11,092 corroborated documents,
   ahead of China (9,837), the U.S. (7,503), Russia (5,495), and Iran (3,268). It is the only actor
@@ -137,7 +137,7 @@ engagement around El Dabaa, etc.); it has no MENA cultural-diplomacy apparatus o
 
 ---
 
-## 7. Intelligence Gaps & Collection Priorities
+## 7. Data Gaps & Coverage Priorities
 
 - **Iran's social mirage is the headline caveat.** Any assessment using raw volume will overstate
   Iran's religious-humanitarian reach by an order of magnitude. The 91% gap is a clean monitoring

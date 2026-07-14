@@ -1,6 +1,6 @@
 """Intel Reports API (`/api/intel-reports/*`).
 
-Serves the finished intelligence products in docs/reports/ (markdown + chart
+Serves the analytic insight reports in docs/reports/ (markdown + chart
 assets) read-only to the React app. Reports are discovered from the filesystem
 at request time, so a new report directory appears in the app without a client
 rebuild. This namespace is independent of the Publication feature

@@ -1,14 +1,14 @@
 # Iran's Soft-Power Influence in the Middle East & North Africa
-### A Strategic Influence Assessment for U.S. Decision-Makers
+### A Strategic Influence Assessment for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Prepared from the
-Soft Power Analytics database; method, scope, and caveats per `docs/INTEL_REPORT_PROMPT.md`.
+Soft Power Analytics database; method, scope, and caveats per `docs/INSIGHT_REPORT_PROMPT.md`.
 Intensity is measured in **third-party-corroborated** documents (coverage not originating from
 Iranian state media) unless noted. Confidence tags: **(H)** high, **(M)** moderate, **(L)** low.*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **Iran's apparent dominance of MENA influence is largely a media artifact.** Iran posts the
   largest *raw* footprint of any actor (76,792 documents) but **84% of it originates from
@@ -140,7 +140,7 @@ religious calendar and the Israel-Iran confrontation more than any economic cycl
 
 ---
 
-## 7. Intelligence Gaps & Collection Priorities
+## 7. Data Gaps & Coverage Priorities
 
 - **The state-media inflation is the headline caveat.** Any assessment of Iran that uses raw
   volume will overstate its reach by roughly 6-to-1. Always normalize Iran against third-party

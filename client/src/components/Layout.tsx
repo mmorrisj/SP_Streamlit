@@ -17,7 +17,7 @@ const navItems = [
 ]
 
 const intelligenceItems = [
-  { path: '/intel-reports', label: 'Intel Reports', icon: BookOpenText },
+  { path: '/intel-reports', label: 'Insight Reports', icon: BookOpenText },
   { path: '/events/comparison', label: 'Country Comparison', icon: Globe },
   { path: '/events/materiality', label: 'Materiality Map', icon: Flame },
   { path: '/competing/Egypt', label: 'Competing Influence', icon: TrendingUp },

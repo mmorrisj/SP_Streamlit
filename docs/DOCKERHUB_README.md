@@ -6,10 +6,10 @@ All-in-one container for the Soft Power Analytics Dashboard — a diplomatic doc
 
 This image bundles everything into a single container managed by supervisord:
 
-- **FastAPI** — React web UI + REST API (port 8000), including the in-app Intel Reports viewer
+- **FastAPI** — React web UI + REST API (port 8000), including the in-app Insight Reports viewer
 - **Streamlit** — Analytics & data exploration dashboard (port 8501)
 - **ML Models** — Nomic Embed v1.5 (768-dim) + MiniLM reranker pre-baked for offline embedding/RAG
-- **Intelligence reports** — finished assessments baked in at `docs/reports/`, served at `/intel-reports`
+- **Insight reports** — analytic assessments baked in at `docs/reports/`, served at `/intel-reports`
 - **Alembic** — Database migration tooling included
 
 > Use tag **`1.8.18` or newer** — earlier tags predate the embedding-model fix.

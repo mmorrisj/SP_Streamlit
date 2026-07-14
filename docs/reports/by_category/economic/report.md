@@ -1,15 +1,15 @@
 # The Economic Influence Contest in MENA
-### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for U.S. Decision-Makers
+### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Category filter:
 **Economic** only — diplomacy and crisis reporting removed to isolate the material competition.
-Method and caveats per `docs/INTEL_REPORT_PROMPT.md`. Intensity = **third-party-corroborated**
+Method and caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Intensity = **third-party-corroborated**
 documents (coverage excluding the actor's own state media; the U.S. has no state media in the
 corpus, so its figure is **registered coverage**). Confidence: **(H)/(M)/(L)**.*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **China is the uncontested economic hegemon of MENA.** With 9,924 corroborated economic
   documents — 45% more than the next actor — it leads the economic file in Egypt and across the
@@ -195,7 +195,7 @@ figures — is the most strategically durable dimension of the economic contest.
 
 ---
 
-## 7. Intelligence Gaps & Collection Priorities
+## 7. Data Gaps & Coverage Priorities
 
 - **Arms are missing by construction.** Defense and arms deals are tagged **Military/Sales**, not
   Economic — so the U.S. (e.g., the US-Qatar $96B aircraft agreement) and Russia are

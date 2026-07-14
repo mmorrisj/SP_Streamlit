@@ -29,7 +29,7 @@
 13. [Competing Influence Analysis](#competing-influence-analysis)
 14. [Research Projects](#research-projects)
 15. [Report Generation and Export](#report-generation-and-export)
-16. [Generated Intelligence Products](#generated-intelligence-products)
+16. [Generated Insight Reports](#generated-insight-reports)
 17. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
 18. [Alignment with Best Practices](#alignment-with-best-practices)
 19. [Technology Stack Validation](#technology-stack-validation)
@@ -59,7 +59,7 @@ Evaluations demonstrated that GAI models not only excelled in categorizing artic
 - **Support research workflows** with document collection and project-scoped analysis
 - **Generate publication-ready reports** with Word document export
 - **Control for media-source bias** through source-provenance classification and a corroborated-initiative metric (see [Source Provenance and Bias Control](#source-provenance-and-bias-control))
-- **Produce finished intelligence assessments** via an agentic investigation pipeline with adversarial verification of every finding, served in-app with interactive figures and click-through evidence tracing (see [Generated Intelligence Products](#generated-intelligence-products))
+- **Produce analytic assessments** via an agentic investigation pipeline with adversarial verification of every finding, served in-app with interactive figures and click-through evidence tracing (see [Generated Insight Reports](#generated-insight-reports))
 
 At current scale the platform manages ~765K documents spanning 23 months of coverage,
 consolidated into ~11K canonical events and ~13.5K resolved entities with full
@@ -783,7 +783,7 @@ composition. The current corpus contains many initiator-domestic outlets for Ira
 China, and none for Russia or Turkey — so the self-report ratio is a valid projection
 measure only where domestic outlets are actually ingested. For the others, third-party
 volume is simply the intensity measure. Expanding domestic-outlet coverage for all tracked
-actors is a standing collection priority.
+actors is a standing coverage priority.
 
 ### The Corroborated-Initiative Metric
 
@@ -797,7 +797,7 @@ two-thirds or more of its rivals' events pass, inverting naive volume rankings.
 Derived analytics built on this method (per-relationship provenance intensity, the
 initiative ledger with per-event corroboration shares, and source-provenance maps) are
 materialized in a dedicated `analytics` schema, documented with migration-ready DDL, and
-feed both the generated intelligence products and candidate first-class app features.
+feed both the generated insight reports and candidate first-class app features.
 
 > **Best Practice Alignment**: This implements the "measurement validity" principle for
 > observational data: identify the generating process of the data (media attention),
@@ -997,8 +997,8 @@ This architecture ensures responses are grounded in both high-level analytical p
 The system provides two primary user interfaces for interacting with soft power data: a **conversational chat interface** and an **entity network visualization**.
 
 > **Implementation note:** the React application is the primary UI (30+ pages including the
-> Research chat, event/entity detail pages, competing-influence views, and the Intel Reports
-> viewer described in [Generated Intelligence Products](#generated-intelligence-products)).
+> Research chat, event/entity detail pages, competing-influence views, and the Insight Reports
+> viewer described in [Generated Insight Reports](#generated-insight-reports)).
 > The Streamlit-specific implementations described below (session-state filters, the pyvis
 > network) remain available in the analytics dashboard.
 
@@ -1493,12 +1493,17 @@ prevent score clustering and provide better differentiation for report prioritiz
 
 ---
 
-## Generated Intelligence Products
+## Generated Insight Reports
 
 The platform's most advanced capability — added in mid-2026 — moves generative AI from the
 *factual/moderate* band of the capability spectrum into supervised *analytic* territory:
-autonomously produced, finished intelligence assessments whose every finding passes
+autonomously produced analytic assessments whose every finding passes
 adversarial verification before publication.
+
+> **Scope note:** these are AI-assisted analytical products generated from open-source
+> media. They are not intelligence community products and do not claim IC tradecraft or
+> review standards; the terminology throughout ("insight reports," "key findings") is
+> deliberately chosen to reflect that distinction.
 
 ### The Product Set
 
@@ -1544,7 +1549,7 @@ recipient-side media) that would otherwise have shipped.
 
 ### In-App Delivery with Evidence Tracing
 
-The finished products are served inside the React application ("Intel Reports"), not as
+The finished products are served inside the React application ("Insight Reports"), not as
 static files:
 
 - **Interactive figures.** Every report chart ships its underlying numbers as a sidecar CSV
@@ -1725,7 +1730,7 @@ This section validates claimed capabilities against actual implementation status
 | **React Frontend** | ✅ FULL | `client/src/pages/` | 30+ pages, React 19.2, TypeScript, Vite |
 | **Streamlit Dashboard** | ✅ FULL | `services/dashboard/pages/` | 23 pages, analytics UI |
 | **FastAPI** | ✅ FULL | `server/main.py` + `server/routers/` | 100+ endpoints (router extraction in progress), Redis caching |
-| **Intel Reports Viewer** | ✅ FULL | `server/routers/intel_reports.py`, `client/src/pages/IntelReport*` | Filesystem-driven report discovery, CSV-hydrated interactive charts, evidence drill-down |
+| **Insight Reports Viewer** | ✅ FULL | `server/routers/intel_reports.py`, `client/src/pages/IntelReport*` | Filesystem-driven report discovery, CSV-hydrated interactive charts, evidence drill-down |
 | **Provenance Analytics** | ✅ FULL | `analytics` schema, `docs/reports/_derived/` | Provenance intensity, initiative ledger, changepoints, blocs, themes |
 | **Word Document Export** | ✅ FULL | `server/report_exporter.py` | python-docx, template-based |
 | **Research Projects** | ✅ FULL | `shared/models/research_project_models.py` | User-scoped document collections |
@@ -1874,7 +1879,7 @@ connectivity are requirements, not preferences:
 - **Self-contained application image** (~2 GB): FastAPI + React + Streamlit + migration
   tooling managed by supervisord, with the embedding model (Nomic Embed v1.5) and reranker
   **baked in at build time** — embedding generation and RAG retrieval work fully offline.
-  Finished intelligence reports ship inside the image and are discovered from its
+  Insight reports ship inside the image and are discovered from its
   filesystem.
 - **Supply-chain attestations on every release**: images are built with `--pull` against
   digest-pinned bases and pushed with **SBOM and provenance (mode=max) attestations**;
@@ -1999,7 +2004,7 @@ The system has evolved from a document categorization tool to a comprehensive so
 | Research Projects | Project-scoped RAG | Curated document collections |
 | Report Generation | GPT-4o + python-docx | Publication-ready Word export |
 | Provenance Analytics | source_geofocus + derived analytics schema | Bias-corrected, corroborated-initiative metrics |
-| Intelligence Products | Agentic investigation + adversarial verification | Finished assessments with in-app evidence tracing |
+| Insight Reports | Agentic investigation + adversarial verification | Finished assessments with in-app evidence tracing |
 
 As GAI technology continues to advance with improved accuracy, reduced costs, and expanded context windows, the framework established by this project positions the soft power analytics capability for continued evolution and enhancement.
 
@@ -2129,4 +2134,4 @@ consolidated to the set below during implementation for extraction reliability).
 
 *This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 4.0 included: updated event processing pipeline documentation reflecting the canonical events two-stage architecture; expanded entity and relationship extraction pipeline with full Stage 1-3 workflow; comprehensive technology stack validation table comparing claimed vs. actual implementation status; and corrected technology references (DBSCAN, Nomic Embed Text v1.5, React frontend).*
 
-*Version 5.0 (July 2026) adds: the Source Provenance and Bias Control methodology (provenance classification and the corroborated-initiative metric); the Generated Intelligence Products capability (agentic investigation with adversarial verification, in-app interactive reports with evidence tracing); a Deployment and Security Posture section; corpus scale figures; expanded limitations (media-source bias, monetary extraction fidelity, vendor dependence); a single canonical materiality scale; reconciliation of the entity/relationship appendix and network-visualization taxonomies with the production schema; MENA-scoped examples throughout; and a clarification of the knowledge-distillation benchmark corpus.*
+*Version 5.0 (July 2026) adds: the Source Provenance and Bias Control methodology (provenance classification and the corroborated-initiative metric); the Generated Insight Reports capability (agentic investigation with adversarial verification, in-app interactive reports with evidence tracing); a Deployment and Security Posture section; corpus scale figures; expanded limitations (media-source bias, monetary extraction fidelity, vendor dependence); a single canonical materiality scale; reconciliation of the entity/relationship appendix and network-visualization taxonomies with the production schema; MENA-scoped examples throughout; and a clarification of the knowledge-distillation benchmark corpus.*

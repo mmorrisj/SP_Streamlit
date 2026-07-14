@@ -3,12 +3,12 @@
 Soft Power Analytics ingests open-source news reporting about state influence activity in the
 Middle East & North Africa, runs an AI/ML pipeline that turns ~765K documents into named
 events, resolved entities, and materiality-scored initiatives, and serves the results as
-interactive analytics, a research assistant, and finished intelligence products.
+interactive analytics, a research assistant, and analytic insight reports.
 
 ```
 raw documents ─► salience gate ─► LLM extraction ─► normalized DB ─► embeddings
       ─► event clustering & consolidation ─► entity resolution ─► summaries & materiality
-      ─► React app · Streamlit dashboard · RAG chat · generated intelligence reports
+      ─► React app · Streamlit dashboard · RAG chat · insight reports
 ```
 
 ---
@@ -29,8 +29,8 @@ raw documents ─► salience gate ─► LLM extraction ─► normalized DB �
   citations, and research projects that collect documents toward a report
 - **Agent** — experimental multi-step agentic report workflow
 
-**Intelligence products**
-- **Intel Reports** — the finished assessments from [`docs/reports/`](docs/reports/README.md)
+**Insight reports**
+- **Insight Reports** — the analytic reports from [`docs/reports/`](docs/reports/README.md)
   rendered in-app: report figures hydrate into interactive charts from their audit CSVs
   (Chart / Figure / Data toggle), and initiative charts are **click-to-drill** — every named
   initiative traces back to its canonical event and the source documents behind it, with
@@ -47,7 +47,7 @@ raw documents ─► salience gate ─► LLM extraction ─► normalized DB �
 Exploratory analytics over the same database — trends, distributions, drilldowns — for
 analysis that hasn't yet earned a first-class React page.
 
-### Finished intelligence products (`docs/reports/`)
+### Analytic insight reports (`docs/reports/`)
 
 Version-controlled markdown assessments with charts and per-figure audit CSVs, produced by an
 agentic investigation pipeline with adversarial verification of every finding:
@@ -63,7 +63,7 @@ agentic investigation pipeline with adversarial verification of every finding:
 
 ## Methodology
 
-The full doctrine lives in [`docs/INTEL_REPORT_PROMPT.md`](docs/INTEL_REPORT_PROMPT.md) and the
+The full doctrine lives in [`docs/INSIGHT_REPORT_PROMPT.md`](docs/INSIGHT_REPORT_PROMPT.md) and the
 [white paper](docs/Soft_Power_Analytics_White_Paper.md); this is the short version.
 
 **Pipeline lineage** (what a number in the app actually is):
@@ -262,7 +262,7 @@ print("Connected" if health_check() else "Failed"); print(get_pool_status())
 
 ```
 client/            React + TypeScript frontend (Vite; served by FastAPI in production)
-server/            FastAPI server (API + React UI + chat/RAG + intel reports + S3/LLM proxy)
+server/            FastAPI server (API + React UI + chat/RAG + insight reports + S3/LLM proxy)
   routers/         Extracted API routers (influencer, ingestion, intel_reports)
 services/
   dashboard/       Streamlit analytics dashboard
@@ -271,8 +271,8 @@ services/
   pipeline/        Ingestion, analysis, events, entities, embeddings, summaries
 shared/            SQLAlchemy models, DB/session management, config, utilities
 docs/
-  reports/         Finished intelligence products (served in-app at /intel-reports)
-  INTEL_REPORT_PROMPT.md   Report-generation doctrine & methodology
+  reports/         Analytic insight reports (served in-app at /intel-reports)
+  INSIGHT_REPORT_PROMPT.md   Report-generation doctrine & methodology
 docker/            Dockerfiles (registry, production, pgvector, preprocessing, dev)
 scripts/           Deployment, release, export/import, and utility scripts
 alembic/           Database migrations
@@ -290,7 +290,7 @@ alembic/           Database migrations
 | [DOCKER_WORKFLOW.md](DOCKER_WORKFLOW.md) | Development workflow and image builds |
 | [CLAUDE.md](CLAUDE.md) | Complete architecture and development guide |
 | [docs/Soft_Power_Analytics_White_Paper.md](docs/Soft_Power_Analytics_White_Paper.md) | Platform white paper |
-| [docs/INTEL_REPORT_PROMPT.md](docs/INTEL_REPORT_PROMPT.md) | Analytic methodology & report doctrine |
-| [docs/reports/README.md](docs/reports/README.md) | The intelligence products + cross-actor synthesis |
+| [docs/INSIGHT_REPORT_PROMPT.md](docs/INSIGHT_REPORT_PROMPT.md) | Analytic methodology & report doctrine |
+| [docs/reports/README.md](docs/reports/README.md) | The insight reports + cross-actor synthesis |
 | [docs/TESTING.md](docs/TESTING.md) | Test suite usage |
 | [docs/INDEX.md](docs/INDEX.md) | Full documentation index |

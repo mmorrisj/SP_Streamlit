@@ -1,8 +1,8 @@
 # How U.S. Soft-Power Efforts Register in the Middle East & North Africa
-### A Relational Assessment Against China, Iran, Russia & Turkey — for U.S. Decision-Makers
+### A Relational Assessment Against China, Iran, Russia & Turkey — for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Method, scope, and
-caveats per `docs/INTEL_REPORT_PROMPT.md`. Confidence tags: **(H)** high, **(M)** moderate,
+caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Confidence tags: **(H)** high, **(M)** moderate,
 **(L)** low.*
 
 > **Read this first — the organizing caveat.** The United States was **not** a collection target.
@@ -17,7 +17,7 @@ caveats per `docs/INTEL_REPORT_PROMPT.md`. Confidence tags: **(H)** high, **(M)*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **The U.S. registers as a near-pure diplomacy/security actor — the structural inverse of
   China.** 77.6% of its captured footprint is Diplomacy, with Social (10.2%), Economic (7.4%),
@@ -164,7 +164,7 @@ with its registered role as the indispensable crisis actor. **(M)**
 
 ---
 
-## 8. Intelligence Gaps & Collection Priorities
+## 8. Data Gaps & Coverage Priorities
 
 - **Selection bias is the master caveat.** The U.S.'s diplomacy-heavy, conflict-centric profile is
   partly an artifact of appearing only inside stories collected about its rivals. The U.S.'s

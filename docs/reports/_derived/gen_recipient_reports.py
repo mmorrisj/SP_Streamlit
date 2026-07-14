@@ -77,17 +77,17 @@ def write_report(d):
     rows = "\n".join(f"| {ABBR[a]} | {v:,} | {100*v/grand:.0f}% |" for a, v in ranked if v)
 
     md = f"""# Who Courts {r}? A Cross-Initiator Influence Assessment
-### China · Iran · Russia · Turkey · United States — for U.S. Decision-Makers
+### China · Iran · Russia · Turkey · United States — for Policy Analysis
 
 *Open-source media corpus, 2024-08-01 to 2026-06-15. Method/caveats per
-`../../INTEL_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
+`../../INSIGHT_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
 coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)**.*
 
 > **Hedging profile: {hedge}.** Lead actor: **{lead_lab}** ({int(share*100)}% of external attention).
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 {chr(10).join(b)}
 
@@ -145,7 +145,7 @@ passing on another country's initiative — e.g., regional spillover) were exclu
 ---
 
 *Visuals plot corroborated/registered influence; underlying numbers in sibling CSVs under `assets/`.
-Index: [`../README.md`](../README.md). Method: `docs/INTEL_REPORT_PROMPT.md`.*
+Index: [`../README.md`](../README.md). Method: `docs/INSIGHT_REPORT_PROMPT.md`.*
 """
     (d / "report.md").write_text(md, encoding="utf-8")
     return {"recipient": r, "leader": leader, "share": share, "hedge": hedge, "lead": lead,

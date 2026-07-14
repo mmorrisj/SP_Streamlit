@@ -1,9 +1,9 @@
 # The Military Influence Contest in MENA
-### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for U.S. Decision-Makers
+### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Category filter:
 **Military** only — arms sales, defense diplomacy, joint exercises, training, basing, and
-security partnerships. Method/caveats per `docs/INTEL_REPORT_PROMPT.md`. Intensity =
+security partnerships. Method/caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Intensity =
 **third-party-corroborated** documents (U.S. = registered coverage; no state media in corpus).
 Confidence: **(H)/(M)/(L)**.*
 
@@ -14,7 +14,7 @@ Confidence: **(H)/(M)/(L)**.*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **The United States is the military-influence hegemon of MENA** — 3,557 registered documents,
   more than double the next actor (Turkey 1,548, Russia 1,394, Iran 806, China 426). Where China
@@ -141,7 +141,7 @@ captures the economic returns. **(H)**
 
 ---
 
-## 7. Intelligence Gaps & Collection Priorities
+## 7. Data Gaps & Coverage Priorities
 
 - **The proxy network is under-captured.** Iran's most consequential military influence — Hezbollah,
   the Houthis, the PMF, IRGC-Quds operations — is only partially visible in an open-source

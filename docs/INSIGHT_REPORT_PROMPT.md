@@ -35,7 +35,7 @@ one is the recipient).
 
 Each country report should contain:
 
-1. **Key Judgments** (BLUF) — 5–8 bulleted, confidence-tagged findings an analyst could
+1. **Key Findings** (BLUF) — 5–8 bulleted, confidence-tagged findings an analyst could
    brief in two minutes. Lead with the most decision-relevant.
 2. **Strategic Posture Overview** — How this actor uses soft power in MENA: dominant
    instruments, theory of influence, what they are trying to achieve.
@@ -47,8 +47,8 @@ Each country report should contain:
    their roles, and co-occurrence relationships revealing coordination structure.
 6. **Temporal Dynamics** — Monthly trend, inflection points, surges/decay, and event-driven
    spikes; tie shifts to real-world triggers where the data supports it.
-7. **Intelligence Gaps & Collection Caveats** — What the data cannot tell you, source-bias
-   exposure, and recommended collection priorities.
+7. **Data Gaps & Coverage Caveats** — What the data cannot tell you, source-bias
+   exposure, and recommended coverage priorities.
 
 **AidData usage (China, narrow):** Do NOT run an aggregate financial comparison. AidData
 GCDF 3.0 ends in 2023 and the media corpus begins 2024-08-01, so the two only intersect on
@@ -64,11 +64,11 @@ not cite it as background or for country-level dollar totals.
 ## PART B — Master Prompt (copy-paste; substitute {INITIATOR})
 
 > ROLE
-> You are a senior all-source intelligence analyst producing a strategic influence
-> assessment for U.S. government decision-makers. Your audience is intelligence
-> professionals and policymakers; write to the standard of a finished intelligence
-> product. Use AP style, precise and concrete language, and analytic tradecraft: lead
-> with judgments, attach confidence levels (high/moderate/low), distinguish reporting
+> You are a senior analyst producing a strategic influence
+> assessment for policy analysis. Your audience is analysts
+> and policymakers; write to the standard of a polished analytic
+> report. Use AP style, precise and concrete language, and analytic rigor: lead
+> with findings, attach confidence levels (high/moderate/low), distinguish reporting
 > from fact, and never inflate a media-volume signal into a claim about real-world
 > activity. Avoid hedged generic prose ("plays a significant role"); cite specific named
 > events, entities, dollar figures, dates, and recipients.
@@ -140,7 +140,7 @@ not cite it as background or for country-level dollar totals.
 >   project-level corroboration only when a named reported project directly matches a record.
 >
 > REPORT STRUCTURE (produce exactly these sections)
-> 1. KEY JUDGMENTS — 5–8 confidence-tagged bullets, most decision-relevant first.
+> 1. KEY FINDINGS — 5–8 confidence-tagged bullets, most decision-relevant first.
 > 2. STRATEGIC POSTURE — {INITIATOR}'s theory of influence in MENA; dominant instruments
 >    and objectives.
 > 3. CATEGORICAL BREAKDOWN — for each of Economic, Social, Military, Diplomacy: share of
@@ -153,8 +153,8 @@ not cite it as background or for country-level dollar totals.
 >    structure (who coordinates with whom); note SOEs, ministries, cultural orgs, proxies.
 > 6. TEMPORAL DYNAMICS — monthly trajectory, surges/declines, and event-driven inflection
 >    points tied to real-world triggers where supportable.
-> 7. INTELLIGENCE GAPS & COLLECTION PRIORITIES — what the data cannot answer, source-bias
->    exposure for this specific actor, and recommended collection.
+> 7. DATA GAPS & COVERAGE PRIORITIES — what the data cannot answer, source-bias
+>    exposure for this specific actor, and recommended coverage.
 > [CHINA ONLY, only if matches exist] When a reported economic project matches a specific
 >    AidData GCDF 3.0 record (same project, location, agency), corroborate it inline within
 >    the Economic categorical breakdown — citing the verified commitment value, loan terms,
@@ -318,7 +318,7 @@ Per initiator (China, Iran, Russia, Turkey), the agent runs this loop:
 3. **Verify** — every candidate finding passes the four-point verification gate; survivors
    carry a confidence tag and a provenance note.
 4. **Synthesize** — assemble the 7-section report (Part A) from verified findings, leading
-   with Key Judgments.
+   with Key Findings.
 5. **Completeness critic** — a final pass asks "what did we not investigate, which thread is
    thin, which claim is unverified?" and spawns follow-up queries before finalizing.
 

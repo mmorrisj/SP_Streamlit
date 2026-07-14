@@ -1,15 +1,15 @@
 # China's Soft-Power Influence in the Middle East & North Africa
-### A Strategic Influence Assessment for U.S. Decision-Makers
+### A Strategic Influence Assessment for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Prepared from the
-Soft Power Analytics database; method, scope, and caveats per `docs/INTEL_REPORT_PROMPT.md`.
+Soft Power Analytics database; method, scope, and caveats per `docs/INSIGHT_REPORT_PROMPT.md`.
 Intensity is measured in **third-party-corroborated** documents (coverage not originating from
 the initiator's own state media) unless noted. Confidence tags: **(H)** high, **(M)** moderate,
 **(L)** low.*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **China runs a diplomacy- and economics-led influence model in MENA with a near-zero
   military footprint** — 45.7% Diplomacy, 27.4% Social, 25.8% Economic, **1.2% Military** of
@@ -150,7 +150,7 @@ partly an artifact of the corpus's trailing edge (June 2026 is a partial month).
 
 ---
 
-## 7. Intelligence Gaps & Collection Priorities
+## 7. Data Gaps & Coverage Priorities
 
 - **Media ≠ ground truth.** This assessment measures *reported* activity. China's
   externally-validated footprint is a strong proxy for perceived engagement but not a ledger of
@@ -159,7 +159,7 @@ partly an artifact of the corpus's trailing edge (June 2026 is a partial month).
   development finance) ends in 2023 and does not overlap the 2024–2026 media window; no reported
   project in this corpus directly matches a specific AidData record, so financial figures here
   derive from media-reported deal announcements (e.g., the "$10B" steel complex) and should be
-  treated as *announced*, not *committed-and-verified*. **Collection priority:** track
+  treated as *announced*, not *committed-and-verified*. **Coverage priority:** track
   disbursement and completion against announced China-MENA megadeals.
 - **Economic substance vs. diplomatic noise.** Because China's volume is diplomatic but its
   impact is economic, raw activity counts understate where the strategic action is. Prioritize

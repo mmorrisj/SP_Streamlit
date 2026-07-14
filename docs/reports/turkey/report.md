@@ -1,14 +1,14 @@
 # Turkey's Soft-Power Influence in the Middle East & North Africa
-### A Strategic Influence Assessment for U.S. Decision-Makers
+### A Strategic Influence Assessment for Policy Analysis
 
 *Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Prepared from the
-Soft Power Analytics database; method, scope, and caveats per `docs/INTEL_REPORT_PROMPT.md`.
+Soft Power Analytics database; method, scope, and caveats per `docs/INSIGHT_REPORT_PROMPT.md`.
 Intensity is measured in **third-party-corroborated** documents unless noted. Confidence tags:
 **(H)** high, **(M)** moderate, **(L)** low.*
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **Turkey has the largest credible soft-power footprint in MENA of the four actors assessed** —
   34,927 third-party-corroborated documents, ahead of Russia (24,800), China (24,792), and Iran
@@ -129,10 +129,10 @@ influence from being present at every inflection point. **(M)**
 
 ---
 
-## 7. Intelligence Gaps & Collection Priorities
+## 7. Data Gaps & Coverage Priorities
 
 - **Defense-industrial influence is under-captured.** Turkey's drones and arms exports — a major
-  real-world influence vector — barely register in the soft-power lens. **Collection priority:**
+  real-world influence vector — barely register in the soft-power lens. **Coverage priority:**
   pair this with defense-trade reporting (Bayraktar/Baykar, naval, etc.).
 - **Track the Syria reconstruction coalition.** The $216B Saudi-Qatar-Turkey commitment is the
   region's largest reconstruction undertaking and the centerpiece of Turkey's post-Assad

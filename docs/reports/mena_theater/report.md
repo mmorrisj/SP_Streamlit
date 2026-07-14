@@ -2,7 +2,7 @@
 ### China · Iran · Russia · Turkey | Strategic Influence in the Middle East & North Africa
 
 *Observation window 2024-08-01 → 2026-06-30 (23 full months). Open-source media corpus, 765K
-documents; method, lineage, and scope per [`../../INTEL_REPORT_PROMPT.md`](../../INTEL_REPORT_PROMPT.md).
+documents; method, lineage, and scope per [`../../INSIGHT_REPORT_PROMPT.md`](../../INSIGHT_REPORT_PROMPT.md).
 Unit of analysis: the **corroborated initiative** (named canonical event with ≥50% third-party
 coverage from ≥3 independent outlets), not the article. Every figure's underlying numbers are
 persisted as a sibling CSV in [`assets/`](assets/). Produced by a five-thread agentic
@@ -11,7 +11,7 @@ workflow-verified, 19 re-verified inline; 0 refuted, 14 revised with corrections
 
 ---
 
-## 1. Key Judgments
+## 1. Key Findings
 
 1. **Raw media volume inverts the truth of this theater.** Iran generates 138,060 scoped
    document-rows — 2× any rival — but 82% is its own state media, and only **7.6% of its 3,651
@@ -333,12 +333,12 @@ the durable ones (Arbaeen, Hejaz railway, Huawei ICT competitions) are standing 
 
 ---
 
-## 8. Intelligence Gaps & Collection Priorities
+## 8. Data Gaps & Coverage Priorities
 
 **What this corpus cannot tell you.**
 - **Russia's and Turkey's narrative projection is unmeasurable** — zero domestic-geofocus
   outlets ingested. We can measure what the region's media says about them, not what they say
-  about themselves. *Collection priority #1: ingest RT Arabic/Sputnik Arabic and TRT/Anadolu
+  about themselves. *Coverage priority #1: ingest RT Arabic/Sputnik Arabic and TRT/Anadolu
   Arabic feeds so the self-report metric works for all four actors.*
 - **The corroboration gate binds only on Iran**, so gated cross-actor comparisons carry a
   composition asymmetry (flagged wherever material). Priority #2: curate
@@ -356,7 +356,7 @@ the durable ones (Arbaeen, Hejaz railway, Huawei ICT competitions) are standing 
 - **Absence of reporting ≠ absence of activity**, especially for closed actors and
   low-coverage recipients (Yemen, Libya, Cyprus).
 
-**Watch questions for collectors:** Does Hejaz Railway progress past MOU? Does China's Basra
+**Watch questions for future coverage:** Does Hejaz Railway progress past MOU? Does China's Basra
 pipeline resume? Does Iran's GCC détente survive its first crisis test? Does Russia convert El
 Dabaa milestones into any second Egyptian lane? Who staffs the US–Iran channel — Muscat, Ankara,
 or Beijing?

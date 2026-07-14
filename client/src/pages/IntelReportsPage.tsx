@@ -30,10 +30,15 @@ export default function IntelReportsPage() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Intel Reports</h1>
+        <h1>Insight Reports</h1>
         <p>
-          Finished intelligence products generated from the corpus — provenance-normalized,
+          Analytic insight reports generated from the corpus — provenance-normalized,
           initiative-grain analysis with verified findings. Media corpus 2024-08 onward.
+        </p>
+        <p className="ir-disclaimer">
+          AI-assisted analytical products generated from open-source media with automated
+          verification. Not intelligence community products; they do not represent IC
+          tradecraft or review standards.
         </p>
       </div>
 

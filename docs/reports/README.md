@@ -1,9 +1,13 @@
 # MENA Soft-Power Influence Assessments — China, Iran, Russia, Turkey (+ U.S.)
-### Cross-Actor Synthesis for U.S. Decision-Makers
+### Cross-Actor Synthesis for Policy Analysis
 
 *Open-source media corpus, 2024-08-01 to 2026-06-15. Method, scope, and caveats per
-[`../INTEL_REPORT_PROMPT.md`](../INTEL_REPORT_PROMPT.md). All intensity figures are
+[`../INSIGHT_REPORT_PROMPT.md`](../INSIGHT_REPORT_PROMPT.md). All intensity figures are
 **third-party-corroborated** (excluding the initiator's own state media), distinct-document basis.*
+
+> **Scope note:** These are AI-assisted analytical products generated from open-source media
+> with automated verification. They are not intelligence community products and do not
+> represent IC tradecraft or review standards.
 
 ## Reports
 - **[MENA Theater Assessment](mena_theater/report.md)** — the cross-actor synthesis: initiative-grain

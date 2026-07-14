@@ -1,15 +1,15 @@
 # Who Courts Qatar? A Cross-Initiator Influence Assessment
-### China · Iran · Russia · Turkey · United States — for U.S. Decision-Makers
+### China · Iran · Russia · Turkey · United States — for Policy Analysis
 
 *Open-source media corpus, 2024-08-01 to 2026-06-15. Method/caveats per
-`../../INTEL_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
+`../../INSIGHT_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
 coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)**.*
 
 > **Hedging profile: single-patron (United States-dominated).** Lead actor: **U.S.** (49% of external attention).
 
 ---
 
-## 1. Key Judgments (BLUF)
+## 1. Key Findings (BLUF)
 
 - **Qatar is a single-patron file — U.S.-dominated (49%)**, with no rival close. **(H)**
 - **Division of labor by instrument:** Economic→**U.S.**, Social→**China**, Military→**U.S.**, Diplomacy→**U.S.**. **(H)**
@@ -81,4 +81,4 @@ passing on another country's initiative — e.g., regional spillover) were exclu
 ---
 
 *Visuals plot corroborated/registered influence; underlying numbers in sibling CSVs under `assets/`.
-Index: [`../README.md`](../README.md). Method: `docs/INTEL_REPORT_PROMPT.md`.*
+Index: [`../README.md`](../README.md). Method: `docs/INSIGHT_REPORT_PROMPT.md`.*
