@@ -6,9 +6,9 @@
 
 **Author:** Matt Morris, Data Scientist
 
-**Version:** 4.0
+**Version:** 5.0
 
-**Date:** May 2026
+**Date:** July 2026
 
 ---
 
@@ -22,18 +22,21 @@
 6. [Prompt Engineering](#prompt-engineering)
 7. [Event Processing Pipeline](#event-processing-pipeline)
 8. [Entity and Relationship Extraction](#entity-and-relationship-extraction)
-9. [Agentic RAG System](#agentic-rag-system)
-10. [Interactive Visualization](#interactive-visualization)
-11. [Alerting and Notifications](#alerting-and-notifications)
-12. [Competing Influence Analysis](#competing-influence-analysis)
-13. [Research Projects](#research-projects)
-14. [Report Generation and Export](#report-generation-and-export)
-15. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
-16. [Alignment with Best Practices](#alignment-with-best-practices)
-17. [Technology Stack Validation](#technology-stack-validation)
-18. [Knowledge Distillation](#knowledge-distillation)
-19. [Limitations and Future Directions](#limitations-and-future-directions)
-20. [Conclusion](#conclusion)
+9. [Source Provenance and Bias Control](#source-provenance-and-bias-control)
+10. [Agentic RAG System](#agentic-rag-system)
+11. [Interactive Visualization](#interactive-visualization)
+12. [Alerting and Notifications](#alerting-and-notifications)
+13. [Competing Influence Analysis](#competing-influence-analysis)
+14. [Research Projects](#research-projects)
+15. [Report Generation and Export](#report-generation-and-export)
+16. [Generated Intelligence Products](#generated-intelligence-products)
+17. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
+18. [Alignment with Best Practices](#alignment-with-best-practices)
+19. [Technology Stack Validation](#technology-stack-validation)
+20. [Knowledge Distillation](#knowledge-distillation)
+21. [Deployment and Security Posture](#deployment-and-security-posture)
+22. [Limitations and Future Directions](#limitations-and-future-directions)
+23. [Conclusion](#conclusion)
 
 ---
 
@@ -55,6 +58,12 @@ Evaluations demonstrated that GAI models not only excelled in categorizing artic
 - **Compare competing influence** across multiple countries in a single view
 - **Support research workflows** with document collection and project-scoped analysis
 - **Generate publication-ready reports** with Word document export
+- **Control for media-source bias** through source-provenance classification and a corroborated-initiative metric (see [Source Provenance and Bias Control](#source-provenance-and-bias-control))
+- **Produce finished intelligence assessments** via an agentic investigation pipeline with adversarial verification of every finding, served in-app with interactive figures and click-through evidence tracing (see [Generated Intelligence Products](#generated-intelligence-products))
+
+At current scale the platform manages ~765K documents spanning 23 months of coverage,
+consolidated into ~11K canonical events and ~13.5K resolved entities with full
+event-to-document traceability.
 
 The black-box nature of GAI inference poses an ongoing risk that this project mitigates through periodic evaluations of GAI outputs to monitor performance, with exploration of training student models using GAI outputs as a contingency.
 
@@ -254,6 +263,9 @@ Soft Power DB (pgvector) → Publication (Dashboard, Reports, Agent UI)
 | Storage | AWS S3, Redis (caching) |
 | Embeddings | Nomic Embed Text v1.5 (open-source) |
 
+*Note: for historical reasons the LLM API key is configured via the environment variable
+`CLAUDE_KEY` — it is the OpenAI(-compatible) key used by all generative steps.*
+
 ---
 
 ## Prompt Engineering
@@ -277,8 +289,8 @@ Beyond salience and categorization, prompt engineering enabled additional tasks:
 | Task | Description |
 |------|-------------|
 | **Summarization** | Distilled text retaining only soft power-relevant content |
-| **Geolocation** | Inferring latitude/longitude when explicit coordinates were missing |
-| **Monetary Extraction** | Normalizing funding amounts into USD |
+| **Geolocation** | Inferring latitude/longitude when explicit coordinates were missing (97.7% populated) |
+| **Monetary Extraction** | Capturing announced funding amounts when stated in text (populated for ~25% of documents as free text; suitable for named-deal citation, not aggregation — see Limitations) |
 | **Event Naming** | Creating descriptive titles for event-level tracking |
 
 ### Evolution with Newer Models
@@ -418,13 +430,20 @@ Consolidates `daily_event_mentions` from child to master events:
 **Result:** Master events now span multiple days with consolidated mentions and full document traceability.
 
 #### Step 8: Materiality Scoring (Stage 3)
-Assigns materiality scores (1.0-10.0) to events:
+Assigns materiality scores (1.0-10.0) to events using ten granular anchors (the canonical
+scale, used everywhere materiality appears in the platform):
 
 | Score | Description | Dollar Threshold |
 |-------|-------------|------------------|
-| 1-3 | Symbolic: statements, cultural events | < $1M |
-| 4-6 | Notable: agreements, capacity building | $1M - $500M |
-| 7-10 | Concrete: infrastructure, financial commitments | > $500M |
+| 1-2 | Routine diplomatic activity | < $1M |
+| 3-4 | Notable but limited impact | $1M - $50M |
+| 5-6 | Significant regional event | $50M - $500M |
+| 7-8 | Major bilateral development | $500M - $5B |
+| 9-10 | Strategic/transformative event | > $5B |
+
+In production data the observed range is 2–9 with a mean near 4.7 — the granular anchors
+prevent score clustering at the midpoint. The score is an LLM judgment of significance, not
+a measured outcome, and each score is stored with its written justification.
 
 #### Step 9: Summary Generation
 Events filtered by country and run through GAI to build summaries with:
@@ -730,6 +749,64 @@ Classifies generic co-occurrences into typed relationships:
 
 ---
 
+## Source Provenance and Bias Control
+
+A corpus of media reporting is not a ledger of real-world activity — it is a record of
+*attention*, and attention is unevenly supplied. The platform's single largest measured bias
+is source composition: the ingested corpus over-indexes heavily on Iranian state media
+(dozens of Iran-focused outlets; the highest-volume sources in the corpus are all Iranian
+state organs). On raw document counts, Iran appears to dominate regional influence activity;
+roughly four-fifths of that apparent footprint is Iran's own media describing Iran's own
+activities. Left uncorrected, every cross-actor comparison in the platform would inherit
+this artifact.
+
+Rather than treating the bias as a caveat, the platform turns it into a **measured signal**
+with a two-part methodology:
+
+### Provenance Classification
+
+Every document carries a `source_geofocus` attribute identifying the geographic focus of its
+outlet. For any initiator→recipient relationship, each document is classified:
+
+- **Self-reported** — the outlet belongs to the initiator's own media ecosystem
+- **Third-party** — recipient-country or neutral outlets
+
+The ratio of self-reported to third-party coverage is itself analytically meaningful: a
+relationship carried overwhelmingly by the initiator's own media is a *narrative-projection*
+signal (what the actor wants said), while third-party-carried coverage is a
+*corroborated-traction* signal (what others independently observed). All cross-actor
+magnitudes in the platform's analytical products are computed on the third-party basis, with
+raw counts shown only as contrast.
+
+One asymmetry must be stated honestly: the classification is only as good as corpus
+composition. The current corpus contains many initiator-domestic outlets for Iran, few for
+China, and none for Russia or Turkey — so the self-report ratio is a valid projection
+measure only where domestic outlets are actually ingested. For the others, third-party
+volume is simply the intensity measure. Expanding domestic-outlet coverage for all tracked
+actors is a standing collection priority.
+
+### The Corroborated-Initiative Metric
+
+Provenance classification composes with event consolidation to produce the platform's
+honest unit of analysis: the **corroborated initiative** — a named canonical event gated at
+≥50% third-party coverage from ≥3 independent outlets. Article counts measure attention;
+gated initiative counts measure independently attested activity. In practice the gate is
+transformative: the majority of one actor's extracted events fail it while roughly
+two-thirds or more of its rivals' events pass, inverting naive volume rankings.
+
+Derived analytics built on this method (per-relationship provenance intensity, the
+initiative ledger with per-event corroboration shares, and source-provenance maps) are
+materialized in a dedicated `analytics` schema, documented with migration-ready DDL, and
+feed both the generated intelligence products and candidate first-class app features.
+
+> **Best Practice Alignment**: This implements the "measurement validity" principle for
+> observational data: identify the generating process of the data (media attention),
+> quantify its known biases, and construct estimators robust to them — rather than
+> reporting raw counts whose face validity is illusory. Publishing both raw and corrected
+> metrics side-by-side preserves auditability.
+
+---
+
 ## Agentic RAG System
 
 To enable dynamic, conversational access to the soft power data, the project developed an **Agentic RAG (Retrieval-Augmented Generation)** system. This system combines semantic search with structured analytics tools, allowing users to ask natural language questions and receive data-driven answers.
@@ -755,15 +832,22 @@ User Query → Tool Selection (LLM) → Tool Execution → Response Generation (
 - The LLM synthesizes a coherent, factual response
 - Sources are tracked for attribution
 
+> **Implementation note:** two generations of this capability coexist. The production chat
+> path (the React "Research" page) uses the **layered RAG architecture** described later in
+> this section — deterministic strategic-context lookup plus semantic event and document
+> retrieval with entity-aware boosting. The seven-tool selection agent described immediately
+> below is the earlier iteration, retained in the Streamlit dashboard and the experimental
+> Agent workflow page.
+
 ### Available Tools
 
 The agent has access to seven specialized tools:
 
 | Tool | Purpose | Use Cases |
 |------|---------|-----------|
-| **search_events** | Semantic search across event summaries | "What events involve China and Africa?" |
-| **search_documents** | Search source documents | "Find detailed information about BRI projects" |
-| **get_country_stats** | Activity statistics for a country | "How active is Russia in Latin America?" |
+| **search_events** | Semantic search across event summaries | "What events involve China and Egypt?" |
+| **search_documents** | Search source documents | "Find detailed information about BRI projects in the Suez Canal Zone" |
+| **get_country_stats** | Activity statistics for a country | "How active is Russia in Syria?" |
 | **get_bilateral_summary** | Relationship summary between countries | "What is China's relationship with Egypt?" |
 | **get_trending_events** | Currently trending events | "What are the latest soft power activities?" |
 | **get_category_trends** | Category trend analysis | "How has economic cooperation evolved?" |
@@ -912,6 +996,12 @@ This architecture ensures responses are grounded in both high-level analytical p
 
 The system provides two primary user interfaces for interacting with soft power data: a **conversational chat interface** and an **entity network visualization**.
 
+> **Implementation note:** the React application is the primary UI (30+ pages including the
+> Research chat, event/entity detail pages, competing-influence views, and the Intel Reports
+> viewer described in [Generated Intelligence Products](#generated-intelligence-products)).
+> The Streamlit-specific implementations described below (session-state filters, the pyvis
+> network) remain available in the analytics dashboard.
+
 ### Chat with Data Interface
 
 The "Chat with Data" page provides a conversational interface powered by the agentic RAG system.
@@ -931,8 +1021,8 @@ The "Chat with Data" page provides a conversational interface powered by the age
 5. Sources shown in expandable section with relevance scores
 
 **Example Queries:**
-- "What recent events involve China and Africa?"
-- "How has China's engagement with Latin America evolved?"
+- "What recent events involve China and Saudi Arabia?"
+- "How has Iran's engagement with Iraq evolved?"
 - "What is the relationship between China and Egypt?"
 - "What cultural events has Turkey organized recently?"
 
@@ -966,34 +1056,28 @@ The "Entity Network" page provides an interactive graph visualization of entitie
 - **Edge Color**: Based on relationship type
 - **Arrow Direction**: Shows relationship direction (source → target)
 
-**Entity Type Colors:**
+**Entity Type Colors** (the five production entity types — see
+[Entity and Relationship Extraction](#entity-and-relationship-extraction)):
 
 | Entity Type | Color |
 |-------------|-------|
-| PERSON | Red (#FF6B6B) |
-| GOVERNMENT_AGENCY | Teal (#4ECDC4) |
-| STATE_OWNED_ENTERPRISE | Blue (#45B7D1) |
-| PRIVATE_COMPANY | Orange (#FFA07A) |
-| MULTILATERAL_ORG | Green (#98D8C8) |
-| FINANCIAL_INSTITUTION | Light Green (#6BCB77) |
-| EDUCATIONAL_INSTITUTION | Yellow (#FFD93D) |
-| NGO | Purple (#C7CEEA) |
-| MILITARY_UNIT | Pink (#FF6B9D) |
-| MEDIA_ORGANIZATION | Violet (#C780E8) |
-| RELIGIOUS_ORGANIZATION | Brown (#DDA15E) |
+| PERSON | Red |
+| ORGANIZATION | Teal |
+| COMPANY | Blue |
+| LOCATION | Yellow |
+| OTHER | Gray |
 
-**Relationship Type Colors:**
+**Relationship Type Colors** (the nine production relationship types):
 
 | Relationship Type | Color |
 |-------------------|-------|
-| FUNDS | Green |
-| INVESTS_IN | Teal |
-| PARTNERS_WITH | Yellow |
-| MEETS_WITH | Red |
-| REPRESENTS | Purple |
-| SUPPLIES | Orange |
-| CONTRACTS_WITH | Blue |
-| SIGNS_AGREEMENT | Light Green |
+| works_with | Yellow |
+| partnered_with | Teal |
+| signed_agreement_with | Light Green |
+| leads / employed_by / represents | Purple family |
+| visited | Red |
+| located_in | Orange |
+| co_occurrence (fallback) | Gray |
 
 **Interactive Features:**
 - **Hover**: View entity/relationship details in tooltip
@@ -1401,19 +1485,87 @@ Reports can be exported to Microsoft Word format (.docx):
 
 ### Materiality Scoring Enhancement
 
-Report generation leverages improved materiality scoring with **10 granular anchors**:
-
-| Score | Description | Dollar Threshold |
-|-------|-------------|------------------|
-| 1-2 | Routine diplomatic activity | < $1M |
-| 3-4 | Notable but limited impact | $1M - $50M |
-| 5-6 | Significant regional event | $50M - $500M |
-| 7-8 | Major bilateral development | $500M - $5B |
-| 9-10 | Strategic/transformative event | > $5B |
-
-This prevents score clustering and provides better differentiation for report prioritization.
+Report generation uses the canonical 10-anchor materiality scale defined in the
+[Event Processing Pipeline](#event-processing-pipeline) (Step 8). The granular anchors
+prevent score clustering and provide better differentiation for report prioritization.
 
 > **Best Practice Alignment**: Report generation follows document automation best practices: template-based formatting for consistency, section toggles for customization, and citation management with hyperlinks for verifiability. The granular materiality scoring with explicit anchors implements the "calibrated confidence" pattern, making AI-generated scores interpretable and actionable.
+
+---
+
+## Generated Intelligence Products
+
+The platform's most advanced capability — added in mid-2026 — moves generative AI from the
+*factual/moderate* band of the capability spectrum into supervised *analytic* territory:
+autonomously produced, finished intelligence assessments whose every finding passes
+adversarial verification before publication.
+
+### The Product Set
+
+Version-controlled markdown assessments with charts and per-figure audit data, covering the
+theater from three angles:
+
+| Product | Scope |
+|---|---|
+| **MENA Theater Assessment** | Cross-actor synthesis: influence market, contested terrain, initiative ledger, actor networks, temporal dynamics, early warning |
+| **Initiator deep dives** (5) | China, Iran, Russia, Turkey, plus a relational U.S. assessment |
+| **Category contests** (3) | Economic, Military, Social — cross-actor within one instrument |
+| **Recipient cards** (17) | "Who courts X?" for each MENA state |
+
+All magnitudes in these products use the provenance-corrected, initiative-grain metrics
+described in [Source Provenance and Bias Control](#source-provenance-and-bias-control).
+
+### The Agentic Investigation Pipeline
+
+Reports are not generated in a single LLM pass over summary tables. An agentic harness runs
+a **hypothesis-driven investigation** with direct read access to the raw data (SQL, vector
+search, the entity graph):
+
+```
+1. Index & baseline     — scope the data; compute provenance normalization first
+2. Parallel threads     — independent sub-investigations (influence signature,
+                          competition, networks, temporal dynamics, initiative ledger),
+                          each emitting candidate findings with evidence (queries,
+                          event IDs, actual returned numbers)
+3. Adversarial verify   — every finding is attacked by independent verifier agents
+                          through two lenses: data integrity (re-run the query — do the
+                          numbers reproduce? do the cited events exist?) and bias
+                          artifact (could source composition alone produce this?)
+4. Synthesis            — the report is assembled from surviving findings only, each
+                          carrying a confidence tag; refuted findings are dropped and
+                          revised findings carry corrected numbers
+5. Completeness pass    — a final check for uninvestigated questions and thin threads
+```
+
+In the theater assessment production run, 57 findings entered verification; none were
+refuted outright and 14 were revised with corrected numbers or added caveats — several of
+the revisions caught genuine artifacts (e.g., a concentration ranking contaminated by
+recipient-side media) that would otherwise have shipped.
+
+### In-App Delivery with Evidence Tracing
+
+The finished products are served inside the React application ("Intel Reports"), not as
+static files:
+
+- **Interactive figures.** Every report chart ships its underlying numbers as a sidecar CSV
+  for auditability; the viewer hydrates these into interactive charts (tooltips, legends,
+  a Chart/Figure/Data toggle) by sniffing the CSV's column signature. Chart shapes that
+  can't be honestly reproduced interactively (heatmaps, maps, network graphs) remain as
+  the original rendered figures.
+- **Click-through evidence.** Initiative charts are drillable: clicking a named initiative
+  traces it back through the event-consolidation chain to its canonical event and the
+  source documents behind it — each document flagged self-reported vs third-party — with a
+  deep link to the full event page. A report claim is thus never more than two clicks from
+  its primary sources.
+- **Filesystem-driven discovery.** New report products dropped into the repository appear
+  in the application automatically; the reports are versioned artifacts that ship with
+  releases.
+
+> **Best Practice Alignment**: This capability operationalizes two safeguards the paper's
+> risk framework has always required for analytic-band GAI use: *independent verification*
+> (adversarial agents attempting to refute each finding before it ships) and *auditability*
+> (persisted evidence, per-figure data, and click-through source tracing). It is the
+> platform's fullest expression of the "verifiable AI" principle.
 
 ---
 
@@ -1428,7 +1580,7 @@ This prevents score clustering and provides better differentiation for report pr
 | Full extraction | GPT-4o |
 | Deduplication, sourcing, clustering | GPT-4.1 |
 
-**Open-source embeddings** (MiniLM-L6-v2) for chunking and retrieval significantly reduced token costs.
+**Open-source embeddings** (Nomic Embed Text v1.5 for retrieval, with a MiniLM cross-encoder reranker) significantly reduced token costs.
 
 ### Scalable High-Signal Artifacts
 
@@ -1570,9 +1722,11 @@ This section validates claimed capabilities against actual implementation status
 | **DBSCAN Clustering** | ✅ FULL | `services/pipeline/events/`, `services/pipeline/entities/` | eps=0.12-0.15, cosine distance |
 | **GPT-4/GPT-4o** | ✅ FULL | `server/`, `services/pipeline/` | gpt-4o-mini, gpt-4o, gpt-4.1 via OpenAI SDK |
 | **Sentence Transformers** | ✅ FULL | `services/pipeline/embeddings/` | Nomic Embed Text v1.5 (entities/events) |
-| **React Frontend** | ✅ FULL | `client/src/pages/` | 28 pages, React 19.2, TypeScript, Vite |
+| **React Frontend** | ✅ FULL | `client/src/pages/` | 30+ pages, React 19.2, TypeScript, Vite |
 | **Streamlit Dashboard** | ✅ FULL | `services/dashboard/pages/` | 23 pages, analytics UI |
-| **FastAPI** | ✅ FULL | `server/main.py` | 103+ endpoints, Redis caching |
+| **FastAPI** | ✅ FULL | `server/main.py` + `server/routers/` | 100+ endpoints (router extraction in progress), Redis caching |
+| **Intel Reports Viewer** | ✅ FULL | `server/routers/intel_reports.py`, `client/src/pages/IntelReport*` | Filesystem-driven report discovery, CSV-hydrated interactive charts, evidence drill-down |
+| **Provenance Analytics** | ✅ FULL | `analytics` schema, `docs/reports/_derived/` | Provenance intensity, initiative ledger, changepoints, blocs, themes |
 | **Word Document Export** | ✅ FULL | `server/report_exporter.py` | python-docx, template-based |
 | **Research Projects** | ✅ FULL | `shared/models/research_project_models.py` | User-scoped document collections |
 | **Alerting System** | ✅ FULL | `shared/models/alert_models.py`, `server/alert_evaluator.py` | 4 condition types, multi-channel |
@@ -1589,7 +1743,7 @@ This section validates claimed capabilities against actual implementation status
 |---------|----------------------|----------|
 | GPT-4o for extraction | ✅ Implemented | `server/main.py`: model parameter defaults |
 | GPT-4o-mini for salience | ✅ Implemented | `services/pipeline/batch/utils/cost_estimator.py` |
-| Sentence Transformers | ✅ Implemented (different model) | Claims MiniLM-L6-v2; uses **Nomic Embed Text v1.5** |
+| Sentence Transformers | ✅ Implemented | **Nomic Embed Text v1.5** for retrieval; MiniLM cross-encoder as reranker (earlier versions of this paper mis-cited MiniLM-L6-v2 as the retrieval model — corrected as of v4.0/v5.0) |
 | HDBSCAN clustering | ⚠️ Not in production | DBSCAN used; HDBSCAN only in `_archive/` |
 | DistilBERT distillation | ⚠️ Evaluated only | F1=0.81 reported; no deployed model found |
 
@@ -1678,7 +1832,11 @@ To reduce long-term costs and enable offline deployment, the project explored **
 
 ### Classification Distillation Results
 
-In evaluation experiments using GPT-4o's synthetic labels, the **DistilBERT student model** achieved:
+The feasibility evaluation was run on a public benchmark corpus (Congressional bill texts
+with 19 topic labels) rather than the soft-power corpus itself — chosen because it offered
+a large, clean multi-class classification task for measuring how well a student model
+learns from GAI-generated labels. In these experiments using GPT-4o's synthetic labels, the
+**DistilBERT student model** achieved:
 
 | Metric | Score |
 |--------|-------|
@@ -1708,9 +1866,55 @@ Knowledge distillation provides a viable path toward:
 
 ---
 
+## Deployment and Security Posture
+
+The platform is packaged for environments where supply-chain assurance and restricted
+connectivity are requirements, not preferences:
+
+- **Self-contained application image** (~2 GB): FastAPI + React + Streamlit + migration
+  tooling managed by supervisord, with the embedding model (Nomic Embed v1.5) and reranker
+  **baked in at build time** — embedding generation and RAG retrieval work fully offline.
+  Finished intelligence reports ship inside the image and are discovered from its
+  filesystem.
+- **Supply-chain attestations on every release**: images are built with `--pull` against
+  digest-pinned bases and pushed with **SBOM and provenance (mode=max) attestations**;
+  base-image digests are re-resolved at each release.
+- **Hardened runtime defaults**: non-root user, build toolchain removed after compilation,
+  health checks, and (in the hardened compose profile) `no-new-privileges` with all
+  capabilities dropped. A dedicated deployment path exists for enterprise daemons that
+  forbid `docker exec` and bridge networking.
+- **CVE management**: base images tracked for zero fixable critical/high CVEs, with a
+  documented mitigation report and an enterprise exception-request template.
+- **Access control**: JWT authentication with role-based authorization (admin / analyst /
+  viewer), forced password change on first admin login, and user-scoped research projects.
+- **Data portability**: chunked binary database export/import, separate fast-restore
+  Parquet backups for embeddings (minutes instead of the ~45 hours regeneration would
+  take), and additive import for incremental data transfer between environments.
+
+---
+
 ## Limitations and Future Directions
 
 ### Current Limitations
+
+#### Media-Source Bias (the dominant limitation)
+- **Current**: The corpus is media reporting, not ground truth, and its source composition
+  is heavily skewed — Iranian state outlets contribute a large plurality of all documents,
+  while some tracked actors have no domestic outlets ingested at all
+- **Challenge**: Raw volume comparisons across actors are structurally misleading; the
+  provenance-corrected metrics (see [Source Provenance and Bias Control](#source-provenance-and-bias-control))
+  control for this but can only be as symmetric as the corpus allows
+- **Future**: Ingest domestic-outlet feeds for all tracked actors so self-report ratios are
+  measurable symmetrically; complete the curated per-outlet provenance classification
+
+#### Monetary Extraction Fidelity
+- **Current**: Announced amounts are captured as free text for only ~25% of documents, in
+  inconsistent formats; figures are *announced*, not verified, and prone to multi-counting
+  across repeated coverage of the same deal
+- **Challenge**: Unsuitable for aggregate financial comparison; valid only for named-deal
+  citation with outlet counts
+- **Future**: Structured monetary parsing with deduplication at the initiative grain;
+  corroboration against verified finance datasets where windows overlap
 
 #### Deduplication Fidelity
 - **Current**: Monthly fidelity, not ground-truth index
@@ -1731,6 +1935,15 @@ Knowledge distillation provides a viable path toward:
 - **Current**: GPT-4.1 performance high, costs remain high
 - **Challenge**: Large-scale ingestion not sustainable long-term
 - **Future**: Hybrid frontier + student/open-source models
+
+#### Vendor Dependence
+- **Current**: All generative steps (salience, extraction, deconfliction, narratives) run
+  against a single commercial LLM provider; embeddings and reranking are already
+  open-source and offline
+- **Challenge**: Pricing, deprecation, or availability changes propagate through the whole
+  pipeline
+- **Future**: Provider-abstraction layer and the evaluated distillation pathway as
+  contingencies; periodic re-benchmarking of open-weight models against production prompts
 
 ### Risk Management
 
@@ -1785,6 +1998,8 @@ The system has evolved from a document categorization tool to a comprehensive so
 | Competing Influence | Recharts + RAG assessment | Multi-influencer comparison |
 | Research Projects | Project-scoped RAG | Curated document collections |
 | Report Generation | GPT-4o + python-docx | Publication-ready Word export |
+| Provenance Analytics | source_geofocus + derived analytics schema | Bias-corrected, corroborated-initiative metrics |
+| Intelligence Products | Agentic investigation + adversarial verification | Finished assessments with in-app evidence tracing |
 
 As GAI technology continues to advance with improved accuracy, reduced costs, and expanded context windows, the framework established by this project positions the soft power analytics capability for continued evolution and enhancement.
 
@@ -1840,62 +2055,46 @@ The combination of frontier models for complex reasoning (GPT-4o, GPT-4.1), open
 
 ## Appendix: Entity and Relationship Schema
 
-### Entity Types (11)
+*This appendix documents the production taxonomy as implemented (an earlier design draft
+proposed a finer-grained schema — 11 entity types, 25 roles, 30 topic labels — which was
+consolidated to the set below during implementation for extraction reliability).*
+
+### Entity Types (5)
 
 | Type | Description |
 |------|-------------|
 | PERSON | Individual officials, executives, diplomats |
-| GOVERNMENT_AGENCY | Ministries, departments, embassies |
-| STATE_OWNED_ENTERPRISE | Government-controlled companies |
-| PRIVATE_COMPANY | Privately owned businesses |
-| MULTILATERAL_ORG | International bodies (UN, BRICS, SCO) |
-| NGO | Non-governmental organizations |
-| EDUCATIONAL_INSTITUTION | Universities, research institutes |
-| FINANCIAL_INSTITUTION | Banks, investment funds |
-| MILITARY_UNIT | Armed forces, defense ministries |
-| MEDIA_ORGANIZATION | News outlets, broadcasters |
-| RELIGIOUS_ORGANIZATION | Religious bodies |
+| ORGANIZATION | Government agencies, NGOs, international bodies |
+| COMPANY | Private and state-owned enterprises |
+| LOCATION | Cities, venues, facilities, projects |
+| OTHER | Entities not fitting other categories |
 
-### Role Labels (25)
+### Role Labels (14)
 
-**Diplomatic:** HEAD_OF_STATE, DIPLOMAT, NEGOTIATOR, GOVERNMENT_OFFICIAL, LEGISLATOR
+**Government/Diplomatic:** `government_official`, `diplomat`, `military_official`
 
-**Economic:** FINANCIER, INVESTOR, CONTRACTOR, DEVELOPER, TRADE_PARTNER, OPERATOR
+**Business:** `business_leader`
 
-**Military:** MILITARY_OFFICIAL, DEFENSE_SUPPLIER, TRAINER
+**Cultural/Social:** `cultural_figure`, `academic`, `media_figure`, `civil_society`
 
-**Cultural/Social:** CULTURAL_INSTITUTION, EDUCATOR, MEDIA_ENTITY, RELIGIOUS_ENTITY, HUMANITARIAN
+**Organizational:** `implementing_organization`, `funding_organization`, `recipient_institution`
 
-**Transaction:** BENEFICIARY, HOST, LOCAL_PARTNER, FACILITATOR, SIGNATORY
+**Project/Location:** `infrastructure_project`, `venue`, `other`
 
-### Topic Labels (30)
-
-**Economic:** INFRASTRUCTURE, ENERGY, FINANCE, TRADE, TECHNOLOGY, TELECOMMUNICATIONS, TRANSPORTATION, AGRICULTURE, MINING, MANUFACTURING
-
-**Diplomatic:** BILATERAL_RELATIONS, MULTILATERAL_FORUMS, CONFLICT_MEDIATION, TREATY_NEGOTIATION
-
-**Military:** ARMS_TRADE, MILITARY_COOPERATION, DEFENSE_TRAINING, SECURITY_ASSISTANCE
-
-**Social:** EDUCATION, HEALTHCARE, CULTURE, MEDIA, RELIGION, HUMANITARIAN_AID, TOURISM
-
-### Relationship Types (14)
+### Relationship Types (9 + fallback)
 
 | Type | Description |
 |------|-------------|
-| FUNDS | Provides money/financing to |
-| INVESTS_IN | Makes equity investment in |
-| CONTRACTS_WITH | Has contract/agreement with |
-| PARTNERS_WITH | Forms partnership/JV with |
-| SIGNS_AGREEMENT | Signs formal agreement with |
-| MEETS_WITH | Has meeting/diplomatic encounter with |
-| EMPLOYS | Has employment relationship with |
-| OWNS | Has ownership stake in |
-| REPRESENTS | Officially represents (person → org) |
-| HOSTS | Hosts event/visit for |
-| TRAINS | Provides training to |
-| SUPPLIES | Provides goods/equipment to |
-| MEDIATES | Mediates between parties |
-| ANNOUNCES | Makes public announcement about |
+| works_with | Colleagues at same level (person-person) |
+| employed_by | Person works for organization |
+| leads | Person heads/directs organization |
+| represents | Person acts as envoy/representative |
+| partnered_with | Organizations in formal partnership |
+| subsidiary_of | Organization is part of parent |
+| located_in | Organization/person based in location |
+| visited | Person traveled to location |
+| signed_agreement_with | Entities signed agreement together |
+| co_occurrence | Fallback when evidence insufficient for a typed label |
 
 ---
 
@@ -1928,4 +2127,6 @@ The combination of frontier models for complex reasoning (GPT-4o, GPT-4.1), open
 
 ---
 
-*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 4.0 includes: updated event processing pipeline documentation reflecting the canonical events two-stage architecture; expanded entity and relationship extraction pipeline with full Stage 1-3 workflow; comprehensive technology stack validation table comparing claimed vs. actual implementation status; and corrected technology references (DBSCAN, Nomic Embed Text v1.5, React frontend).*
+*This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 4.0 included: updated event processing pipeline documentation reflecting the canonical events two-stage architecture; expanded entity and relationship extraction pipeline with full Stage 1-3 workflow; comprehensive technology stack validation table comparing claimed vs. actual implementation status; and corrected technology references (DBSCAN, Nomic Embed Text v1.5, React frontend).*
+
+*Version 5.0 (July 2026) adds: the Source Provenance and Bias Control methodology (provenance classification and the corroborated-initiative metric); the Generated Intelligence Products capability (agentic investigation with adversarial verification, in-app interactive reports with evidence tracing); a Deployment and Security Posture section; corpus scale figures; expanded limitations (media-source bias, monetary extraction fidelity, vendor dependence); a single canonical materiality scale; reconciliation of the entity/relationship appendix and network-visualization taxonomies with the production schema; MENA-scoped examples throughout; and a clarification of the knowledge-distillation benchmark corpus.*
