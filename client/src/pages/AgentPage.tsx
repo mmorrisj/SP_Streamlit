@@ -6,20 +6,25 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  FileBarChart,
   Loader2,
   MinusCircle,
   Play,
   Send,
   StopCircle,
+  Wrench,
   XCircle,
 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
-  sendAgentChat,
+  streamAgentConverse,
   streamAgentReport,
   type AgentReportRequest,
   type ChatScope,
   type ChatTurn,
-  type ChatTurnResponse,
+  type ConverseReportOfferScope,
+  type ConverseSourceDoc,
   type StageCompletePayload,
   type StageSkippedPayload,
   type StageStartedPayload,
@@ -59,163 +64,197 @@ type RunState = {
   stages: Record<string, StageState>
 }
 
+type ToolActivity = {
+  step: number
+  tool: string
+  args: Record<string, unknown>
+  status: 'running' | 'ok' | 'failed'
+  summary?: string | null
+}
+
 type ChatMessage =
   | { id: string; role: 'user'; type: 'text'; content: string }
-  | { id: string; role: 'assistant'; type: 'text'; content: string; action?: ChatTurnResponse['action']; ready_to_run?: boolean; seed?: boolean }
+  | {
+      id: string
+      role: 'assistant'
+      type: 'agent'
+      content: string
+      status: 'working' | 'done' | 'error'
+      tools: ToolActivity[]
+      sources?: ConverseSourceDoc[]
+      seed?: boolean
+    }
+  | { id: string; role: 'assistant'; type: 'offer'; scope: ConverseReportOfferScope; launched: boolean }
   | { id: string; role: 'assistant'; type: 'workflow'; run: RunState; scope_at_run: ChatScope }
 
-const CATEGORY_OPTIONS = ['Economic', 'Diplomacy', 'Social', 'Military']
-
-const defaultScope = (): ChatScope => ({
-  influencer: null,
-  recipient: null,
-  region: null,
-  start_date: null,
-  end_date: null,
-  category: null,
-  subcategory: null,
-  category_mode: 'flat',
-})
+const EXAMPLES = [
+  'Is Turkey really surging in Saudi Arabia, or is that media noise?',
+  "What are China's biggest corroborated initiatives in Egypt this year?",
+  "How has Iran's activity toward Iraq trended since the ceasefire?",
+  'Who are the key brokers between Russia and the new Syrian government?',
+  'Give me a full report on China–Egypt for the first half of 2026',
+]
 
 const newMessageId = () =>
   `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+const seedMessage = (): ChatMessage => ({
+  id: newMessageId(),
+  role: 'assistant',
+  type: 'agent',
+  status: 'done',
+  tools: [],
+  seed: true,
+  content:
+    'Ask me anything about soft-power activity in the corpus — I pull the data ' +
+    'I need (provenance-corrected volumes, corroborated initiatives, activity ' +
+    'trends, entities, verified report findings) and answer in whatever form ' +
+    'your question calls for. If a question is really a full report, I\'ll ' +
+    'offer to run the validated report pipeline.',
+})
 
 // =================================================================
 // Page
 // =================================================================
 
 export default function AgentPage() {
-  const [scope, setScope] = useState<ChatScope>(defaultScope)
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: newMessageId(),
-      role: 'assistant',
-      type: 'text',
-      // seed: UI-only greeting. Excluded from the history sent to the
-      // classifier so its example countries/dates don't bias the first query.
-      seed: true,
-      content:
-        "Hi — describe what you want a brief on, or set filters on the right and hit Run. For example: \"economic activity by China in the Middle East last 30 days\", or \"Russia's diplomatic engagements in Africa this quarter\".",
-    },
-  ])
-  const [isClassifying, setIsClassifying] = useState(false)
-  const [isRunning, setIsRunning] = useState(false)
+  const [messages, setMessages] = useState<ChatMessage[]>([seedMessage()])
+  const [isWorking, setIsWorking] = useState(false)      // converse turn in flight
+  const [isRunningReport, setIsRunningReport] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // tick every second while running so elapsed timers in workflow messages update
+  // tick every second while a report runs so elapsed timers update
   const [, forceTick] = useState(0)
   useEffect(() => {
-    if (!isRunning) return
+    if (!isRunningReport) return
     const t = setInterval(() => forceTick((n) => n + 1), 1000)
     return () => clearInterval(t)
-  }, [isRunning])
+  }, [isRunningReport])
 
-  // auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages])
 
-  const sendChat = useCallback(
+  const updateMessage = useCallback((id: string, mut: (m: ChatMessage) => ChatMessage) => {
+    setMessages((all) => all.map((m) => (m.id === id ? mut(m) : m)))
+  }, [])
+
+  // ----- conversational turn ------------------------------------------------
+
+  const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim()
-      if (!trimmed || isClassifying) return
+      if (!trimmed || isWorking) return
 
-      const userMsg: ChatMessage = {
-        id: newMessageId(),
-        role: 'user',
-        type: 'text',
-        content: trimmed,
-      }
-      setMessages((m) => [...m, userMsg])
-      setIsClassifying(true)
-
-      // Build server-side history shape from chat thread. Exclude UI-only
-      // seed messages (the greeting) so their example text never enters the
-      // classifier's context and biases the query.
+      // History = prior user + assistant answer text (skip seed / offers / workflows)
       const history: ChatTurn[] = messages
-        .filter((m) => m.type === 'text' && !(m as any).seed)
-        .map((m) => ({
-          role: m.role,
-          content: (m as any).content as string,
-        }))
+        .filter((m): m is Extract<ChatMessage, { type: 'text' } | { type: 'agent' }> =>
+          (m.type === 'text' || m.type === 'agent') && !(m as any).seed)
+        .map((m) => ({ role: m.role, content: m.content }))
+
+      const userMsg: ChatMessage = { id: newMessageId(), role: 'user', type: 'text', content: trimmed }
+      const agentId = newMessageId()
+      const agentMsg: ChatMessage = {
+        id: agentId, role: 'assistant', type: 'agent',
+        content: '', status: 'working', tools: [],
+      }
+      setMessages((m) => [...m, userMsg, agentMsg])
+      setIsWorking(true)
+
+      const ac = new AbortController()
+      abortRef.current = ac
 
       try {
-        const resp = await sendAgentChat({
-          message: trimmed,
-          history,
-          current_scope: scope,
-        })
-        setScope(resp.scope)
-        const reply: ChatMessage = {
-          id: newMessageId(),
-          role: 'assistant',
-          type: 'text',
-          content: resp.message,
-          action: resp.action,
-          ready_to_run: resp.ready_to_run,
-        }
-        setMessages((m) => [...m, reply])
+        await streamAgentConverse(
+          { message: trimmed, history },
+          {
+            onToolCall: (p) => {
+              updateMessage(agentId, (m) => m.type === 'agent'
+                ? { ...m, tools: [...m.tools, { step: p.step, tool: p.tool, args: p.arguments, status: 'running' }] }
+                : m)
+            },
+            onToolResult: (p) => {
+              updateMessage(agentId, (m) => m.type === 'agent'
+                ? {
+                    ...m,
+                    tools: m.tools.map((t) =>
+                      t.step === p.step
+                        ? { ...t, status: p.ok ? 'ok' : 'failed', summary: p.summary }
+                        : t),
+                  }
+                : m)
+            },
+            onReportOffer: (scope) => {
+              setMessages((all) => [
+                ...all,
+                { id: newMessageId(), role: 'assistant', type: 'offer', scope, launched: false },
+              ])
+            },
+            onAnswer: (answer) => {
+              updateMessage(agentId, (m) => m.type === 'agent'
+                ? { ...m, content: answer, status: 'done' }
+                : m)
+            },
+            onSources: (docs) => {
+              updateMessage(agentId, (m) => m.type === 'agent' ? { ...m, sources: docs } : m)
+            },
+            onError: (msg) => {
+              updateMessage(agentId, (m) => m.type === 'agent'
+                ? { ...m, content: `Something went wrong: ${msg}`, status: 'error' }
+                : m)
+            },
+          },
+          ac.signal,
+        )
       } catch (e: any) {
-        const errMsg: ChatMessage = {
-          id: newMessageId(),
-          role: 'assistant',
-          type: 'text',
-          content: `(error: ${String(e?.message || e)})`,
-        }
-        setMessages((m) => [...m, errMsg])
+        const reason = e?.name === 'AbortError' ? 'Stopped.' : `Request failed: ${String(e?.message || e)}`
+        updateMessage(agentId, (m) => m.type === 'agent'
+          ? { ...m, content: m.content || reason, status: e?.name === 'AbortError' ? 'done' : 'error' }
+          : m)
       } finally {
-        setIsClassifying(false)
+        abortRef.current = null
+        setIsWorking(false)
       }
     },
-    [isClassifying, messages, scope],
+    [isWorking, messages, updateMessage],
   )
 
-  const runWorkflow = useCallback(async () => {
-    if (isRunning) return
-    if (!scope.influencer || (!scope.recipient && !scope.region) || !scope.start_date || !scope.end_date) {
-      setMessages((m) => [
-        ...m,
-        {
-          id: newMessageId(),
-          role: 'assistant',
-          type: 'text',
-          content:
-            'Scope is incomplete — need influencer, recipient or region, and a date range.',
-        },
-      ])
-      return
-    }
+  // ----- full report pipeline (explicit, from an offer card) -----------------
 
+  const runReport = useCallback(async (offerId: string, scope: ConverseReportOfferScope) => {
+    if (isRunningReport) return
+    updateMessage(offerId, (m) => (m.type === 'offer' ? { ...m, launched: true } : m))
+
+    const scopeAtRun: ChatScope = {
+      influencer: scope.influencer,
+      recipient: scope.recipient,
+      region: scope.region,
+      start_date: scope.start_date,
+      end_date: scope.end_date,
+      category: scope.category,
+      subcategory: null,
+      category_mode: scope.category_mode || 'flat',
+    }
     const initialRun: RunState = {
-      run_id: null,
-      status: 'running',
-      error: null,
-      started_at: Date.now(),
-      finished_at: null,
-      stage_order: [],
-      stages: {},
+      run_id: null, status: 'running', error: null,
+      started_at: Date.now(), finished_at: null,
+      stage_order: [], stages: {},
     }
     const wfId = newMessageId()
     setMessages((m) => [
       ...m,
-      { id: wfId, role: 'assistant', type: 'workflow', run: initialRun, scope_at_run: scope },
+      { id: wfId, role: 'assistant', type: 'workflow', run: initialRun, scope_at_run: scopeAtRun },
     ])
-    setIsRunning(true)
+    setIsRunningReport(true)
 
     const ac = new AbortController()
     abortRef.current = ac
-
-    // helper: update the workflow message we just inserted
     const updateRun = (mut: (r: RunState) => RunState) => {
       setMessages((all) =>
-        all.map((m) =>
-          m.id === wfId && m.type === 'workflow'
-            ? { ...m, run: mut(m.run) }
-            : m,
-        ),
+        all.map((m) => (m.id === wfId && m.type === 'workflow' ? { ...m, run: mut(m.run) } : m)),
       )
     }
 
@@ -225,12 +264,9 @@ export default function AgentPage() {
       region: scope.region || undefined,
       start_date: scope.start_date,
       end_date: scope.end_date,
-      // category-mode passthrough — server respects category_mode=filter only
-      // when a category is supplied.
       ...(scope.category ? { category: scope.category } : {}),
-      ...(scope.subcategory ? { subcategory: scope.subcategory } : {}),
       ...(scope.category_mode ? { category_mode: scope.category_mode } : {}),
-    } as AgentReportRequest & { category?: string; subcategory?: string; category_mode?: string }
+    } as AgentReportRequest & { category?: string; category_mode?: string }
 
     try {
       await streamAgentReport(
@@ -241,12 +277,7 @@ export default function AgentPage() {
             p.stage_names.forEach((name, index) => {
               stages[name] = { name, index, status: 'pending' }
             })
-            updateRun((r) => ({
-              ...r,
-              run_id: p.run_id,
-              stage_order: p.stage_names,
-              stages,
-            }))
+            updateRun((r) => ({ ...r, run_id: p.run_id, stage_order: p.stage_names, stages }))
           },
           onStageStarted: (p: StageStartedPayload) => {
             updateRun((r) => ({
@@ -300,270 +331,193 @@ export default function AgentPage() {
             }))
           },
           onWorkflowError: (msg: string) => {
-            updateRun((r) => ({
-              ...r,
-              status: 'error',
-              error: msg,
-              finished_at: Date.now(),
-            }))
+            updateRun((r) => ({ ...r, status: 'error', error: msg, finished_at: Date.now() }))
           },
         },
         ac.signal,
       )
     } catch (e: any) {
       const reason = e?.name === 'AbortError' ? 'Aborted by user' : String(e?.message || e)
-      updateRun((r) => ({
-        ...r,
-        status: 'error',
-        error: reason,
-        finished_at: Date.now(),
-      }))
+      updateRun((r) => ({ ...r, status: 'error', error: reason, finished_at: Date.now() }))
     } finally {
       abortRef.current = null
-      setIsRunning(false)
+      setIsRunningReport(false)
     }
-  }, [isRunning, scope])
+  }, [isRunningReport, updateMessage])
 
   const abort = useCallback(() => abortRef.current?.abort(), [])
 
+  const busy = isWorking || isRunningReport
+  const showExamples = messages.length === 1
+
   return (
-    <div className="agent-shell">
+    <div className="agent-shell agent-shell-conversational">
       <div className="agent-chat-col">
         <header className="agent-header">
           <h1>Agent</h1>
           <div className="agent-subtitle">
-            Natural-language workflow runner. Chat sets the scope; click Run on the right to fire the report workflow.
+            Conversational analyst assistant — pulls provenance-corrected data with tools and
+            answers in the form your question calls for. Full validated reports run only when
+            you click.
           </div>
         </header>
 
         <div className="agent-thread" ref={scrollRef}>
-          {messages.map((m) =>
-            m.type === 'text' ? (
-              <ChatMessageView key={m.id} msg={m} onRun={runWorkflow} isRunning={isRunning} />
-            ) : (
-              <WorkflowMessageView key={m.id} msg={m} />
-            ),
-          )}
-          {isClassifying && (
-            <div className="chat-message chat-assistant">
-              <div className="chat-bubble chat-bubble-typing">
-                <Loader2 size={14} className="agent-spin" /> thinking…
-              </div>
+          {messages.map((m) => {
+            switch (m.type) {
+              case 'text':
+                return (
+                  <div key={m.id} className="chat-message chat-user">
+                    <div className="chat-bubble">{m.content}</div>
+                  </div>
+                )
+              case 'agent':
+                return <AgentMessageView key={m.id} msg={m} />
+              case 'offer':
+                return (
+                  <OfferCard
+                    key={m.id}
+                    msg={m}
+                    disabled={isRunningReport}
+                    onRun={() => runReport(m.id, m.scope)}
+                  />
+                )
+              case 'workflow':
+                return <WorkflowMessageView key={m.id} msg={m} />
+            }
+          })}
+          {showExamples && (
+            <div className="agent-examples">
+              {EXAMPLES.map((ex) => (
+                <button key={ex} className="agent-example" onClick={() => send(ex)}>
+                  {ex}
+                </button>
+              ))}
             </div>
           )}
         </div>
 
-        <ChatInput onSend={sendChat} disabled={isClassifying} />
+        <div className="agent-input-row">
+          <ChatInput onSend={send} disabled={busy} />
+          {busy && (
+            <button className="agent-btn agent-btn-danger agent-stop" onClick={abort} title="Stop">
+              <StopCircle size={16} /> Stop
+            </button>
+          )}
+        </div>
       </div>
-
-      <ScopeSidebar
-        scope={scope}
-        setScope={setScope}
-        onRun={runWorkflow}
-        onAbort={abort}
-        isRunning={isRunning}
-      />
     </div>
   )
 }
 
 // =================================================================
-// Scope sidebar
+// Conversational agent message (tool activity + markdown answer + sources)
 // =================================================================
 
-function ScopeSidebar({
-  scope,
-  setScope,
-  onRun,
-  onAbort,
-  isRunning,
-}: {
-  scope: ChatScope
-  setScope: (s: ChatScope) => void
-  onRun: () => void
-  onAbort: () => void
-  isRunning: boolean
-}) {
-  const update = <K extends keyof ChatScope>(k: K, v: ChatScope[K]) =>
-    setScope({ ...scope, [k]: v })
-
-  const scopeShape: 'bilateral' | 'regional' = scope.region && !scope.recipient ? 'regional' : 'bilateral'
-
-  const toggleShape = (shape: 'bilateral' | 'regional') => {
-    if (shape === 'bilateral') {
-      setScope({ ...scope, region: null })
-    } else {
-      setScope({ ...scope, recipient: null })
-    }
-  }
-
+function AgentMessageView({ msg }: { msg: Extract<ChatMessage, { type: 'agent' }> }) {
   return (
-    <aside className="agent-scope">
-      <h2>Scope</h2>
+    <div className="chat-message chat-assistant">
+      <div className={`chat-bubble agent-answer ${msg.status === 'error' ? 'agent-answer-error' : ''}`}>
+        {msg.tools.length > 0 && (
+          <div className="agent-tools">
+            {msg.tools.map((t) => (
+              <div
+                key={t.step}
+                className={`agent-tool agent-tool-${t.status}`}
+                title={JSON.stringify(t.args, null, 2)}
+              >
+                {t.status === 'running' ? (
+                  <Loader2 size={13} className="agent-spin" />
+                ) : t.status === 'ok' ? (
+                  <CheckCircle2 size={13} />
+                ) : (
+                  <XCircle size={13} />
+                )}
+                <span className="agent-tool-name">
+                  <Wrench size={11} /> {t.tool}
+                </span>
+                {t.summary && <span className="agent-tool-summary">{t.summary}</span>}
+              </div>
+            ))}
+          </div>
+        )}
 
-      <div className="scope-field">
-        <label>Shape</label>
-        <div className="scope-radio-row">
-          <label className="scope-radio">
-            <input
-              type="radio"
-              checked={scopeShape === 'bilateral'}
-              onChange={() => toggleShape('bilateral')}
-              disabled={isRunning}
-            />
-            Bilateral
-          </label>
-          <label className="scope-radio">
-            <input
-              type="radio"
-              checked={scopeShape === 'regional'}
-              onChange={() => toggleShape('regional')}
-              disabled={isRunning}
-            />
-            Regional
-          </label>
-        </div>
-      </div>
-
-      <div className="scope-field">
-        <label>Influencer</label>
-        <input
-          value={scope.influencer || ''}
-          onChange={(e) => update('influencer', e.target.value || null)}
-          placeholder="China"
-          disabled={isRunning}
-        />
-      </div>
-
-      {scopeShape === 'bilateral' ? (
-        <div className="scope-field">
-          <label>Recipient</label>
-          <input
-            value={scope.recipient || ''}
-            onChange={(e) => update('recipient', e.target.value || null)}
-            placeholder="Egypt"
-            disabled={isRunning}
-          />
-        </div>
-      ) : (
-        <div className="scope-field">
-          <label>Region</label>
-          <input
-            value={scope.region || ''}
-            onChange={(e) => update('region', e.target.value || null)}
-            placeholder="Middle East"
-            disabled={isRunning}
-          />
-        </div>
-      )}
-
-      <div className="scope-field">
-        <label>Start date</label>
-        <input
-          type="date"
-          value={scope.start_date || ''}
-          onChange={(e) => update('start_date', e.target.value || null)}
-          disabled={isRunning}
-        />
-      </div>
-
-      <div className="scope-field">
-        <label>End date</label>
-        <input
-          type="date"
-          value={scope.end_date || ''}
-          onChange={(e) => update('end_date', e.target.value || null)}
-          disabled={isRunning}
-        />
-      </div>
-
-      <div className="scope-field">
-        <label>Category</label>
-        <select
-          value={scope.category || ''}
-          onChange={(e) => update('category', e.target.value || null)}
-          disabled={isRunning}
-        >
-          <option value="">(any)</option>
-          {CATEGORY_OPTIONS.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="scope-field">
-        <label>Category mode</label>
-        <div className="scope-radio-row">
-          <label className="scope-radio">
-            <input
-              type="radio"
-              checked={(scope.category_mode || 'flat') === 'flat'}
-              onChange={() => update('category_mode', 'flat')}
-              disabled={isRunning}
-            />
-            Flat
-          </label>
-          <label
-            className={`scope-radio${!scope.category ? ' scope-radio-disabled' : ''}`}
-            title={!scope.category ? 'Pick a category first' : ''}
-          >
-            <input
-              type="radio"
-              checked={scope.category_mode === 'filter'}
-              onChange={() => update('category_mode', 'filter')}
-              disabled={isRunning || !scope.category}
-            />
-            Filter
-          </label>
-        </div>
-        <div className="scope-help">
-          Flat: no category filter. Filter: scope to the selected category only.
-        </div>
-      </div>
-
-      <div className="scope-actions">
-        {isRunning ? (
-          <button className="agent-btn agent-btn-danger" onClick={onAbort}>
-            <StopCircle size={16} /> Abort
-          </button>
+        {msg.status === 'working' && !msg.content ? (
+          <div className="agent-thinking">
+            <Loader2 size={14} className="agent-spin" /> working…
+          </div>
         ) : (
-          <button className="agent-btn agent-btn-primary" onClick={onRun}>
-            <Play size={16} /> Run workflow
-          </button>
+          <div className="agent-markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          </div>
+        )}
+
+        {msg.sources && msg.sources.length > 0 && (
+          <div className="agent-sources">
+            <span className="agent-sources-label">Sources</span>
+            {msg.sources.map((s) =>
+              s.kind === 'event' && s.app_link ? (
+                <Link key={s.id} to={s.app_link} className="agent-source-chip agent-source-link"
+                  title={`${s.title ?? s.id} · ${s.date ?? ''}`}>
+                  {truncateLabel(s.title || s.id)}
+                </Link>
+              ) : (
+                <span key={s.id} className="agent-source-chip"
+                  title={`${s.title ?? s.id}${s.source_name ? ` — ${s.source_name}` : ''}${s.date ? ` · ${s.date}` : ''}`}>
+                  {truncateLabel(s.source_name || s.title || s.id)}
+                </span>
+              ),
+            )}
+          </div>
         )}
       </div>
-    </aside>
+    </div>
   )
 }
 
+function truncateLabel(s: string): string {
+  return s.length > 40 ? s.slice(0, 39) + '…' : s
+}
+
 // =================================================================
-// Chat messages
+// Full-report offer card (the pipeline never auto-runs)
 // =================================================================
 
-function ChatMessageView({
+function OfferCard({
   msg,
+  disabled,
   onRun,
-  isRunning,
 }: {
-  msg: Extract<ChatMessage, { type: 'text' }>
+  msg: Extract<ChatMessage, { type: 'offer' }>
+  disabled: boolean
   onRun: () => void
-  isRunning: boolean
 }) {
-  const isAssistant = msg.role === 'assistant'
-  const showRunButton = isAssistant && msg.role === 'assistant' && (msg as any).ready_to_run && !isRunning
+  const s = msg.scope
+  const target = s.recipient || s.region
   return (
-    <div className={`chat-message ${isAssistant ? 'chat-assistant' : 'chat-user'}`}>
-      <div className="chat-bubble">
-        {msg.content}
-        {showRunButton && (
-          <div className="chat-bubble-actions">
-            <button className="agent-btn agent-btn-primary agent-btn-small" onClick={onRun}>
-              <Play size={14} /> Run workflow
-            </button>
-          </div>
-        )}
+    <div className="chat-message chat-assistant">
+      <div className="agent-offer">
+        <div className="agent-offer-head">
+          <FileBarChart size={16} />
+          <span>Full validated report available</span>
+        </div>
+        <div className="agent-offer-scope">
+          {s.influencer} → {target} · {s.start_date} → {s.end_date}
+          {s.category && s.category_mode === 'filter' && <> · {s.category} only</>}
+        </div>
+        {s.reason && <div className="agent-offer-reason">{s.reason}</div>}
+        <div className="agent-offer-actions">
+          <button
+            className="agent-btn agent-btn-primary agent-btn-small"
+            onClick={onRun}
+            disabled={disabled || msg.launched}
+          >
+            <Play size={14} /> {msg.launched ? 'Started' : 'Run full report (~minutes)'}
+          </button>
+          <span className="agent-offer-note">
+            12 stages: retrieval, narration, sourcing, QA, hallucination validation
+          </span>
+        </div>
       </div>
     </div>
   )

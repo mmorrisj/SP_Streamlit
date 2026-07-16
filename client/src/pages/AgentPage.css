@@ -797,3 +797,219 @@
     max-height: none;
   }
 }
+
+/* ============ Conversational agent (v2) ============ */
+
+.agent-shell-conversational {
+  display: flex;
+  justify-content: center;
+}
+
+.agent-shell-conversational .agent-chat-col {
+  max-width: 900px;
+  width: 100%;
+}
+
+.agent-answer {
+  max-width: 100%;
+  width: 100%;
+}
+
+.agent-answer-error {
+  border-left: 3px solid #dc2626;
+}
+
+.agent-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.agent-tool {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.76rem;
+  color: #64748b;
+  min-width: 0;
+}
+
+.agent-tool-ok svg:first-child { color: #166534; }
+.agent-tool-failed svg:first-child { color: #dc2626; }
+.agent-tool-running svg:first-child { color: #1a365d; }
+
+.agent-tool-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  color: #1a365d;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.agent-tool-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.agent-markdown {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #334155;
+}
+
+.agent-markdown h1, .agent-markdown h2, .agent-markdown h3 {
+  color: #1a365d;
+  margin: 0.9rem 0 0.4rem;
+  font-size: 1rem;
+}
+
+.agent-markdown p { margin: 0.5rem 0; }
+.agent-markdown ul, .agent-markdown ol { margin: 0.5rem 0; padding-left: 1.4rem; }
+.agent-markdown li { margin: 0.2rem 0; }
+.agent-markdown code {
+  background: #f1f5f9;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.82em;
+}
+.agent-markdown table {
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  font-size: 0.82rem;
+}
+.agent-markdown th, .agent-markdown td {
+  border: 1px solid #e2e8f0;
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.agent-markdown th { background: #f8fafc; color: #1a365d; }
+
+.agent-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #eef2f7;
+}
+
+.agent-sources-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-right: 0.25rem;
+}
+
+.agent-source-chip {
+  font-size: 0.72rem;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  text-decoration: none;
+}
+
+.agent-source-link {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.agent-source-link:hover { background: #bfdbfe; }
+
+/* offer card */
+.agent-offer {
+  background: linear-gradient(180deg, #f8fafc 0%, white 60%);
+  border: 1px solid #1a365d;
+  border-radius: 12px;
+  padding: 0.85rem 1.1rem;
+  max-width: 560px;
+}
+
+.agent-offer-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+  color: #1a365d;
+  font-size: 0.88rem;
+  margin-bottom: 0.3rem;
+}
+
+.agent-offer-scope {
+  font-size: 0.85rem;
+  color: #334155;
+  margin-bottom: 0.25rem;
+}
+
+.agent-offer-reason {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-style: italic;
+  margin-bottom: 0.4rem;
+}
+
+.agent-offer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.4rem;
+}
+
+.agent-offer-note {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+/* examples */
+.agent-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 1rem 0 0 0.5rem;
+  max-width: 560px;
+}
+
+.agent-example {
+  text-align: left;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.84rem;
+  color: #475569;
+  cursor: pointer;
+}
+
+.agent-example:hover {
+  border-color: #1a365d;
+  color: #1a365d;
+}
+
+/* input row with stop button */
+.agent-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.agent-input-row > :first-child { flex: 1; }
+
+.agent-stop { flex: none; margin-bottom: 0.35rem; }

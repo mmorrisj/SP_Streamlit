@@ -26,7 +26,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from agent.llm.provider import LLMMessage, ToolCall, get_provider, get_tool_mode
-from agent.prompts import BRIEFING_SYSTEM
+from agent.prompts import BRIEFING_SYSTEM, CONVERSE_SYSTEM_TEMPLATE
 from agent.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -35,10 +35,11 @@ from agent.schemas import (
     ChatTurn,
     ChatTurnRequest,
     ChatTurnResponse,
+    ConverseRequest,
     EvidenceItem,
     WorkflowStep,
 )
-from agent.tools import get_registry
+from agent.tools import get_converse_registry, get_registry
 from agent.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,142 @@ class Orchestrator:
                 entities=[],
                 timeline=[],
             )
+
+    # ----- conversational agent (streaming) ---------------------------------
+
+    def converse(self, request: ConverseRequest, on_event) -> None:
+        """Run one conversational turn: tools as needed, then a free-form answer.
+
+        Emits events through on_event(dict):
+          run_started   {run_id}
+          tool_call     {step, tool, arguments}
+          tool_result   {step, tool, ok, summary, latency_ms, error?}
+          report_offer  {scope}           (propose_report succeeded)
+          answer        {text}            (final markdown answer)
+          sources       {documents: [...]}(resolved citations, when any)
+          error         {message}
+        The caller is responsible for transport (SSE) and threading.
+        """
+        registry = get_converse_registry()
+        tool_specs = [t.as_openai_tool() for t in registry.values()]
+        provider = get_provider()
+
+        # Reuse the analyze persistence path (agent_runs / agent_tool_calls).
+        ctx = _RunCtx(
+            run_id=uuid4(),
+            request=AnalyzeRequest(query=request.message, session_id=request.session_id),
+        )
+        self._insert_run(
+            ctx,
+            provider_name=provider.name,
+            model=getattr(provider, "model", None),
+            tool_mode="native",
+        )
+        on_event({"type": "run_started", "run_id": str(ctx.run_id)})
+        run_started = time.monotonic()
+
+        today = datetime.utcnow().date().isoformat()
+        messages: list[LLMMessage] = [
+            LLMMessage(role="system", content=CONVERSE_SYSTEM_TEMPLATE.format(today=today))
+        ]
+        for turn in request.history[-16:]:
+            role = turn.role if turn.role in ("user", "assistant") else "user"
+            messages.append(LLMMessage(role=role, content=turn.content))
+        messages.append(LLMMessage(role="user", content=request.message))
+
+        answer_text: str | None = None
+        try:
+            for _ in range(MAX_TURNS):
+                response = provider.complete(
+                    messages=messages, tools=tool_specs,
+                    temperature=0.3, max_tokens=3000,
+                )
+                if not response.tool_calls:
+                    answer_text = (response.text or "").strip()
+                    break
+
+                messages.append(
+                    LLMMessage(
+                        role="assistant",
+                        content=response.text or "",
+                        tool_calls=response.tool_calls,
+                    )
+                )
+                for call in response.tool_calls:
+                    on_event({
+                        "type": "tool_call",
+                        "step": ctx.step_counter + 1,
+                        "tool": call.name,
+                        "arguments": _jsonable(call.arguments),
+                    })
+                    result = self._dispatch_from_registry(ctx, call, registry)
+                    on_event({
+                        "type": "tool_result",
+                        "step": ctx.step_counter,
+                        "tool": call.name,
+                        "ok": result.ok,
+                        "summary": result.summary or result.error,
+                        "error": result.error,
+                    })
+                    if call.name == "propose_report" and result.ok:
+                        on_event({"type": "report_offer", "scope": _jsonable(result.data)})
+                    messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content=_serialize_result_for_model(result),
+                            tool_call_id=call.id,
+                            name=call.name,
+                        )
+                    )
+            else:
+                # Tool budget exhausted — force a final answer from the evidence.
+                logger.warning("converse hit MAX_TURNS=%d; forcing final answer", MAX_TURNS)
+                messages.append(
+                    LLMMessage(
+                        role="user",
+                        content=(
+                            "You have reached the tool-call budget. Do not call more "
+                            "tools — answer now from the evidence gathered so far, and "
+                            "note anything you could not verify."
+                        ),
+                    )
+                )
+                final = provider.complete(messages=messages, tools=None,
+                                          temperature=0.3, max_tokens=3000)
+                answer_text = (final.text or "").strip()
+
+            answer_text = answer_text or "(no answer produced)"
+            on_event({"type": "answer", "text": answer_text})
+
+            sources = _resolve_sources(ctx.citations)
+            if sources:
+                on_event({"type": "sources", "documents": sources})
+
+            self._finalize_run(
+                ctx,
+                status="succeeded",
+                briefing=Briefing(title=_default_title(request.message),
+                                  executive_summary=answer_text),
+                latency_ms=int((time.monotonic() - run_started) * 1000),
+            )
+        except Exception as e:
+            logger.exception("converse turn failed")
+            on_event({"type": "error", "message": str(e)})
+            self._finalize_run(
+                ctx, status="failed", error=str(e),
+                latency_ms=int((time.monotonic() - run_started) * 1000),
+            )
+
+    def _dispatch_from_registry(
+        self, ctx: _RunCtx, call: ToolCall, registry: dict[str, Tool]
+    ) -> ToolResult:
+        """_dispatch against an explicit registry (converse uses its own set)."""
+        saved = self.tools
+        self.tools = registry
+        try:
+            return self._dispatch(ctx, call)
+        finally:
+            self.tools = saved
 
     # ----- chat intent classifier ------------------------------------------
 
@@ -404,6 +541,56 @@ class Orchestrator:
 
 
 # ----- helpers --------------------------------------------------------------
+
+
+def _resolve_sources(citations: list[str], cap: int = 20) -> list[dict[str, Any]]:
+    """Resolve collected citation IDs (doc_ids and/or canonical event ids) to
+    lightweight display metadata for the UI's sources panel."""
+    ids = list(dict.fromkeys(citations))[:cap]
+    if not ids:
+        return []
+    try:
+        from sqlalchemy import text as sql_text
+        from shared.database.database import get_session
+
+        with get_session() as session:
+            doc_rows = session.execute(
+                sql_text(
+                    "SELECT d.doc_id::text AS id, d.title, d.source_name, "
+                    "d.date::text AS date FROM documents d "
+                    "WHERE d.doc_id::text = ANY(:ids)"
+                ),
+                {"ids": ids},
+            ).mappings().all()
+            found = {r["id"] for r in doc_rows}
+            remaining = [i for i in ids if i not in found]
+            event_rows = []
+            if remaining:
+                event_rows = session.execute(
+                    sql_text(
+                        "SELECT ce.id::text AS id, ce.canonical_name AS title, "
+                        "ce.initiating_country AS source_name, "
+                        "ce.first_mention_date::text AS date "
+                        "FROM canonical_events ce WHERE ce.id::text = ANY(:ids)"
+                    ),
+                    {"ids": remaining},
+                ).mappings().all()
+    except Exception:
+        logger.warning("source resolution failed", exc_info=True)
+        return [{"id": i, "kind": "unknown"} for i in ids]
+
+    out = [
+        {"id": r["id"], "kind": "document", "title": r["title"],
+         "source_name": r["source_name"], "date": r["date"]}
+        for r in doc_rows
+    ]
+    out += [
+        {"id": r["id"], "kind": "event", "title": r["title"],
+         "source_name": r["source_name"], "date": r["date"],
+         "app_link": f"/events/{r['id']}"}
+        for r in event_rows
+    ]
+    return out
 
 
 def _serialize_result_for_model(result: ToolResult) -> str:

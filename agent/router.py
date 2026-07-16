@@ -24,6 +24,7 @@ from agent.schemas import (
     AnalyzeResponse,
     ChatTurnRequest,
     ChatTurnResponse,
+    ConverseRequest,
     ToolDescriptor,
     ToolListResponse,
 )
@@ -94,6 +95,62 @@ def agent_chat(request: ChatTurnRequest) -> ChatTurnResponse:
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="message must not be empty")
     return Orchestrator().classify_intent(request)
+
+
+# ---------- Conversational agent (streaming) -------------------------------
+# The primary Agent-page experience: free-form conversation where the model
+# pulls data with tools and answers in whatever form the question calls for.
+# Tool activity streams as it happens; the full report pipeline is only ever
+# an explicit offer (report_offer event -> analyst clicks Run).
+
+
+@router.post("/converse/stream")
+def converse_stream(req: ConverseRequest):
+    if not req.message.strip():
+        raise HTTPException(status_code=400, detail="message must not be empty")
+
+    event_q: queue.Queue = queue.Queue()
+    SENTINEL = object()
+
+    # LLM calls run in a worker thread; contextvars don't cross threads, so
+    # capture the gateway JWT here and re-set it inside the worker (same
+    # pattern as the workflow stream below).
+    from shared.utils.request_context import get_gateway_jwt, set_gateway_jwt
+    gateway_jwt = get_gateway_jwt()
+
+    def on_event(event: dict) -> None:
+        event_q.put(event)
+
+    def worker() -> None:
+        set_gateway_jwt(gateway_jwt)
+        try:
+            Orchestrator().converse(req, on_event=on_event)
+        except Exception as e:  # pragma: no cover - converse() catches internally
+            logger.exception("converse worker crashed")
+            event_q.put({"type": "error", "message": str(e)})
+        finally:
+            event_q.put(SENTINEL)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def event_generator() -> Iterator[str]:
+        while True:
+            event = event_q.get()
+            if event is SENTINEL:
+                break
+            event_type = event.pop("type", "message")
+            payload = json.dumps(event, default=str)
+            yield f"event: {event_type}\ndata: {payload}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---------- Structured workflows ------------------------------------------

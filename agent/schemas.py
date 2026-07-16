@@ -117,6 +117,16 @@ class ChatTurnRequest(BaseModel):
     current_scope: ChatScope = Field(default_factory=ChatScope)
 
 
+class ConverseRequest(BaseModel):
+    """One turn of the conversational agent (/converse/stream).
+
+    Stateless server: the client sends the visible thread back each turn.
+    """
+    message: str
+    history: list[ChatTurn] = []
+    session_id: Optional[UUID] = None
+
+
 class ChatTurnResponse(BaseModel):
     action: str  # "propose_run" | "update_scope" | "clarify" | "chat"
     workflow: Optional[str] = None  # set only for propose_run

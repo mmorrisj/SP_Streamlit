@@ -1213,6 +1213,131 @@ export async function sendAgentChat(
   return response.json()
 }
 
+// ============================================================
+// Agent Converse — conversational agent with data tools (SSE)
+// ============================================================
+
+export interface ConverseRequest {
+  message: string
+  history: ChatTurn[]
+}
+
+export interface ConverseToolCallPayload {
+  step: number
+  tool: string
+  arguments: Record<string, unknown>
+}
+
+export interface ConverseToolResultPayload {
+  step: number
+  tool: string
+  ok: boolean
+  summary: string | null
+  error: string | null
+}
+
+export interface ConverseReportOfferScope {
+  influencer: string
+  recipient: string | null
+  region: string | null
+  start_date: string
+  end_date: string
+  category: string | null
+  category_mode: string
+  reason?: string | null
+}
+
+export interface ConverseSourceDoc {
+  id: string
+  kind: 'document' | 'event' | 'unknown'
+  title?: string | null
+  source_name?: string | null
+  date?: string | null
+  app_link?: string | null
+}
+
+export interface ConverseCallbacks {
+  onRunStarted?: (runId: string) => void
+  onToolCall?: (p: ConverseToolCallPayload) => void
+  onToolResult?: (p: ConverseToolResultPayload) => void
+  onReportOffer?: (scope: ConverseReportOfferScope) => void
+  onAnswer?: (text: string) => void
+  onSources?: (docs: ConverseSourceDoc[]) => void
+  onError?: (message: string) => void
+}
+
+export async function streamAgentConverse(
+  request: ConverseRequest,
+  callbacks: ConverseCallbacks,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch('/api/agent/converse/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Server error ${response.status}: ${text}`)
+  }
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No readable stream')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+      for (const part of parts) {
+        if (!part.trim()) continue
+        let eventType = ''
+        let eventData = ''
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim()
+          else if (line.startsWith('data: ')) eventData = line.slice(6)
+        }
+        if (!eventType || !eventData) continue
+        let payload: any
+        try {
+          payload = JSON.parse(eventData)
+        } catch {
+          continue
+        }
+        switch (eventType) {
+          case 'run_started':
+            callbacks.onRunStarted?.(payload.run_id)
+            break
+          case 'tool_call':
+            callbacks.onToolCall?.(payload)
+            break
+          case 'tool_result':
+            callbacks.onToolResult?.(payload)
+            break
+          case 'report_offer':
+            callbacks.onReportOffer?.(payload.scope)
+            break
+          case 'answer':
+            callbacks.onAnswer?.(payload.text)
+            break
+          case 'sources':
+            callbacks.onSources?.(payload.documents || [])
+            break
+          case 'error':
+            callbacks.onError?.(payload.message || 'Unknown agent error')
+            break
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 export async function streamAgentReport(
   request: AgentReportRequest,
   callbacks: AgentReportCallbacks,
