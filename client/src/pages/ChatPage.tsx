@@ -665,14 +665,20 @@ export default function ChatPage() {
               <p>Ask about soft power activities, events, bilateral relationships, or search for specific topics in the document database.</p>
               <div className="example-queries">
                 <p>Try asking:</p>
-                <button onClick={() => setInputValue("What are China's major infrastructure projects in Africa?")}>
-                  What are China's major infrastructure projects in Africa?
+                <button onClick={() => setInputValue("How have China, Iran, Russia, and Turkey competed for influence across the Middle East in 2026?")}>
+                  How have China, Iran, Russia, and Turkey competed for influence across the Middle East in 2026?
                 </button>
-                <button onClick={() => setInputValue("How has Russia's influence in the Middle East changed recently?")}>
-                  How has Russia's influence in the Middle East changed recently?
+                <button onClick={() => setInputValue("What are China's major economic initiatives in the Gulf and Egypt during 2026?")}>
+                  What are China's major economic initiatives in the Gulf and Egypt during 2026?
                 </button>
-                <button onClick={() => setInputValue("What educational partnerships exist between Turkey and Central Asia?")}>
-                  What educational partnerships exist between Turkey and Central Asia?
+                <button onClick={() => setInputValue("How has Iran's regional posture shifted across 2026, and toward which countries?")}>
+                  How has Iran's regional posture shifted across 2026, and toward which countries?
+                </button>
+                <button onClick={() => setInputValue("What role has Turkey played in Syria's reconstruction and regional diplomacy in 2026?")}>
+                  What role has Turkey played in Syria's reconstruction and regional diplomacy in 2026?
+                </button>
+                <button onClick={() => setInputValue("Which soft-power instruments has Russia relied on in the Middle East in 2026?")}>
+                  Which soft-power instruments has Russia relied on in the Middle East in 2026?
                 </button>
               </div>
             </div>

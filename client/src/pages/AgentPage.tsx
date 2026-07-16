@@ -89,11 +89,12 @@ type ChatMessage =
   | { id: string; role: 'assistant'; type: 'workflow'; run: RunState; scope_at_run: ChatScope }
 
 const EXAMPLES = [
-  'Is Turkey really surging in Saudi Arabia, or is that media noise?',
-  "What are China's biggest corroborated initiatives in Egypt this year?",
-  "How has Iran's activity toward Iraq trended since the ceasefire?",
-  'Who are the key brokers between Russia and the new Syrian government?',
-  'Give me a full report on China–Egypt for the first half of 2026',
+  'Which influencer has gained the most ground across the Middle East in 2026, on corroborated evidence?',
+  "Compare China's and Turkey's economic initiatives across the region in 2026",
+  "Is Iran's 2026 outreach to the Gulf states real traction or its own media narrative?",
+  "How has Russia's activity across the Middle East trended through 2026, and where is it concentrated?",
+  'Where are the influencers competing hardest for the same recipients in 2026?',
+  'Give me a full report on Turkey across the Middle East for 2026',
 ]
 
 const newMessageId = () =>
