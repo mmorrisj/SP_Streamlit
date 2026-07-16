@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agent.tools._analytics import analytics_table_exists, canon_recipient
+from agent.tools._analytics import analytics_table_exists, validate_recipient
 from agent.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,9 @@ class InitiativeLedgerTool(Tool):
 
     def run(self, **kwargs: Any) -> ToolResult:
         initiator = (kwargs.get("initiating_country") or "").strip() or None
-        recipient = canon_recipient(kwargs.get("recipient_country"))
+        recipient, recip_err = validate_recipient(kwargs.get("recipient_country"))
+        if recip_err:
+            return ToolResult(ok=False, error=recip_err)
         start = kwargs.get("start_date")
         end = kwargs.get("end_date")
         min_score = kwargs.get("min_material_score")
