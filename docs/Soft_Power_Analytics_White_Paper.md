@@ -1109,8 +1109,8 @@ Shows the top 10 most connected entities with:
 - Mention count
 - Connection count
 
-**Sample Data Mode:**
-For demonstration purposes, the visualization includes sample data when no entities are present in the database, featuring 10 sample entities with realistic relationships (e.g., China Development Bank, Saudi Aramco, Wang Yi).
+**No fabricated data:**
+The visualization renders only real extracted entities. When the entity tables are empty it shows pipeline instructions instead of demo content — the platform never displays fabricated entities, relationships, or values. (An earlier sample-data demo mode was removed for exactly this reason.)
 
 ### Technical Implementation
 
@@ -1690,7 +1690,7 @@ The Soft Power Analytics platform was designed with deliberate attention to esta
 | **Visual Encoding Standards** | Consistent colors for entity types, relationship types | Quick pattern recognition |
 | **Interactive Exploration** | Hover tooltips, click-to-filter, zoom/pan | Analyst-driven discovery |
 | **Metrics Dashboards** | Key counts and averages prominently displayed | Quick orientation |
-| **Sample Data Mode** | Demo data when database empty | Onboarding, testing |
+| **No Fabricated Data** | Empty states show pipeline guidance, never demo content | Analyst trust — nothing artificial can be mistaken for analysis |
 
 ### Alignment Summary
 

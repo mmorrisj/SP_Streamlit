@@ -42,25 +42,23 @@ with st.sidebar:
         if entity_count == 0:
             st.warning("No entities found. Run entity extraction pipeline first.")
             st.info("Run: `extract_daily_entities.py` → `cluster_daily_entities.py` → `llm_deconflict_entity_clusters.py`")
-            use_sample_data = st.checkbox("Use sample data for demo", value=True)
-        else:
-            use_sample_data = False
+            st.stop()
 
-            countries = session.query(CanonicalEntity.initiating_country).distinct().filter(
-                CanonicalEntity.initiating_country.isnot(None),
-                CanonicalEntity.master_entity_id.is_(None)
-            ).all()
-            countries = [c[0] for c in countries]
+        countries = session.query(CanonicalEntity.initiating_country).distinct().filter(
+            CanonicalEntity.initiating_country.isnot(None),
+            CanonicalEntity.master_entity_id.is_(None)
+        ).all()
+        countries = [c[0] for c in countries]
 
-            entity_types = session.query(CanonicalEntity.entity_type).distinct().filter(
-                CanonicalEntity.master_entity_id.is_(None)
-            ).all()
-            entity_types = [t[0] for t in entity_types]
+        entity_types = session.query(CanonicalEntity.entity_type).distinct().filter(
+            CanonicalEntity.master_entity_id.is_(None)
+        ).all()
+        entity_types = [t[0] for t in entity_types]
 
-            rel_types = session.query(EntityRelationship.relationship_type).distinct().all()
-            rel_types = [r[0] for r in rel_types]
+        rel_types = session.query(EntityRelationship.relationship_type).distinct().all()
+        rel_types = [r[0] for r in rel_types]
 
-    if not use_sample_data and entity_count > 0:
+    if entity_count > 0:
         selected_countries = st.multiselect("Countries", countries, default=countries[:3] if len(countries) > 3 else countries)
         selected_entity_types = st.multiselect("Entity Types", entity_types, default=entity_types)
         selected_rel_types = st.multiselect("Relationship Types", rel_types, default=rel_types)
@@ -88,39 +86,6 @@ with st.sidebar:
     height = st.slider("Graph Height (px)", 400, 1000, 750)
     physics_enabled = st.checkbox("Enable Physics", value=True)
     show_labels = st.checkbox("Show Labels", value=True)
-
-
-def create_sample_network_data():
-    """Create sample entity and relationship data for demonstration"""
-
-    # Sample entities
-    entities = [
-        {"id": "1", "name": "China Development Bank", "type": "FINANCIAL_INSTITUTION", "country": "China", "mentions": 15},
-        {"id": "2", "name": "Saudi Aramco", "type": "STATE_OWNED_ENTERPRISE", "country": "Saudi Arabia", "mentions": 12},
-        {"id": "3", "name": "Wang Yi", "type": "PERSON", "country": "China", "mentions": 25},
-        {"id": "4", "name": "Ministry of Foreign Affairs", "type": "GOVERNMENT_AGENCY", "country": "China", "mentions": 20},
-        {"id": "5", "name": "Egyptian Ministry of Finance", "type": "GOVERNMENT_AGENCY", "country": "Egypt", "mentions": 10},
-        {"id": "6", "name": "Belt and Road Initiative", "type": "MULTILATERAL_ORG", "country": "China", "mentions": 30},
-        {"id": "7", "name": "CNPC", "type": "STATE_OWNED_ENTERPRISE", "country": "China", "mentions": 18},
-        {"id": "8", "name": "Ethiopia Electric Power", "type": "STATE_OWNED_ENTERPRISE", "country": "Ethiopia", "mentions": 8},
-        {"id": "9", "name": "Huawei", "type": "PRIVATE_COMPANY", "country": "China", "mentions": 22},
-        {"id": "10", "name": "African Union", "type": "MULTILATERAL_ORG", "country": "Ethiopia", "mentions": 14},
-    ]
-
-    # Sample relationships
-    relationships = [
-        {"source": "1", "target": "5", "type": "FUNDS", "count": 3, "value": 3000000000},
-        {"source": "3", "target": "4", "type": "REPRESENTS", "count": 15, "value": None},
-        {"source": "7", "target": "2", "type": "PARTNERS_WITH", "count": 5, "value": None},
-        {"source": "1", "target": "8", "type": "INVESTS_IN", "count": 2, "value": 500000000},
-        {"source": "9", "target": "10", "type": "SUPPLIES", "count": 4, "value": None},
-        {"source": "6", "target": "5", "type": "FUNDS", "count": 8, "value": None},
-        {"source": "6", "target": "8", "type": "FUNDS", "count": 6, "value": None},
-        {"source": "3", "target": "5", "type": "MEETS_WITH", "count": 2, "value": None},
-        {"source": "9", "target": "8", "type": "CONTRACTS_WITH", "count": 3, "value": 120000000},
-    ]
-
-    return entities, relationships
 
 
 def get_entity_color(entity_type: str) -> str:
@@ -252,81 +217,76 @@ def create_network_graph(entities: List[Dict], relationships: List[Dict],
     return html_string
 
 
-# Main content
-if use_sample_data:
-    st.info("📊 Displaying sample data for demonstration")
-    entities, relationships = create_sample_network_data()
+# Main content — always real data (sample-data demo mode removed)
+# Load data from database
+with get_session() as session:
+    query = session.query(CanonicalEntity).filter(
+        CanonicalEntity.total_documents >= min_mentions,
+        CanonicalEntity.master_entity_id.is_(None)
+    )
 
-else:
-    # Load data from database
-    with get_session() as session:
-        query = session.query(CanonicalEntity).filter(
-            CanonicalEntity.total_documents >= min_mentions,
-            CanonicalEntity.master_entity_id.is_(None)
+    if selected_countries:
+        query = query.filter(CanonicalEntity.initiating_country.in_(selected_countries))
+
+    if selected_entity_types:
+        query = query.filter(CanonicalEntity.entity_type.in_(selected_entity_types))
+
+    # Apply temporal filter
+    if enable_date_filter and date_start and date_end:
+        query = query.filter(
+            CanonicalEntity.last_mention_date >= date_start,
+            CanonicalEntity.first_mention_date <= date_end
         )
 
-        if selected_countries:
-            query = query.filter(CanonicalEntity.initiating_country.in_(selected_countries))
+    # Order by document count and limit
+    query = query.order_by(CanonicalEntity.total_documents.desc()).limit(max_entities)
 
-        if selected_entity_types:
-            query = query.filter(CanonicalEntity.entity_type.in_(selected_entity_types))
+    db_entities = query.all()
 
-        # Apply temporal filter
-        if enable_date_filter and date_start and date_end:
-            query = query.filter(
-                CanonicalEntity.last_mention_date >= date_start,
-                CanonicalEntity.first_mention_date <= date_end
-            )
+    if not db_entities:
+        st.warning("No entities match the filters")
+        st.stop()
 
-        # Order by document count and limit
-        query = query.order_by(CanonicalEntity.total_documents.desc()).limit(max_entities)
+    # Get entity IDs for relationship filtering
+    entity_ids = [str(e.id) for e in db_entities]
 
-        db_entities = query.all()
+    # Query relationships between these entities
+    db_relationships = session.query(EntityRelationship).filter(
+        and_(
+            EntityRelationship.entity_from_id.in_(entity_ids),
+            EntityRelationship.entity_to_id.in_(entity_ids)
+        )
+    )
 
-        if not db_entities:
-            st.warning("No entities match the filters")
-            st.stop()
-
-        # Get entity IDs for relationship filtering
-        entity_ids = [str(e.id) for e in db_entities]
-
-        # Query relationships between these entities
-        db_relationships = session.query(EntityRelationship).filter(
-            and_(
-                EntityRelationship.entity_from_id.in_(entity_ids),
-                EntityRelationship.entity_to_id.in_(entity_ids)
-            )
+    if selected_rel_types:
+        db_relationships = db_relationships.filter(
+            EntityRelationship.relationship_type.in_(selected_rel_types)
         )
 
-        if selected_rel_types:
-            db_relationships = db_relationships.filter(
-                EntityRelationship.relationship_type.in_(selected_rel_types)
-            )
+    db_relationships = db_relationships.all()
 
-        db_relationships = db_relationships.all()
+    # Convert to dicts
+    entities = [
+        {
+            "id": str(e.id),
+            "name": e.canonical_name,
+            "type": e.entity_type.value,  # Get enum value
+            "country": e.initiating_country,
+            "mentions": e.total_documents
+        }
+        for e in db_entities
+    ]
 
-        # Convert to dicts
-        entities = [
-            {
-                "id": str(e.id),
-                "name": e.canonical_name,
-                "type": e.entity_type.value,  # Get enum value
-                "country": e.initiating_country,
-                "mentions": e.total_documents
-            }
-            for e in db_entities
-        ]
-
-        relationships = [
-            {
-                "source": str(r.entity_from_id),
-                "target": str(r.entity_to_id),
-                "type": r.relationship_type,
-                "count": r.co_occurrence_count,
-                "value": None  # total_value_usd not in new model
-            }
-            for r in db_relationships
-        ]
+    relationships = [
+        {
+            "source": str(r.entity_from_id),
+            "target": str(r.entity_to_id),
+            "type": r.relationship_type,
+            "count": r.co_occurrence_count,
+            "value": None  # total_value_usd not in new model
+        }
+        for r in db_relationships
+    ]
 
 # Display metrics
 col1, col2, col3, col4 = st.columns(4)
