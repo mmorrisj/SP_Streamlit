@@ -75,7 +75,7 @@ services:
   # Connects to the hosted PostgreSQL at ${DB_HOST}:${DB_PORT}.
   # -----------------------
   app:
-    image: ${APP_IMAGE:-mmorrisj/softpower-analytics:1.8.27}
+    image: ${APP_IMAGE:-mmorrisj/softpower-analytics:1.8.28}
     container_name: sp_ent_app
     restart: unless-stopped
     network_mode: host
@@ -139,7 +139,7 @@ services:
   # Targets the hosted database — no db container dependency.
   # -----------------------
   migrate:
-    image: ${APP_IMAGE:-mmorrisj/softpower-analytics:1.8.27}
+    image: ${APP_IMAGE:-mmorrisj/softpower-analytics:1.8.28}
     container_name: sp_ent_migrate
     network_mode: host
     security_opt:

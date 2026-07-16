@@ -35,7 +35,7 @@ RUN npm run build \
 # ============================================
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
 # Trixie (Debian 13, glibc 2.38) is safe — clone3 syscall requires kernel 5.3+.
-FROM python:3.13-slim-trixie@sha256:bffeb7bd6a85767587059c6ba23e1e9122078e3aa3fa836099171b9bb5a9bb00
+FROM python:3.13-slim-trixie@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91
 
 WORKDIR /app
 
