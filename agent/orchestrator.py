@@ -142,8 +142,19 @@ class Orchestrator:
         run_started = time.monotonic()
 
         today = datetime.utcnow().date().isoformat()
+        try:
+            from shared.utils.data_coverage import coverage_note, temporal_anchor
+            coverage = coverage_note()
+            anchor = temporal_anchor().isoformat()
+        except Exception:  # pragma: no cover - coverage is best-effort
+            coverage, anchor = "Data coverage unknown.", today
         messages: list[LLMMessage] = [
-            LLMMessage(role="system", content=CONVERSE_SYSTEM_TEMPLATE.format(today=today))
+            LLMMessage(
+                role="system",
+                content=CONVERSE_SYSTEM_TEMPLATE.format(
+                    today=today, coverage=coverage, anchor=anchor
+                ),
+            )
         ]
         for turn in request.history[-16:]:
             role = turn.role if turn.role in ("user", "assistant") else "user"
@@ -269,7 +280,15 @@ class Orchestrator:
         history_dump = "\n".join(history_lines) if history_lines else "(no prior turns)"
 
         today = datetime.utcnow().date().isoformat()
-        system_prompt = _build_intent_system_prompt(today=today)
+        try:
+            from shared.utils.data_coverage import coverage_note, temporal_anchor
+            anchor = temporal_anchor().isoformat()
+            coverage = coverage_note()
+        except Exception:  # pragma: no cover - coverage is best-effort
+            anchor, coverage = today, ""
+        system_prompt = _build_intent_system_prompt(
+            today=today, anchor=anchor, coverage=coverage
+        )
 
         user_prompt = (
             f"CURRENT SCOPE (JSON):\n{scope_json}\n\n"
@@ -689,11 +708,21 @@ param for the workflow is set.
 """
 
 
-def _build_intent_system_prompt(today: str) -> str:
+def _build_intent_system_prompt(today: str, anchor: str | None = None,
+                                coverage: str = "") -> str:
+    anchor = anchor or today
+    coverage_block = (
+        f"\nDATA COVERAGE: {coverage}\n"
+        f"Resolve ALL relative time references against the data anchor date "
+        f"{anchor} (the last date with data), NOT today's date. Never propose "
+        f"a window that lies entirely beyond {anchor}.\n"
+        if coverage else ""
+    )
     return f"""\
 You are an intent classifier for a soft-power analytics workflow runner.
-Today's date is {today} (use this for relative time references like
-"this quarter", "last month", "recent").
+Today's date is {today}. The data anchor date is {anchor} — use the anchor
+for relative time references like "this quarter", "last month", "recent".
+{coverage_block}
 
 AVAILABLE WORKFLOWS
 
@@ -729,11 +758,11 @@ CONVENTIONS (apply silently -- do NOT ask about these)
     "social initiatives" / "soft outreach" / "people-to-people" -> Social
     "military cooperation" / "defense activity" -> Military
 
-- Time phrases (relative to today's date {today}):
-    "this quarter" / "current quarter" -> current calendar quarter
-    "last quarter" -> previous calendar quarter
-    "last month" / "recent" / "past 30 days" -> last 30 days ending today
-    "year-to-date" / "YTD" -> Jan 1 of current year through today
+- Time phrases (relative to the DATA ANCHOR date {anchor}):
+    "this quarter" / "current quarter" -> the calendar quarter containing {anchor}
+    "last quarter" -> the quarter before that
+    "last month" / "recent" / "past 30 days" -> last 30 days ending {anchor}
+    "year-to-date" / "YTD" -> Jan 1 of the anchor year through {anchor}
     "<year>" alone -> full calendar year
 
 ACTIONS

@@ -1214,6 +1214,22 @@ export async function sendAgentChat(
 }
 
 // ============================================================
+// Data coverage — how current is the corpus?
+// ============================================================
+
+export interface DataCoverage {
+  min_date: string | null
+  max_date: string | null
+  total_documents: number
+  days_behind: number | null
+}
+
+export const fetchDataCoverage = async (): Promise<DataCoverage> => {
+  const { data } = await api.get('/data-coverage')
+  return data
+}
+
+// ============================================================
 // Agent Converse — conversational agent with data tools (SSE)
 // ============================================================
 

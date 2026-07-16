@@ -3221,6 +3221,18 @@ def get_available_bilateral_months(influencer: str):
 # Report / Publication endpoints
 # ============================================================
 
+@app.get("/api/data-coverage")
+def data_coverage():
+    """Corpus coverage: min/max document date, doc count, and lag vs today.
+
+    Ingestion lags the wall clock; UIs use this to anchor 'recent' defaults
+    and show the user how current the data actually is. Cached in-process
+    (10 min) in shared/utils/data_coverage.py.
+    """
+    from shared.utils.data_coverage import get_data_coverage
+    return get_data_coverage()
+
+
 class ReportConfigResponse(BaseModel):
     influencers: list
     recipients: list

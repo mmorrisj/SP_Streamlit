@@ -579,7 +579,20 @@ def analyze_query(query: str) -> QueryIntent:
     """
     intent = QueryIntent(original_query=query)
     query_lower = query.lower()
-    today = datetime.now()
+    # Anchor relative time to the corpus's max document date when ingestion
+    # lags the wall clock — otherwise "recently" resolves to a window with no
+    # data in it. (temporal_anchor() == today when coverage is current.)
+    try:
+        from shared.utils.data_coverage import temporal_anchor
+        anchor_date = temporal_anchor()
+        today = datetime(anchor_date.year, anchor_date.month, anchor_date.day)
+        if anchor_date != datetime.now().date():
+            intent.confidence_notes.append(
+                f"Temporal anchor: data coverage ends {anchor_date}; relative "
+                f"time references resolve against that date, not today"
+            )
+    except Exception:
+        today = datetime.now()
 
     # =================================
     # 1. Extract temporal information

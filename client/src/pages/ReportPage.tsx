@@ -20,6 +20,7 @@ import type {
 } from '../api/client'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
 import { ValidationIndicator } from '../components/ValidationIndicator'
+import DataCoverageBadge from '../components/DataCoverageBadge'
 import './Pages.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -170,6 +171,21 @@ export default function ReportPage() {
     queryFn: fetchReportConfig,
   })
 
+  // Anchor the default date window to actual data coverage: ingestion lags
+  // the wall clock, so "last 30 days from today" can be an empty window.
+  // Only applied while the user hasn't touched the date fields.
+  const datesTouchedRef = useRef(false)
+  useEffect(() => {
+    const maxStr = config?.date_range?.max
+    if (!maxStr || datesTouchedRef.current) return
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const end = maxStr < todayStr ? maxStr : todayStr
+    const start = new Date(end + 'T00:00:00')
+    start.setDate(start.getDate() - 30)
+    setStartDate(start.toISOString().slice(0, 10))
+    setEndDate(end)
+  }, [config?.date_range?.max])
+
   const handleGenerate = useCallback(() => {
     const request: ReportRequest = {
       country,
@@ -287,7 +303,7 @@ export default function ReportPage() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1><FileBarChart size={28} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />Publication Generator</h1>
+        <h1><FileBarChart size={28} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />Publication Generator <DataCoverageBadge /></h1>
         <p style={{ color: '#666', marginTop: '0.25rem' }}>
           Generate structured summary reports with AI narratives, metrics, and source citations
         </p>
@@ -317,7 +333,7 @@ export default function ReportPage() {
             <input
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => { datesTouchedRef.current = true; setStartDate(e.target.value) }}
               min={config?.date_range.min}
               max={config?.date_range.max}
               style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.9rem' }}
@@ -331,7 +347,7 @@ export default function ReportPage() {
             <input
               type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => { datesTouchedRef.current = true; setEndDate(e.target.value) }}
               min={config?.date_range.min}
               max={config?.date_range.max}
               style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.9rem' }}

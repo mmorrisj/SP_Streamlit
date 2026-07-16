@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import ChatReportModal from '../components/ChatReportModal'
 import ProjectDrawer from '../components/ProjectDrawer'
+import DataCoverageBadge from '../components/DataCoverageBadge'
 import { addProjectDocument, fetchProject } from '../api/client'
 import type { AddProjectDocumentRequest } from '../api/client'
 import './Pages.css'
@@ -516,7 +517,7 @@ export default function ChatPage() {
       <div className="page-header">
         <div className="chat-header-row">
           <div>
-            <h1>Research Assistant</h1>
+            <h1>Research Assistant <DataCoverageBadge /></h1>
             <p>Ask questions about soft power activities, bilateral relationships, and events</p>
           </div>
           <div className="chat-header-actions">

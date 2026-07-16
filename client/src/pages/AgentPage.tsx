@@ -31,6 +31,7 @@ import {
   type WorkflowCompletePayload,
   type WorkflowStartedPayload,
 } from '../api/client'
+import DataCoverageBadge from '../components/DataCoverageBadge'
 import './AgentPage.css'
 
 // =================================================================
@@ -354,7 +355,7 @@ export default function AgentPage() {
     <div className="agent-shell agent-shell-conversational">
       <div className="agent-chat-col">
         <header className="agent-header">
-          <h1>Agent</h1>
+          <h1>Agent <DataCoverageBadge /></h1>
           <div className="agent-subtitle">
             Conversational analyst assistant — pulls provenance-corrected data with tools and
             answers in the form your question calls for. Full validated reports run only when
