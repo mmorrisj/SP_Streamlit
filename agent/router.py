@@ -35,18 +35,31 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 @router.get("/health")
 def agent_health() -> dict:
-    # Report the model the provider will actually use (resolved default),
-    # not just the raw AGENT_LLM_MODEL env which is unset in dev/laptop.
+    """Agent runtime health, including WHERE LLM calls are routed.
+
+    `llm_source`/`llm_target` are the operational facts an operator needs when
+    diagnosing connection errors: the agent follows the same routing contract
+    as the rest of the app (GAI_DEFAULT_SOURCE; proxy by default), so on
+    enterprise deployments this should show source=proxy targeting API_URL.
+    """
     try:
         from agent.llm.provider import get_provider
-        resolved_model = getattr(get_provider(), "model", None)
-    except Exception:  # pragma: no cover - defensive
-        resolved_model = None
+        provider = get_provider()
+        resolved_model = getattr(provider, "model", None)
+        llm_source = getattr(provider, "source", None)
+        llm_target = getattr(provider, "target", None)
+        provider_error = None
+    except Exception as e:  # pragma: no cover - defensive
+        resolved_model, llm_source, llm_target = None, None, None
+        provider_error = str(e)
     return {
-        "status": "ok",
+        "status": "ok" if provider_error is None else "degraded",
         "provider": os.getenv("AGENT_LLM_PROVIDER", "openai_compat"),
         "model": os.getenv("AGENT_LLM_MODEL") or resolved_model,
         "tool_mode": os.getenv("AGENT_LLM_TOOL_MODE", "native"),
+        "llm_source": llm_source,
+        "llm_target": llm_target,
+        "provider_error": provider_error,
     }
 
 

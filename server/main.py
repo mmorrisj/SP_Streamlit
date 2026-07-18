@@ -3554,6 +3554,79 @@ def proxy_gai_query(input: QueryInput):
             return {"response": content}
 
 
+class ProxyChatInput(BaseModel):
+    """OpenAI-style chat-completions payload for /proxy_chat."""
+    model: str = "gpt-4.1-mini"
+    messages: list = []
+    tools: Optional[list] = None
+    tool_choice: Optional[str] = None
+    temperature: float = 0.2
+    max_tokens: int = 2048
+
+
+@app.post("/proxy_chat")
+def proxy_chat(input: ProxyChatInput):
+    """Chat-completions passthrough with the SAME environment routing as
+    /proxy_query (LiteLLM > Azure production > OpenAI direct), but accepting
+    full message arrays and tool definitions.
+
+    Exists so tool-calling clients — the agent's ReAct loop and report
+    pipeline — share the proxy's LLM egress path instead of needing direct
+    connectivity to an LLM endpoint. On enterprise deployments only the proxy
+    (API_URL) has LLM egress; every LLM consumer must route through it.
+    Returns the raw completion dict (choices[].message may carry tool_calls).
+    """
+    from openai import OpenAI
+
+    if not input.messages:
+        raise HTTPException(status_code=400, detail="messages must not be empty")
+
+    kwargs: dict = {
+        "messages": input.messages,
+        "temperature": input.temperature,
+        "max_tokens": input.max_tokens,
+    }
+    if input.tools:
+        kwargs["tools"] = input.tools
+        kwargs["tool_choice"] = input.tool_choice or "auto"
+
+    # 1) LiteLLM (enterprise): authenticates by the gateway JWT captured into
+    #    the request context; static LITELLM_API_KEY is the dev fallback.
+    litellm_url = os.getenv('LITELLM_URL', '').strip()
+    if litellm_url:
+        try:
+            from shared.utils.request_context import get_gateway_jwt
+            bearer = get_gateway_jwt() or os.getenv('LITELLM_API_KEY')
+            if bearer:
+                client = OpenAI(api_key=bearer, base_url=litellm_url, timeout=90)
+                return client.chat.completions.create(
+                    model=os.getenv('LITELLM_MODEL', input.model).strip(), **kwargs
+                ).model_dump()
+            print("proxy_chat: LITELLM_URL set but no JWT/key present, falling back...")
+        except Exception as e:
+            print(f"proxy_chat: LiteLLM call failed: {e}, falling back...")
+
+    # 2) Azure (production)
+    if os.getenv('ENV', 'development').lower() == 'production':
+        try:
+            from shared.utils.utils import initialize_client
+            azure_client = initialize_client(use_env_vars=False)
+            deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT', input.model)
+            return azure_client.chat.completions.create(
+                model=deployment, **kwargs
+            ).model_dump()
+        except Exception as e:
+            print(f"proxy_chat: Azure call failed: {e}, falling back...")
+
+    # 3) OpenAI direct (development)
+    api_key = (os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+               or os.getenv('CLAUDE_KEY'))
+    if not api_key:
+        raise HTTPException(status_code=500, detail="proxy_chat: no LLM credential configured")
+    client = OpenAI(api_key=api_key, timeout=90)
+    return client.chat.completions.create(model=input.model, **kwargs).model_dump()
+
+
 class StreamQueryInput(BaseModel):
     model: str = "gpt-4o-mini"
     sys_prompt: str

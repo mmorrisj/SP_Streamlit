@@ -52,19 +52,63 @@ def _resolve_api_key() -> str | None:
 DEFAULT_REQUEST_TIMEOUT = float(os.getenv("AGENT_LLM_REQUEST_TIMEOUT", "60"))
 
 
+def resolve_source() -> str:
+    """Resolve the LLM routing source, matching the contract the rest of the
+    app uses (shared/utils/utils.py::gai).
+
+    Priority:
+      AGENT_LLM_BASE_URL set        -> "direct" (explicit dev/ops override)
+      AGENT_LLM_SOURCE              -> as given
+      GAI_DEFAULT_SOURCE            -> as given (proxy|litellm|azure|openai)
+      default                       -> "proxy" (same default as gai())
+
+    "azure" is served via the proxy (the proxy's routing already handles the
+    Azure branch), so it maps to "proxy" here. A "proxy" resolution without
+    API_URL falls back to "direct" with a warning so bare dev keeps working.
+    """
+    if os.getenv("AGENT_LLM_BASE_URL"):
+        return "direct"
+    source = (os.getenv("AGENT_LLM_SOURCE") or os.getenv("GAI_DEFAULT_SOURCE") or "proxy").lower()
+    if source == "azure":
+        source = "proxy"
+    if source == "proxy" and not (os.getenv("API_URL") or "").strip():
+        import logging
+        logging.getLogger(__name__).warning(
+            "agent LLM source resolved to 'proxy' but API_URL is unset; "
+            "falling back to direct LLM access"
+        )
+        return "direct"
+    return source
+
+
 class OpenAICompatProvider(Provider):
     name = "openai_compat"
 
     def __init__(self) -> None:
-        # Fall back to the enterprise LiteLLM endpoint/model so the agent works
-        # out of the box against the same LLM the rest of the app uses, without
-        # requiring separate AGENT_LLM_* config.
-        self.base_url = os.getenv("AGENT_LLM_BASE_URL") or os.getenv("LITELLM_URL") or None
-        # Default to gpt-4.1-mini: at temp 0.1 it reliably applies the intent
-        # classifier's "China-Egypt -> influencer/recipient" conventions and date
-        # inference, where gpt-4o-mini intermittently fell back to clarify with an
-        # empty scope. AGENT_LLM_MODEL / LITELLM_MODEL still override.
+        # Route the same way the rest of the app does (gai()): proxy by
+        # default, LiteLLM/OpenAI when configured. On enterprise deployments
+        # only the proxy has LLM egress — the agent must never assume direct
+        # connectivity.
+        self.source = resolve_source()
         self.model = os.getenv("AGENT_LLM_MODEL") or os.getenv("LITELLM_MODEL") or "gpt-4.1-mini"
+        if self.source == "litellm":
+            self.base_url = (os.getenv("LITELLM_URL") or "").strip() or None
+            if not self.base_url:
+                raise RuntimeError(
+                    "agent LLM source is 'litellm' but LITELLM_URL is not set"
+                )
+        elif self.source == "direct":
+            self.base_url = os.getenv("AGENT_LLM_BASE_URL") or os.getenv("LITELLM_URL") or None
+        else:  # "openai" or "proxy"
+            self.base_url = None
+        self.proxy_url = (os.getenv("API_URL") or "").strip().rstrip("/")
+
+    @property
+    def target(self) -> str:
+        """Human-readable description of where LLM calls go (for /health)."""
+        if self.source == "proxy":
+            return f"{self.proxy_url}/proxy_chat"
+        return self.base_url or "https://api.openai.com"
 
     def _get_client(self):
         # Built per call (not cached): the gateway JWT is per-request, so a
@@ -93,10 +137,12 @@ class OpenAICompatProvider(Provider):
         temperature: float = 0.2,
         max_tokens: int = 2048,
     ) -> LLMResponse:
-        client = self._get_client()
-
         api_messages = [_to_api_message(m) for m in messages]
 
+        if self.source == "proxy":
+            return self._complete_via_proxy(api_messages, tools, temperature, max_tokens)
+
+        client = self._get_client()
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": api_messages,
@@ -115,6 +161,57 @@ class OpenAICompatProvider(Provider):
             text=msg.content or "",
             tool_calls=_extract_tool_calls(msg),
             finish_reason=choice.finish_reason or "stop",
+            raw=completion,
+        )
+
+    def _complete_via_proxy(
+        self,
+        api_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> LLMResponse:
+        """Route through the app's LLM proxy (/proxy_chat) — the same egress
+        path gai(source='proxy') uses, extended for tool-calling. The gateway
+        JWT is forwarded as a header so the proxy can authenticate the
+        downstream LiteLLM call."""
+        import requests
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": api_messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        headers = {}
+        try:
+            from shared.utils.request_context import ENTERPRISE_JWT_HEADER, get_gateway_jwt
+            jwt = get_gateway_jwt()
+            if jwt:
+                headers[ENTERPRISE_JWT_HEADER] = jwt
+        except Exception:  # pragma: no cover
+            pass
+
+        url = f"{self.proxy_url}/proxy_chat"
+        resp = requests.post(url, json=payload, headers=headers,
+                             timeout=DEFAULT_REQUEST_TIMEOUT)
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"LLM proxy call failed ({resp.status_code}) at {url}: {resp.text[:300]}"
+            )
+        completion = resp.json()
+        choices = completion.get("choices") or []
+        if not choices:
+            raise RuntimeError(f"LLM proxy returned no choices: {str(completion)[:300]}")
+        msg = choices[0].get("message") or {}
+        return LLMResponse(
+            text=msg.get("content") or "",
+            tool_calls=_extract_tool_calls(msg),
+            finish_reason=choices[0].get("finish_reason") or "stop",
             raw=completion,
         )
 
@@ -152,7 +249,12 @@ def _to_api_message(m: LLMMessage) -> dict[str, Any]:
 
 
 def _extract_tool_calls(msg: Any) -> list[ToolCall]:
-    raw_calls = getattr(msg, "tool_calls", None) or []
+    # msg is an SDK object (attribute access) on direct paths, or a plain dict
+    # when the completion came back as JSON from the /proxy_chat passthrough.
+    if isinstance(msg, dict):
+        raw_calls = msg.get("tool_calls") or []
+    else:
+        raw_calls = getattr(msg, "tool_calls", None) or []
     out: list[ToolCall] = []
     for tc in raw_calls:
         # Provider variants: object with .function.name/.function.arguments
