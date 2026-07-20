@@ -422,12 +422,14 @@ def export_database(args):
             )
             _, stderr = process.communicate()
 
-            if process.returncode != 0:
-                print(f"ERROR: pg_dump failed (exit code {process.returncode})")
-                print(stderr.decode("utf-8", errors="replace"))
-                if dump_path.exists():
-                    dump_path.unlink()
-                sys.exit(1)
+        # File handle is closed here (block exit) so unlink works on Windows,
+        # where an open file cannot be deleted (WinError 32).
+        if process.returncode != 0:
+            print(f"ERROR: pg_dump failed (exit code {process.returncode})")
+            print(stderr.decode("utf-8", errors="replace"))
+            if dump_path.exists():
+                dump_path.unlink()
+            sys.exit(1)
 
         dump_size = dump_path.stat().st_size
         print(f"  pg_dump complete: {dump_size / (1024**3):.2f} GB "
