@@ -8,10 +8,16 @@ Native tool-calling is the default. JSON-fallback parsing lives in
 agent/llm/modes.py and is invoked by the orchestrator when
 AGENT_LLM_TOOL_MODE=json_fallback.
 
-Env vars (in priority order for credentials):
-    AGENT_LLM_API_KEY  > OPENAI_PROJ_API > CLAUDE_KEY
-    AGENT_LLM_BASE_URL (optional; omit for api.openai.com)
-    AGENT_LLM_MODEL    (default: gpt-4.1-mini)
+Routing is proxy-first (see resolve_source() for the full contract):
+    AGENT_LLM_BASE_URL     -> direct to that URL (explicit dev/ops override)
+    AGENT_LLM_SOURCE       -> proxy | litellm | openai | direct
+    GAI_DEFAULT_SOURCE     -> same values (shared with gai())
+    default                -> proxy: POST {API_URL}/proxy_chat
+
+Credentials (direct/litellm modes; the proxy holds its own in proxy mode):
+    gateway JWT > AGENT_LLM_API_KEY > OPENAI_PROJ_API > CLAUDE_KEY
+    > LITELLM_API_KEY > OPENAI_API_KEY
+Model: AGENT_LLM_MODEL > LITELLM_MODEL > proxy default (gpt-4.1-mini direct).
 """
 from __future__ import annotations
 
@@ -47,9 +53,11 @@ def _resolve_api_key() -> str | None:
 
 
 # Per-request timeout in seconds. The OpenAI SDK default is 600s, which lets
-# a single hung call stall an entire workflow stage for ten minutes. Cap at
-# 60s so failures surface fast and the workflow can move on to the next event.
-DEFAULT_REQUEST_TIMEOUT = float(os.getenv("AGENT_LLM_REQUEST_TIMEOUT", "60"))
+# a single hung call stall an entire workflow stage for ten minutes. The
+# default must stay ABOVE the proxy's worst case — /proxy_chat tries up to two
+# backends at 90s each (~180s) — or slow-but-successful completions get
+# abandoned client-side while still billing server-side.
+DEFAULT_REQUEST_TIMEOUT = float(os.getenv("AGENT_LLM_REQUEST_TIMEOUT", "240"))
 
 
 def resolve_source() -> str:
@@ -90,7 +98,14 @@ class OpenAICompatProvider(Provider):
         # only the proxy has LLM egress — the agent must never assume direct
         # connectivity.
         self.source = resolve_source()
-        self.model = os.getenv("AGENT_LLM_MODEL") or os.getenv("LITELLM_MODEL") or "gpt-4.1-mini"
+        # In proxy mode only an explicitly configured model is sent — when
+        # neither env is set the payload omits it so the proxy applies its own
+        # LITELLM_MODEL/default (the proxy may know the approved model name
+        # when this container does not).
+        self.configured_model = (
+            os.getenv("AGENT_LLM_MODEL") or os.getenv("LITELLM_MODEL") or None
+        )
+        self.model = self.configured_model or "gpt-4.1-mini"
         if self.source == "litellm":
             self.base_url = (os.getenv("LITELLM_URL") or "").strip() or None
             if not self.base_url:
@@ -178,11 +193,12 @@ class OpenAICompatProvider(Provider):
         import requests
 
         payload: dict[str, Any] = {
-            "model": self.model,
             "messages": api_messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if self.configured_model:
+            payload["model"] = self.configured_model
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
@@ -197,8 +213,14 @@ class OpenAICompatProvider(Provider):
             pass
 
         url = f"{self.proxy_url}/proxy_chat"
-        resp = requests.post(url, json=payload, headers=headers,
-                             timeout=DEFAULT_REQUEST_TIMEOUT)
+        try:
+            resp = requests.post(url, json=payload, headers=headers,
+                                 timeout=DEFAULT_REQUEST_TIMEOUT)
+        except requests.RequestException as e:
+            raise RuntimeError(
+                f"LLM proxy unreachable at {url}: {e}. Check API_URL points at a "
+                f"proxy serving /proxy_chat (server/main.py or scripts/llm_proxy.py)."
+            ) from e
         if resp.status_code != 200:
             raise RuntimeError(
                 f"LLM proxy call failed ({resp.status_code}) at {url}: {resp.text[:300]}"
@@ -266,11 +288,13 @@ def _extract_tool_calls(msg: Any) -> list[ToolCall]:
         except AttributeError:
             fn = tc.get("function", {}) if isinstance(tc, dict) else {}
             name = fn.get("name")
-            raw_args = fn.get("arguments", "{}")
+            # `or "{}"` (not a .get default): gateways may send arguments=null,
+            # and the key existing means the default never applies.
+            raw_args = fn.get("arguments") or "{}"
             tc_id = tc.get("id") if isinstance(tc, dict) else None
         try:
             args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError, ValueError):
             args = {"_raw": raw_args}
         if not name:
             continue

@@ -449,6 +449,14 @@ def export_database(args):
         sys.exit(1)
     except KeyboardInterrupt:
         print("\nAborted by user")
+        # Kill pg_dump before unlink: the child inherited the dump file's
+        # stdout handle, and on Windows an open file cannot be deleted
+        # (WinError 32) — closing only the parent's handle is not enough.
+        try:
+            process.kill()
+            process.wait(timeout=10)
+        except Exception:
+            pass
         if dump_path.exists():
             dump_path.unlink()
         sys.exit(1)

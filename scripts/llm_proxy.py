@@ -319,6 +319,115 @@ def proxy_query_stream(input: StreamQueryInput, request: Request = None):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+class ProxyChatInput(BaseModel):
+    """OpenAI-style chat-completions payload for /proxy_chat.
+
+    model is optional: clients that resolved an explicit model send it (and it
+    wins); clients without one omit it so the proxy applies its own
+    LITELLM_MODEL/default.
+    """
+    model: Optional[str] = None
+    messages: list = []
+    tools: Optional[list] = None
+    tool_choice: Optional[str] = None
+    temperature: float = 0.2
+    max_tokens: int = 2048
+
+
+@app.post("/proxy_chat")
+async def proxy_chat(input: ProxyChatInput, request: Request = None):
+    """Chat-completions passthrough with the same routing as /proxy_query
+    (LiteLLM > Azure in production, LiteLLM > OpenAI in dev), but accepting
+    full message arrays and tool definitions.
+
+    Serves tool-calling clients — the agent's ReAct loop and report pipeline —
+    which route every LLM call through this proxy (on enterprise hosts only
+    the proxy has LLM egress). Mirrors /proxy_chat in server/main.py; keep the
+    two in sync. In production there is NO fallback to public OpenAI — a
+    failure returns 502 instead of silently egressing enterprise conversations.
+    Returns the raw completion dict (choices[].message may carry tool_calls).
+    """
+    from openai import AsyncOpenAI
+
+    if not input.messages:
+        raise HTTPException(status_code=400, detail="messages must not be empty")
+
+    env = os.getenv('ENV', 'development').lower()
+    model = ((input.model or '').strip()
+             or os.getenv('LITELLM_MODEL', '').strip()
+             or 'gpt-4.1-mini')
+
+    def _completion_kwargs(target_model):
+        # gpt-5 family rejects temperature != 1 and max_tokens; it takes
+        # max_completion_tokens instead (same guard as /proxy_query_stream).
+        kwargs = {"model": target_model, "messages": input.messages}
+        if target_model.startswith("gpt-5"):
+            kwargs["max_completion_tokens"] = input.max_tokens
+        else:
+            kwargs["temperature"] = input.temperature
+            kwargs["max_tokens"] = input.max_tokens
+        if input.tools:
+            kwargs["tools"] = input.tools
+            kwargs["tool_choice"] = input.tool_choice or "auto"
+        return kwargs
+
+    errors = []
+
+    # 1) LiteLLM — gateway JWT (forwarded header) or dev LITELLM_API_KEY.
+    litellm_url = os.getenv('LITELLM_URL', '').strip()
+    gateway_jwt = request.headers.get(ENTERPRISE_JWT_HEADER) if request is not None else None
+    litellm_bearer = gateway_jwt or os.getenv('LITELLM_API_KEY', '').strip()
+    if litellm_url:
+        if litellm_bearer:
+            try:
+                print(f"  [LITELLM] proxy_chat -> {litellm_url} model {model} "
+                      f"(auth: {'gateway JWT' if gateway_jwt else 'LITELLM_API_KEY'})")
+                client = AsyncOpenAI(api_key=litellm_bearer, base_url=litellm_url, timeout=90)
+                completion = await client.chat.completions.create(**_completion_kwargs(model))
+                return completion.model_dump()
+            except Exception as e:
+                errors.append(f"LiteLLM: {e}")
+                print(f"  [LITELLM] proxy_chat failed: {e}, falling back...")
+        else:
+            errors.append("LiteLLM: no gateway JWT or LITELLM_API_KEY present")
+            print("  [LITELLM] proxy_chat: LITELLM_URL set but no JWT/key, falling back...")
+
+    # 2) Azure — the LAST resort in production. Never fall through to public
+    #    OpenAI there: that would silently egress enterprise conversations.
+    if env == 'production':
+        from openai import AsyncAzureOpenAI
+        try:
+            azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', '').strip()
+            azure_key = os.getenv('AZURE_OPENAI_API_KEY', '').strip()
+            if not (azure_endpoint and azure_key):
+                raise RuntimeError("AZURE_OPENAI_ENDPOINT/AZURE_OPENAI_API_KEY not configured")
+            deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT') or (
+                "gpt-4.1-mini" if model == "gpt-4.1" else model)
+            print(f"  [AZURE] proxy_chat -> {azure_endpoint} deployment {deployment}")
+            client = AsyncAzureOpenAI(
+                azure_endpoint=azure_endpoint, api_key=azure_key,
+                api_version=os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview'),
+                timeout=90,
+            )
+            completion = await client.chat.completions.create(**_completion_kwargs(deployment))
+            return completion.model_dump()
+        except Exception as e:
+            errors.append(f"Azure: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail="proxy_chat: all production LLM backends failed — " + "; ".join(errors),
+            )
+
+    # 3) OpenAI direct (development only — unreachable in production)
+    api_key = os.getenv('OPENAI_PROJ_API') or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="proxy_chat: no LLM credential configured")
+    print(f"  [OPENAI] proxy_chat -> OpenAI model {model}")
+    client = AsyncOpenAI(api_key=api_key, timeout=90)
+    completion = await client.chat.completions.create(**_completion_kwargs(model))
+    return completion.model_dump()
+
+
 def _parse_response(content):
     """Try to parse LLM response as JSON, return raw string if not possible."""
     if isinstance(content, (dict, list)):
@@ -590,7 +699,7 @@ if __name__ == "__main__":
     print(f"  AWS creds:   {'set' if os.getenv('AWS_ACCESS_KEY_ID') else 'NOT SET (using default chain)'}")
     print(f"  ENV:         {os.getenv('ENV', 'development')}")
     print(f"\n  Endpoints:")
-    print(f"    LLM:   POST /proxy_query")
+    print(f"    LLM:   POST /proxy_query, /proxy_chat, /proxy_query_stream")
     print(f"    S3:    POST /s3/list, /s3/download, /s3/upload")
     print(f"    Batch: POST /batch/upload_file, /batch/create, /batch/status")
     print(f"    Docs:  http://localhost:{port}/docs")
