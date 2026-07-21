@@ -6,7 +6,7 @@
 
 **Author:** Matt Morris, Data Scientist
 
-**Version:** 6.0
+**Version:** 6.1
 
 **Date:** July 2026
 
@@ -17,27 +17,30 @@
 1. [Executive Summary](#executive-summary)
 2. [Introduction and Background](#introduction-and-background)
 3. [Technical Approach](#technical-approach)
-4. [Model Evaluation and Performance](#model-evaluation-and-performance)
-5. [System Architecture](#system-architecture)
-6. [Prompt Engineering](#prompt-engineering)
-7. [Event Processing Pipeline](#event-processing-pipeline)
-8. [Entity and Relationship Extraction](#entity-and-relationship-extraction)
-9. [Source Provenance and Bias Control](#source-provenance-and-bias-control)
-10. [Agentic RAG System](#agentic-rag-system)
-11. [Interactive Visualization](#interactive-visualization)
-12. [Alerting and Notifications](#alerting-and-notifications)
-13. [Competing Influence Analysis](#competing-influence-analysis)
-14. [Research Projects](#research-projects)
-15. [Report Generation and Export](#report-generation-and-export)
-16. [Generated Insight Reports](#generated-insight-reports)
-17. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
-18. [Alignment with Best Practices](#alignment-with-best-practices)
-19. [Engineering Retrospective: Methodology Evolution and Operational Lessons](#engineering-retrospective-methodology-evolution-and-operational-lessons)
-20. [Technology Stack Validation](#technology-stack-validation)
-21. [Knowledge Distillation](#knowledge-distillation)
-22. [Deployment and Security Posture](#deployment-and-security-posture)
-23. [Limitations and Future Directions](#limitations-and-future-directions)
-24. [Conclusion](#conclusion)
+4. [Positioning Among Event-Data Systems](#positioning-among-event-data-systems)
+5. [Model Evaluation and Performance](#model-evaluation-and-performance)
+6. [System Architecture](#system-architecture)
+7. [Prompt Engineering](#prompt-engineering)
+8. [Event Processing Pipeline](#event-processing-pipeline)
+9. [Entity and Relationship Extraction](#entity-and-relationship-extraction)
+10. [Source Provenance and Bias Control](#source-provenance-and-bias-control)
+11. [Agentic RAG System](#agentic-rag-system)
+12. [Interactive Visualization](#interactive-visualization)
+13. [Alerting and Notifications](#alerting-and-notifications)
+14. [Competing Influence Analysis](#competing-influence-analysis)
+15. [Research Projects](#research-projects)
+16. [Report Generation and Export](#report-generation-and-export)
+17. [Generated Insight Reports](#generated-insight-reports)
+18. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
+19. [Alignment with Best Practices](#alignment-with-best-practices)
+20. [Engineering Retrospective: Methodology Evolution and Operational Lessons](#engineering-retrospective-methodology-evolution-and-operational-lessons)
+21. [Technology Stack Validation](#technology-stack-validation)
+22. [Reproducibility and Determinism](#reproducibility-and-determinism)
+23. [Knowledge Distillation](#knowledge-distillation)
+24. [Deployment and Security Posture](#deployment-and-security-posture)
+25. [Domain Transferability](#domain-transferability)
+26. [Limitations and Future Directions](#limitations-and-future-directions)
+27. [Conclusion](#conclusion)
 
 ---
 
@@ -65,6 +68,22 @@ Evaluations demonstrated that GAI models not only excelled in categorizing artic
 At current scale the platform manages ~765K documents spanning 23 months of coverage,
 consolidated into ~11K canonical events and ~13.5K resolved entities with full
 event-to-document traceability.
+
+### The System at a Glance
+
+| Dimension | Figure |
+|-----------|--------|
+| **Corpus** | ~765K documents · 23 months of coverage (from Aug 2024) |
+| **Analytical scope** | 5 initiating powers · 4 instrument categories · 19-state MENA-centric recipient configuration |
+| **Derived layers** | ~11K canonical events · ~13.5K resolved entities · full event→document traceability |
+| **Retrieval** | 659K+ vector embeddings (768-dim, HNSW-indexed) + lexical hybrid search + cross-encoder reranking |
+| **Classification quality** | GPT-4 category F1 0.865 (precision 0.94); distilled student contingency F1 0.81 |
+| **Bias control** | Corroborated-initiative gate: ≥50% third-party coverage from ≥3 independent outlets |
+| **Assessment rigor** | 57 generated findings adversarially verified; 0 refuted, 14 revised with corrections |
+| **LLM economics** | 17 batch job types at 50% of synchronous pricing; quota-engineered concurrency; ~2% failure tail recovered without re-payment |
+| **Application surface** | 103+ API endpoints · 28 React pages · 23 Streamlit pages · 22 schema migrations |
+| **Deployment** | 9 packaging targets (cloud → hardened enterprise → laptop) · offline-capable inference · SBOM/provenance-attested images with zero fixable critical/high CVEs |
+| **Disaster recovery** | Embedding restore in ~15–20 minutes vs. ~45-hour regeneration (~130× speedup) |
 
 The black-box nature of GAI inference poses an ongoing risk that this project mitigates through periodic evaluations of GAI outputs to monitor performance, with exploration of training student models using GAI outputs as a contingency.
 
@@ -153,6 +172,51 @@ The Soft Power Project GAI prompts operate primarily in the factual to moderate 
 
 ---
 
+## Positioning Among Event-Data Systems
+
+Automated extraction of political events from news media is an established research field,
+and any new system should be read against its major incumbents. The most relevant
+comparisons are **GDELT** (massive-scale automated event coding over global media),
+**ICEWS** (curated CAMEO-coded dyadic events, historically used for crisis forecasting),
+and **ACLED** (human-coded conflict events with high precision in a narrow domain).
+
+| Dimension | GDELT | ICEWS | ACLED | This Platform |
+|-----------|-------|-------|-------|---------------|
+| **Coding method** | Pattern/parser-based automated coding | Automated coding with curation | Human coders | LLM schema application with LLM + human validation |
+| **Ontology** | Fixed (CAMEO-derived) | Fixed (CAMEO) | Fixed (conflict taxonomy) | Custom soft-power schema, modifiable without retraining |
+| **Unit of analysis** | Article-level event codes | Story-level deduplicated events | Curated incident records | Cross-article, multi-day **canonical events** with master/child hierarchy |
+| **Deduplication** | Weak; duplication is a known artifact | Story-level | Human judgment | Two-stage embedding + LLM consolidation — a core design goal, not a post-hoc filter |
+| **Media-bias handling** | Attention-based counts; bias acknowledged, not corrected | Limited | Source triangulation by coders | Measured provenance classification; corroborated-initiative gating |
+| **Claim traceability** | To source URL | Restricted | To source list | Every metric and narrative claim resolves to source documents through the mention layer |
+| **Entity layer** | Actor codes | Actor dictionary | Named actors | Resolved entity knowledge graph with typed relationships, linked to events |
+| **Domain scope** | Global, all event types | Global, political events | Conflict | One region and topic, deeply — by design |
+
+The design choices trace directly to known weaknesses of the incumbents. GDELT's
+article-level coding makes volume a measure of *coverage*, not activity — the same
+initiative announced, reported, and recapped counts many times; this platform's two-stage
+canonical-event consolidation exists precisely to collapse that duplication before
+counting. Fixed CAMEO-style ontologies cannot express instrument-of-influence distinctions
+(a port concession, a scholarship program, and a joint exercise are all "cooperation");
+the LLM-applied custom schema captures the categories analysts actually reason about, and
+can evolve with requirements at prompt-edit cost rather than retraining cost. And where
+event databases typically acknowledge media bias in documentation, this platform measures
+it per relationship and gates its headline metric on independent corroboration.
+
+Honest caveats run the other direction. The incumbents operate at global scale and
+decades of depth; this platform covers one region over ~2 years, and its LLM coding costs
+per document exceed parser-based approaches (mitigated by batch pricing and model
+tiering). No formal cross-validation against GDELT/ICEWS event streams has yet been
+performed — the integrated AidData ground-truth tables provide the current external
+corroboration path, and a systematic overlap study remains future work (see
+[Limitations](#limitations-and-future-directions)).
+
+> **Best Practice Alignment**: Positioning against established datasets follows the
+> research norm of situated contribution: the claim is not that the platform supersedes
+> global event databases, but that LLM-era coding enables a different trade — custom
+> ontology, consolidation-first counting, and measured bias correction — at regional scale.
+
+---
+
 ## Model Evaluation and Performance
 
 ### Proof-of-Concept Testing
@@ -229,6 +293,63 @@ Two labeling exercises were conducted to test alignment between human annotators
 DS&R Storage → Collections → GAI Salience & Extraction → Post-Processing →
 Soft Power DB (pgvector) → Publication (Dashboard, Reports, Agent UI)
 ```
+
+### System Topology
+
+```mermaid
+flowchart LR
+    subgraph SRC["Sources"]
+        S3["S3 raw documents"]
+        ATOM["ATOM / DSR exports"]
+    end
+
+    subgraph PIPE["Preprocessing Pipeline (batch containers)"]
+        ING["Ingestion + salience gate"]
+        EXT["GAI extraction<br/>(categories, countries, distilled text)"]
+        EMB["Embeddings<br/>Nomic v1.5, 768-dim"]
+        EVT["Event pipeline<br/>DBSCAN → LLM deconflict → consolidate"]
+        ENT["Entity pipeline<br/>extract → cluster → resolve → relate"]
+        SUM["Summaries + materiality scoring"]
+    end
+
+    subgraph DB["PostgreSQL + pgvector (HNSW)"]
+        DOCS[("documents · canonical_events ·<br/>canonical_entities · analytics")]
+    end
+
+    subgraph APP["App Container (supervisord)"]
+        API["FastAPI<br/>103+ endpoints · APScheduler alerts"]
+        REACT["React UI<br/>28 pages"]
+        ST["Streamlit dashboard<br/>23 pages"]
+    end
+
+    REDIS[("Redis cache")]
+    PROXY["Host-side proxy :7001<br/>(LLM + S3 credentials isolated)"]
+    LLM["OpenAI API<br/>(Batch + sync)"]
+
+    S3 --> ING
+    ATOM --> ING
+    ING --> EXT --> EMB
+    EXT --> EVT
+    EXT --> ENT
+    EVT --> SUM
+    PIPE --> DOCS
+
+    EXT -.-> PROXY
+    EVT -.-> PROXY
+    SUM -.-> PROXY
+    PROXY --> LLM
+
+    REACT --> API
+    API --> DOCS
+    API --> REDIS
+    API -.->|"RAG / assessments"| PROXY
+    ST -->|"direct SQL"| DOCS
+```
+
+Solid lines are data flow; dotted lines are LLM calls routed through the credential-
+isolating host proxy. The Streamlit dashboard's direct-database access (bypassing the
+API contract) is a documented architectural trade-off discussed in the
+[Engineering Retrospective](#engineering-retrospective-methodology-evolution-and-operational-lessons).
 
 ### Core Components
 
@@ -2040,6 +2161,46 @@ This section validates claimed capabilities against actual implementation status
 
 ---
 
+## Reproducibility and Determinism
+
+A system that feeds analytic judgment must be explicit about which of its outputs are
+reproducible, which are stochastic, and how the stochasticity is bounded. The platform's
+stages fall into three classes:
+
+| Class | Stages | Behavior on re-run with identical inputs |
+|-------|--------|------------------------------------------|
+| **Deterministic** | SQL analytics, provenance classification, corroboration gating, materiality aggregation, DBSCAN clustering (fixed `eps`/`min_samples` on fixed inputs), embedding generation (pinned model weights) | Bit-identical results |
+| **Approximate but stable** | HNSW vector retrieval (approximate nearest-neighbor; recall is high but not guaranteed exhaustive), cross-encoder reranking | Same top results in practice; ordering ties may vary |
+| **Stochastic, bounded** | All LLM stages — salience, extraction, deconfliction, narrative generation (temperatures 0.1–0.4) | Semantically equivalent but not verbatim-identical outputs |
+
+The engineering posture is to **shrink the stochastic surface and bound what remains**:
+
+- **Environment determinism**: digest-pinned base images, pinned Python dependencies, and
+  models baked into the image at build time — the same release tag reproduces the same
+  computational environment, enforced by the build-time embedding self-consistency gate
+  described in the [Engineering Retrospective](#engineering-retrospective-methodology-evolution-and-operational-lessons)
+- **Schema constraints over free generation**: LLM stages emit structured JSON validated
+  against fixed taxonomies, so run-to-run variation is confined to label choices within a
+  closed set, not open-ended text
+- **Low temperatures by task class**: 0.1 for extraction, rising only for narrative
+  generation where verbatim reproducibility is not a requirement
+- **Validation as variance damping**: LLM deconfliction checkpoints (`llm_validated`),
+  adversarial verification of generated findings, and SME review mean that individually
+  stochastic labels pass through convergent filters before reaching analytic products
+- **Idempotent re-runs, not regeneration**: pipeline re-execution fills gaps rather than
+  re-drawing samples — an interrupted run resumed twice produces one consistent dataset,
+  not a mixture of alternative samplings
+
+Two honest limits: the commercial LLM provider offers no seed control, so exact
+regeneration of a historical LLM output is not possible — only regeneration *under the
+same constraints*; and aggregate-level stability (do event counts, materiality
+distributions, and rankings survive a full re-run?) has been observed operationally
+through the enterprise rebuild but not yet quantified as a formal stability study. The
+full-corpus rebuild capability built for the embedding regression doubles as the apparatus
+for exactly such a study.
+
+---
+
 ## Knowledge Distillation
 
 ### Approach
@@ -2117,6 +2278,50 @@ covered in the [Engineering Retrospective](#engineering-retrospective-methodolog
 
 ---
 
+## Domain Transferability
+
+Although built for soft-power analysis, the platform is architecturally a general
+**media-corpus → canonical-events/entities → bias-corrected analytics** engine. The
+soft-power mission lives almost entirely in configuration and prompts, not in code. For an
+R&D sponsor evaluating reuse, the porting surface breaks down as follows:
+
+### What Carries Over Unchanged
+
+- **The pipeline pattern**: salience gating → structured extraction → embedding →
+  two-stage clustering/consolidation → LLM validation → materiality-style scoring — none
+  of it encodes soft-power semantics
+- **Entity resolution and the relationship graph**: the raw → cluster → canonical →
+  mention architecture is domain-agnostic
+- **The provenance methodology**: self-reported vs. third-party classification and
+  corroboration gating apply to *any* domain where interested parties publish about their
+  own activities — sanctions evasion, disinformation, industrial policy, proliferation
+- **The RAG stack, alerting, research projects, report generation** — all parameterized
+  by whatever schema the corpus carries
+- **The entire deployment and batch-processing apparatus**, including offline packaging
+  and the cost-engineering tooling
+
+### What Requires Adaptation
+
+| Layer | Artifact | Effort |
+|-------|----------|--------|
+| Actor/target scope | `config.yaml` influencer and recipient lists | Minutes |
+| Category taxonomy | `config.yaml` categories + subcategories | Hours (with SME input) |
+| Extraction semantics | Prompt library (`shared/utils/prompts.py`) — salience definition, extraction schema, event-naming conventions | Days; the dominant cost, and where domain expertise enters |
+| Scoring anchors | Materiality scale definitions and dollar thresholds | Hours |
+| Provenance map | Per-outlet geofocus/ownership classification for the new corpus's sources | Days; corpus-specific curation |
+| Clustering thresholds | `eps` values tuned to the new corpus's name-similarity structure | Empirical tuning, days |
+
+Two lessons from this project should transfer as warnings. First, the **taxonomy
+consolidation** result (see [Engineering Retrospective](#engineering-retrospective-methodology-evolution-and-operational-lessons)):
+a new domain team will be tempted to specify a rich label schema up front; extraction
+reliability will favor a smaller one, and the schema should be validated against LLM
+labeling consistency before it is baked into tables. Second, **provenance asymmetry**: the
+bias-correction method is only as symmetric as source coverage — a new corpus must ingest
+each tracked actor's own media ecosystem, or self-report ratios become unmeasurable for
+exactly the actors of greatest interest.
+
+---
+
 ## Limitations and Future Directions
 
 ### Current Limitations
@@ -2151,9 +2356,12 @@ covered in the [Engineering Retrospective](#engineering-retrospective-methodolog
 - **Future**: Selective validation + confidence metrics + reinforcement learning
 
 #### Evaluation & Ground Truth Gaps
-- **Current**: No balanced dataset; high human variance
+- **Current**: No balanced dataset; high human variance; no cross-validation yet against
+  established event datasets (GDELT, ICEWS) or a formal retrieval-quality evaluation
 - **Challenge**: Evaluation remains iterative
-- **Future**: Build balanced corpus; overlap checks; refine schema with SME input
+- **Future**: Build balanced corpus; overlap study against GDELT/ICEWS event streams for
+  shared country-months; recall@k evaluation of the retrieval layer; refine schema with
+  SME input
 
 #### Cost & Scaling
 - **Current**: GPT-4.1 performance high, costs remain high
@@ -2356,3 +2564,5 @@ consolidated to the set below during implementation for extraction reliability).
 *Version 5.0 (July 2026) adds: the Source Provenance and Bias Control methodology (provenance classification and the corroborated-initiative metric); the Generated Insight Reports capability (agentic investigation with adversarial verification, in-app interactive reports with evidence tracing); a Deployment and Security Posture section; corpus scale figures; expanded limitations (media-source bias, monetary extraction fidelity, vendor dependence); a single canonical materiality scale; reconciliation of the entity/relationship appendix and network-visualization taxonomies with the production schema; MENA-scoped examples throughout; and a clarification of the knowledge-distillation benchmark corpus.*
 
 *Version 6.0 (July 2026) adds the Engineering Retrospective: a development-history reconstruction from the project's 22 database migrations (the "schema as methodology ledger"); six documented methodology pivots including the counter-intuitive entity-taxonomy consolidation; a case study of the silent embedding regression and the epistemic-integrity controls it produced (build-time model self-consistency gates, wipe-and-rebuild tooling, post-rebuild validation battery); release engineering and supply-chain discipline (digest-pinned bases, SBOM/provenance attestations, measured 64%/85% CVE reductions); the nine-target deployment portfolio and hardened-daemon operating constraints; batch-processing economics (quota-engineered concurrency, ~2% tail recovery without re-payment); analytic-integrity practices enforced in code (data-coverage anchoring, removal of fabricated placeholders, fail-loud entity resolution); and the sustainment self-assessment ahead of maintainer transition. Also corrects the HNSW index status in the validation table (implemented April 2026 over 659K+ vectors) and documents per-user JWT authority propagation to the LLM tier.*
+
+*Version 6.1 (July 2026) adds: Positioning Among Event-Data Systems (situating the platform against GDELT, ICEWS, and ACLED, with design choices traced to known incumbent weaknesses); The System at a Glance summary table in the Executive Summary; a rendered system-topology diagram in System Architecture; Reproducibility and Determinism (classifying every pipeline stage as deterministic, approximate, or stochastic-but-bounded, with the controls that bound the stochastic surface); and Domain Transferability (the carry-over/adaptation breakdown for porting the engine to a new mission domain, with transfer warnings on taxonomy sizing and provenance asymmetry). Expands the evaluation-gap limitation to name the missing GDELT/ICEWS overlap study and retrieval-quality evaluation.*
