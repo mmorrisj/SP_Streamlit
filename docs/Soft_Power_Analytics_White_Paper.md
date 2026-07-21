@@ -6,7 +6,7 @@
 
 **Author:** Matt Morris, Data Scientist
 
-**Version:** 5.0
+**Version:** 6.0
 
 **Date:** July 2026
 
@@ -32,11 +32,12 @@
 16. [Generated Insight Reports](#generated-insight-reports)
 17. [Techniques and Lessons Learned](#techniques-and-lessons-learned)
 18. [Alignment with Best Practices](#alignment-with-best-practices)
-19. [Technology Stack Validation](#technology-stack-validation)
-20. [Knowledge Distillation](#knowledge-distillation)
-21. [Deployment and Security Posture](#deployment-and-security-posture)
-22. [Limitations and Future Directions](#limitations-and-future-directions)
-23. [Conclusion](#conclusion)
+19. [Engineering Retrospective: Methodology Evolution and Operational Lessons](#engineering-retrospective-methodology-evolution-and-operational-lessons)
+20. [Technology Stack Validation](#technology-stack-validation)
+21. [Knowledge Distillation](#knowledge-distillation)
+22. [Deployment and Security Posture](#deployment-and-security-posture)
+23. [Limitations and Future Directions](#limitations-and-future-directions)
+24. [Conclusion](#conclusion)
 
 ---
 
@@ -1714,6 +1715,216 @@ These alignments were not coincidental—they emerged from iterative development
 
 ---
 
+## Engineering Retrospective: Methodology Evolution and Operational Lessons
+
+Most technical white papers describe a system as it stands. This section describes how it
+*got here* — reconstructed from the project's development history (database migration
+records, release logs, incident runbooks, and internal assessments). For an R&D audience,
+the evolution is often more instructive than the destination: it shows which bets paid off,
+which assumptions failed, and what it actually costs to keep an AI analytics platform
+trustworthy over time.
+
+### The Schema as a Methodology Ledger
+
+Database migrations are the most durable record of how a project's thinking evolved — each
+one is a dated, irreversible commitment to a new analytical capability. The platform's 22
+Alembic migrations trace a clear arc:
+
+| Period | Migration Evidence | What It Marks |
+|--------|-------------------|---------------|
+| Dec 2024 | `add_entity_tables` | Entity tracking begins — earlier than often assumed; entities were foundational, not a late add-on |
+| Early 2025 | Initial canonical-events schema with `material_score` | **Materiality scoring was present from the first schema layer**, not retrofitted |
+| Feb 2025 | `add_batch_jobs_table` | OpenAI Batch API adoption — the cost-engineering inflection point |
+| Late 2025 | Bilateral, category, and canonical-materiality summary tables | The strategic summary layer (later Layer 1 of the RAG architecture) |
+| Dec 2025 | `add_llm_validated_checkpoint` | Checkpoint/resume fields on canonical events — hardening LLM validation for large, interruptible batch runs |
+| Jan 2026 | Full entity-resolution schema (449-line migration, the project's largest) | The two-stage entity knowledge graph: raw → clusters → canonical → mentions → relationships |
+| Feb 2026 | `add_users_table`, `add_aiddata_tables` | Authentication arrives; **external ground-truth data (AidData)** ingested for corroborating extracted financial claims |
+| Mar 2026 | `add_search_vector` + a genuine branch-merge migration | Hybrid lexical+vector search; evidence of **parallel development streams** reconciled via Alembic branch merge |
+| Apr 2026 | Alert tables, research-project tables, enterprise JWT, HNSW index, `specific_event_name` — five migrations in two days | The analyst-workflow feature wave, plus retrieval-performance work (HNSW over 659K vectors) |
+| May 2026 | Agent session/workflow tables | The agentic layer becomes stateful and auditable |
+| Jun 2026 | `add_ingestion_jobs_table` | Self-service, UI-driven ingestion; the schema stabilizes |
+
+The arc reads: **events → materiality → entities → external validation → search → analyst
+workflows → agents → self-service.** Each layer built on validated foundations from the
+previous one — capability was added in the order an analyst's trust required, not the order
+that was easiest to build.
+
+### Methodology Pivots — What Changed and Why
+
+Beyond the founding pivot (supervised ML → generative AI), the development record shows at
+least six deliberate mid-course corrections:
+
+| Pivot | From → To | Driver |
+|-------|-----------|--------|
+| Event identity | Ad-hoc chunk-level SPIDs → canonical events with master/child hierarchy | Traceability and multi-day event tracking |
+| Clustering | HDBSCAN → DBSCAN with explicit `eps` | Reproducibility — an explicit distance threshold beats a self-tuning one when results must be explainable |
+| Embeddings | MiniLM-L6-v2 (384-dim) → Nomic Embed Text v1.5 (768-dim) | Retrieval quality; MiniLM survives as the cross-encoder reranker |
+| Entity taxonomy | 11 types / 25 roles / 30 topics → 5 types / 14 roles / 9 relationships | **Extraction reliability** — a richer taxonomy produced less consistent LLM labels than a simpler one; the schema was consolidated during implementation |
+| Agent paradigm | Tool-selection agent → conversational assistant with doctrine-scoped data tools | Analyst usability; freeform tool orchestration was less predictable than a curated toolset |
+| Cross-actor measurement | Raw article counts → provenance-corrected corroborated initiatives | The corpus-composition bias documented in [Source Provenance and Bias Control](#source-provenance-and-bias-control); rolled out incrementally as vertical "slices" across every dashboard |
+
+The taxonomy consolidation deserves emphasis for R&D readers: it is a counter-intuitive
+result that **reducing** schema expressiveness **improved** data quality. LLM extraction
+reliability degrades as label sets grow; the production schema settled at the granularity
+the models could apply consistently, not the granularity analysts could imagine using.
+
+### Case Study: The Silent Embedding Regression
+
+The most instructive incident in the project's history was not a crash — it was a system
+that kept running while silently producing garbage.
+
+**What happened.** A routine dependency upgrade (transformers 5.x / sentence-transformers
+5.x) changed how the Nomic embedding model loaded: incompatible weight keys were silently
+skipped and **randomly initialized weights were used instead**. No error was raised. The
+pipeline continued to run end-to-end, embeddings were generated and stored, and every
+downstream layer — document retrieval, event clusters, canonical events, entity clusters,
+and the summaries built on top of them — was constructed on noise. Retrieval returned
+near-random results.
+
+**Why it matters.** In a derived-data architecture, the embedding layer is an *epistemic
+dependency* of everything above it. A silent failure there does not degrade the system — it
+invalidates it, while all health checks stay green. Traditional monitoring (uptime, error
+rates, throughput) is structurally blind to this failure class.
+
+**The recovery**, distilled into a repeatable enterprise cutover runbook:
+
+1. **Pin and verify**: dependency ceilings (`transformers<5`, `sentence-transformers<4`)
+   plus corrected task prefixes, with the rationale documented inline in the Dockerfile
+2. **Build-time model self-consistency gate**: every image build asserts that two
+   independent loads of the embedding model produce identical vectors
+   (`cos(load1, load2) = 1.000`) and that all weight keys matched — a deterministic tripwire
+   for the exact silent-failure mode encountered
+3. **Wipe-and-rebuild tooling as a first-class operation**: dedicated scripts clear only
+   the embedding-derived layers (clusters, canonical events/entities, mentions, summaries)
+   while preserving source documents and raw extractions — with `--dry-run` previews
+4. **A post-rebuild validation battery** (`validate_rebuild.py`) gating the cutover on zero
+   failures, plus a live retrieval spot-check with a minimum similarity threshold
+5. **Resumable, idempotent orchestration**: the multi-day rebuild can be interrupted and
+   re-run with the same command; preparation only fills gaps, and results already completed
+   on the provider's side are re-pulled without re-paying
+
+**Generalizable lessons** (each now encoded as a control, not a memory):
+
+| Symptom | Root Cause | Standing Control |
+|---------|-----------|------------------|
+| Retrieval returns garbage, no errors | Silent random-weight model load | Build-time cosine self-consistency assertion |
+| Batch retries fail with "file not found" | Ephemeral container scratchpad | Named persistent volume for batch artifacts |
+| Valid batches cancelled as "stalled" | Local timeout shorter than provider latency | Stall-timeout disabled by default for Batch API |
+| HTTP 429 batch failures | Exceeded provider's enqueued-token quota | Concurrency sized as `floor(queue_limit / tokens_per_batch)` |
+| Paying twice for completed work | Lost output files | Recovery tool re-pulls completed results from the provider |
+
+> **Best Practice Alignment**: This incident and response illustrate "data downtime"
+> engineering for ML systems: semantic correctness must be asserted, not assumed, because
+> the failure modes that matter most produce no exceptions. The build-time model gate is an
+> example of shifting validation left — catching an inference-integrity failure at image
+> build rather than in analyst-facing results.
+
+### Release Engineering and Supply-Chain Discipline
+
+The recent development record shows the platform operating on a genuine release cadence —
+twelve tagged releases in roughly three weeks during the enterprise-hardening push — with
+supply-chain controls uncommon at this project scale:
+
+- **Digest-pinned base images, refreshed per release**: recurring "refresh base digest
+  pins" commits show pins re-resolved at every release rather than set once and forgotten
+- **SBOM and provenance (mode=max) attestations** on every pushed image
+- **Source-level supply-chain defense**: the custom pgvector image pins the upstream *git
+  commit SHA* and verifies it after clone — defending against tag-moving attacks, not just
+  registry tampering
+- **Measured CVE reduction as a program, not an event**: the application image went from
+  95 CVEs (2 critical, 5 high) to 34 (all low/no-fix-available, zero critical/high) — a 64%
+  reduction — via base upgrades, build-toolchain removal after compilation, migrating
+  supervisor from a Debian package to pip (clearing an entire dependency chain), and
+  removing individually CVE-flagged binaries. The database image replaced an unmaintained
+  community image carrying 337 CVEs with a hardened source build carrying 51 (85%
+  reduction), all inherited from the official Postgres base
+- **A documented residual-risk posture**: remaining CVEs are enumerated with
+  exploitability analysis in deployment context, and an enterprise exception-request
+  template exists for accreditation workflows
+
+### Deployment as a Portfolio, Not a Path
+
+Nine Docker Compose targets now exist — demo, dev (hot-reload), production, enterprise,
+laptop (CPU / GPU / embed variants), Windows, and preprocessing — evidence that the same
+codebase is deliberately packaged for radically different environments: cloud development,
+a hardened enterprise daemon, and an analyst's laptop.
+
+The enterprise path is the most instructive. Hardened daemons in restricted environments
+forbid operations most deployment guides assume: no `docker exec`, no `docker cp`, no
+container removal, no bridge networks. The project's response was a capability matrix of
+what the hardened daemon permits, and a ~1,400-line raw-Docker deployment script built
+entirely within those constraints — host networking, idempotent start-or-run launches,
+database administration via host-native `psql` over TCP rather than container exec, an
+automatic pre-rebuild safety dump, and a credential-drift guard that detects when the
+environment file has diverged from an already-initialized database volume.
+
+Two design choices stand out for restricted-connectivity deployments:
+
+- **Offline-first inference**: embedding and reranker models are baked into the image at
+  build time, with offline flags set at runtime — zero model-hub egress in production, and
+  images transferable into enclaves as `.tar` files
+- **Credential isolation via a host-side proxy**: LLM and object-store credentials can
+  live entirely outside the application container, which calls back through a loopback
+  proxy; the gateway JWT is propagated per-request so LLM calls execute under the *user's*
+  authority rather than a shared service credential
+
+### Batch Economics at Scale
+
+The pipeline's LLM workload runs predominantly through the OpenAI Batch API — 17 job types
+covering extraction, deconfliction, scoring, and summary generation — at 50% of synchronous
+token pricing with roughly 10× throughput. The operational learning is that batch
+processing at scale is a *quota-engineering* problem: safe concurrency is computed from the
+provider's enqueued-token quota divided by measured tokens-per-batch (~0.43M for the
+heaviest job type), a pre-submission cost estimator prices every JSONL file before it is
+sent, and the full job lifecycle (estimated vs. actual cost, retries, file IDs, progress)
+is tracked in a dedicated database table. A ~2% scattered batch-failure tail proved normal
+at scale; the pipeline treats tail recovery as routine — completed results are re-pulled
+from the provider without re-payment, and re-running the orchestrator fills only the gaps.
+
+### Analytic Integrity as an Engineering Practice
+
+A cluster of recent changes shows integrity being enforced in code rather than policy —
+small individually, but jointly a distinctive discipline:
+
+- **Data-coverage awareness**: "recent" in analyst-facing views and agent responses is
+  anchored to the corpus's actual latest-data date, not the wall clock — preventing the
+  quiet illusion that the system is more current than its data
+- **No fabricated placeholders**: a demonstration mode that displayed realistic-looking
+  sample entities when the database was empty was deliberately removed — in an analytic
+  system, plausible synthetic data is a liability, not a convenience
+- **Fail loudly, not silently**: agent tools were changed to reject unknown or ambiguous
+  entity references outright rather than silently matching nothing and returning an
+  empty-but-plausible answer
+- **Terminology discipline**: product language was audited to describe outputs as
+  analytic insight rather than implying the authority of finished intelligence
+
+> **Best Practice Alignment**: These are instances of "epistemic hygiene" — aligning what
+> the system *appears* to know with what it *actually* knows. They cost little to implement
+> and are among the highest-leverage trust investments an analytic platform can make.
+
+### Sustainment: An Honest Self-Assessment
+
+Ahead of a planned maintainer transition, the project commissioned an internal
+maintainability assessment — and published its unflattering findings alongside its
+strengths. Handoff readiness was scored ~60/100. Documented weaknesses included a ~6,000-line
+API "god file" holding ~98 endpoints (router extraction now underway), automated test
+coverage near 4% with non-blocking CI checks, and a dual-frontend maintenance burden (React
+product UI and a 23-page Streamlit dashboard with direct database access) flagged as a
+strategic decision to make rather than an ambiguity to inherit. The assessment produced a
+phased remediation roadmap (demo-hardening → de-bloating → modularization → handoff
+hardening), several phases of which are already complete: a 34 MB legacy archive was removed
+from the working tree, five overlapping deployment documents were consolidated behind a
+single decision tree, and the production database was made external-capable (native
+Postgres with pgvector) so the custom database container is now a dev/demo convenience
+rather than a production dependency.
+
+For R&D sponsors, the meta-lesson is the practice itself: a system intended to outlive its
+original developer needs its technical debt *measured and scheduled*, not discovered at
+handoff. The assessment's candor — including publishing a below-target readiness score — is
+what makes its roadmap credible.
+
+---
+
 ## Technology Stack Validation
 
 This section validates claimed capabilities against actual implementation status, providing transparency about what has been built, what is partially implemented, and what remains planned.
@@ -1722,7 +1933,7 @@ This section validates claimed capabilities against actual implementation status
 
 | Technology | Status | Location | Notes |
 |-----------|--------|----------|-------|
-| **pgvector** | ✅ FULL | `services/pipeline/embeddings/` | LangChain PGVector integration; standard indices (no HNSW) |
+| **pgvector** | ✅ FULL | `services/pipeline/embeddings/` | LangChain PGVector integration; HNSW index on the embedding store |
 | **APScheduler** | ✅ FULL | `server/alert_evaluator.py` | 5-minute evaluation cycle for alerts |
 | **DBSCAN Clustering** | ✅ FULL | `services/pipeline/events/`, `services/pipeline/entities/` | eps=0.12-0.15, cosine distance |
 | **GPT-4/GPT-4o** | ✅ FULL | `server/`, `services/pipeline/` | gpt-4o-mini, gpt-4o, gpt-4.1 via OpenAI SDK |
@@ -1757,7 +1968,7 @@ This section validates claimed capabilities against actual implementation status
 | Claimed | Actual Implementation | Evidence |
 |---------|----------------------|----------|
 | PostgreSQL + pgvector | ✅ Implemented | `requirements.txt`: pgvector>=0.2.5 |
-| HNSW indices | ⚠️ Not found | Standard pgvector with cosine similarity |
+| HNSW indices | ✅ Implemented | Migration `20260403_add_hnsw_index`: `vector(768)` column typed to model output, HNSW index (m=16, ef_construction=64, cosine) over 659K+ embeddings — replaced sequential scans with sub-linear ANN search |
 | SQLAlchemy 2.0 | ✅ Implemented | `shared/database/database.py` |
 | AWS S3 | ✅ Implemented | `services/pipeline/embeddings/s3.py` |
 | Redis caching | ✅ Implemented | `server/main.py`: Redis-based response caching |
@@ -1890,11 +2101,19 @@ connectivity are requirements, not preferences:
   forbid `docker exec` and bridge networking.
 - **CVE management**: base images tracked for zero fixable critical/high CVEs, with a
   documented mitigation report and an enterprise exception-request template.
-- **Access control**: JWT authentication with role-based authorization (admin / analyst /
-  viewer), forced password change on first admin login, and user-scoped research projects.
+- **Access control**: gateway-issued JWT authentication with role-based authorization
+  (admin / analyst / viewer), auto-provisioning of users from gateway claims, and
+  user-scoped research projects. The gateway JWT is captured per-request and **propagated
+  to the LLM tier**, so generative calls execute under the requesting user's authority
+  rather than a shared service credential.
 - **Data portability**: chunked binary database export/import, separate fast-restore
   Parquet backups for embeddings (minutes instead of the ~45 hours regeneration would
-  take), and additive import for incremental data transfer between environments.
+  take — roughly a 130× recovery speedup), and additive import for incremental data
+  transfer between environments.
+
+The engineering history behind this posture — the deployment-target portfolio, the
+hardened-daemon playbook, and the supply-chain program's measured CVE reductions — is
+covered in the [Engineering Retrospective](#engineering-retrospective-methodology-evolution-and-operational-lessons).
 
 ---
 
@@ -2135,3 +2354,5 @@ consolidated to the set below during implementation for extraction reliability).
 *This white paper synthesizes findings from the Soft Power Analytics Project, documenting technical approaches, evaluation results, and lessons learned in applying Generative AI to international relations analysis. Version 4.0 included: updated event processing pipeline documentation reflecting the canonical events two-stage architecture; expanded entity and relationship extraction pipeline with full Stage 1-3 workflow; comprehensive technology stack validation table comparing claimed vs. actual implementation status; and corrected technology references (DBSCAN, Nomic Embed Text v1.5, React frontend).*
 
 *Version 5.0 (July 2026) adds: the Source Provenance and Bias Control methodology (provenance classification and the corroborated-initiative metric); the Generated Insight Reports capability (agentic investigation with adversarial verification, in-app interactive reports with evidence tracing); a Deployment and Security Posture section; corpus scale figures; expanded limitations (media-source bias, monetary extraction fidelity, vendor dependence); a single canonical materiality scale; reconciliation of the entity/relationship appendix and network-visualization taxonomies with the production schema; MENA-scoped examples throughout; and a clarification of the knowledge-distillation benchmark corpus.*
+
+*Version 6.0 (July 2026) adds the Engineering Retrospective: a development-history reconstruction from the project's 22 database migrations (the "schema as methodology ledger"); six documented methodology pivots including the counter-intuitive entity-taxonomy consolidation; a case study of the silent embedding regression and the epistemic-integrity controls it produced (build-time model self-consistency gates, wipe-and-rebuild tooling, post-rebuild validation battery); release engineering and supply-chain discipline (digest-pinned bases, SBOM/provenance attestations, measured 64%/85% CVE reductions); the nine-target deployment portfolio and hardened-daemon operating constraints; batch-processing economics (quota-engineered concurrency, ~2% tail recovery without re-payment); analytic-integrity practices enforced in code (data-coverage anchoring, removal of fabricated placeholders, fail-loud entity resolution); and the sustainment self-assessment ahead of maintainer transition. Also corrects the HNSW index status in the validation table (implemented April 2026 over 659K+ vectors) and documents per-user JWT authority propagation to the LLM tier.*
