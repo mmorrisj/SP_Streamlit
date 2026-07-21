@@ -82,6 +82,10 @@ services:
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
       # --- LLM: direct OpenAI by default (no LiteLLM/gateway off-network) ---
       GAI_DEFAULT_SOURCE: ${GAI_DEFAULT_SOURCE:-openai}
+      # Agent-only routing override (proxy|litellm|openai|direct). Set to
+      # "proxy" to route agent LLM calls through the host proxy at API_URL —
+      # mirrors the enterprise topology for local testing.
+      AGENT_LLM_SOURCE: ${AGENT_LLM_SOURCE:-}
       OPENAI_PROJ_API: ${OPENAI_PROJ_API:-}
       # Proxy endpoint for pipeline scripts that call gai(use_proxy=True). The host
       # runs server/main.py via uvicorn on 0.0.0.0:7001; containers reach it here.
