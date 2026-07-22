@@ -265,7 +265,11 @@ export const fetchEvents = async (filters?: Record<string, unknown>): Promise<Ev
 
 export const fetchEventsRich = async (params?: {
   country?: string
+  recipient?: string
   story_phase?: string
+  start_date?: string
+  end_date?: string
+  min_materiality?: number
   sort_by?: string
   limit?: number
   offset?: number

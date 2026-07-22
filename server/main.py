@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pydantic import BaseModel
 from sqlalchemy import func, Text
 from pathlib import Path
@@ -707,25 +707,67 @@ def get_documents(
             limit=limit
         )
 
+def _story_phase_expr(ref_date):
+    """Derived story-phase lifecycle, computed from mention data.
+
+    The stored story_phase column is hardcoded to "emerging" at creation and
+    never updated, so the lifecycle is derived at query time instead. Recency
+    is measured against the corpus max mention date (not the wall clock) so
+    ingestion lag doesn't mark everything dormant.
+    """
+    from sqlalchemy import case
+    last = func.coalesce(CanonicalEvent.last_mention_date, CanonicalEvent.first_mention_date)
+    articles = func.coalesce(CanonicalEvent.total_articles, 0)
+    mention_days = func.greatest(func.coalesce(CanonicalEvent.total_mention_days, 1), 1)
+    return case(
+        (last < ref_date - timedelta(days=30), 'dormant'),
+        (last < ref_date - timedelta(days=14), 'fading'),
+        (CanonicalEvent.first_mention_date >= ref_date - timedelta(days=7), 'emerging'),
+        ((articles >= 5 * mention_days) & (func.coalesce(CanonicalEvent.total_mention_days, 0) >= 3), 'peak'),
+        else_='developing',
+    )
+
+
 @app.get("/api/events", response_model=EventsResponse)
 def get_events(
     country: Optional[str] = None,
     category: Optional[str] = None,
+    recipient: Optional[str] = None,
     story_phase: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    min_materiality: Optional[float] = Query(None, ge=0, le=10),
     sort_by: str = Query(default="recency", pattern="^(recency|articles|materiality)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
     with get_session() as session:
-        query = session.query(CanonicalEvent).filter(
+        ref_date = session.query(func.max(CanonicalEvent.last_mention_date)).scalar()
+        phase_expr = _story_phase_expr(ref_date) if ref_date else CanonicalEvent.story_phase
+
+        query = session.query(CanonicalEvent, phase_expr.label("phase")).filter(
             CanonicalEvent.master_event_id.is_(None)
         )
 
         if country and country != 'ALL':
             query = query.filter(CanonicalEvent.initiating_country == country)
 
+        if recipient and recipient != 'ALL':
+            query = query.filter(CanonicalEvent.primary_recipients.has_key(recipient))
+
         if story_phase and story_phase != 'ALL':
-            query = query.filter(CanonicalEvent.story_phase == story_phase)
+            query = query.filter(phase_expr == story_phase)
+
+        # Date range matches events whose activity window overlaps [start, end]
+        if start_date:
+            query = query.filter(
+                func.coalesce(CanonicalEvent.last_mention_date, CanonicalEvent.first_mention_date) >= start_date
+            )
+        if end_date:
+            query = query.filter(CanonicalEvent.first_mention_date <= end_date)
+
+        if min_materiality is not None:
+            query = query.filter(CanonicalEvent.material_score >= min_materiality)
 
         total = query.count()
 
@@ -736,7 +778,9 @@ def get_events(
         else:
             query = query.order_by(CanonicalEvent.last_mention_date.desc())
 
-        events = query.offset(offset).limit(limit).all()
+        rows = query.offset(offset).limit(limit).all()
+        events = [row[0] for row in rows]
+        phases = {str(row[0].id): row[1] for row in rows}
 
         # Batch load narrative enrichment
         event_names = [e.canonical_name for e in events if e.canonical_name]
@@ -763,7 +807,7 @@ def get_events(
                 "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
                 "total_articles": event.total_articles or 0,
                 "total_mention_days": event.total_mention_days or 0,
-                "story_phase": event.story_phase,
+                "story_phase": phases.get(str(event.id)) or event.story_phase,
                 "material_score": float(event.material_score) if event.material_score else None,
                 "source_count": event.source_count or 0,
                 "primary_categories": top_cats,

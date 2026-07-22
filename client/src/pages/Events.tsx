@@ -5,7 +5,7 @@ import {
   Calendar, FileText, Tag, Globe, Zap, ChevronDown,
   ArrowUpDown, Filter
 } from 'lucide-react'
-import { fetchEventsRich } from '../api/client'
+import { fetchEventsRich, fetchFilterOptions } from '../api/client'
 import type { Event, EventsListResponse } from '../api/client'
 import './Pages.css'
 
@@ -133,16 +133,32 @@ function EventCard({ event, onClick }: { event: Event; onClick: () => void }) {
   )
 }
 
+const MATERIALITY_OPTIONS = [
+  { value: '', label: 'Any Materiality' },
+  { value: '3', label: 'Notable (3+)' },
+  { value: '5', label: 'Significant (5+)' },
+  { value: '7', label: 'Major (7+)' },
+]
+
 export default function Events() {
   const navigate = useNavigate()
   const [countryFilter, setCountryFilter] = useState('ALL')
+  const [recipientFilter, setRecipientFilter] = useState('ALL')
   const [phaseFilter, setPhaseFilter] = useState('ALL')
+  const [materialityFilter, setMaterialityFilter] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [sortBy, setSortBy] = useState('recency')
   const [offset, setOffset] = useState(0)
   const [accumulated, setAccumulated] = useState<Event[]>([])
 
+  const { data: filterOptions } = useQuery({
+    queryKey: ['filterOptions'],
+    queryFn: fetchFilterOptions,
+  })
+
   const { data, isLoading, isFetching } = useQuery<EventsListResponse>({
-    queryKey: ['events-rich', countryFilter, phaseFilter, sortBy, offset],
+    queryKey: ['events-rich', countryFilter, recipientFilter, phaseFilter, materialityFilter, startDate, endDate, sortBy, offset],
     queryFn: async () => {
       const params: Record<string, unknown> = {
         sort_by: sortBy,
@@ -150,7 +166,11 @@ export default function Events() {
         offset,
       }
       if (countryFilter !== 'ALL') params.country = countryFilter
+      if (recipientFilter !== 'ALL') params.recipient = recipientFilter
       if (phaseFilter !== 'ALL') params.story_phase = phaseFilter
+      if (materialityFilter) params.min_materiality = Number(materialityFilter)
+      if (startDate) params.start_date = startDate
+      if (endDate) params.end_date = endDate
       return fetchEventsRich(params as Parameters<typeof fetchEventsRich>[0])
     },
     placeholderData: keepPreviousData,
@@ -197,8 +217,19 @@ export default function Events() {
             value={countryFilter}
             onChange={e => handleFilterChange(setCountryFilter, e.target.value)}
           >
-            <option value="ALL">All Countries</option>
+            <option value="ALL">All Influencers</option>
             {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+
+        <div className="ev-filter-group">
+          <Globe size={14} />
+          <select
+            value={recipientFilter}
+            onChange={e => handleFilterChange(setRecipientFilter, e.target.value)}
+          >
+            <option value="ALL">All Recipients</option>
+            {(filterOptions?.recipients || []).map(r => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
 
@@ -213,6 +244,35 @@ export default function Events() {
               <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
             ))}
           </select>
+        </div>
+
+        <div className="ev-filter-group">
+          <Zap size={14} />
+          <select
+            value={materialityFilter}
+            onChange={e => handleFilterChange(setMaterialityFilter, e.target.value)}
+          >
+            {MATERIALITY_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="ev-filter-group">
+          <Calendar size={14} />
+          <input
+            type="date"
+            value={startDate}
+            onChange={e => handleFilterChange(setStartDate, e.target.value)}
+            title="Only show events active on or after this date"
+          />
+          <span style={{ color: '#94a3b8' }}>–</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={e => handleFilterChange(setEndDate, e.target.value)}
+            title="Only show events active on or before this date"
+          />
         </div>
 
         <div className="ev-filter-group">
@@ -270,7 +330,7 @@ export default function Events() {
           <Calendar size={48} />
           <h3>No Events Found</h3>
           <p>
-            {countryFilter !== 'ALL' || phaseFilter !== 'ALL'
+            {countryFilter !== 'ALL' || recipientFilter !== 'ALL' || phaseFilter !== 'ALL' || materialityFilter || startDate || endDate
               ? 'Try adjusting the filters to see more events.'
               : 'Events will appear here once they are tracked in the database.'}
           </p>

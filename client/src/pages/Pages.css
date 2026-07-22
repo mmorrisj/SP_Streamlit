@@ -806,6 +806,15 @@
   cursor: pointer;
 }
 
+.ev-filter-group input[type="date"] {
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  font-size: 0.85rem;
+  background: white;
+  color: #334155;
+}
+
 .ev-count {
   margin-left: auto;
   font-size: 0.85rem;
