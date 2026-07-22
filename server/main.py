@@ -937,9 +937,34 @@ def get_dashboard_intelligence():
     # by sheer recency/volume). Order matches the app's influencer palette.
     MENA_INFLUENCERS = ["China", "Iran", "Russia", "Turkey"]
 
-    def _serialize(s):
+    def _resolve_canonical_ids(session, rows):
+        """Weekly/monthly summary generators don't set canonical_event_id, which
+        leaves dashboard cards with nothing to link to. Resolve missing links by
+        matching master canonical events on name + initiating country (the same
+        fallback the across-periods endpoint uses in reverse)."""
+        unresolved = [s for s in rows if not s.canonical_event_id and s.event_name]
+        if not unresolved:
+            return {}
+        pairs = {(s.event_name, s.initiating_country) for s in unresolved}
+        matches = session.query(CanonicalEvent).filter(
+            CanonicalEvent.master_event_id.is_(None),
+            CanonicalEvent.canonical_name.in_({name for name, _ in pairs}),
+        ).all()
+        by_pair = {}
+        for ce in matches:
+            key = (ce.canonical_name, ce.initiating_country)
+            if key in pairs and key not in by_pair:
+                by_pair[key] = str(ce.id)
+        return {
+            str(s.id): by_pair[(s.event_name, s.initiating_country)]
+            for s in unresolved
+            if (s.event_name, s.initiating_country) in by_pair
+        }
+
+    def _serialize(s, resolved_ids=None):
         ns = s.narrative_summary or {}
         overview = ns.get("overview") or ns.get("monthly_overview") or ""
+        canonical_id = str(s.canonical_event_id) if s.canonical_event_id else (resolved_ids or {}).get(str(s.id))
         return {
             "id": str(s.id),
             "event_name": s.event_name,
@@ -950,7 +975,7 @@ def get_dashboard_intelligence():
             "material_score": float(s.material_score) if s.material_score else None,
             "count_by_category": s.count_by_category or {},
             "count_by_recipient": s.count_by_recipient or {},
-            "canonical_event_id": str(s.canonical_event_id) if s.canonical_event_id else None,
+            "canonical_event_id": canonical_id,
         }
 
     def _dedupe_key(s):
@@ -989,7 +1014,9 @@ def get_dashboard_intelligence():
                 EventSummary.initiating_country.in_(MENA_INFLUENCERS),
             ).order_by(EventSummary.period_start.desc()).limit(10 * FETCH_MULTIPLIER).all()
 
-            result[key] = [_serialize(s) for s in _dedupe_recent(summaries, 10)]
+            summaries = _dedupe_recent(summaries, 10)
+            resolved = _resolve_canonical_ids(session, summaries)
+            result[key] = [_serialize(s, resolved) for s in summaries]
 
         # Latest weekly grouped by influencer — top 5 most-recent weekly summaries per actor,
         # so the dashboard can show a per-influencer column instead of one blended list.
@@ -1002,7 +1029,8 @@ def get_dashboard_intelligence():
             ).order_by(EventSummary.period_start.desc()).limit(5 * FETCH_MULTIPLIER).all()
             rows = _dedupe_recent(rows, 5)
             if rows:
-                weekly_by_influencer[inf] = [_serialize(s) for s in rows]
+                resolved = _resolve_canonical_ids(session, rows)
+                weekly_by_influencer[inf] = [_serialize(s, resolved) for s in rows]
         result["weekly_by_influencer"] = weekly_by_influencer
 
         # Period-over-period comparison: count events by period

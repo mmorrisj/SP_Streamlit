@@ -61,12 +61,12 @@ function SectionHeading({ title, caption, tooltip }: { title: string; caption: s
   )
 }
 
-function IntelCard({ item, onClick }: { item: DashboardIntelligenceItem; onClick: () => void }) {
+function IntelCard({ item, onClick }: { item: DashboardIntelligenceItem; onClick?: () => void }) {
   const topCats = Object.entries(item.count_by_category || {}).sort(([,a],[,b]) => b - a).slice(0, 2)
   const topRecs = Object.entries(item.count_by_recipient || {}).sort(([,a],[,b]) => b - a).slice(0, 2)
 
   return (
-    <div className="intel-card" onClick={onClick} style={{ cursor: 'pointer' }}>
+    <div className="intel-card" onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
           <Calendar size={12} style={{ color: '#64748b' }} />
@@ -245,7 +245,7 @@ export default function Dashboard() {
                           <IntelCard
                             key={item.id}
                             item={item}
-                            onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
+                            onClick={item.canonical_event_id ? () => navigate(`/events/${item.canonical_event_id}`) : undefined}
                           />
                         ))}
                       </div>
@@ -267,7 +267,7 @@ export default function Dashboard() {
                   <IntelCard
                     key={item.id}
                     item={item}
-                    onClick={() => item.canonical_event_id ? navigate(`/events/${item.canonical_event_id}`) : undefined}
+                    onClick={item.canonical_event_id ? () => navigate(`/events/${item.canonical_event_id}`) : undefined}
                   />
                 ))}
               </div>
