@@ -1013,3 +1013,33 @@
 .agent-input-row > :first-child { flex: 1; }
 
 .agent-stop { flex: none; margin-bottom: 0.35rem; }
+
+/* Header action row (export / new conversation) */
+.agent-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.agent-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.agent-btn-ghost {
+  background: white;
+  border: 1px solid #d1d5db;
+  color: #475569;
+}
+
+.agent-btn-ghost:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.agent-btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
