@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { BookOpenText, Image as ImageIcon, CalendarDays } from 'lucide-react'
 import { fetchIntelReports, type IntelReportMeta } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 import './IntelReports.css'
 
@@ -41,6 +42,8 @@ export default function IntelReportsPage() {
           tradecraft or review standards.
         </p>
       </div>
+
+      <PageGuide page="intel-reports" />
 
       {groups.map(({ group, items }) => (
         <section key={group} className="ir-group">

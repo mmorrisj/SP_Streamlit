@@ -7,6 +7,7 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts'
 import { FileBarChart, ExternalLink, Users, Building2, MapPin, Briefcase, X, Download } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import {
   fetchReportConfig,
   exportReportToDocx,
@@ -308,6 +309,8 @@ export default function ReportPage() {
           Generate structured summary reports with AI narratives, metrics, and source citations
         </p>
       </div>
+
+      <PageGuide page="publication" />
 
       {/* Configuration Panel */}
       <div className="chart-card compact" style={{ marginBottom: '1.5rem' }}>

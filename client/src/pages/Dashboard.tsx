@@ -6,6 +6,7 @@ import { Calendar, Zap, Tag, Globe, Info, TrendingUp, TrendingDown, Minus } from
 import { fetchDocumentStats, fetchFilterOptions, fetchDashboardIntelligence, fetchEventComparison, fetchMaterialityAnalysis } from '../api/client'
 import type { DashboardIntelligenceItem } from '../api/client'
 import DataCoverageBadge from '../components/DataCoverageBadge'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a5c4e0', '#c4d9ed', '#e0ebf5']
@@ -339,6 +340,8 @@ export default function Dashboard() {
         <h1>Soft Power Dashboard <DataCoverageBadge /></h1>
         <p>Analytics overview of diplomatic documents and events</p>
       </header>
+
+      <PageGuide page="dashboard" />
 
       {/* Recent Intelligence Section */}
       {intelligence && ((intelligence.weekly?.length || 0) > 0 || (intelligence.monthly?.length || 0) > 0) && (

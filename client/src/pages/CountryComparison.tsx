@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Globe, Zap, Tag, Calendar, ChevronDown } from 'lucide-react'
 import { fetchEventComparison } from '../api/client'
 import type { EventComparison } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -137,6 +138,8 @@ export default function CountryComparison() {
         </h1>
         <p>Events tracked by multiple countries with comparative perspectives</p>
       </header>
+
+      <PageGuide page="country-comparison" />
 
       {isLoading ? (
         <div className="loading">Loading comparisons...</div>

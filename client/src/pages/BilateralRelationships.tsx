@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { Users } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 interface BilateralData {
@@ -40,6 +41,8 @@ export default function BilateralRelationships() {
           <span style={{ color: '#0c4a6e', fontWeight: 500 }}>💡 Click any relationship below to see detailed analytics, trends, and document summaries</span>
         </div>
       </header>
+
+      <PageGuide page="bilateral" />
 
       {isLoading ? (
         <div className="loading">Loading bilateral data...</div>

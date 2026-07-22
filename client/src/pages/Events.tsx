@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { fetchEventsRich, fetchFilterOptions } from '../api/client'
 import type { Event, EventsListResponse } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const PHASE_COLORS: Record<string, string> = {
@@ -208,6 +209,8 @@ export default function Events() {
         </h1>
         <p>Tracked diplomatic events with materiality scoring and narrative analysis</p>
       </header>
+
+      <PageGuide page="events" />
 
       {/* Filters row */}
       <div className="ev-filters">

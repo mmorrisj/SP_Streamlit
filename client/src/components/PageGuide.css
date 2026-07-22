@@ -1,0 +1,53 @@
+.page-guide {
+  margin: -1rem 0 1.5rem;
+}
+
+.page-guide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  padding: 0.25rem 0;
+  font-size: 0.8rem;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.page-guide-toggle:hover {
+  color: #1a365d;
+}
+
+.page-guide-body {
+  margin-top: 0.5rem;
+  padding: 0.875rem 1.1rem;
+  background: #f0f7ff;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #334155;
+  line-height: 1.6;
+  max-width: 920px;
+}
+
+.page-guide-body p {
+  margin: 0 0 0.5rem;
+}
+
+.page-guide-body strong {
+  color: #1e3a8a;
+}
+
+.page-guide-learn {
+  margin-bottom: 0 !important;
+  font-size: 0.8rem;
+}
+
+.page-guide-learn a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.page-guide-learn a:hover {
+  text-decoration: underline;
+}

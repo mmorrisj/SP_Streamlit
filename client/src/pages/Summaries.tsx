@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { fetchSummariesRich } from '../api/client'
 import type { Summary, SummariesListResponse } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -265,6 +266,8 @@ export default function Summaries() {
         </h1>
         <p>AP-style event summaries across daily, weekly, monthly, and yearly periods</p>
       </header>
+
+      <PageGuide page="summaries" />
 
       {/* Period type tabs + country filter */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>

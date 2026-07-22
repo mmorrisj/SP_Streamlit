@@ -7,6 +7,7 @@ import {
 } from '../api/client'
 import type { AlertRule, AlertHistory, AlertRuleCreateRequest } from '../api/client'
 import AlertRuleForm from '../components/AlertRuleForm'
+import PageGuide from '../components/PageGuide'
 import './AlertsPage.css'
 
 const CONDITION_LABELS: Record<string, string> = {
@@ -96,6 +97,8 @@ export default function AlertsPage() {
             </button>
           )}
         </div>
+
+        <PageGuide page="alerts" />
 
         <div className="tab-bar">
           <button

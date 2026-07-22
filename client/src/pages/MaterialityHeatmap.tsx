@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { Flame, Sparkles, Loader2 } from 'lucide-react'
 import { fetchMaterialityAnalysis, generateMaterialitySummary } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const INFLUENCERS = ['China', 'Iran', 'Russia', 'Turkey', 'United States']
@@ -76,6 +77,8 @@ export default function MaterialityHeatmap() {
         <h1><Flame size={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />Materiality Analysis</h1>
         <p>Event materiality trends, distribution, and standout events — by country or bilateral pair</p>
       </header>
+
+      <PageGuide page="materiality" />
 
       {/* Controls */}
       <div className="chart-card compact" style={{ marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
