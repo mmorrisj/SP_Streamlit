@@ -7,16 +7,16 @@ import './Layout.css'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/documents', label: 'Documents', icon: FileText },
-  { path: '/events', label: 'Events', icon: Zap },
-  { path: '/summaries', label: 'Summaries', icon: TrendingUp },
-  { path: '/bilateral', label: 'Bilateral', icon: Users },
+  { path: '/report', label: 'Publication', icon: FileBarChart },
   { path: '/chat', label: 'Research', icon: MessageSquare },
   { path: '/agent', label: 'Agent', icon: Bot },
-  { path: '/report', label: 'Publication', icon: FileBarChart },
+  { path: '/events', label: 'Events', icon: Zap },
+  { path: '/documents', label: 'Documents', icon: FileText },
 ]
 
 const intelligenceItems = [
+  { path: '/summaries', label: 'Summaries', icon: TrendingUp },
+  { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/intel-reports', label: 'Insight Reports', icon: BookOpenText },
   { path: '/events/comparison', label: 'Country Comparison', icon: Globe },
   { path: '/events/materiality', label: 'Materiality Map', icon: Flame },
@@ -75,7 +75,7 @@ export default function Layout() {
           <div className="nav-section">
             <div className="nav-section-title">
               <Zap size={16} />
-              <span>Intelligence</span>
+              <span>Insights</span>
             </div>
             {intelligenceItems.map(({ path, label }) => (
               <NavLink
