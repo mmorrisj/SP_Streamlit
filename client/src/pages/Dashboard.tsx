@@ -2,9 +2,10 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from 'recharts'
-import { Calendar, Zap, Tag, Globe, Info } from 'lucide-react'
-import { fetchDocumentStats, fetchFilterOptions, fetchDashboardIntelligence } from '../api/client'
+import { Calendar, Zap, Tag, Globe, Info, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { fetchDocumentStats, fetchFilterOptions, fetchDashboardIntelligence, fetchEventComparison, fetchMaterialityAnalysis } from '../api/client'
 import type { DashboardIntelligenceItem } from '../api/client'
+import DataCoverageBadge from '../components/DataCoverageBadge'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a5c4e0', '#c4d9ed', '#e0ebf5']
@@ -45,6 +46,93 @@ const CATEGORY_COLORS: Record<string, string> = {
   Diplomacy: '#06b6d4',
   Military: '#ef4444',
   Social: '#8b5cf6',
+}
+
+const MENA_INFLUENCERS = ['China', 'Iran', 'Russia', 'Turkey']
+
+function MaterialitySparkline({ trend, color }: { trend: { month: string; avg_materiality: number }[]; color: string }) {
+  // Last 12 months of average materiality as a tiny inline SVG, scaled to the
+  // series' own range so the shape stays readable.
+  const points = trend.slice(-12).map(t => t.avg_materiality)
+  if (points.length < 2) return null
+  const w = 72, h = 18
+  const min = Math.min(...points), max = Math.max(...points)
+  const span = max - min || 1
+  const step = w / (points.length - 1)
+  const path = points
+    .map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${(h - 2 - ((v - min) / span) * (h - 4)).toFixed(1)}`)
+    .join(' ')
+  const latest = points[points.length - 1]
+  return (
+    <span
+      title={`Average materiality by month over the last ${points.length} months (higher = more substantive activity). Latest: ${latest.toFixed(1)}`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', marginLeft: 'auto', cursor: 'help' }}
+    >
+      <svg width={w} height={h} style={{ display: 'block' }}>
+        <path d={path} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{latest.toFixed(1)}</span>
+    </span>
+  )
+}
+
+function InfluencerActivityChips({ stats }: { stats: { country: string; period_type: string; event_count: number; avg_materiality: number | null }[] }) {
+  // One chip per influencer from the daily-period rows: total tracked event
+  // summaries and average materiality across the full corpus. Limited to the
+  // same MENA-active influencers as the intelligence lists below.
+  const daily = stats
+    .filter(s => s.period_type.toLowerCase() === 'daily' && MENA_INFLUENCERS.includes(s.country))
+    .sort((a, b) => MENA_INFLUENCERS.indexOf(a.country) - MENA_INFLUENCERS.indexOf(b.country))
+  if (daily.length === 0) return null
+
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+      {daily.map(s => (
+        <span
+          key={s.country}
+          title={`${s.event_count.toLocaleString()} daily event summaries tracked for ${s.country} across the full corpus${s.avg_materiality != null ? `; average materiality score ${s.avg_materiality} (1–5 scale, higher = more substantive)` : ''}`}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+            padding: '0.3rem 0.7rem', borderRadius: '9999px', background: 'white',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.07)', fontSize: '0.8rem', color: '#334155', cursor: 'help',
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: INFLUENCER_COLORS[s.country], flexShrink: 0 }} />
+          <span style={{ fontWeight: 600 }}>{s.country}</span>
+          <span style={{ color: '#64748b' }}>{s.event_count.toLocaleString()} events</span>
+          {s.avg_materiality != null && (
+            <span style={{ color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <Zap size={11} />{s.avg_materiality.toFixed(1)}
+            </span>
+          )}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function MomentumChip({ influencer, change }: { influencer: string; change: number | null }) {
+  if (change === null) return null
+  const up = change > 0
+  const flat = Math.abs(change) < 1
+  const color = flat ? '#64748b' : up ? '#166534' : '#991b1b'
+  const bg = flat ? '#f1f5f9' : up ? '#dcfce7' : '#fee2e2'
+  const IconComp = flat ? Minus : up ? TrendingUp : TrendingDown
+  return (
+    <span
+      title={`${influencer}: ${up ? '+' : ''}${change.toFixed(0)}% documents vs. the prior week`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+        padding: '0.2rem 0.6rem', borderRadius: '9999px',
+        background: bg, color, fontSize: '0.78rem', fontWeight: 500, cursor: 'help',
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: INFLUENCER_COLORS[influencer] || '#64748b', flexShrink: 0 }} />
+      {influencer}
+      <IconComp size={12} />
+      {up ? '+' : ''}{change.toFixed(0)}%
+    </span>
+  )
 }
 
 function SectionHeading({ title, caption, tooltip }: { title: string; caption: string; tooltip: string }) {
@@ -141,6 +229,25 @@ export default function Dashboard() {
     queryFn: fetchDashboardIntelligence,
   })
 
+  // Top events tracked under multiple influencers (teaser for /events/comparison)
+  const { data: contested } = useQuery({
+    queryKey: ['dashboard-contested-events'],
+    queryFn: () => fetchEventComparison(3),
+    staleTime: 10 * 60 * 1000,
+  })
+
+  // Monthly avg-materiality trend per influencer, for the column-header sparklines
+  const { data: materialityTrends } = useQuery({
+    queryKey: ['dashboard-materiality-trends'],
+    queryFn: async () => {
+      const results = await Promise.all(
+        MENA_INFLUENCERS.map(c => fetchMaterialityAnalysis(c).catch(() => null))
+      )
+      return Object.fromEntries(MENA_INFLUENCERS.map((c, i) => [c, results[i]?.trend || []]))
+    },
+    staleTime: 10 * 60 * 1000,
+  })
+
   // Merge weekly data for influencers and recipients (filtered client-side)
   const mergedWeeklyData = useMemo(() => {
     if (!data?.documents_by_week || !data?.documents_by_week_by_influencer || !data?.documents_by_week_by_recipient) return []
@@ -182,6 +289,23 @@ export default function Dashboard() {
     return Array.from(weekMap.values()).sort((a, b) => a.week.localeCompare(b.week))
   }, [data, selectedInfluencers])
 
+  // Week-over-week document momentum per influencer, from the two most recent
+  // weeks in the already-loaded weekly series. The newest week can be partial
+  // (ingestion lags), so treat these as directional.
+  const momentum = useMemo(() => {
+    const byInfluencer = data?.documents_by_week_by_influencer
+    if (!byInfluencer) return []
+    return Object.entries(byInfluencer)
+      .filter(([influencer]) => INFLUENCER_COLORS[influencer])
+      .map(([influencer, weeks]) => {
+        const sorted = [...weeks].sort((a, b) => a.week.localeCompare(b.week))
+        if (sorted.length < 2) return { influencer, change: null }
+        const [prev, latest] = sorted.slice(-2)
+        if (!prev.count) return { influencer, change: null }
+        return { influencer, change: ((latest.count - prev.count) / prev.count) * 100 }
+      })
+  }, [data])
+
   const toggleInfluencer = (influencer: string) => {
     setSelectedInfluencers(prev => ({ ...prev, [influencer]: !prev[influencer] }))
   }
@@ -212,7 +336,7 @@ export default function Dashboard() {
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Soft Power Dashboard</h1>
+        <h1>Soft Power Dashboard <DataCoverageBadge /></h1>
         <p>Analytics overview of diplomatic documents and events</p>
       </header>
 
@@ -223,6 +347,7 @@ export default function Dashboard() {
             <Zap size={20} style={{ marginRight: 6, verticalAlign: 'middle' }} />
             Recent Intelligence
           </h2>
+          {intelligence.period_stats && <InfluencerActivityChips stats={intelligence.period_stats} />}
           {/* Latest Weekly — one column per influencer, top 5 each */}
           {intelligence.weekly_by_influencer && Object.keys(intelligence.weekly_by_influencer).length > 0 && (
             <div style={{ marginBottom: '1.5rem' }}>
@@ -232,13 +357,16 @@ export default function Dashboard() {
                 tooltip="Weekly summaries are AI-generated narratives that synthesize an event's daily summaries over a Monday–Sunday week. An ongoing event produces a new weekly summary for each week it stays in the news."
               />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', alignItems: 'start' }}>
-                {['China', 'Iran', 'Russia', 'Turkey']
+                {MENA_INFLUENCERS
                   .filter(inf => (intelligence.weekly_by_influencer[inf]?.length || 0) > 0)
                   .map(inf => (
                     <div key={inf}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem', paddingBottom: '0.35rem', borderBottom: `2px solid ${INFLUENCER_COLORS[inf] || '#cbd5e1'}` }}>
                         <span style={{ width: 10, height: 10, borderRadius: '50%', background: INFLUENCER_COLORS[inf] || '#64748b', flexShrink: 0 }} />
                         <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{inf}</span>
+                        {materialityTrends?.[inf] && (
+                          <MaterialitySparkline trend={materialityTrends[inf]} color={INFLUENCER_COLORS[inf] || '#64748b'} />
+                        )}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {intelligence.weekly_by_influencer[inf].map(item => (
@@ -273,12 +401,57 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+          {/* Contested events — tracked under multiple influencers */}
+          {contested && contested.comparisons.length > 0 && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <SectionHeading
+                title="Contested Events"
+                caption="Events where multiple influencers are simultaneously engaged — click a card for the side-by-side comparison."
+                tooltip="These events appear in the reporting of two or more initiating countries at once, signaling active competition for the same story. The comparison page shows each country's narrative side by side."
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
+                {contested.comparisons.slice(0, 3).map(comp => (
+                  <div
+                    key={comp.event_name}
+                    className="intel-card"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => navigate('/events/comparison')}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        {comp.countries.map(c => (
+                          <span key={c} title={c} style={{ width: 9, height: 9, borderRadius: '50%', background: INFLUENCER_COLORS[c] || '#94a3b8' }} />
+                        ))}
+                        <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{comp.country_count} influencers</span>
+                      </div>
+                      {comp.latest_date && (
+                        <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{comp.latest_date}</span>
+                      )}
+                    </div>
+                    <h4 style={{ margin: 0, fontSize: '0.88rem', lineHeight: 1.3, color: '#1e293b' }}>
+                      {comp.event_name}
+                    </h4>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Documents per Week with Toggles */}
       <div className="chart-card" style={{ marginBottom: '2rem' }}>
         <h3>Documents per Week</h3>
+
+        {/* Week-over-week momentum */}
+        {momentum.some(m => m.change !== null) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>vs. prior week:</span>
+            {momentum.map(m => (
+              <MomentumChip key={m.influencer} influencer={m.influencer} change={m.change} />
+            ))}
+          </div>
+        )}
 
         {/* Total Toggle */}
         <div style={{ marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>
