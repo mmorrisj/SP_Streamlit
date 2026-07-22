@@ -97,6 +97,30 @@ eval:
       - 'BODY'
       - 'Distilled_Text'
       
+# Public international economic data ingestion (World Bank WDI + IMF DOTS/IMTS)
+# Consumed by services/pipeline/ingestion/wdi.py and imf_dots.py.
+economic_data:
+  start_year: 2015
+  wdi:
+    base_url: "https://api.worldbank.org/v2"
+    indicators:
+      NY.GDP.MKTP.CD: "GDP (current US$)"
+      NY.GDP.PCAP.CD: "GDP per capita (current US$)"
+      NY.GDP.MKTP.KD.ZG: "GDP growth (annual %)"
+      BX.KLT.DINV.CD.WD: "Foreign direct investment, net inflows (BoP, current US$)"
+      NE.TRD.GNFS.ZS: "Trade (% of GDP)"
+      BX.TRF.PWKR.CD.DT: "Personal remittances, received (current US$)"
+      SP.POP.TOTL: "Population, total"
+  imf:
+    base_url: "https://api.imf.org/external/sdmx/3.0"
+    agency: "IMF.STA"
+    dataflow: "IMTS"          # DOTS lives in IMTS on the post-2025 IMF data portal
+    dataflow_version: "+"     # '+' = latest published version
+    frequency: "A"            # A(nnual), Q(uarterly), or M(onthly)
+    indicators:
+      XG_FOB_USD: "Goods exports, free on board, US dollars"
+      MG_CIF_USD: "Goods imports, cost insurance freight, US dollars"
+
 influencers:
   - China
   - Russia

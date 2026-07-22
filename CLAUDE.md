@@ -108,6 +108,20 @@ python services/pipeline/summaries/generate_bilateral_summaries.py \
 python services/pipeline/summaries/generate_bilateral_summaries.py \
     --init-country China --recipient-country Egypt --regenerate  # Update existing summary
 
+# Public Economic Data (World Bank WDI + IMF DOTS)
+# Country-level indicators (GDP, FDI, trade share, remittances, population)
+python services/pipeline/ingestion/wdi.py                 # Fetch + upsert
+python services/pipeline/ingestion/wdi.py --dry-run       # Fetch/parse only
+python services/pipeline/ingestion/wdi.py --status        # Coverage report
+# Bilateral trade (influencer -> recipient exports/imports, IMF SDMX API)
+# Optional: set IMF_API_KEY in .env for higher rate limits
+python services/pipeline/ingestion/imf_dots.py            # Annual by default
+python services/pipeline/ingestion/imf_dots.py --frequency M --start-year 2020
+python services/pipeline/ingestion/imf_dots.py --status
+# Both write to the economic_indicators table (see economic_data in
+# shared/config/config.yaml for indicator lists and endpoints); re-runs
+# upsert in place. Query helpers: services/dashboard/queries/economic_queries.py
+
 # Embeddings - Generation
 python services/pipeline/embeddings/embed_missing_documents.py                    # Embed documents
 python services/pipeline/embeddings/embed_missing_documents.py --status           # Check status

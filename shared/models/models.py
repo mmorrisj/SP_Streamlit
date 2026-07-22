@@ -1820,3 +1820,54 @@ class AidDataLocation(Base):
 
     def __repr__(self) -> str:
         return f"<AidDataLocation(record_id={self.aiddata_record_id}, adm={self.adm_level}, name='{self.shape_name}')>"
+
+
+class EconomicIndicator(Base):
+    """
+    Public international economic indicator time series.
+
+    One row per (source, indicator, reporter country, counterpart country,
+    frequency, period). Two kinds of series share this table:
+
+    - Country-level indicators (World Bank WDI: GDP, FDI inflows, ...):
+      counterpart_iso3 is '' (empty string, NOT NULL so the unique
+      constraint holds — Postgres treats NULLs as distinct).
+    - Bilateral series (IMF DOTS/IMTS trade): country_iso3 is the reporter
+      and counterpart_iso3 the partner, e.g. CHN -> EGY exports.
+
+    Sources: 'WDI' (api.worldbank.org), 'IMF_IMTS' (api.imf.org SDMX).
+    """
+    __tablename__ = 'economic_indicators'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    indicator_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    indicator_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    country_iso3: Mapped[str] = mapped_column(String(3), nullable=False)
+    counterpart_iso3: Mapped[str] = mapped_column(String(3), nullable=False, default='')
+
+    frequency: Mapped[str] = mapped_column(String(1), nullable=False, default='A')  # A/Q/M
+    period: Mapped[str] = mapped_column(String(10), nullable=False)   # '2023', '2023-Q3', '2023-07'
+    period_date: Mapped[DateType] = mapped_column(Date, nullable=False)  # first day of period
+
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            'source', 'indicator_code', 'country_iso3', 'counterpart_iso3',
+            'frequency', 'period',
+            name='uq_econ_series_period'
+        ),
+        Index('ix_econ_country_period', 'country_iso3', 'period_date'),
+        Index('ix_econ_pair', 'country_iso3', 'counterpart_iso3', 'indicator_code'),
+        Index('ix_econ_source_indicator', 'source', 'indicator_code'),
+    )
+
+    def __repr__(self) -> str:
+        pair = f"{self.country_iso3}->{self.counterpart_iso3}" if self.counterpart_iso3 else self.country_iso3
+        return f"<EconomicIndicator({self.source}:{self.indicator_code} {pair} {self.period}={self.value})>"
