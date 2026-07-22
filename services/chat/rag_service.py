@@ -669,29 +669,36 @@ def analyze_query(query: str) -> QueryIntent:
                 intent.recipients.append(normalized)
                 intent.confidence_notes.append(f"Recipient (in/to): {normalized}")
 
-    # General country mention scan
-    words = re.findall(r'\b[\w\s]+\b', query_lower)
+    # General country mention scan. Tokenize on word characters — the previous
+    # pattern (r'\b[\w\s]+\b') matched spaces inside the token, returning the
+    # whole query as a single "word", so plain country mentions were never
+    # detected and only the possessive/by-from patterns above ever fired.
+    words = re.findall(r"[\w]+", query_lower)
     for i, word in enumerate(words):
-        # Check single words
-        normalized = COUNTRY_ALIASES.get(word.strip())
-        if normalized:
-            # Determine if influencer or recipient based on context
-            if normalized in INFLUENCER_COUNTRIES:
-                if normalized not in intent.influencers:
-                    intent.influencers.append(normalized)
-            elif normalized not in intent.recipients:
-                intent.recipients.append(normalized)
-
-        # Check two-word combinations (e.g., "Saudi Arabia", "United States")
+        # Two-word combinations first (e.g., "Saudi Arabia", "United States")
+        # so "united states" doesn't fall through to a single-word miss.
         if i < len(words) - 1:
-            two_word = f"{word.strip()} {words[i+1].strip()}"
-            normalized = COUNTRY_ALIASES.get(two_word)
+            normalized = COUNTRY_ALIASES.get(f"{word} {words[i + 1]}")
             if normalized:
                 if normalized in INFLUENCER_COUNTRIES:
                     if normalized not in intent.influencers:
                         intent.influencers.append(normalized)
                 elif normalized not in intent.recipients:
                     intent.recipients.append(normalized)
+                continue
+
+        # "us" is a common English pronoun — only treat it as the United
+        # States when the original query capitalizes it (US / U.S.)
+        if word == "us" and not re.search(r"\bU\.?S\.?\b", query):
+            continue
+
+        normalized = COUNTRY_ALIASES.get(word)
+        if normalized:
+            if normalized in INFLUENCER_COUNTRIES:
+                if normalized not in intent.influencers:
+                    intent.influencers.append(normalized)
+            elif normalized not in intent.recipients:
+                intent.recipients.append(normalized)
 
     # =================================
     # 3. Extract category references
@@ -723,9 +730,35 @@ def apply_query_intelligence(
     """
     intent = analyze_query(query)
 
-    # Use explicit values if provided, otherwise use inferred
-    influencer = explicit_influencer or (intent.influencers[0] if intent.influencers else None)
-    recipient = explicit_recipient or (intent.recipients[0] if intent.recipients else None)
+    # Use explicit values if provided, otherwise use inferred.
+    # When the query names MULTIPLE influencers (or recipients) it is
+    # comparative — filtering to just the first detected country would
+    # silently drop the rest, so apply no filter on that dimension and let
+    # semantic relevance rank across all of them instead.
+    if explicit_influencer:
+        influencer = explicit_influencer
+    elif len(intent.influencers) == 1:
+        influencer = intent.influencers[0]
+    else:
+        influencer = None
+        if len(intent.influencers) > 1:
+            intent.confidence_notes.append(
+                f"Comparative query: {len(intent.influencers)} influencers detected "
+                f"({', '.join(intent.influencers)}); no influencer filter applied"
+            )
+
+    if explicit_recipient:
+        recipient = explicit_recipient
+    elif len(intent.recipients) == 1:
+        recipient = intent.recipients[0]
+    else:
+        recipient = None
+        if len(intent.recipients) > 1:
+            intent.confidence_notes.append(
+                f"Multiple recipients detected ({', '.join(intent.recipients)}); "
+                f"no recipient filter applied"
+            )
+
     category = explicit_category or (intent.categories[0] if intent.categories else None)
     start_date = explicit_start_date or intent.start_date
     end_date = explicit_end_date or intent.end_date
@@ -1235,17 +1268,27 @@ def _hybrid_search(
 
     try:
         # Combined query: vector search + BM25 via tsvector on documents table
-        # Uses RRF: score = sum(1 / (k + rank_i)) for each retrieval system
+        # Uses RRF: score = sum(1 / (k + rank_i)) for each retrieval system.
+        #
+        # Filters MUST be applied inside each candidate CTE, before its LIMIT.
+        # Filtering after truncation starves filtered queries: a broad query's
+        # global top-N candidates can all fall outside the filter (e.g. a
+        # 2026-only date filter on a corpus that is mostly 2024-2025), leaving
+        # 0-2 survivors no matter how many matching documents exist.
         hybrid_sql = f"""
             WITH vector_ranked AS (
                 SELECT
                     e.document as content,
                     e.cmetadata,
                     1 - (e.embedding <=> '{embedding_str}'::vector) AS similarity,
+                    d.doc_id, d.title, d.source_name, d.date,
+                    d.initiating_country, d.recipient_country,
+                    d.category, d.salience,
                     ROW_NUMBER() OVER (ORDER BY e.embedding <=> '{embedding_str}'::vector ASC) AS v_rank
                 FROM langchain_pg_embedding e
                 JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-                WHERE c.name = 'chunk_embeddings'
+                JOIN documents d ON e.cmetadata->>'doc_id' = d.doc_id
+                WHERE c.name = 'chunk_embeddings' {filter_sql}
                 ORDER BY e.embedding <=> '{embedding_str}'::vector ASC
                 LIMIT :vector_limit
             ),
@@ -1257,23 +1300,21 @@ def _hybrid_search(
                         ORDER BY ts_rank_cd(d.search_vector, plainto_tsquery('english', :bm25_query)) DESC
                     ) AS b_rank
                 FROM documents d
-                WHERE d.search_vector @@ plainto_tsquery('english', :bm25_query)
+                WHERE d.search_vector @@ plainto_tsquery('english', :bm25_query) {filter_sql}
                 ORDER BY bm25_score DESC
                 LIMIT :bm25_limit
             )
             SELECT
                 v.content, v.cmetadata, v.similarity,
-                d.doc_id, d.title, d.source_name, d.date,
-                d.initiating_country, d.recipient_country,
-                d.category, d.salience,
+                v.doc_id, v.title, v.source_name, v.date,
+                v.initiating_country, v.recipient_country,
+                v.category, v.salience,
                 (
                     :vector_weight * (1.0 / (:rrf_k + v.v_rank)) +
                     COALESCE(:bm25_weight * (1.0 / (:rrf_k + b.b_rank)), 0)
                 ) AS rrf_score
             FROM vector_ranked v
-            LEFT JOIN documents d ON v.cmetadata->>'doc_id' = d.doc_id
-            LEFT JOIN bm25_ranked b ON d.doc_id = b.doc_id
-            WHERE 1=1 {filter_sql}
+            LEFT JOIN bm25_ranked b ON v.doc_id = b.doc_id
             ORDER BY rrf_score DESC
             LIMIT :limit
         """
