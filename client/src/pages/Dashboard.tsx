@@ -90,7 +90,7 @@ function InfluencerActivityChips({ stats }: { stats: { country: string; period_t
       {daily.map(s => (
         <span
           key={s.country}
-          title={`${s.event_count.toLocaleString()} daily event summaries tracked for ${s.country} across the full corpus${s.avg_materiality != null ? `; average materiality score ${s.avg_materiality} (1–5 scale, higher = more substantive)` : ''}`}
+          title={`${s.event_count.toLocaleString()} daily event summaries tracked for ${s.country} across the full corpus${s.avg_materiality != null ? `; average materiality score ${s.avg_materiality} (1–10 scale, higher = more substantive)` : ''}`}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
             padding: '0.3rem 0.7rem', borderRadius: '9999px', background: 'white',

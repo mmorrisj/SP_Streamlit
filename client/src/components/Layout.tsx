@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud, BookOpenText } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud, BookOpenText, Info } from 'lucide-react'
 import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
@@ -12,6 +12,7 @@ const navItems = [
   { path: '/agent', label: 'Agent', icon: Bot },
   { path: '/events', label: 'Events', icon: Zap },
   { path: '/documents', label: 'Documents', icon: FileText },
+  { path: '/about', label: 'About & Methodology', icon: Info },
 ]
 
 const intelligenceItems = [
@@ -161,6 +162,12 @@ export default function Layout() {
       </aside>
       <main className="main-content">
         <Outlet />
+        <footer className="gai-caveat">
+          Content on this platform is generated with AI from open-source reporting. Summaries, scores,
+          and analyses may contain errors and reflect biases inherent in the underlying sources and
+          models — verify against cited source documents before relying on them.{' '}
+          <NavLink to="/about">About &amp; Methodology</NavLink>
+        </footer>
       </main>
     </div>
   )

@@ -7,6 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import UserManagementPage from './pages/UserManagementPage'
 import Dashboard from './pages/Dashboard'
+import AboutMethodologyPage from './pages/AboutMethodologyPage'
 import Documents from './pages/Documents'
 import Events from './pages/Events'
 import Summaries from './pages/Summaries'
@@ -84,6 +85,7 @@ function App() {
               <Route path="entity/:entityId" element={<EntityProfilePage />} />
               <Route path="intel-reports" element={<IntelReportsPage />} />
               <Route path="intel-reports/:slug" element={<IntelReportViewerPage />} />
+              <Route path="about" element={<AboutMethodologyPage />} />
 
               {/* Analyst+ routes */}
               <Route path="ingestion" element={
