@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, Calendar, FileText, ExternalLink } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 interface Citation {
@@ -126,6 +127,8 @@ export default function SummaryDetailPage() {
           </p>
         </div>
       </div>
+
+      <PageGuide page="summary-detail" />
 
       {/* Metrics Section */}
       <div className="metrics-grid">

@@ -23,6 +23,7 @@ import {
   uploadIngestionFile,
   type IngestionJob,
 } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './DataIngestionPage.css'
 
 const ACTIVE_STATUSES = new Set(['uploaded', 'validating', 'loading', 'embedding'])
@@ -159,6 +160,8 @@ export default function DataIngestionPage() {
           </div>
         </div>
       </header>
+
+      <PageGuide page="data-ingestion" />
 
       <div className="ing-tabs">
         <button className={tab === 'new' ? 'active' : ''} onClick={() => setTab('new')}>

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { FileText, ExternalLink } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 interface BilateralSummary {
@@ -136,6 +137,8 @@ export default function BilateralSummariesPage() {
         <h1>Bilateral Summaries</h1>
         <p>Category-specific bilateral relationship assessments</p>
       </header>
+
+      <PageGuide page="bilateral-summaries" />
 
       <div className="filters">
         <div className="filter-group">

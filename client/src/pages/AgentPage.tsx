@@ -32,6 +32,7 @@ import {
   type WorkflowStartedPayload,
 } from '../api/client'
 import DataCoverageBadge from '../components/DataCoverageBadge'
+import PageGuide from '../components/PageGuide'
 import './AgentPage.css'
 
 // =================================================================
@@ -363,6 +364,8 @@ export default function AgentPage() {
             you click.
           </div>
         </header>
+
+      <PageGuide page="agent" />
 
         <div className="agent-thread" ref={scrollRef}>
           {messages.map((m) => {

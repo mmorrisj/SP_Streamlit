@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { fetchEventDetail } from '../api/client'
 import type { EventDetailMention } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const PHASE_COLORS: Record<string, string> = {
@@ -172,6 +173,8 @@ export default function EventDetailPage() {
           {event.initiating_country}
         </p>
       </div>
+
+      <PageGuide page="event-detail" />
 
       {/* Metrics row */}
       <div style={{

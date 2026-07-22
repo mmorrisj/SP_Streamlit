@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { FileText, Calendar, TrendingUp } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 interface Summary {
@@ -74,6 +75,8 @@ export default function DocumentSummariesPage() {
         <h1>Coverage Summaries</h1>
         <p>Hierarchical summaries with full source attribution</p>
       </header>
+
+      <PageGuide page="document-summaries" />
 
       <div className="filters">
         <div className="filter-group">

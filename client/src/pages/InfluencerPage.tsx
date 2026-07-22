@@ -22,6 +22,7 @@ import type {
   CategoryStrategySummary,
   TimelineItem,
 } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 import './InfluencerPage.css'
 
@@ -287,6 +288,8 @@ export default function InfluencerPage() {
           )}
         </div>
       </header>
+
+      <PageGuide page="influencer-profile" />
 
       {/* Sticky Section Nav */}
       <nav className="section-nav">

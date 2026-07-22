@@ -18,6 +18,7 @@ import {
 import { ArrowLeft, FileText, Globe, TrendingUp } from 'lucide-react'
 import { fetchInfluencerMetrics } from '../api/client'
 import { useDrilldown } from '../hooks/useDrilldown'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c3daf7']
@@ -91,6 +92,8 @@ export default function InfluencerMetricsPage() {
           Click any chart element to drill down into the underlying data
         </p>
       </header>
+
+      <PageGuide page="influencer-metrics" />
 
       {/* Key Stats */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>

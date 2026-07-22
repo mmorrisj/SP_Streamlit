@@ -43,6 +43,7 @@ import type {
   BilateralEntity,
   BilateralCatSummary,
 } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './BilateralPage.css'
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -535,6 +536,8 @@ export default function BilateralPage() {
           )}
         </div>
       </header>
+
+      <PageGuide page="bilateral-profile" />
 
       {/* Sticky Section Nav */}
       <nav className="bl-section-nav">

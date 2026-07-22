@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { BarChart3 } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c4d9f2']
@@ -25,6 +26,8 @@ export default function Categories() {
         <h1>Category Analysis</h1>
         <p>Distribution of documents across categories and subcategories</p>
       </header>
+
+      <PageGuide page="categories" />
 
       {isLoading ? (
         <div className="loading">Loading category data...</div>

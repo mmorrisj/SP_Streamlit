@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { fetchEventAcrossPeriods } from '../api/client'
 import type { CrossPeriodEntry } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const PERIOD_LABELS: Record<string, string> = {
@@ -206,6 +207,8 @@ export default function CrossPeriodView() {
           {data.first_mention_date && <span>{data.first_mention_date} — {data.last_mention_date}</span>}
         </div>
       </div>
+
+      <PageGuide page="cross-period" />
 
       {/* Period sections */}
       {periodOrder.map(period => {
