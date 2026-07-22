@@ -124,19 +124,16 @@ export default function Dashboard() {
   })
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, boolean>>({})
   const [showTotal, setShowTotal] = useState<boolean>(true)
-  const [filterRecipient, setFilterRecipient] = useState<string>('ALL')
 
-  // Fetch filter options
+  // Fetch filter options (still used for the recipient line toggles on the weekly chart)
   const { data: filterOptions } = useQuery({
     queryKey: ['filterOptions'],
     queryFn: fetchFilterOptions,
   })
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['documentStats', filterRecipient],
-    queryFn: () => fetchDocumentStats({
-      recipient_country: filterRecipient !== 'ALL' ? filterRecipient : undefined
-    }),
+    queryKey: ['documentStats'],
+    queryFn: () => fetchDocumentStats(),
   })
 
   const { data: intelligence } = useQuery({
@@ -278,32 +275,6 @@ export default function Dashboard() {
           )}
         </div>
       )}
-
-      {/* Filter Controls */}
-      <div style={{
-        marginBottom: '1.5rem',
-        padding: '1rem',
-        backgroundColor: '#f8f9fa',
-        borderRadius: '8px',
-        display: 'flex',
-        gap: '2rem',
-        alignItems: 'center',
-        flexWrap: 'wrap'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <label style={{ fontWeight: 600 }}>Recipient:</label>
-          <select
-            value={filterRecipient}
-            onChange={(e) => setFilterRecipient(e.target.value)}
-            style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #cbd5e0' }}
-          >
-            <option value="ALL">All Recipients</option>
-            {(filterOptions?.recipients || []).map(country => (
-              <option key={country} value={country}>{country}</option>
-            ))}
-          </select>
-        </div>
-      </div>
 
       {/* Documents per Week with Toggles */}
       <div className="chart-card" style={{ marginBottom: '2rem' }}>
