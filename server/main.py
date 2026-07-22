@@ -953,6 +953,32 @@ def get_dashboard_intelligence():
             "canonical_event_id": str(s.canonical_event_id) if s.canonical_event_id else None,
         }
 
+    def _dedupe_key(s):
+        # Summaries of the same underlying event should surface once. Prefer the
+        # canonical event link; fall back to normalized name + country for rows
+        # where ingestion never set canonical_event_id.
+        if s.canonical_event_id:
+            return f"ce:{s.canonical_event_id}"
+        return f"nm:{s.initiating_country}|{(s.event_name or '').strip().lower()}"
+
+    def _dedupe_recent(rows, limit):
+        # Rows arrive ordered by period_start desc, so the first occurrence of a
+        # key is the most recent mention of that event.
+        seen, out = set(), []
+        for s in rows:
+            key = _dedupe_key(s)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(s)
+            if len(out) >= limit:
+                break
+        return out
+
+    # Over-fetch before deduping so consolidated events that recur across
+    # periods still leave a full list after duplicates are dropped.
+    FETCH_MULTIPLIER = 4
+
     with get_session() as session:
         result = {"weekly": [], "monthly": []}
 
@@ -961,9 +987,9 @@ def get_dashboard_intelligence():
                 EventSummary.period_type == period_type,
                 EventSummary.is_deleted == False,
                 EventSummary.initiating_country.in_(MENA_INFLUENCERS),
-            ).order_by(EventSummary.period_start.desc()).limit(10).all()
+            ).order_by(EventSummary.period_start.desc()).limit(10 * FETCH_MULTIPLIER).all()
 
-            result[key] = [_serialize(s) for s in summaries]
+            result[key] = [_serialize(s) for s in _dedupe_recent(summaries, 10)]
 
         # Latest weekly grouped by influencer — top 5 most-recent weekly summaries per actor,
         # so the dashboard can show a per-influencer column instead of one blended list.
@@ -973,7 +999,8 @@ def get_dashboard_intelligence():
                 EventSummary.period_type == PeriodType.WEEKLY,
                 EventSummary.is_deleted == False,
                 EventSummary.initiating_country == inf,
-            ).order_by(EventSummary.period_start.desc()).limit(5).all()
+            ).order_by(EventSummary.period_start.desc()).limit(5 * FETCH_MULTIPLIER).all()
+            rows = _dedupe_recent(rows, 5)
             if rows:
                 weekly_by_influencer[inf] = [_serialize(s) for s in rows]
         result["weekly_by_influencer"] = weekly_by_influencer
