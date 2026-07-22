@@ -124,7 +124,6 @@ export default function Dashboard() {
   })
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, boolean>>({})
   const [showTotal, setShowTotal] = useState<boolean>(true)
-  const [filterInfluencer, setFilterInfluencer] = useState<string>('ALL')
   const [filterRecipient, setFilterRecipient] = useState<string>('ALL')
 
   // Fetch filter options
@@ -134,9 +133,8 @@ export default function Dashboard() {
   })
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['documentStats', filterInfluencer, filterRecipient],
+    queryKey: ['documentStats', filterRecipient],
     queryFn: () => fetchDocumentStats({
-      influencer_country: filterInfluencer !== 'ALL' ? filterInfluencer : undefined,
       recipient_country: filterRecipient !== 'ALL' ? filterRecipient : undefined
     }),
   })
@@ -293,19 +291,6 @@ export default function Dashboard() {
         flexWrap: 'wrap'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <label style={{ fontWeight: 600 }}>Influencer:</label>
-          <select
-            value={filterInfluencer}
-            onChange={(e) => setFilterInfluencer(e.target.value)}
-            style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #cbd5e0' }}
-          >
-            <option value="ALL">All Influencers</option>
-            {(filterOptions?.countries || []).map(country => (
-              <option key={country} value={country}>{country}</option>
-            ))}
-          </select>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <label style={{ fontWeight: 600 }}>Recipient:</label>
           <select
             value={filterRecipient}
@@ -439,17 +424,6 @@ export default function Dashboard() {
             )}
           </LineChart>
         </ResponsiveContainer>
-      </div>
-
-      <div className="stats-grid">
-        <div className="stat-card">
-          <h3>Total Documents</h3>
-          <p className="stat-value">{data?.total_documents?.toLocaleString() || 0}</p>
-        </div>
-        <div className="stat-card">
-          <h3>Total Events</h3>
-          <p className="stat-value">{data?.total_events?.toLocaleString() || 0}</p>
-        </div>
       </div>
 
       <div className="charts-grid">
