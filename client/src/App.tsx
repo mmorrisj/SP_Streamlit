@@ -8,6 +8,7 @@ import Layout from './components/Layout'
 import UserManagementPage from './pages/UserManagementPage'
 import Dashboard from './pages/Dashboard'
 import AboutMethodologyPage from './pages/AboutMethodologyPage'
+import WhitePaperPage from './pages/WhitePaperPage'
 import Documents from './pages/Documents'
 import Events from './pages/Events'
 import Summaries from './pages/Summaries'
@@ -86,6 +87,7 @@ function App() {
               <Route path="intel-reports" element={<IntelReportsPage />} />
               <Route path="intel-reports/:slug" element={<IntelReportViewerPage />} />
               <Route path="about" element={<AboutMethodologyPage />} />
+              <Route path="whitepaper" element={<WhitePaperPage />} />
 
               {/* Analyst+ routes */}
               <Route path="ingestion" element={

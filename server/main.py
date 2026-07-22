@@ -3276,6 +3276,15 @@ def get_available_bilateral_months(influencer: str):
 # Report / Publication endpoints
 # ============================================================
 
+@app.get("/api/whitepaper")
+def get_whitepaper():
+    """Serve the platform white paper markdown for the in-app White Paper page."""
+    wp_path = Path(__file__).parent.parent / "docs" / "Soft_Power_Analytics_White_Paper.md"
+    if not wp_path.exists():
+        raise HTTPException(status_code=404, detail="White paper not found")
+    return {"markdown": wp_path.read_text(encoding="utf-8")}
+
+
 @app.get("/api/data-coverage")
 def data_coverage():
     """Corpus coverage: min/max document date, doc count, and lag vs today.

@@ -1229,6 +1229,11 @@ export const fetchDataCoverage = async (): Promise<DataCoverage> => {
   return data
 }
 
+export const fetchWhitePaper = async (): Promise<{ markdown: string }> => {
+  const { data } = await api.get('/whitepaper')
+  return data
+}
+
 // ============================================================
 // Agent Converse — conversational agent with data tools (SSE)
 // ============================================================

@@ -121,6 +121,14 @@ export default function Layout() {
               </NavLink>
             </div>
           )}
+
+          <NavLink
+            to="/whitepaper"
+            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          >
+            <BookOpenText size={20} />
+            <span>White Paper</span>
+          </NavLink>
         </nav>
 
         {/* Report generation progress widget */}
