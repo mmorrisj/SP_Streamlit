@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from 'recharts'
-import { Calendar, Zap, Tag, Globe } from 'lucide-react'
+import { Calendar, Zap, Tag, Globe, Info } from 'lucide-react'
 import { fetchDocumentStats, fetchFilterOptions, fetchDashboardIntelligence } from '../api/client'
 import type { DashboardIntelligenceItem } from '../api/client'
 import './Pages.css'
@@ -45,6 +45,20 @@ const CATEGORY_COLORS: Record<string, string> = {
   Diplomacy: '#06b6d4',
   Military: '#ef4444',
   Social: '#8b5cf6',
+}
+
+function SectionHeading({ title, caption, tooltip }: { title: string; caption: string; tooltip: string }) {
+  return (
+    <div style={{ marginBottom: '0.75rem' }}>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.95rem', color: '#475569', margin: 0 }}>
+        {title}
+        <span title={tooltip} style={{ display: 'inline-flex', cursor: 'help', color: '#94a3b8' }}>
+          <Info size={14} />
+        </span>
+      </h3>
+      <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>{caption}</p>
+    </div>
+  )
 }
 
 function IntelCard({ item, onClick }: { item: DashboardIntelligenceItem; onClick: () => void }) {
@@ -217,7 +231,11 @@ export default function Dashboard() {
           {/* Latest Weekly — one column per influencer, top 5 each */}
           {intelligence.weekly_by_influencer && Object.keys(intelligence.weekly_by_influencer).length > 0 && (
             <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Weekly by Influencer</h3>
+              <SectionHeading
+                title="Latest Weekly by Influencer"
+                caption="Each card summarizes one event's reporting across a Monday–Sunday week — the most recent weeks per influencer."
+                tooltip="Weekly summaries are AI-generated narratives that synthesize an event's daily summaries over a Monday–Sunday week. An ongoing event produces a new weekly summary for each week it stays in the news."
+              />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', alignItems: 'start' }}>
                 {['China', 'Iran', 'Russia', 'Turkey']
                   .filter(inf => (intelligence.weekly_by_influencer[inf]?.length || 0) > 0)
@@ -244,7 +262,11 @@ export default function Dashboard() {
           {/* Latest Monthly — blended MENA top 5 */}
           {intelligence.monthly && intelligence.monthly.length > 0 && (
             <div>
-              <h3 style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '0.75rem' }}>Latest Monthly</h3>
+              <SectionHeading
+                title="Latest Monthly"
+                caption="Each card rolls one event's weekly summaries up into a calendar-month narrative — the most recent months across all influencers."
+                tooltip="Monthly summaries are AI-generated narratives that synthesize an event's weekly summaries across a calendar month, showing how the event developed over the month rather than week to week."
+              />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
                 {intelligence.monthly.slice(0, 5).map(item => (
                   <IntelCard
