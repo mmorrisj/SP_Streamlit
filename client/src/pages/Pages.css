@@ -1103,3 +1103,46 @@
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Bilateral relationship matrix */
+.bl-matrix {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.bl-matrix th {
+  padding: 0.5rem 0.75rem;
+  text-align: center;
+  color: #475569;
+  font-weight: 600;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.bl-matrix td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+.bl-matrix-cell {
+  text-align: center;
+  cursor: pointer;
+  transition: outline 0.1s;
+  min-width: 84px;
+}
+
+.bl-matrix-cell:hover {
+  outline: 2px solid #1a365d;
+  outline-offset: -2px;
+}
+
+.bl-matrix-empty {
+  color: #cbd5e1;
+  cursor: default;
+}
+
+.bl-matrix-empty:hover {
+  outline: none;
+}

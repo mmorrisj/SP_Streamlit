@@ -43,11 +43,13 @@ export const PAGE_GUIDES: Record<string, PageGuideContent> = {
   },
   bilateral: {
     what:
-      'Relationship-level analysis for each influencer → recipient pair, generated from all documents about ' +
-      'that pair: key themes, initiatives, events, entities, and source composition.',
+      'Every influencer → recipient relationship in the corpus, as a matrix and per-influencer tables showing ' +
+      'document volume, consolidated event counts, and average materiality. Matrix shading is normalized ' +
+      'within each influencer column, since raw cross-actor volumes reflect source composition rather than ' +
+      'real activity.',
     how:
-      'Click a relationship card to open its full profile with metrics, category breakdowns, tracked events, ' +
-      'involved entities, and sources.',
+      'Click any matrix cell or table row to open the pair’s full profile with metrics, category breakdowns, ' +
+      'tracked events, involved entities, and sources.',
   },
   research: {
     what:

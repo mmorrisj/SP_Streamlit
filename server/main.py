@@ -1437,14 +1437,35 @@ def get_bilateral_relationships():
         ).group_by(
             InitiatingCountry.initiating_country,
             RecipientCountry.recipient_country
-        ).order_by(func.count(func.distinct(InitiatingCountry.doc_id)).desc()).limit(30).all()
+        ).order_by(func.count(func.distinct(InitiatingCountry.doc_id)).desc()).all()
+
+        # Per-pair event counts and avg materiality from consolidated master
+        # events, so the page can show substance alongside raw doc volume.
+        from sqlalchemy import text as sql_text
+        event_rows = session.execute(sql_text("""
+            SELECT ce.initiating_country, r.key AS recipient,
+                   COUNT(*) AS event_count,
+                   AVG(ce.material_score) AS avg_materiality
+            FROM canonical_events ce, jsonb_each(ce.primary_recipients) r
+            WHERE ce.master_event_id IS NULL
+            GROUP BY 1, 2
+        """)).fetchall()
+        event_stats = {
+            (r.initiating_country, r.recipient): {
+                "event_count": r.event_count,
+                "avg_materiality": round(float(r.avg_materiality), 1) if r.avg_materiality is not None else None,
+            }
+            for r in event_rows
+        }
 
         return BilateralResponse(
             relationships=[
                 {
                     "initiating_country": row.initiating_country,
                     "recipient_country": row.recipient_country,
-                    "count": row.count
+                    "count": row.count,
+                    "event_count": event_stats.get((row.initiating_country, row.recipient_country), {}).get("event_count", 0),
+                    "avg_materiality": event_stats.get((row.initiating_country, row.recipient_country), {}).get("avg_materiality"),
                 }
                 for row in relationships
             ]
