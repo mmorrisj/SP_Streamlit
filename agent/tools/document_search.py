@@ -46,7 +46,7 @@ class DocumentSearchTool(Tool):
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Natural-language search query."},
-            "top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+            "top_k": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25},
             "influencer": {"type": "string", "description": "Filter by initiating country."},
             "recipient": {"type": "string", "description": "Filter by recipient country."},
             "category": {"type": "string"},
@@ -113,7 +113,7 @@ class DocumentSearchTool(Tool):
         try:
             results, metadata = intelligent_search(
                 query=kwargs["query"],
-                k=int(kwargs.get("top_k") or 10),
+                k=int(kwargs.get("top_k") or 25),
                 influencer=kwargs.get("influencer"),
                 recipient=kwargs.get("recipient"),
                 category=kwargs.get("category"),
@@ -152,7 +152,7 @@ def _trim_result(row: dict[str, Any]) -> dict[str, Any]:
         "category": row.get("category"),
         "salience": row.get("salience"),
         "relevance_score": row.get("relevance_score"),
-        "snippet": content if len(content) <= 800 else content[:800] + "…",
+        "snippet": content if len(content) <= 2500 else content[:2500] + "…",
     }
 
 

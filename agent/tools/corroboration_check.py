@@ -44,14 +44,14 @@ class CorroborationCheckTool(Tool):
         "properties": {
             "claim": {"type": "string"},
             "canonical_event_id": {"type": "string"},
-            "top_k": {"type": "integer", "minimum": 1, "maximum": 30, "default": 10},
+            "top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 15},
         },
     }
 
     def run(self, **kwargs: Any) -> ToolResult:
         claim = (kwargs.get("claim") or "").strip()
         event_id = (kwargs.get("canonical_event_id") or "").strip()
-        top_k = max(1, min(int(kwargs.get("top_k") or 10), 30))
+        top_k = max(1, min(int(kwargs.get("top_k") or 15), 50))
 
         if not claim and event_id:
             claim = self._claim_from_event(event_id)
@@ -186,7 +186,7 @@ def _trim(r: dict[str, Any]) -> dict[str, Any]:
         "initiating_country": r.get("initiating_country"),
         "recipient_country": r.get("recipient_country"),
         "relevance_score": r.get("relevance_score"),
-        "snippet": content if len(content) <= 500 else content[:500] + "…",
+        "snippet": content if len(content) <= 1200 else content[:1200] + "…",
     }
 
 

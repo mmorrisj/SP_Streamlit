@@ -44,7 +44,7 @@ from agent.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
-MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "8"))
+MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "24"))
 
 
 @dataclass

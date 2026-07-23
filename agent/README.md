@@ -1,4 +1,4 @@
-# `agent/` — Conversational Analyst Assistant + Report Workflow
+﻿# `agent/` â€” Conversational Analyst Assistant + Report Workflow
 
 The in-app Agent (React page at `/agent`) is a **conversational analyst
 assistant**: the model interprets the question, pulls data with tools, and
@@ -6,7 +6,7 @@ answers in whatever form the question calls for. The full validated report
 pipeline is offered as an explicit action, never run as a side effect.
 
 > An earlier version of this README described the subsystem as stubbed.
-> That is outdated — the providers, all tools, the ReAct loop, and all 12
+> That is outdated â€” the providers, all tools, the ReAct loop, and all 12
 > report stages perform real DB queries and LLM calls.
 
 ## Execution paths
@@ -14,13 +14,13 @@ pipeline is offered as an explicit action, never run as a side effect.
 | Endpoint | What it is | Used by |
 |---|---|---|
 | `POST /api/agent/converse/stream` | **Primary UX.** Multi-turn conversational ReAct loop over the doctrine tool registry; SSE-streams `tool_call` / `tool_result` / `report_offer` / `answer` / `sources` events | Agent page |
-| `POST /api/agent/workflows/report/stream` | Fixed 12-stage validated report DAG (retrieval → narration → sourcing → QA → hallucination validation), SSE per stage | Agent page, via the report-offer card |
+| `POST /api/agent/workflows/report/stream` | Fixed 12-stage validated report DAG (retrieval â†’ narration â†’ sourcing â†’ QA â†’ hallucination validation), SSE per stage | Agent page, via the report-offer card |
 | `POST /api/agent/analyze` | Single-shot ReAct loop returning a structured Briefing | legacy/programmatic |
 | `POST /api/agent/chat` | Single-call intent classifier (scope form filler) | legacy (no longer used by the UI) |
 
 ## Tool registries (`agent/tools/`)
 
-`get_converse_registry()` — data-pull tools only (the model composes answers
+`get_converse_registry()` â€” data-pull tools only (the model composes answers
 itself). The doctrine tools bake in the platform's bias controls so the agent
 cannot accidentally build answers on raw, Iran-inflated counts:
 
@@ -35,24 +35,24 @@ cannot accidentally build answers on raw, Iran-inflated counts:
   `entity_graph`, `event_timeline`, `bilateral_context`,
   `citation_resolver`, `materiality_filter`, `corroboration_check`,
   `country_grouping`
-- **Action offer:** `propose_report` — validates a report scope and emits a
+- **Action offer:** `propose_report` â€” validates a report scope and emits a
   `report_offer` event; the pipeline only runs when the analyst clicks.
 
-`get_registry()` — the original set (includes briefing/writing synthesis
+`get_registry()` â€” the original set (includes briefing/writing synthesis
 tools), still used by `/analyze`.
 
 ## Key modules
 
-- `orchestrator.py` — `converse()` (streaming multi-turn loop, primary),
+- `orchestrator.py` â€” `converse()` (streaming multi-turn loop, primary),
   `analyze()` (single-shot briefing), `classify_intent()` (legacy). Every
   tool call is persisted to `agent_tool_calls`; runs to `agent_runs`.
-- `prompts.py` — `CONVERSE_SYSTEM_TEMPLATE` carries the analytic doctrine
-  (volume ≠ activity, corroborated-initiative gate, check verified reports
+- `prompts.py` â€” `CONVERSE_SYSTEM_TEMPLATE` carries the analytic doctrine
+  (volume â‰  activity, corroborated-initiative gate, check verified reports
   first, cite only tool-returned facts).
-- `llm/` — provider abstraction; `openai_compat` (real; OpenAI/LiteLLM,
+- `llm/` â€” provider abstraction; `openai_compat` (real; OpenAI/LiteLLM,
   per-request gateway-JWT auth). `anthropic.py` / `modes.json_fallback`
-  remain unimplemented — only reachable via non-default env values.
-- `workflows/report/` — the 12-stage DAG (all stages implemented).
+  remain unimplemented â€” only reachable via non-default env values.
+- `workflows/report/` â€” the 12-stage DAG (all stages implemented).
 
 ## Configuration
 
@@ -61,7 +61,7 @@ tools), still used by `/analyze`.
 | `DISABLE_AGENT` | unset | `true` skips mounting the router entirely |
 | `AGENT_LLM_MODEL` | `gpt-4.1-mini` | falls back to `LITELLM_MODEL` |
 | `AGENT_LLM_BASE_URL` | unset | falls back to `LITELLM_URL`, else api.openai.com |
-| `AGENT_MAX_TURNS` | `8` | tool-call budget per turn |
+| `AGENT_MAX_TURNS` | `24` | tool-call budget per turn |
 | `AGENT_LLM_REQUEST_TIMEOUT` | `60` | seconds per LLM call |
 
 The router is mounted defensively in `server/main.py` (a broken import cannot
