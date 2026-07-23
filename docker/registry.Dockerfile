@@ -151,6 +151,9 @@ COPY alembic.ini .
 # Finished intelligence products served by /api/intel-reports/* (markdown + chart assets)
 COPY docs/reports/ ./docs/reports/
 
+# White paper served by /api/whitepaper (in-app White Paper page)
+COPY docs/Soft_Power_Analytics_White_Paper.md ./docs/
+
 # Copy built React app from Stage 1
 COPY --from=frontend-builder /app/client/dist ./client/dist
 
