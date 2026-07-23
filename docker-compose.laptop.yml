@@ -19,7 +19,7 @@
 #   DEV_AUTH_ROLE=admin
 #   GAI_DEFAULT_SOURCE=openai                         (direct OpenAI, no LiteLLM)
 #   OPENAI_PROJ_API=sk-...
-#   APP_VERSION=1.8.31                                (optional; defaults below)
+#   APP_VERSION=1.8.32                                (optional; defaults below)
 
 services:
   db:
@@ -55,7 +55,7 @@ services:
       retries: 5
 
   app:
-    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.31}
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.32}
     container_name: sp_laptop_app
     restart: unless-stopped
     ports:
@@ -116,7 +116,7 @@ services:
 
   # One-off: docker compose -f docker-compose.laptop.yml --profile migrate up
   migrate:
-    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.31}
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.32}
     container_name: sp_laptop_migrate
     profiles: ["migrate"]
     command: alembic upgrade head
