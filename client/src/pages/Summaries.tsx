@@ -8,6 +8,7 @@ import {
 import { fetchSummariesRich } from '../api/client'
 import type { Summary, SummariesListResponse } from '../api/client'
 import PageGuide from '../components/PageGuide'
+import { badgeStyleFor, bandFor, BAND_COLORS } from '../components/materialityBands'
 import './Pages.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -64,8 +65,8 @@ function SummaryCard({ summary, onEventClick }: {
       className="summ-card"
       style={{
         cursor: summary.canonical_event_id ? 'pointer' : undefined,
-        borderLeft: summary.material_score != null && summary.material_score >= 3
-          ? '3px solid #22c55e'
+        borderLeft: bandFor(summary.material_score)
+          ? `3px solid ${BAND_COLORS[bandFor(summary.material_score)!]}`
           : '3px solid transparent',
       }}
       onClick={() => {
@@ -87,10 +88,7 @@ function SummaryCard({ summary, onEventClick }: {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
           <span className="badge">{summary.country}</span>
           {summary.material_score != null && (
-            <span className="summ-materiality" style={{
-              backgroundColor: summary.material_score >= 3 ? '#dcfce7' : '#f1f5f9',
-              color: summary.material_score >= 3 ? '#166534' : '#475569',
-            }}>
+            <span className="summ-materiality" style={badgeStyleFor(summary.material_score)}>
               <Zap size={10} style={{ marginRight: 2 }} />
               {summary.material_score.toFixed(1)}
             </span>

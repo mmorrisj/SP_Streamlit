@@ -737,6 +737,7 @@ def get_events(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     min_materiality: Optional[float] = Query(None, ge=0, le=10),
+    max_materiality: Optional[float] = Query(None, ge=0, le=10, description="exclusive upper bound"),
     sort_by: str = Query(default="recency", pattern="^(recency|articles|materiality)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
@@ -768,6 +769,8 @@ def get_events(
 
         if min_materiality is not None:
             query = query.filter(CanonicalEvent.material_score >= min_materiality)
+        if max_materiality is not None:
+            query = query.filter(CanonicalEvent.material_score < max_materiality)
 
         total = query.count()
 
@@ -1332,14 +1335,22 @@ def get_materiality_analysis(
             where.append("ce.first_mention_date <= :end"); params["end"] = end_date
         w = " AND ".join(where)
 
+        from shared.utils.materiality_bands import SYMBOLIC_MAX, DEVELOPING_MAX
+        band_filters = (
+            f"count(*) FILTER (WHERE material_score < {SYMBOLIC_MAX}) AS symbolic_count, "
+            f"count(*) FILTER (WHERE material_score >= {SYMBOLIC_MAX} AND material_score < {DEVELOPING_MAX}) AS developing_count, "
+            f"count(*) FILTER (WHERE material_score >= {DEVELOPING_MAX}) AS substantive_count"
+        )
         stats = session.execute(sql_text(f"""
             SELECT count(*) n, round(avg(material_score)::numeric, 2) avg,
                    round(percentile_cont(0.5) WITHIN GROUP (ORDER BY material_score)::numeric, 2) median,
-                   min(material_score) mn, max(material_score) mx
+                   min(material_score) mn, max(material_score) mx,
+                   {band_filters}
             FROM canonical_events ce WHERE {w}"""), params).fetchone()
         trend_rows = session.execute(sql_text(f"""
             SELECT to_char(date_trunc('month', first_mention_date), 'YYYY-MM') AS "month",
-                   round(avg(material_score)::numeric, 2) avg_materiality, count(*) event_count
+                   round(avg(material_score)::numeric, 2) avg_materiality, count(*) event_count,
+                   {band_filters}
             FROM canonical_events ce WHERE {w} GROUP BY 1 ORDER BY 1"""), params).fetchall()
         hist_rows = session.execute(sql_text(f"""
             SELECT floor(material_score)::int b, count(*) c
@@ -1356,6 +1367,19 @@ def get_materiality_analysis(
                     ORDER BY length(d.distilled_text) DESC LIMIT 1) AS content
             FROM canonical_events ce WHERE {w}
             ORDER BY ce.material_score DESC, ce.first_mention_date DESC LIMIT 10"""), params).fetchall()
+        # Symbolic gestures: score can't rank within the band, so volume and
+        # recency stand in as the importance measure.
+        symbolic_rows = session.execute(sql_text(f"""
+            SELECT ce.canonical_name, ce.material_score, ce.first_mention_date,
+                   ce.total_articles,
+                   (SELECT left(d.distilled_text, 320)
+                    FROM daily_event_mentions dem, unnest(dem.doc_ids) AS did
+                    JOIN documents d ON d.doc_id = did
+                    WHERE dem.canonical_event_id = ce.id AND d.distilled_text IS NOT NULL
+                    ORDER BY length(d.distilled_text) DESC LIMIT 1) AS content
+            FROM canonical_events ce WHERE {w} AND ce.material_score < {SYMBOLIC_MAX}
+            ORDER BY ce.total_articles DESC NULLS LAST, ce.first_mention_date DESC
+            LIMIT 10"""), params).fetchall()
 
         return {
             "initiator": initiator,
@@ -1366,15 +1390,29 @@ def get_materiality_analysis(
                 "median": float(stats.median) if stats.median is not None else None,
                 "min": float(stats.mn) if stats.mn is not None else None,
                 "max": float(stats.mx) if stats.mx is not None else None,
+                "bands": {
+                    "symbolic": stats.symbolic_count or 0,
+                    "developing": stats.developing_count or 0,
+                    "substantive": stats.substantive_count or 0,
+                },
             },
             "trend": [{"month": r.month, "avg_materiality": float(r.avg_materiality),
-                       "event_count": r.event_count} for r in trend_rows],
+                       "event_count": r.event_count,
+                       "symbolic_count": r.symbolic_count,
+                       "developing_count": r.developing_count,
+                       "substantive_count": r.substantive_count} for r in trend_rows],
             "histogram": [{"bin": f"{r.b}-{r.b + 1}", "score": r.b, "count": r.c} for r in hist_rows],
             "top_events": [{"event_name": r.canonical_name,
                             "material_score": float(r.material_score) if r.material_score is not None else None,
                             "date": str(r.first_mention_date) if r.first_mention_date else None,
                             "description": r.content}
                            for r in top_rows],
+            "symbolic_events": [{"event_name": r.canonical_name,
+                                 "material_score": float(r.material_score) if r.material_score is not None else None,
+                                 "date": str(r.first_mention_date) if r.first_mention_date else None,
+                                 "total_articles": r.total_articles or 0,
+                                 "description": r.content}
+                                for r in symbolic_rows],
         }
 
 

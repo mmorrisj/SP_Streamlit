@@ -7,6 +7,7 @@ import { fetchDocumentStats, fetchFilterOptions, fetchDashboardIntelligence, fet
 import type { DashboardIntelligenceItem } from '../api/client'
 import DataCoverageBadge from '../components/DataCoverageBadge'
 import PageGuide from '../components/PageGuide'
+import { badgeStyleFor } from '../components/materialityBands'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a5c4e0', '#c4d9ed', '#e0ebf5']
@@ -168,8 +169,7 @@ function IntelCard({ item, onClick }: { item: DashboardIntelligenceItem; onClick
           {item.material_score != null && (
             <span style={{
               fontSize: '0.68rem', padding: '1px 6px', borderRadius: '3px',
-              backgroundColor: item.material_score >= 3 ? '#dcfce7' : '#f1f5f9',
-              color: item.material_score >= 3 ? '#166534' : '#475569',
+              ...badgeStyleFor(item.material_score),
             }}>
               <Zap size={9} style={{ marginRight: 1 }} />{item.material_score.toFixed(1)}
             </span>

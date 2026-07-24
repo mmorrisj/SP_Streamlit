@@ -270,6 +270,7 @@ export const fetchEventsRich = async (params?: {
   start_date?: string
   end_date?: string
   min_materiality?: number
+  max_materiality?: number
   sort_by?: string
   limit?: number
   offset?: number
@@ -316,10 +317,17 @@ export const fetchMaterialityHeatmap = async (): Promise<MaterialityHeatmapData>
 export interface MaterialityAnalysis {
   initiator: string
   recipient: string | null
-  stats: { event_count: number; avg: number | null; median: number | null; min: number | null; max: number | null }
-  trend: { month: string; avg_materiality: number; event_count: number }[]
+  stats: {
+    event_count: number; avg: number | null; median: number | null; min: number | null; max: number | null
+    bands: { symbolic: number; developing: number; substantive: number }
+  }
+  trend: {
+    month: string; avg_materiality: number; event_count: number
+    symbolic_count: number; developing_count: number; substantive_count: number
+  }[]
   histogram: { bin: string; score: number; count: number }[]
   top_events: { event_name: string; material_score: number | null; date: string | null; description: string | null }[]
+  symbolic_events: { event_name: string; material_score: number | null; date: string | null; total_articles: number; description: string | null }[]
 }
 
 export const fetchMaterialityAnalysis = async (

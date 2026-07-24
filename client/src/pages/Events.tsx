@@ -8,6 +8,7 @@ import {
 import { fetchEventsRich, fetchFilterOptions } from '../api/client'
 import type { Event, EventsListResponse } from '../api/client'
 import PageGuide from '../components/PageGuide'
+import { SYMBOLIC_MAX, DEVELOPING_MAX, badgeStyleFor } from '../components/materialityBands'
 import './Pages.css'
 
 const PHASE_COLORS: Record<string, string> = {
@@ -116,10 +117,7 @@ function EventCard({ event, onClick }: { event: Event; onClick: () => void }) {
           </span>
         )}
         {event.material_score != null && (
-          <span className="ev-materiality" style={{
-            backgroundColor: event.material_score >= 3 ? '#dcfce7' : '#f1f5f9',
-            color: event.material_score >= 3 ? '#166534' : '#475569',
-          }}>
+          <span className="ev-materiality" style={badgeStyleFor(event.material_score)}>
             <Zap size={10} style={{ marginRight: 2 }} />
             {event.material_score.toFixed(1)}
           </span>
@@ -134,11 +132,13 @@ function EventCard({ event, onClick }: { event: Event; onClick: () => void }) {
   )
 }
 
+// Materiality bands (see components/materialityBands.ts) — symbolic activity
+// is bucketed, not buried: each band is a first-class filter.
 const MATERIALITY_OPTIONS = [
-  { value: '', label: 'Any Materiality' },
-  { value: '3', label: 'Notable (3+)' },
-  { value: '5', label: 'Significant (5+)' },
-  { value: '7', label: 'Major (7+)' },
+  { value: '', label: 'All Bands', min: undefined as number | undefined, max: undefined as number | undefined },
+  { value: 'substantive', label: 'Substantive (7+)', min: DEVELOPING_MAX, max: undefined as number | undefined },
+  { value: 'developing', label: 'Developing (4–7)', min: SYMBOLIC_MAX, max: DEVELOPING_MAX },
+  { value: 'symbolic', label: 'Symbolic (<4)', min: undefined as number | undefined, max: SYMBOLIC_MAX },
 ]
 
 export default function Events() {
@@ -169,7 +169,11 @@ export default function Events() {
       if (countryFilter !== 'ALL') params.country = countryFilter
       if (recipientFilter !== 'ALL') params.recipient = recipientFilter
       if (phaseFilter !== 'ALL') params.story_phase = phaseFilter
-      if (materialityFilter) params.min_materiality = Number(materialityFilter)
+      if (materialityFilter) {
+        const band = MATERIALITY_OPTIONS.find(o => o.value === materialityFilter)
+        if (band?.min !== undefined) params.min_materiality = band.min
+        if (band?.max !== undefined) params.max_materiality = band.max
+      }
       if (startDate) params.start_date = startDate
       if (endDate) params.end_date = endDate
       return fetchEventsRich(params as Parameters<typeof fetchEventsRich>[0])

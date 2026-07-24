@@ -4,9 +4,10 @@ import {
   ComposedChart, Line, Bar, BarChart, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell,
 } from 'recharts'
-import { Flame, Sparkles, Loader2 } from 'lucide-react'
+import { Flame, Sparkles, Loader2, MessageCircle } from 'lucide-react'
 import { fetchMaterialityAnalysis, generateMaterialitySummary } from '../api/client'
 import PageGuide from '../components/PageGuide'
+import { BAND_COLORS, BAND_LABELS, badgeStyleFor } from '../components/materialityBands'
 import './Pages.css'
 
 const INFLUENCERS = ['China', 'Iran', 'Russia', 'Turkey', 'United States']
@@ -44,16 +45,26 @@ export default function MaterialityHeatmap() {
   const buildContext = useMemo(() => () => {
     if (!data) return ''
     const s = data.stats
-    const trend = data.trend.map(t => `${t.month}: avg ${t.avg_materiality} (${t.event_count} events)`).join('; ')
+    const trend = data.trend.map(t =>
+      `${t.month}: avg ${t.avg_materiality} (${t.event_count} events: ${t.symbolic_count} symbolic / ${t.developing_count} developing / ${t.substantive_count} substantive)`
+    ).join('; ')
     const hist = data.histogram.map(h => `${h.bin}: ${h.count}`).join(', ')
     const tops = data.top_events.map(e =>
       `- "${e.event_name}" (score ${e.material_score}, ${e.date}): ${e.description || 'no description available'}`
     ).join('\n')
-    return `Materiality analysis for ${scopeLabel}. material_score is a 1-10 significance scale.\n` +
-      `Events: ${s.event_count}. Avg: ${s.avg}, Median: ${s.median}, Range: ${s.min}-${s.max}.\n\n` +
-      `Monthly trend (month: avg materiality, event count) — ${trend}.\n\n` +
+    const symbolic = data.symbolic_events.map(e =>
+      `- "${e.event_name}" (score ${e.material_score}, ${e.date}, ${e.total_articles} articles): ${e.description || 'no description available'}`
+    ).join('\n')
+    return `Materiality analysis for ${scopeLabel}. material_score is a 1-10 significance scale, ` +
+      `bucketed into bands: symbolic (<4: visits, statements, ceremonies — narrative projection), ` +
+      `developing (4-7: MOUs, pilots, training), substantive (7+: funded projects, signed deals).\n` +
+      `Events: ${s.event_count} (${s.bands.symbolic} symbolic / ${s.bands.developing} developing / ${s.bands.substantive} substantive). ` +
+      `Avg: ${s.avg}, Median: ${s.median}, Range: ${s.min}-${s.max}.\n\n` +
+      `Monthly trend — ${trend}.\n\n` +
       `Score distribution (bin: count) — ${hist}.\n\n` +
-      `Top events with descriptions (use these to explain what drives materiality):\n${tops}`
+      `Top substantive events (use these to explain what drives materiality):\n${tops}\n\n` +
+      `Top symbolic gestures by coverage volume (interpret as narrative projection / signaling; ` +
+      `note whether gestures are converting into substantive follow-through):\n${symbolic}`
   }, [data, scopeLabel])
 
   async function onGenerate() {
@@ -120,14 +131,15 @@ export default function MaterialityHeatmap() {
           {/* Stats strip */}
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: '1.25rem' }}>
             {[
-              { label: 'Scored events', val: s.event_count.toLocaleString() },
-              { label: 'Avg materiality', val: s.avg?.toFixed(2) ?? '—' },
-              { label: 'Median', val: s.median?.toFixed(1) ?? '—' },
-              { label: 'Peak', val: s.max?.toFixed(1) ?? '—' },
+              { label: 'Scored events', val: s.event_count.toLocaleString(), col: color },
+              { label: 'Avg materiality', val: s.avg?.toFixed(2) ?? '—', col: color },
+              { label: 'Substantive (7+)', val: s.bands.substantive.toLocaleString(), col: BAND_COLORS.substantive },
+              { label: 'Developing (4–7)', val: s.bands.developing.toLocaleString(), col: BAND_COLORS.developing },
+              { label: 'Symbolic (<4)', val: s.bands.symbolic.toLocaleString(), col: BAND_COLORS.symbolic },
             ].map(c => (
               <div className="stat-card" key={c.label}>
                 <h3 style={{ fontSize: '0.8rem' }}>{c.label}</h3>
-                <p className="stat-value" style={{ color }}>{c.val}</p>
+                <p className="stat-value" style={{ color: c.col }}>{c.val}</p>
               </div>
             ))}
           </div>
@@ -137,7 +149,9 @@ export default function MaterialityHeatmap() {
             <div className="chart-card">
               <h3>Materiality trend — {scopeLabel}</h3>
               <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.15rem 0 0.5rem' }}>
-                Monthly average materiality (line); event count (bars) flags thin-sample months.
+                Monthly event mix by materiality band (stacked bars, right axis) with average
+                materiality overlaid (line, left axis). Watch the mix: a shift from symbolic to
+                substantive means gestures are converting into delivery.
               </p>
               <ResponsiveContainer width="100%" height={300}>
                 <ComposedChart data={data.trend} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
@@ -148,9 +162,11 @@ export default function MaterialityHeatmap() {
                   <YAxis yAxisId="cnt" orientation="right" tick={{ fontSize: 10 }} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: '0.72rem' }} />
-                  <Bar yAxisId="cnt" dataKey="event_count" name="events" fill="#e2e8f0" />
+                  <Bar yAxisId="cnt" dataKey="symbolic_count" name={BAND_LABELS.symbolic} stackId="bands" fill={BAND_COLORS.symbolic} fillOpacity={0.55} />
+                  <Bar yAxisId="cnt" dataKey="developing_count" name={BAND_LABELS.developing} stackId="bands" fill={BAND_COLORS.developing} fillOpacity={0.55} />
+                  <Bar yAxisId="cnt" dataKey="substantive_count" name={BAND_LABELS.substantive} stackId="bands" fill={BAND_COLORS.substantive} fillOpacity={0.55} />
                   <Line yAxisId="mat" type="monotone" dataKey="avg_materiality" name="avg materiality"
-                    stroke={color} strokeWidth={2.5} dot={{ r: 2 }} />
+                    stroke="#1e293b" strokeWidth={2.5} dot={{ r: 2 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -175,10 +191,13 @@ export default function MaterialityHeatmap() {
             </div>
           </div>
 
-          {/* Top events + Summary */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+          {/* Substantive developments + Symbolic gestures */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
             <div className="chart-card">
-              <h3>Top events by materiality</h3>
+              <h3 style={{ color: BAND_COLORS.substantive }}>Substantive developments</h3>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.15rem 0 0.25rem' }}>
+                Highest-materiality events: funded projects, signed deals, delivered commitments.
+              </p>
               <div style={{ marginTop: '0.5rem' }}>
                 {data.top_events.map((e, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
@@ -199,16 +218,51 @@ export default function MaterialityHeatmap() {
             </div>
 
             <div className="chart-card">
-              <h3><Sparkles size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />Analytical Summary</h3>
-              {!summary && !summaryLoading && !summaryError && (
-                <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.5rem' }}>
-                  Click <strong>Generate Summary</strong> for an LLM read of the trend, distribution, and standout events for {scopeLabel}.
-                </p>
-              )}
-              {summaryLoading && <p style={{ color: '#64748b', marginTop: '0.5rem' }}><Loader2 size={14} className="spin" style={{ verticalAlign: 'middle' }} /> Analyzing…</p>}
-              {summaryError && <p style={{ color: '#b91c1c', marginTop: '0.5rem', fontSize: '0.85rem' }}>{summaryError}</p>}
-              {summary && <div style={{ fontSize: '0.85rem', lineHeight: 1.55, color: '#334155', whiteSpace: 'pre-wrap', marginTop: '0.5rem' }}>{summary}</div>}
+              <h3 style={{ color: BAND_COLORS.symbolic }}>
+                <MessageCircle size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                Symbolic gestures
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.15rem 0 0.25rem' }}>
+                Low-materiality events ranked by coverage volume — visits, statements, and ceremonies.
+                These are narrative-projection signals: what the actor wants said.
+              </p>
+              <div style={{ marginTop: '0.5rem' }}>
+                {data.symbolic_events.length === 0 && (
+                  <p style={{ fontSize: '0.82rem', color: '#94a3b8' }}>No symbolic-band events in scope.</p>
+                )}
+                {data.symbolic_events.map((e, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
+                    <span style={{ minWidth: 34, textAlign: 'center', fontWeight: 700, borderRadius: 4, padding: '0.1rem 0', flexShrink: 0, fontSize: '0.8rem', ...badgeStyleFor(e.material_score) }}>
+                      {e.material_score?.toFixed(1) ?? '—'}
+                    </span>
+                    <div style={{ fontSize: '0.82rem', minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {e.event_name}
+                        <span style={{ color: '#94a3b8', fontWeight: 400 }}> · {e.date} · {e.total_articles.toLocaleString()} articles</span>
+                      </div>
+                      {e.description && (
+                        <div style={{ color: '#64748b', fontSize: '0.76rem', marginTop: 2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {e.description}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
+          </div>
+
+          {/* Analytical Summary */}
+          <div className="chart-card">
+            <h3><Sparkles size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />Analytical Summary</h3>
+            {!summary && !summaryLoading && !summaryError && (
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                Click <strong>Generate Summary</strong> for an LLM read of the trend, band mix, and standout events for {scopeLabel}.
+              </p>
+            )}
+            {summaryLoading && <p style={{ color: '#64748b', marginTop: '0.5rem' }}><Loader2 size={14} className="spin" style={{ verticalAlign: 'middle' }} /> Analyzing…</p>}
+            {summaryError && <p style={{ color: '#b91c1c', marginTop: '0.5rem', fontSize: '0.85rem' }}>{summaryError}</p>}
+            {summary && <div style={{ fontSize: '0.85rem', lineHeight: 1.55, color: '#334155', whiteSpace: 'pre-wrap', marginTop: '0.5rem' }}>{summary}</div>}
           </div>
         </>
       )}
