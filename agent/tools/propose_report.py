@@ -9,11 +9,34 @@ clicks — never as a side effect of conversation.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from agent.tools.base import Tool, ToolResult
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+_CONFIG_PATH = Path(__file__).resolve().parents[2] / "shared" / "config" / "config.yaml"
+
+
+@lru_cache(maxsize=1)
+def _tracked_influencers() -> tuple[str, ...]:
+    """Initiators the event pipeline actually builds events for.
+
+    Extraction records ANY initiating country on documents, but events are
+    only clustered/consolidated for the configured influencers — a report
+    scoped to any other initiator finds documents but zero events and fails
+    validation downstream.
+    """
+    try:
+        with _CONFIG_PATH.open("r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        return tuple(str(c) for c in (cfg.get("influencers") or []))
+    except FileNotFoundError:
+        return ()
 
 
 class ProposeReportTool(Tool):
@@ -31,7 +54,7 @@ class ProposeReportTool(Tool):
     input_schema = {
         "type": "object",
         "properties": {
-            "influencer": {"type": "string", "description": "initiating country (required)"},
+            "influencer": {"type": "string", "description": "initiating country (required; must be a tracked initiator — China, Iran, Russia, Turkey, or United States)"},
             "recipient": {"type": "string", "description": "recipient country (bilateral)"},
             "region": {"type": "string", "description": "region name (regional; e.g. Middle East)"},
             "start_date": {"type": "string", "description": "YYYY-MM-DD"},
@@ -55,6 +78,22 @@ class ProposeReportTool(Tool):
 
         if not influencer:
             return ToolResult(ok=False, error="influencer is required")
+        tracked = _tracked_influencers()
+        if tracked and influencer not in tracked:
+            return ToolResult(
+                ok=False,
+                error=(
+                    f"'{influencer}' is not a tracked initiator. The event pipeline only "
+                    f"builds events for: {', '.join(tracked)}. A report scoped to "
+                    f"'{influencer} →' would retrieve documents but zero events, so every "
+                    "narrative stage would come back empty and validation would fail — no "
+                    "date range fixes this. If the question is about activity TOWARD "
+                    f"{influencer}, reframe recipient-side: offer a bilateral report "
+                    f"(<tracked influencer> → {influencer}) or answer conversationally "
+                    "using provenance_stats / initiative_ledger / document_search with "
+                    f"{influencer} as the recipient."
+                ),
+            )
         if not recipient and not region:
             return ToolResult(ok=False, error="supply recipient (bilateral) or region (regional)")
         if not (_DATE_RE.match(start) and _DATE_RE.match(end)):
