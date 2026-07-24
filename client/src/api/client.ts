@@ -1262,7 +1262,7 @@ export interface ConverseToolResultPayload {
 }
 
 export interface ConverseReportOfferScope {
-  influencer: string
+  influencer: string | null
   recipient: string | null
   region: string | null
   start_date: string

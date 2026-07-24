@@ -654,7 +654,7 @@ function OfferCard({
           <span>Full validated report available</span>
         </div>
         <div className="agent-offer-scope">
-          {s.influencer} → {target} · {s.start_date} → {s.end_date}
+          {s.influencer || 'All tracked initiators'} → {target} · {s.start_date} → {s.end_date}
           {s.category && s.category_mode === 'filter' && <> · {s.category} only</>}
         </div>
         {s.reason && <div className="agent-offer-reason">{s.reason}</div>}
