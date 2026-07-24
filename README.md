@@ -132,7 +132,7 @@ Full walkthrough (including demo data): [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBO
 | Enterprise / hardened daemon | [`PRODUCTION_DOCKER_RUN.md`](PRODUCTION_DOCKER_RUN.md) (raw `docker run`, no exec) |
 | Pipeline-only worker | `docker/preprocessing.Dockerfile` (see Pipeline below) |
 
-Published images: `mmorrisj/softpower-analytics:1.8.33` (self-contained app, SBOM +
+Published images: `mmorrisj/softpower-analytics:1.8.34` (self-contained app, SBOM +
 provenance attestations) and `mmorrisj/pgvector:0.8.2-pg17`. Releases are built and pushed via
 `scripts/docker/push-to-registry.sh` (always `--pull --sbom=true --provenance=mode=max`).
 Deploy targets do **not** auto-pull — `docker pull` the new tag before deploying.
