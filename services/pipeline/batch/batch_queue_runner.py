@@ -280,6 +280,16 @@ def main():
                     job.status = BatchJobStatus.PREPARING.value
                     job.error_message = None
                     job.retry_count = (job.retry_count or 0) + 1
+                    # Clear stale timing state or stall detection instantly
+                    # re-fails the resubmitted batch: update_status() keeps an
+                    # existing submitted_at, and last_progress_change_at still
+                    # reflects the failed run.
+                    job.submitted_at = None
+                    if job.progress_metadata:
+                        meta = dict(job.progress_metadata)
+                        meta.pop('last_progress_change_at', None)
+                        meta.pop('requests_completed', None)
+                        job.progress_metadata = meta
                 session.commit()
                 print()
             else:

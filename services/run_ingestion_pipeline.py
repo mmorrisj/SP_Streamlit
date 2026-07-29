@@ -39,6 +39,7 @@ SUMMARY_STAGES = {
     "daily_summaries",
     "weekly_summaries",
     "monthly_summaries",
+    "yearly_summaries",
     "summary_materiality",
     "bilateral_summaries",
 }
@@ -244,6 +245,20 @@ def run_iterative_monthly_summaries(country: str, start_date: str, end_date: str
         end_date,
     ]
     run_command(cmd, f"Iterative Monthly Summaries - {country}", dry_run=dry_run)
+
+
+def run_iterative_yearly_summaries(country: str, start_date: str, end_date: str, dry_run: bool) -> None:
+    cmd = [
+        sys.executable,
+        "services/pipeline/summaries/generate_yearly_summaries.py",
+        "--country",
+        country,
+        "--start-date",
+        start_date,
+        "--end-date",
+        end_date,
+    ]
+    run_command(cmd, f"Iterative Yearly Summaries - {country}", dry_run=dry_run)
 
 
 def run_iterative_event_materiality(
@@ -540,6 +555,7 @@ def main() -> None:
     parser.add_argument("--skip-daily-summaries", action="store_true")
     parser.add_argument("--skip-weekly-summaries", action="store_true")
     parser.add_argument("--skip-monthly-summaries", action="store_true")
+    parser.add_argument("--skip-yearly-summaries", action="store_true")
     parser.add_argument("--skip-summary-materiality", action="store_true")
     parser.add_argument("--skip-daily-entity-extraction", action="store_true")
     parser.add_argument("--skip-entity-clustering", action="store_true")
@@ -772,6 +788,29 @@ def main() -> None:
                     )
                 else:
                     run_iterative_monthly_summaries(
+                        country=country,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        dry_run=args.dry_run,
+                    )
+
+        if stage_enabled("yearly_summaries", args.skip_yearly_summaries, active_stages):
+            for country in countries:
+                if args.execution_mode == "batch":
+                    run_batch_job(
+                        job_type="generate_yearly_summary",
+                        country=country,
+                        max_concurrent=args.max_concurrent,
+                        poll_interval=args.poll_interval,
+                        dry_run=args.dry_run,
+                        retry_failed=args.retry_failed,
+                        stall_timeout=args.stall_timeout,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        include_dates=True,
+                    )
+                else:
+                    run_iterative_yearly_summaries(
                         country=country,
                         start_date=args.start_date,
                         end_date=args.end_date,
