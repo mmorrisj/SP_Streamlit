@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../api/client'
 import { Edit2, Trash2, Shield, Eye, BarChart3, X } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './UserManagementPage.css'
 
 interface User {
@@ -73,6 +74,8 @@ export default function UserManagementPage() {
           </div>
         </div>
       </header>
+
+      <PageGuide page="user-management" />
 
       <div className="table-container">
         <table className="data-table">

@@ -45,6 +45,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
     JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+    JOB_TYPE_GENERATE_YEARLY_SUMMARY,
     JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
@@ -66,6 +67,7 @@ from services.pipeline.batch.batch_process_results import (
     process_daily_summary_result,
     process_weekly_summary_result,
     process_monthly_summary_result,
+    process_yearly_summary_result,
     process_summary_materiality_result,
     process_entity_description_result,
     process_bilateral_summary_result,
@@ -292,6 +294,13 @@ def _route_result(
             session, record_id, llm_response,
             month_str=suffix, verbose=verbose
         )
+    elif job_type == JOB_TYPE_GENERATE_YEARLY_SUMMARY:
+        if not suffix:
+            raise ValueError("generate_yearly_summary requires year suffix in custom_id")
+        return process_yearly_summary_result(
+            session, record_id, llm_response,
+            year_str=suffix, verbose=verbose
+        )
     elif job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:
         return process_summary_materiality_result(
             session, record_id, llm_response, verbose=verbose
@@ -345,7 +354,7 @@ def _merge_stats(overall: Dict, stats: Dict, job_type: str):
         overall['validated'] += stats.get('validated', 0)
         overall['renamed'] += stats.get('renamed', 0)
         overall['split'] += stats.get('split', 0)
-    elif job_type in (JOB_TYPE_GENERATE_DAILY_SUMMARY, JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY):
+    elif job_type in (JOB_TYPE_GENERATE_DAILY_SUMMARY, JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY, JOB_TYPE_GENERATE_YEARLY_SUMMARY):
         overall['summaries_created'] += stats.get('summaries_created', 0)
         overall['source_links_created'] += stats.get('source_links_created', 0)
     elif job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:

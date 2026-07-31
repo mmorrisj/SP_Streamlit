@@ -17,6 +17,7 @@ import {
 } from 'recharts'
 import { ArrowLeft, ArrowRight, FileText, TrendingUp } from 'lucide-react'
 import { fetchBilateralMetrics } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c3daf7']
@@ -86,6 +87,8 @@ export default function BilateralMetricsPage() {
         </div>
         <p>Detailed metrics and category/subcategory breakdown</p>
       </header>
+
+      <PageGuide page="bilateral-metrics" />
 
       {/* Key Stats */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>

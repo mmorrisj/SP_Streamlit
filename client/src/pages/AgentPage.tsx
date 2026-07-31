@@ -6,10 +6,12 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  Download,
   FileBarChart,
   Loader2,
   MinusCircle,
   Play,
+  RotateCcw,
   Send,
   StopCircle,
   Wrench,
@@ -32,6 +34,7 @@ import {
   type WorkflowStartedPayload,
 } from '../api/client'
 import DataCoverageBadge from '../components/DataCoverageBadge'
+import PageGuide from '../components/PageGuide'
 import './AgentPage.css'
 
 // =================================================================
@@ -116,11 +119,73 @@ const seedMessage = (): ChatMessage => ({
 })
 
 // =================================================================
+// Thread persistence (localStorage, best-effort)
+// =================================================================
+
+const STORAGE_KEY = 'agentThreadV1'
+const STORAGE_MAX_CHARS = 2_000_000 // stay well under the ~5MB localStorage quota
+
+function sanitizeRestored(messages: ChatMessage[]): ChatMessage[] {
+  // Anything that was mid-flight when the page closed can't resume — mark it
+  // so restored threads read honestly.
+  return messages.map((m) => {
+    if (m.type === 'agent' && m.status === 'working') {
+      return {
+        ...m,
+        status: m.content ? ('done' as const) : ('error' as const),
+        content: m.content || 'Interrupted — the page was closed while this answer was in progress.',
+        tools: m.tools.map((t) => (t.status === 'running' ? { ...t, status: 'failed' as const } : t)),
+      }
+    }
+    if (m.type === 'workflow' && m.run.status === 'running') {
+      return {
+        ...m,
+        run: {
+          ...m.run,
+          status: 'error' as const,
+          error: 'Interrupted — the page was closed while this report was running.',
+          finished_at: m.run.finished_at ?? Date.now(),
+        },
+      }
+    }
+    return m
+  })
+}
+
+function loadThread(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return [seedMessage()]
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed) || parsed.length === 0) return [seedMessage()]
+    return sanitizeRestored(parsed as ChatMessage[])
+  } catch {
+    return [seedMessage()]
+  }
+}
+
+function saveThread(messages: ChatMessage[]) {
+  try {
+    let msgs = messages
+    let raw = JSON.stringify(msgs)
+    // Quota guard: drop the oldest non-seed message until the thread fits
+    while (raw.length > STORAGE_MAX_CHARS && msgs.length > 2) {
+      const dropIdx = (msgs[0] as any)?.seed ? 1 : 0
+      msgs = msgs.filter((_, i) => i !== dropIdx)
+      raw = JSON.stringify(msgs)
+    }
+    localStorage.setItem(STORAGE_KEY, raw)
+  } catch {
+    // localStorage unavailable or full — persistence is best-effort
+  }
+}
+
+// =================================================================
 // Page
 // =================================================================
 
 export default function AgentPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([seedMessage()])
+  const [messages, setMessages] = useState<ChatMessage[]>(loadThread)
   const [isWorking, setIsWorking] = useState(false)      // converse turn in flight
   const [isRunningReport, setIsRunningReport] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -138,6 +203,63 @@ export default function AgentPage() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
+  }, [messages])
+
+  // Persist the thread so refresh/navigation doesn't lose the conversation
+  useEffect(() => {
+    saveThread(messages)
+  }, [messages])
+
+  const newConversation = useCallback(() => {
+    abortRef.current?.abort()
+    setMessages([seedMessage()])
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch { /* best-effort */ }
+  }, [])
+
+  const exportThread = useCallback(() => {
+    const lines: string[] = ['# Agent Conversation', '', `Exported ${new Date().toLocaleString()}`, '']
+    for (const m of messages) {
+      if ((m as any).seed) continue
+      if (m.type === 'text') {
+        lines.push('## You', '', m.content, '')
+      } else if (m.type === 'agent') {
+        lines.push('## Agent', '')
+        if (m.tools.length > 0) {
+          lines.push('*Data pulled: ' + m.tools.map((t) => `${t.tool} (${t.status})`).join(', ') + '*', '')
+        }
+        lines.push(m.content, '')
+        if (m.sources && m.sources.length > 0) {
+          lines.push('**Sources:** ' + m.sources.map((s) => s.title || s.source_name || s.id).join('; '), '')
+        }
+      } else if (m.type === 'offer') {
+        lines.push(`*Full report offered${m.launched ? ' and launched' : ' (not run)'}.*`, '')
+      } else if (m.type === 'workflow') {
+        lines.push('## Report Run', '', `Status: ${m.run.status}`, '')
+        for (const name of m.run.stage_order) {
+          const st = m.run.stages[name]
+          if (st?.summary) lines.push(`- **${prettyStageName(name)}**: ${st.summary}`)
+        }
+        const narratives = (m.run.stages['event_narrator']?.output as any)?.narratives as any[] | undefined
+        if (narratives && narratives.length > 0) {
+          lines.push('', '### Narrated Events', '')
+          for (const n of narratives) {
+            lines.push(`#### ${n.event_name || n.event_id || 'Event'}`, '')
+            if (n.overview) lines.push(stripCitations(n.overview), '')
+            if (n.outcomes) lines.push('**Outcomes:** ' + stripCitations(n.outcomes), '')
+          }
+        }
+        lines.push('')
+      }
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `agent-conversation-${new Date().toISOString().slice(0, 10)}.md`
+    a.click()
+    URL.revokeObjectURL(url)
   }, [messages])
 
   const updateMessage = useCallback((id: string, mut: (m: ChatMessage) => ChatMessage) => {
@@ -356,13 +478,35 @@ export default function AgentPage() {
     <div className="agent-shell agent-shell-conversational">
       <div className="agent-chat-col">
         <header className="agent-header">
-          <h1>Agent <DataCoverageBadge /></h1>
+          <div className="agent-header-row">
+            <h1>Agent <DataCoverageBadge /></h1>
+            <div className="agent-header-actions">
+              <button
+                className="agent-btn agent-btn-ghost"
+                onClick={exportThread}
+                disabled={messages.length <= 1}
+                title="Export the conversation as Markdown"
+              >
+                <Download size={15} /> Export
+              </button>
+              <button
+                className="agent-btn agent-btn-ghost"
+                onClick={newConversation}
+                disabled={messages.length <= 1 && !busy}
+                title="Clear the thread and start over"
+              >
+                <RotateCcw size={15} /> New Conversation
+              </button>
+            </div>
+          </div>
           <div className="agent-subtitle">
             Conversational analyst assistant — pulls provenance-corrected data with tools and
             answers in the form your question calls for. Full validated reports run only when
             you click.
           </div>
         </header>
+
+      <PageGuide page="agent" />
 
         <div className="agent-thread" ref={scrollRef}>
           {messages.map((m) => {
@@ -463,6 +607,12 @@ function AgentMessageView({ msg }: { msg: Extract<ChatMessage, { type: 'agent' }
                   title={`${s.title ?? s.id} · ${s.date ?? ''}`}>
                   {truncateLabel(s.title || s.id)}
                 </Link>
+              ) : s.kind === 'document' ? (
+                <Link key={s.id} to={`/documents?doc_ids=${encodeURIComponent(s.id)}`}
+                  className="agent-source-chip agent-source-link"
+                  title={`${s.title ?? s.id}${s.source_name ? ` — ${s.source_name}` : ''}${s.date ? ` · ${s.date}` : ''}`}>
+                  {truncateLabel(s.source_name || s.title || s.id)}
+                </Link>
               ) : (
                 <span key={s.id} className="agent-source-chip"
                   title={`${s.title ?? s.id}${s.source_name ? ` — ${s.source_name}` : ''}${s.date ? ` · ${s.date}` : ''}`}>
@@ -504,7 +654,7 @@ function OfferCard({
           <span>Full validated report available</span>
         </div>
         <div className="agent-offer-scope">
-          {s.influencer} → {target} · {s.start_date} → {s.end_date}
+          {s.influencer || 'All tracked initiators'} → {target} · {s.start_date} → {s.end_date}
           {s.category && s.category_mode === 'filter' && <> · {s.category} only</>}
         </div>
         {s.reason && <div className="agent-offer-reason">{s.reason}</div>}

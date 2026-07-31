@@ -22,6 +22,7 @@ import type {
   DrilldownQueryContext,
   DrilldownChartSelection,
 } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c3daf7']
@@ -143,6 +144,8 @@ export default function DrilldownPage() {
           Drilldown from query: <strong>{queryDesc}</strong>
         </p>
       </header>
+
+      <PageGuide page="drilldown" />
 
       {/* Key Stats */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>

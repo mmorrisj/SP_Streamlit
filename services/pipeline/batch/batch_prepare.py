@@ -64,6 +64,7 @@ from services.pipeline.batch.batch_config import (
     JOB_TYPE_GENERATE_DAILY_SUMMARY,
     JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
     JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+    JOB_TYPE_GENERATE_YEARLY_SUMMARY,
     JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
     JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
     JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
@@ -1771,6 +1772,174 @@ def build_monthly_summary_prompt(event_data: Dict) -> Dict[str, List[Dict[str, s
     }
 
 
+def load_events_needing_yearly_summaries(
+    session,
+    country: str,
+    start_date: DateType,
+    end_date: DateType
+) -> List[Dict]:
+    """
+    Load events that need yearly summaries across a date range.
+
+    Splits the date range into calendar years, loads monthly summaries
+    for each year grouped by event, and returns events with ≥2 monthly
+    summaries that don't already have a yearly summary.
+
+    Mirrors load_events_needing_monthly_summaries one level up the
+    period hierarchy (monthly → yearly instead of weekly → monthly).
+
+    Args:
+        session: Database session
+        country: Initiating country (required)
+        start_date: Start date (inclusive)
+        end_date: End date (inclusive)
+
+    Returns:
+        List of dicts, each representing one (event, year) pair ready for
+        prompt generation.
+    """
+    def get_year_ranges(sd, ed):
+        """Split date range into calendar year periods."""
+        ranges = []
+        current = sd.replace(month=1, day=1)
+        while current <= ed:
+            year_end = min(current.replace(month=12, day=31), ed)
+            if year_end >= sd:
+                ranges.append((max(current, sd), year_end))
+            current = current.replace(year=current.year + 1)
+        return ranges
+
+    events_to_process = []
+
+    for year_start, year_end in get_year_ranges(start_date, end_date):
+        # Load monthly summaries grouped by event_name (same SQL as generate_yearly_summaries.py)
+        result = session.execute(text('''
+            SELECT
+                es.id,
+                es.event_name,
+                es.period_start,
+                es.period_end,
+                es.narrative_summary,
+                ce.id as canonical_event_id
+            FROM event_summaries es
+            JOIN canonical_events ce ON es.event_name = ce.canonical_name
+            WHERE es.initiating_country = :country
+              AND es.period_type = 'MONTHLY'
+              AND es.period_start >= :year_start
+              AND es.period_end <= :year_end
+              AND ce.master_event_id IS NULL
+              AND es.status = 'ACTIVE'
+            ORDER BY es.event_name, es.period_start
+        '''), {
+            'country': country,
+            'year_start': year_start,
+            'year_end': year_end
+        }).fetchall()
+
+        # Group by event_name
+        events_map = {}
+        for row in result:
+            event_name = row[1]
+            if event_name not in events_map:
+                events_map[event_name] = {
+                    'canonical_event_id': str(row[5]),
+                    'summaries': []
+                }
+            events_map[event_name]['summaries'].append({
+                'summary_id': row[0],
+                'period_start': row[2],
+                'period_end': row[3],
+                'narrative_summary': row[4]
+            })
+
+        for event_name, event_data in events_map.items():
+            monthly_summaries = event_data['summaries']
+
+            # Skip events with < 2 monthly summaries
+            if len(monthly_summaries) < 2:
+                continue
+
+            # Check if yearly summary already exists
+            existing = session.execute(text('''
+                SELECT 1 FROM event_summaries
+                WHERE period_type = 'YEARLY'
+                  AND period_start = :year_start
+                  AND period_end = :year_end
+                  AND initiating_country = :country
+                  AND event_name = :event_name
+                LIMIT 1
+            '''), {
+                'year_start': year_start,
+                'year_end': year_end,
+                'country': country,
+                'event_name': event_name
+            }).fetchone()
+
+            if existing:
+                continue
+
+            # Format monthly summaries for the prompt (same layout as
+            # generate_yearly_summaries.py)
+            monthly_text_parts = []
+            monthly_summary_ids = []
+            for i, summary in enumerate(monthly_summaries, 1):
+                month_str = summary['period_start'].strftime('%B %Y')
+                narrative = summary['narrative_summary']
+                monthly_text_parts.append(
+                    f"**Month {i} ({month_str}):**\n"
+                    f"Monthly Overview: {narrative.get('monthly_overview', 'N/A')}\n"
+                    f"Key Outcomes: {narrative.get('key_outcomes', 'N/A')}\n"
+                    f"Strategic Significance: {narrative.get('strategic_significance', 'N/A')}"
+                )
+                monthly_summary_ids.append(str(summary['summary_id']))
+
+            events_to_process.append({
+                'canonical_event_id': event_data['canonical_event_id'],
+                'event_name': event_name,
+                'country': country,
+                'year_start_str': year_start.strftime('%Y-%m-%d'),
+                'year_end_str': year_end.strftime('%Y-%m-%d'),
+                'year': year_start.year,
+                'monthly_summaries_formatted': "\n\n".join(monthly_text_parts),
+                'monthly_summary_ids': monthly_summary_ids,
+                'num_monthly_summaries': len(monthly_summaries)
+            })
+
+    return events_to_process
+
+
+def build_yearly_summary_prompt(event_data: Dict) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Build prompt messages for yearly summary generation.
+
+    Uses the YEARLY_SUMMARY_PROMPT template from summary_prompts.py.
+
+    Args:
+        event_data: Dict with event_name, country, year,
+                    monthly_summaries_formatted
+
+    Returns:
+        Dictionary with 'messages' key containing list of message dicts
+    """
+    from services.pipeline.summaries.summary_prompts import YEARLY_SUMMARY_PROMPT
+
+    prompt = YEARLY_SUMMARY_PROMPT.format(
+        country=event_data['country'],
+        year=event_data['year'],
+        event_name=event_data['event_name'],
+        monthly_summaries=event_data['monthly_summaries_formatted']
+    )
+
+    sys_prompt = "You are an experienced journalist writing in Associated Press (AP) style. Synthesize monthly summaries into yearly strategic narratives."
+
+    return {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+
 def load_summaries_for_materiality_scoring(
     session,
     country: str,
@@ -3129,6 +3298,27 @@ def generate_batch_requests(
                 }
             })
 
+    elif job_type == JOB_TYPE_GENERATE_YEARLY_SUMMARY:
+        # records is a list of (event, year) dicts needing yearly summaries
+        for event_data in records:
+            custom_id = generate_custom_id(
+                job_type, event_data['canonical_event_id'],
+                suffix=f"{event_data['year_start_str']}_{event_data['year_end_str']}"
+            )
+            prompt_data = build_yearly_summary_prompt(event_data)
+
+            batch_requests.append({
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": {
+                    "model": model,
+                    "messages": prompt_data["messages"],
+                    "temperature": temperature,
+                    "response_format": response_format
+                }
+            })
+
     elif job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:
         # records is a list of event summaries needing materiality scoring
         for summary in records:
@@ -3288,6 +3478,7 @@ def main():
                                JOB_TYPE_DAILY_ENTITY_EXTRACT, JOB_TYPE_ENTITY_DECONFLICT,
                                JOB_TYPE_CANONICAL_ENTITY_DECONFLICT, JOB_TYPE_GENERATE_DAILY_SUMMARY,
                                JOB_TYPE_GENERATE_WEEKLY_SUMMARY, JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+                               JOB_TYPE_GENERATE_YEARLY_SUMMARY,
                                JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
                                JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
                                JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
@@ -3468,6 +3659,21 @@ def main():
             )
             print(f"Found {len(records)} (event, month) pairs needing monthly summaries")
 
+        elif args.job_type == JOB_TYPE_GENERATE_YEARLY_SUMMARY:
+            if not args.country:
+                print("Error: --country is required for generate_yearly_summary")
+                return
+            if not start_date or not end_date:
+                print("Error: --start-date and --end-date are required for generate_yearly_summary")
+                return
+            records = load_events_needing_yearly_summaries(
+                session,
+                args.country,
+                start_date,
+                end_date
+            )
+            print(f"Found {len(records)} (event, year) pairs needing yearly summaries")
+
         elif args.job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY:
             if not args.country:
                 print("Error: --country is required for score_summary_materiality")
@@ -3620,6 +3826,13 @@ def main():
                     str(start_date) if start_date else None,
                     str(end_date) if end_date else None
                 )
+                # score_summary_materiality runs once per period type over the
+                # same (country, date) window — qualify the filename or the
+                # DAILY/WEEKLY/MONTHLY preps overwrite each other's input
+                # JSONL and every submission uploads the last-written one.
+                if args.job_type == JOB_TYPE_SCORE_SUMMARY_MATERIALITY and args.period_type:
+                    base_output_file = base_output_file.replace(
+                        '_input.jsonl', f'_{args.period_type}_input.jsonl')
                 # Add batch number suffix if multiple batches
                 if num_chunks > 1:
                     output_file = base_output_file.replace('.jsonl', f'_batch{chunk_idx}.jsonl')

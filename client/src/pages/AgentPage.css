@@ -879,8 +879,12 @@
 }
 
 .agent-markdown p { margin: 0.5rem 0; }
-.agent-markdown ul, .agent-markdown ol { margin: 0.5rem 0; padding-left: 1.4rem; }
-.agent-markdown li { margin: 0.2rem 0; }
+.agent-markdown ul, .agent-markdown ol { margin: 0.35rem 0; padding-left: 1.4rem; }
+.agent-markdown li { margin: 0.15rem 0; }
+/* Loose lists: markdown with blank lines between bullets wraps each item in a
+   <p>, whose margins double the gaps — collapse them so lists stay compact. */
+.agent-markdown li > p { margin: 0; }
+.agent-markdown li > ul, .agent-markdown li > ol { margin: 0.1rem 0; }
 .agent-markdown code {
   background: #f1f5f9;
   padding: 0.05rem 0.3rem;
@@ -1013,3 +1017,33 @@
 .agent-input-row > :first-child { flex: 1; }
 
 .agent-stop { flex: none; margin-bottom: 0.35rem; }
+
+/* Header action row (export / new conversation) */
+.agent-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.agent-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.agent-btn-ghost {
+  background: white;
+  border: 1px solid #d1d5db;
+  color: #475569;
+}
+
+.agent-btn-ghost:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.agent-btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

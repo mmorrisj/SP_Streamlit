@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { fetchEventAcrossPeriods } from '../api/client'
 import type { CrossPeriodEntry } from '../api/client'
+import PageGuide from '../components/PageGuide'
+import { badgeStyleFor } from '../components/materialityBands'
 import './Pages.css'
 
 const PERIOD_LABELS: Record<string, string> = {
@@ -67,8 +69,7 @@ function PeriodCard({ entry, periodType }: { entry: CrossPeriodEntry; periodType
         {entry.material_score != null && (
           <span style={{
             fontSize: '0.7rem', padding: '1px 6px', borderRadius: '3px',
-            backgroundColor: entry.material_score >= 3 ? '#dcfce7' : '#f1f5f9',
-            color: entry.material_score >= 3 ? '#166534' : '#475569',
+            ...badgeStyleFor(entry.material_score),
           }}>
             <Zap size={9} style={{ marginRight: 1 }} />{entry.material_score.toFixed(1)}
           </span>
@@ -206,6 +207,8 @@ export default function CrossPeriodView() {
           {data.first_mention_date && <span>{data.first_mention_date} — {data.last_mention_date}</span>}
         </div>
       </div>
+
+      <PageGuide page="cross-period" />
 
       {/* Period sections */}
       {periodOrder.map(period => {

@@ -154,7 +154,7 @@ def main():
     CLUSTER_TYPES = {'cluster_deconflict'}
     CANONICAL_TYPES = {'canonical_deconflict', 'score_materiality', 'entity_extract',
                        'generate_daily_summary', 'generate_weekly_summary',
-                       'generate_monthly_summary'}
+                       'generate_monthly_summary', 'generate_yearly_summary'}
     SKIP_VALIDATION_TYPES = {'event_rename', 'daily_entity_extract',
                               'generate_entity_descriptions', 'generate_bilateral_summaries',
                               'classify_entity_relationships', 'score_summary_materiality'}
@@ -200,7 +200,7 @@ def main():
         process_materiality_score_result,
         process_summary_materiality_result,
         process_daily_summary_result, process_weekly_summary_result,
-        process_monthly_summary_result
+        process_monthly_summary_result, process_yearly_summary_result
     )
     from services.pipeline.events.llm_deconflict_clusters import LLMClusterDeconfliction
 
@@ -294,6 +294,15 @@ def main():
                             stats = process_monthly_summary_result(
                                 session, record_id, llm_response,
                                 month_str=suffix, verbose=False
+                            )
+                        elif args.job_type == 'generate_yearly_summary':
+                            suffix = parsed.get('suffix')
+                            if not suffix:
+                                file_errors += 1
+                                continue
+                            stats = process_yearly_summary_result(
+                                session, record_id, llm_response,
+                                year_str=suffix, verbose=False
                             )
                         else:
                             print(f"    Unsupported job type: {args.job_type}")

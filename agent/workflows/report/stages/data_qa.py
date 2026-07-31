@@ -36,6 +36,7 @@ from typing import Any
 from sqlalchemy import text
 
 from agent.workflows.base import Stage, StageResult, WorkflowContext
+from agent.workflows.report.stages.query_interpreter import _load_config
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +120,25 @@ class DataQAStage(Stage):
                     "consider broadening the date range or recipient scope."
                 )
             if event_count < _SUFFICIENT_EVENT_FLOOR:
-                suggested_actions.append(
-                    f"Event count ({event_count}) below floor ({_SUFFICIENT_EVENT_FLOOR}); "
-                    "consider broadening the date range."
-                )
+                tracked = [
+                    str(c) for c in (_load_config().get("influencers") or [])
+                ]
+                if influencer and tracked and influencer not in tracked:
+                    # Structural, not temporal: the event pipeline never ran for
+                    # this initiator, so no date range can surface events.
+                    suggested_actions.append(
+                        f"Event count ({event_count}) below floor "
+                        f"({_SUFFICIENT_EVENT_FLOOR}): '{influencer}' is not a "
+                        f"tracked initiator (events exist only for "
+                        f"{', '.join(tracked)}). Broadening dates will not help — "
+                        f"reframe the report with {influencer} as the recipient "
+                        "of a tracked initiator instead."
+                    )
+                else:
+                    suggested_actions.append(
+                        f"Event count ({event_count}) below floor ({_SUFFICIENT_EVENT_FLOOR}); "
+                        "consider broadening the date range."
+                    )
         if gaps:
             suggested_actions.append(
                 f"{len(gaps)} month(s) with no coverage in the requested range: "

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, Calendar, FileText, ExternalLink, Users } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 interface Citation {
@@ -93,6 +94,8 @@ export default function BilateralSummaryDetailPage() {
           </p>
         </div>
       </div>
+
+      <PageGuide page="bilateral-summary-detail" />
 
       {/* Metrics Section */}
       <div className="metrics-grid">

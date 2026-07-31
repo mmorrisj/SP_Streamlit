@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pydantic import BaseModel
 from sqlalchemy import func, Text
 from pathlib import Path
@@ -707,25 +707,70 @@ def get_documents(
             limit=limit
         )
 
+def _story_phase_expr(ref_date):
+    """Derived story-phase lifecycle, computed from mention data.
+
+    The stored story_phase column is hardcoded to "emerging" at creation and
+    never updated, so the lifecycle is derived at query time instead. Recency
+    is measured against the corpus max mention date (not the wall clock) so
+    ingestion lag doesn't mark everything dormant.
+    """
+    from sqlalchemy import case
+    last = func.coalesce(CanonicalEvent.last_mention_date, CanonicalEvent.first_mention_date)
+    articles = func.coalesce(CanonicalEvent.total_articles, 0)
+    mention_days = func.greatest(func.coalesce(CanonicalEvent.total_mention_days, 1), 1)
+    return case(
+        (last < ref_date - timedelta(days=30), 'dormant'),
+        (last < ref_date - timedelta(days=14), 'fading'),
+        (CanonicalEvent.first_mention_date >= ref_date - timedelta(days=7), 'emerging'),
+        ((articles >= 5 * mention_days) & (func.coalesce(CanonicalEvent.total_mention_days, 0) >= 3), 'peak'),
+        else_='developing',
+    )
+
+
 @app.get("/api/events", response_model=EventsResponse)
 def get_events(
     country: Optional[str] = None,
     category: Optional[str] = None,
+    recipient: Optional[str] = None,
     story_phase: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    min_materiality: Optional[float] = Query(None, ge=0, le=10),
+    max_materiality: Optional[float] = Query(None, ge=0, le=10, description="exclusive upper bound"),
     sort_by: str = Query(default="recency", pattern="^(recency|articles|materiality)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
     with get_session() as session:
-        query = session.query(CanonicalEvent).filter(
+        ref_date = session.query(func.max(CanonicalEvent.last_mention_date)).scalar()
+        phase_expr = _story_phase_expr(ref_date) if ref_date else CanonicalEvent.story_phase
+
+        query = session.query(CanonicalEvent, phase_expr.label("phase")).filter(
             CanonicalEvent.master_event_id.is_(None)
         )
 
         if country and country != 'ALL':
             query = query.filter(CanonicalEvent.initiating_country == country)
 
+        if recipient and recipient != 'ALL':
+            query = query.filter(CanonicalEvent.primary_recipients.has_key(recipient))
+
         if story_phase and story_phase != 'ALL':
-            query = query.filter(CanonicalEvent.story_phase == story_phase)
+            query = query.filter(phase_expr == story_phase)
+
+        # Date range matches events whose activity window overlaps [start, end]
+        if start_date:
+            query = query.filter(
+                func.coalesce(CanonicalEvent.last_mention_date, CanonicalEvent.first_mention_date) >= start_date
+            )
+        if end_date:
+            query = query.filter(CanonicalEvent.first_mention_date <= end_date)
+
+        if min_materiality is not None:
+            query = query.filter(CanonicalEvent.material_score >= min_materiality)
+        if max_materiality is not None:
+            query = query.filter(CanonicalEvent.material_score < max_materiality)
 
         total = query.count()
 
@@ -736,7 +781,9 @@ def get_events(
         else:
             query = query.order_by(CanonicalEvent.last_mention_date.desc())
 
-        events = query.offset(offset).limit(limit).all()
+        rows = query.offset(offset).limit(limit).all()
+        events = [row[0] for row in rows]
+        phases = {str(row[0].id): row[1] for row in rows}
 
         # Batch load narrative enrichment
         event_names = [e.canonical_name for e in events if e.canonical_name]
@@ -763,7 +810,7 @@ def get_events(
                 "last_mention_date": str(event.last_mention_date) if event.last_mention_date else None,
                 "total_articles": event.total_articles or 0,
                 "total_mention_days": event.total_mention_days or 0,
-                "story_phase": event.story_phase,
+                "story_phase": phases.get(str(event.id)) or event.story_phase,
                 "material_score": float(event.material_score) if event.material_score else None,
                 "source_count": event.source_count or 0,
                 "primary_categories": top_cats,
@@ -937,9 +984,34 @@ def get_dashboard_intelligence():
     # by sheer recency/volume). Order matches the app's influencer palette.
     MENA_INFLUENCERS = ["China", "Iran", "Russia", "Turkey"]
 
-    def _serialize(s):
+    def _resolve_canonical_ids(session, rows):
+        """Weekly/monthly summary generators don't set canonical_event_id, which
+        leaves dashboard cards with nothing to link to. Resolve missing links by
+        matching master canonical events on name + initiating country (the same
+        fallback the across-periods endpoint uses in reverse)."""
+        unresolved = [s for s in rows if not s.canonical_event_id and s.event_name]
+        if not unresolved:
+            return {}
+        pairs = {(s.event_name, s.initiating_country) for s in unresolved}
+        matches = session.query(CanonicalEvent).filter(
+            CanonicalEvent.master_event_id.is_(None),
+            CanonicalEvent.canonical_name.in_({name for name, _ in pairs}),
+        ).all()
+        by_pair = {}
+        for ce in matches:
+            key = (ce.canonical_name, ce.initiating_country)
+            if key in pairs and key not in by_pair:
+                by_pair[key] = str(ce.id)
+        return {
+            str(s.id): by_pair[(s.event_name, s.initiating_country)]
+            for s in unresolved
+            if (s.event_name, s.initiating_country) in by_pair
+        }
+
+    def _serialize(s, resolved_ids=None):
         ns = s.narrative_summary or {}
         overview = ns.get("overview") or ns.get("monthly_overview") or ""
+        canonical_id = str(s.canonical_event_id) if s.canonical_event_id else (resolved_ids or {}).get(str(s.id))
         return {
             "id": str(s.id),
             "event_name": s.event_name,
@@ -950,8 +1022,34 @@ def get_dashboard_intelligence():
             "material_score": float(s.material_score) if s.material_score else None,
             "count_by_category": s.count_by_category or {},
             "count_by_recipient": s.count_by_recipient or {},
-            "canonical_event_id": str(s.canonical_event_id) if s.canonical_event_id else None,
+            "canonical_event_id": canonical_id,
         }
+
+    def _dedupe_key(s):
+        # Summaries of the same underlying event should surface once. Prefer the
+        # canonical event link; fall back to normalized name + country for rows
+        # where ingestion never set canonical_event_id.
+        if s.canonical_event_id:
+            return f"ce:{s.canonical_event_id}"
+        return f"nm:{s.initiating_country}|{(s.event_name or '').strip().lower()}"
+
+    def _dedupe_recent(rows, limit):
+        # Rows arrive ordered by period_start desc, so the first occurrence of a
+        # key is the most recent mention of that event.
+        seen, out = set(), []
+        for s in rows:
+            key = _dedupe_key(s)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(s)
+            if len(out) >= limit:
+                break
+        return out
+
+    # Over-fetch before deduping so consolidated events that recur across
+    # periods still leave a full list after duplicates are dropped.
+    FETCH_MULTIPLIER = 4
 
     with get_session() as session:
         result = {"weekly": [], "monthly": []}
@@ -961,9 +1059,11 @@ def get_dashboard_intelligence():
                 EventSummary.period_type == period_type,
                 EventSummary.is_deleted == False,
                 EventSummary.initiating_country.in_(MENA_INFLUENCERS),
-            ).order_by(EventSummary.period_start.desc()).limit(10).all()
+            ).order_by(EventSummary.period_start.desc()).limit(10 * FETCH_MULTIPLIER).all()
 
-            result[key] = [_serialize(s) for s in summaries]
+            summaries = _dedupe_recent(summaries, 10)
+            resolved = _resolve_canonical_ids(session, summaries)
+            result[key] = [_serialize(s, resolved) for s in summaries]
 
         # Latest weekly grouped by influencer — top 5 most-recent weekly summaries per actor,
         # so the dashboard can show a per-influencer column instead of one blended list.
@@ -973,9 +1073,11 @@ def get_dashboard_intelligence():
                 EventSummary.period_type == PeriodType.WEEKLY,
                 EventSummary.is_deleted == False,
                 EventSummary.initiating_country == inf,
-            ).order_by(EventSummary.period_start.desc()).limit(5).all()
+            ).order_by(EventSummary.period_start.desc()).limit(5 * FETCH_MULTIPLIER).all()
+            rows = _dedupe_recent(rows, 5)
             if rows:
-                weekly_by_influencer[inf] = [_serialize(s) for s in rows]
+                resolved = _resolve_canonical_ids(session, rows)
+                weekly_by_influencer[inf] = [_serialize(s, resolved) for s in rows]
         result["weekly_by_influencer"] = weekly_by_influencer
 
         # Period-over-period comparison: count events by period
@@ -1233,14 +1335,22 @@ def get_materiality_analysis(
             where.append("ce.first_mention_date <= :end"); params["end"] = end_date
         w = " AND ".join(where)
 
+        from shared.utils.materiality_bands import SYMBOLIC_MAX, DEVELOPING_MAX
+        band_filters = (
+            f"count(*) FILTER (WHERE material_score < {SYMBOLIC_MAX}) AS symbolic_count, "
+            f"count(*) FILTER (WHERE material_score >= {SYMBOLIC_MAX} AND material_score < {DEVELOPING_MAX}) AS developing_count, "
+            f"count(*) FILTER (WHERE material_score >= {DEVELOPING_MAX}) AS substantive_count"
+        )
         stats = session.execute(sql_text(f"""
             SELECT count(*) n, round(avg(material_score)::numeric, 2) avg,
                    round(percentile_cont(0.5) WITHIN GROUP (ORDER BY material_score)::numeric, 2) median,
-                   min(material_score) mn, max(material_score) mx
+                   min(material_score) mn, max(material_score) mx,
+                   {band_filters}
             FROM canonical_events ce WHERE {w}"""), params).fetchone()
         trend_rows = session.execute(sql_text(f"""
             SELECT to_char(date_trunc('month', first_mention_date), 'YYYY-MM') AS "month",
-                   round(avg(material_score)::numeric, 2) avg_materiality, count(*) event_count
+                   round(avg(material_score)::numeric, 2) avg_materiality, count(*) event_count,
+                   {band_filters}
             FROM canonical_events ce WHERE {w} GROUP BY 1 ORDER BY 1"""), params).fetchall()
         hist_rows = session.execute(sql_text(f"""
             SELECT floor(material_score)::int b, count(*) c
@@ -1257,6 +1367,19 @@ def get_materiality_analysis(
                     ORDER BY length(d.distilled_text) DESC LIMIT 1) AS content
             FROM canonical_events ce WHERE {w}
             ORDER BY ce.material_score DESC, ce.first_mention_date DESC LIMIT 10"""), params).fetchall()
+        # Symbolic gestures: score can't rank within the band, so volume and
+        # recency stand in as the importance measure.
+        symbolic_rows = session.execute(sql_text(f"""
+            SELECT ce.canonical_name, ce.material_score, ce.first_mention_date,
+                   ce.total_articles,
+                   (SELECT left(d.distilled_text, 320)
+                    FROM daily_event_mentions dem, unnest(dem.doc_ids) AS did
+                    JOIN documents d ON d.doc_id = did
+                    WHERE dem.canonical_event_id = ce.id AND d.distilled_text IS NOT NULL
+                    ORDER BY length(d.distilled_text) DESC LIMIT 1) AS content
+            FROM canonical_events ce WHERE {w} AND ce.material_score < {SYMBOLIC_MAX}
+            ORDER BY ce.total_articles DESC NULLS LAST, ce.first_mention_date DESC
+            LIMIT 10"""), params).fetchall()
 
         return {
             "initiator": initiator,
@@ -1267,15 +1390,29 @@ def get_materiality_analysis(
                 "median": float(stats.median) if stats.median is not None else None,
                 "min": float(stats.mn) if stats.mn is not None else None,
                 "max": float(stats.mx) if stats.mx is not None else None,
+                "bands": {
+                    "symbolic": stats.symbolic_count or 0,
+                    "developing": stats.developing_count or 0,
+                    "substantive": stats.substantive_count or 0,
+                },
             },
             "trend": [{"month": r.month, "avg_materiality": float(r.avg_materiality),
-                       "event_count": r.event_count} for r in trend_rows],
+                       "event_count": r.event_count,
+                       "symbolic_count": r.symbolic_count,
+                       "developing_count": r.developing_count,
+                       "substantive_count": r.substantive_count} for r in trend_rows],
             "histogram": [{"bin": f"{r.b}-{r.b + 1}", "score": r.b, "count": r.c} for r in hist_rows],
             "top_events": [{"event_name": r.canonical_name,
                             "material_score": float(r.material_score) if r.material_score is not None else None,
                             "date": str(r.first_mention_date) if r.first_mention_date else None,
                             "description": r.content}
                            for r in top_rows],
+            "symbolic_events": [{"event_name": r.canonical_name,
+                                 "material_score": float(r.material_score) if r.material_score is not None else None,
+                                 "date": str(r.first_mention_date) if r.first_mention_date else None,
+                                 "total_articles": r.total_articles or 0,
+                                 "description": r.content}
+                                for r in symbolic_rows],
         }
 
 
@@ -1338,14 +1475,35 @@ def get_bilateral_relationships():
         ).group_by(
             InitiatingCountry.initiating_country,
             RecipientCountry.recipient_country
-        ).order_by(func.count(func.distinct(InitiatingCountry.doc_id)).desc()).limit(30).all()
+        ).order_by(func.count(func.distinct(InitiatingCountry.doc_id)).desc()).all()
+
+        # Per-pair event counts and avg materiality from consolidated master
+        # events, so the page can show substance alongside raw doc volume.
+        from sqlalchemy import text as sql_text
+        event_rows = session.execute(sql_text("""
+            SELECT ce.initiating_country, r.key AS recipient,
+                   COUNT(*) AS event_count,
+                   AVG(ce.material_score) AS avg_materiality
+            FROM canonical_events ce, jsonb_each(ce.primary_recipients) r
+            WHERE ce.master_event_id IS NULL
+            GROUP BY 1, 2
+        """)).fetchall()
+        event_stats = {
+            (r.initiating_country, r.recipient): {
+                "event_count": r.event_count,
+                "avg_materiality": round(float(r.avg_materiality), 1) if r.avg_materiality is not None else None,
+            }
+            for r in event_rows
+        }
 
         return BilateralResponse(
             relationships=[
                 {
                     "initiating_country": row.initiating_country,
                     "recipient_country": row.recipient_country,
-                    "count": row.count
+                    "count": row.count,
+                    "event_count": event_stats.get((row.initiating_country, row.recipient_country), {}).get("event_count", 0),
+                    "avg_materiality": event_stats.get((row.initiating_country, row.recipient_country), {}).get("avg_materiality"),
                 }
                 for row in relationships
             ]
@@ -3220,6 +3378,15 @@ def get_available_bilateral_months(influencer: str):
 # ============================================================
 # Report / Publication endpoints
 # ============================================================
+
+@app.get("/api/whitepaper")
+def get_whitepaper():
+    """Serve the platform white paper markdown for the in-app White Paper page."""
+    wp_path = Path(__file__).parent.parent / "docs" / "Soft_Power_Analytics_White_Paper.md"
+    if not wp_path.exists():
+        raise HTTPException(status_code=404, detail="White paper not found")
+    return {"markdown": wp_path.read_text(encoding="utf-8")}
+
 
 @app.get("/api/data-coverage")
 def data_coverage():

@@ -265,7 +265,12 @@ export const fetchEvents = async (filters?: Record<string, unknown>): Promise<Ev
 
 export const fetchEventsRich = async (params?: {
   country?: string
+  recipient?: string
   story_phase?: string
+  start_date?: string
+  end_date?: string
+  min_materiality?: number
+  max_materiality?: number
   sort_by?: string
   limit?: number
   offset?: number
@@ -312,10 +317,17 @@ export const fetchMaterialityHeatmap = async (): Promise<MaterialityHeatmapData>
 export interface MaterialityAnalysis {
   initiator: string
   recipient: string | null
-  stats: { event_count: number; avg: number | null; median: number | null; min: number | null; max: number | null }
-  trend: { month: string; avg_materiality: number; event_count: number }[]
+  stats: {
+    event_count: number; avg: number | null; median: number | null; min: number | null; max: number | null
+    bands: { symbolic: number; developing: number; substantive: number }
+  }
+  trend: {
+    month: string; avg_materiality: number; event_count: number
+    symbolic_count: number; developing_count: number; substantive_count: number
+  }[]
   histogram: { bin: string; score: number; count: number }[]
   top_events: { event_name: string; material_score: number | null; date: string | null; description: string | null }[]
+  symbolic_events: { event_name: string; material_score: number | null; date: string | null; total_articles: number; description: string | null }[]
 }
 
 export const fetchMaterialityAnalysis = async (
@@ -1229,6 +1241,11 @@ export const fetchDataCoverage = async (): Promise<DataCoverage> => {
   return data
 }
 
+export const fetchWhitePaper = async (): Promise<{ markdown: string }> => {
+  const { data } = await api.get('/whitepaper')
+  return data
+}
+
 // ============================================================
 // Agent Converse — conversational agent with data tools (SSE)
 // ============================================================
@@ -1253,7 +1270,7 @@ export interface ConverseToolResultPayload {
 }
 
 export interface ConverseReportOfferScope {
-  influencer: string
+  influencer: string | null
   recipient: string | null
   region: string | null
   start_date: string

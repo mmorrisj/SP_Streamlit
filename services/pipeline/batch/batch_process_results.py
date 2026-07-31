@@ -1561,6 +1561,202 @@ def process_monthly_summary_result(
         raise
 
 
+def process_yearly_summary_result(
+    session,
+    canonical_event_id: str,
+    llm_response: Dict[str, Any],
+    year_str: str,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Process yearly summary generation result from batch API.
+
+    Re-queries monthly summaries for this event+year, collects source doc_ids,
+    and creates EventSummary and EventSourceLink records.
+
+    Adapted from generate_yearly_summaries.py:generate_yearly_summary()
+
+    Args:
+        session: Database session
+        canonical_event_id: Master canonical event UUID
+        llm_response: Parsed LLM response with 'yearly_overview', 'major_developments',
+                      'annual_outcomes', 'strategic_assessment'
+        year_str: Year range string from custom_id suffix (e.g., "2026-01-01_2026-12-31")
+        verbose: Print progress
+
+    Returns:
+        Statistics dict
+    """
+    stats = {
+        'summaries_created': 0,
+        'source_links_created': 0,
+        'errors': 0
+    }
+
+    try:
+        year_parts = year_str.split('_')
+        if len(year_parts) != 2:
+            if verbose:
+                print(f"  Warning: Invalid year suffix format: {year_str}")
+            stats['errors'] += 1
+            return stats
+
+        year_start = datetime.strptime(year_parts[0], '%Y-%m-%d').date()
+        year_end = datetime.strptime(year_parts[1], '%Y-%m-%d').date()
+
+        # Load master event
+        master_event = session.get(CanonicalEvent, canonical_event_id)
+        if not master_event:
+            if verbose:
+                print(f"  Warning: Master event {canonical_event_id} not found, skipping")
+            stats['errors'] += 1
+            return stats
+
+        country = master_event.initiating_country
+        canonical_name = master_event.canonical_name
+
+        # Check if yearly summary already exists
+        existing = session.execute(text("""
+            SELECT 1 FROM event_summaries
+            WHERE period_type = 'YEARLY'
+              AND period_start = :period_start
+              AND period_end = :period_end
+              AND initiating_country = :country
+              AND event_name = :event_name
+            LIMIT 1
+        """), {
+            'period_start': year_start,
+            'period_end': year_end,
+            'country': country,
+            'event_name': canonical_name
+        }).fetchone()
+
+        if existing:
+            if verbose:
+                print(f"  Yearly summary already exists for {canonical_name} ({year_start.year}), skipping")
+            return stats
+
+        # Validate LLM response
+        yearly_overview = llm_response.get('yearly_overview')
+        major_developments = llm_response.get('major_developments')
+        annual_outcomes = llm_response.get('annual_outcomes')
+        strategic_assessment = llm_response.get('strategic_assessment')
+        if not yearly_overview or not major_developments or not annual_outcomes or not strategic_assessment:
+            if verbose:
+                print(f"  Warning: Missing required fields in response for {canonical_event_id}")
+            stats['errors'] += 1
+            return stats
+
+        # Get monthly summaries for this event+year to find date range and source docs
+        monthly_result = session.execute(text('''
+            SELECT
+                es.id as summary_id,
+                es.period_start,
+                es.period_end
+            FROM event_summaries es
+            JOIN canonical_events ce ON es.event_name = ce.canonical_name
+            WHERE es.initiating_country = :country
+              AND es.period_type = 'MONTHLY'
+              AND es.period_start >= :year_start
+              AND es.period_end <= :year_end
+              AND ce.master_event_id IS NULL
+              AND ce.id = :canonical_event_id
+              AND es.status = 'ACTIVE'
+            ORDER BY es.period_start
+        '''), {
+            'country': country,
+            'year_start': year_start,
+            'year_end': year_end,
+            'canonical_event_id': canonical_event_id
+        }).fetchall()
+
+        if not monthly_result:
+            if verbose:
+                print(f"  Warning: No monthly summaries found for {canonical_name} year {year_start.year}")
+            stats['errors'] += 1
+            return stats
+
+        first_observed = min(row[1] for row in monthly_result)
+        last_observed = max(row[2] for row in monthly_result)
+
+        # Collect all doc_ids from constituent monthly summaries via event_source_links
+        doc_ids = set()
+        for row in monthly_result:
+            links = session.execute(text('''
+                SELECT doc_id FROM event_source_links
+                WHERE event_summary_id = :summary_id
+            '''), {'summary_id': str(row[0])}).fetchall()
+            doc_ids.update(r[0] for r in links)
+
+        valid_doc_ids = [d for d in doc_ids if d is not None]
+
+        import uuid as _uuid
+        summary_id = str(_uuid.uuid4())
+        narrative = json.dumps({
+            'yearly_overview': yearly_overview,
+            'major_developments': major_developments,
+            'annual_outcomes': annual_outcomes,
+            'strategic_assessment': strategic_assessment
+        })
+
+        session.execute(text("""
+            INSERT INTO event_summaries (
+                id, period_type, period_start, period_end,
+                event_name, initiating_country,
+                first_observed_date, last_observed_date,
+                status, created_at, updated_at, is_deleted,
+                category_count, subcategory_count, recipient_count, source_count,
+                total_documents_across_categories, total_documents_across_subcategories,
+                total_documents_across_recipients, total_documents_across_sources,
+                count_by_category, count_by_subcategory, count_by_recipient, count_by_source,
+                narrative_summary
+            ) VALUES (
+                :id, :period_type, :period_start, :period_end,
+                :event_name, :country,
+                :first_observed, :last_observed,
+                'ACTIVE', NOW(), NOW(), false,
+                0, 0, 0, 0,
+                0, 0,
+                0, :total_docs,
+                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+                CAST(:narrative AS jsonb)
+            )
+        """), {
+            'id': summary_id,
+            'period_type': 'YEARLY',
+            'period_start': year_start,
+            'period_end': year_end,
+            'event_name': canonical_name,
+            'country': country,
+            'first_observed': first_observed,
+            'last_observed': last_observed,
+            'narrative': narrative,
+            'total_docs': len(valid_doc_ids)
+        })
+
+        stats['summaries_created'] += 1
+
+        for doc_id in valid_doc_ids:
+            link = EventSourceLink(
+                event_summary_id=summary_id,
+                doc_id=doc_id
+            )
+            session.add(link)
+            stats['source_links_created'] += 1
+
+        if verbose:
+            print(f"  Created yearly summary for {canonical_name} ({year_start.year}) "
+                  f"({len(valid_doc_ids)} docs, {stats['source_links_created']} links)")
+
+        return stats
+
+    except Exception as e:
+        if verbose:
+            print(f"  Error processing yearly summary {canonical_event_id} for {year_str}: {e}")
+        stats['errors'] += 1
+        raise
+
+
 def process_summary_materiality_result(
     session,
     summary_id: str,
@@ -1977,21 +2173,27 @@ def process_relationship_classification_result(
             stats['errors'] += 1
             return stats
 
-        # Update relationship type and description
+        # Update relationship type and description. Run inside a SAVEPOINT:
+        # without it a unique-constraint violation aborts the enclosing
+        # transaction and every later record in the batch fails with
+        # "current transaction is aborted".
         try:
-            session.execute(text("""
-                UPDATE entity_relationships
-                SET relationship_type = :rel_type,
-                    relationship_description = :description,
-                    updated_at = NOW()
-                WHERE id = CAST(:rel_id AS uuid)
-            """), {
-                'rel_type': rel_type,
-                'description': description,
-                'rel_id': record_id
-            })
+            with session.begin_nested():
+                session.execute(text("""
+                    UPDATE entity_relationships
+                    SET relationship_type = :rel_type,
+                        relationship_description = :description,
+                        updated_at = NOW()
+                    WHERE id = CAST(:rel_id AS uuid)
+                """), {
+                    'rel_type': rel_type,
+                    'description': description,
+                    'rel_id': record_id
+                })
         except Exception as db_err:
-            # Handle unique constraint violation (e.g., classified type already exists for pair)
+            # Unique constraint (classified type already exists for this pair):
+            # the pair is already classified from a prior cycle, so drop the
+            # duplicate co_occurrence row's reclassification and move on.
             if 'uq_entity_relationship' in str(db_err) or 'unique' in str(db_err).lower():
                 if verbose:
                     print(f"  Warning: Relationship {record_id}: unique constraint, skipping ({rel_type})")

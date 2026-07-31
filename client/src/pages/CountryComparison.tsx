@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Globe, Zap, Tag, Calendar, ChevronDown } from 'lucide-react'
 import { fetchEventComparison } from '../api/client'
 import type { EventComparison } from '../api/client'
+import PageGuide from '../components/PageGuide'
+import { badgeStyleFor } from '../components/materialityBands'
 import './Pages.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -31,8 +33,7 @@ function ComparisonCard({ comp }: { comp: EventComparison }) {
           {comp.avg_materiality != null && (
             <span style={{
               fontSize: '0.72rem', padding: '2px 7px', borderRadius: '4px',
-              backgroundColor: comp.avg_materiality >= 3 ? '#dcfce7' : '#f1f5f9',
-              color: comp.avg_materiality >= 3 ? '#166534' : '#475569',
+              ...badgeStyleFor(comp.avg_materiality),
             }}>
               <Zap size={10} style={{ marginRight: 2 }} />{comp.avg_materiality.toFixed(1)}
             </span>
@@ -137,6 +138,8 @@ export default function CountryComparison() {
         </h1>
         <p>Events tracked by multiple countries with comparative perspectives</p>
       </header>
+
+      <PageGuide page="country-comparison" />
 
       {isLoading ? (
         <div className="loading">Loading comparisons...</div>

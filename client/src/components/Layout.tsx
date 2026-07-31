@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud, BookOpenText } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud, BookOpenText, Info } from 'lucide-react'
 import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
@@ -7,17 +7,18 @@ import './Layout.css'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/documents', label: 'Documents', icon: FileText },
-  { path: '/events', label: 'Events', icon: Zap },
-  { path: '/summaries', label: 'Summaries', icon: TrendingUp },
-  { path: '/bilateral', label: 'Bilateral', icon: Users },
+  { path: '/report', label: 'Publication', icon: FileBarChart },
   { path: '/chat', label: 'Research', icon: MessageSquare },
   { path: '/agent', label: 'Agent', icon: Bot },
-  { path: '/report', label: 'Publication', icon: FileBarChart },
+  { path: '/events', label: 'Events', icon: Zap },
+  { path: '/documents', label: 'Documents', icon: FileText },
+  { path: '/about', label: 'About & Methodology', icon: Info },
 ]
 
 const intelligenceItems = [
   { path: '/intel-reports', label: 'Insight Reports', icon: BookOpenText },
+  { path: '/summaries', label: 'Summaries', icon: TrendingUp },
+  { path: '/bilateral', label: 'Bilateral', icon: Users },
   { path: '/events/comparison', label: 'Country Comparison', icon: Globe },
   { path: '/events/materiality', label: 'Materiality Map', icon: Flame },
   { path: '/competing/Egypt', label: 'Competing Influence', icon: TrendingUp },
@@ -75,7 +76,7 @@ export default function Layout() {
           <div className="nav-section">
             <div className="nav-section-title">
               <Zap size={16} />
-              <span>Intelligence</span>
+              <span>Insights</span>
             </div>
             {intelligenceItems.map(({ path, label }) => (
               <NavLink
@@ -120,6 +121,14 @@ export default function Layout() {
               </NavLink>
             </div>
           )}
+
+          <NavLink
+            to="/whitepaper"
+            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          >
+            <BookOpenText size={20} />
+            <span>White Paper</span>
+          </NavLink>
         </nav>
 
         {/* Report generation progress widget */}
@@ -161,6 +170,12 @@ export default function Layout() {
       </aside>
       <main className="main-content">
         <Outlet />
+        <footer className="gai-caveat">
+          Content on this platform is generated with AI from open-source reporting. Summaries, scores,
+          and analyses may contain errors and reflect biases inherent in the underlying sources and
+          models — verify against cited source documents before relying on them.{' '}
+          <NavLink to="/about">About &amp; Methodology</NavLink>
+        </footer>
       </main>
     </div>
   )

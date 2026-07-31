@@ -36,7 +36,7 @@ class InitiativeLedgerTool(Tool):
             "end_date": {"type": "string", "description": "first_mention_date <= (YYYY-MM-DD)"},
             "min_material_score": {"type": "number", "minimum": 1, "maximum": 10},
             "apply_gate": {"type": "boolean", "default": True},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 15},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25},
         },
     }
 
@@ -49,7 +49,7 @@ class InitiativeLedgerTool(Tool):
         end = kwargs.get("end_date")
         min_score = kwargs.get("min_material_score")
         apply_gate = kwargs.get("apply_gate", True)
-        limit = max(1, min(int(kwargs.get("limit") or 15), 50))
+        limit = max(1, min(int(kwargs.get("limit") or 25), 100))
         if not initiator and not recipient:
             return ToolResult(ok=False, error="supply initiating_country and/or recipient_country")
 

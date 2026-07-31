@@ -3,6 +3,7 @@ import { useQuery, useQueries } from '@tanstack/react-query'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { TrendingUp, Calendar, Users, BarChart3, ExternalLink } from 'lucide-react'
 import { fetchInfluencerMetrics, fetchFilterOptions, fetchEventTimeline } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const CHART_COLORS = [
@@ -127,6 +128,8 @@ export default function TimelineComparison() {
         </h1>
         <p>Compare activity trends across multiple influencers over time</p>
       </header>
+
+      <PageGuide page="timeline-comparison" />
 
       {/* Date Range Selection */}
       <div className="chart-card" style={{ marginBottom: '2rem' }}>

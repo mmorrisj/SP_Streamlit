@@ -60,7 +60,7 @@ class EntityLookupTool(Tool):
                 "type": "string",
                 "enum": ["person", "organization", "location", "media_figure", "other"],
             },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 25, "default": 5},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
         },
         "required": ["name"],
     }
@@ -70,7 +70,7 @@ class EntityLookupTool(Tool):
         if not name:
             return ToolResult(ok=False, error="name is required")
         entity_type = kwargs.get("entity_type")
-        limit = max(1, min(int(kwargs.get("limit") or 5), 25))
+        limit = max(1, min(int(kwargs.get("limit") or 10), 50))
 
         try:
             from sqlalchemy import text

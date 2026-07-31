@@ -137,7 +137,7 @@ def _shape(r: dict[str, Any]) -> dict[str, Any]:
         "categories": r.get("primary_categories") or {},
         "recipients": r.get("primary_recipients") or {},
         "material_score": float(score) if score is not None else None,
-        "summary": desc if len(desc) <= 600 else desc[:600] + "…",
+        "summary": desc if len(desc) <= 1500 else desc[:1500] + "…",
     }
 
 

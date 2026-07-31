@@ -12,6 +12,7 @@ import {
 import ReactMarkdown from 'react-markdown'
 import { fetchEntityProfile } from '../api/client'
 import type { EntityRelationshipData, AssociatedEventData } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './EntityProfilePage.css'
 
 interface AssessmentSource {
@@ -175,6 +176,8 @@ export default function EntityProfilePage() {
         {entity.entity_description && (
           <p className="entity-desc">{entity.entity_description}</p>
         )}
+
+      <PageGuide page="entity-profile" />
 
         <div className="kpi-grid">
           <div className="kpi-card">

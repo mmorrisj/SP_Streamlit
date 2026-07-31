@@ -226,6 +226,23 @@ SCHEMA_MONTHLY_SUMMARY = {
     }
 }
 
+# -- Yearly Summary --
+SCHEMA_YEARLY_SUMMARY = {
+    "name": "yearly_summary",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "yearly_overview": {"type": "string"},
+            "major_developments": {"type": "string"},
+            "annual_outcomes": {"type": "string"},
+            "strategic_assessment": {"type": "string"}
+        },
+        "required": ["yearly_overview", "major_developments", "annual_outcomes", "strategic_assessment"],
+        "additionalProperties": False
+    }
+}
+
 # -- Entity Description --
 _KEY_ACTIVITIES_SCHEMA = {
     "type": "object",
@@ -458,6 +475,7 @@ def get_response_format_for_job_type(job_type: str) -> dict:
         JOB_TYPE_GENERATE_DAILY_SUMMARY,
         JOB_TYPE_GENERATE_WEEKLY_SUMMARY,
         JOB_TYPE_GENERATE_MONTHLY_SUMMARY,
+        JOB_TYPE_GENERATE_YEARLY_SUMMARY,
         JOB_TYPE_SCORE_SUMMARY_MATERIALITY,
         JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS,
         JOB_TYPE_GENERATE_BILATERAL_SUMMARIES,
@@ -477,6 +495,7 @@ def get_response_format_for_job_type(job_type: str) -> dict:
         JOB_TYPE_GENERATE_DAILY_SUMMARY: SCHEMA_DAILY_SUMMARY,
         JOB_TYPE_GENERATE_WEEKLY_SUMMARY: SCHEMA_WEEKLY_SUMMARY,
         JOB_TYPE_GENERATE_MONTHLY_SUMMARY: SCHEMA_MONTHLY_SUMMARY,
+        JOB_TYPE_GENERATE_YEARLY_SUMMARY: SCHEMA_YEARLY_SUMMARY,
         JOB_TYPE_SCORE_SUMMARY_MATERIALITY: SCHEMA_SCORE_MATERIALITY,  # Same schema
         JOB_TYPE_GENERATE_ENTITY_DESCRIPTIONS: SCHEMA_ENTITY_DESCRIPTION,
         JOB_TYPE_GENERATE_BILATERAL_SUMMARIES: SCHEMA_BILATERAL_SUMMARY,

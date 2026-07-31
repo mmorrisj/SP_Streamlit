@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { FileText, Search, X } from 'lucide-react'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 interface Document {
@@ -50,6 +51,8 @@ export default function Documents() {
         <h1>Documents</h1>
         <p>Browse and search diplomatic documents</p>
       </header>
+
+      <PageGuide page="documents" />
 
       {docIdList.length > 0 && (
         <div className="filter-banner">

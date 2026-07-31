@@ -18,6 +18,7 @@ import {
 import { ArrowLeft, FileText, Globe, TrendingUp, Calendar } from 'lucide-react'
 import { fetchRecipientMetrics } from '../api/client'
 import { useDrilldown } from '../hooks/useDrilldown'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 
 const COLORS = ['#1a365d', '#2d4a7c', '#4a6fa5', '#6b8cbe', '#8ca9d4', '#a8c5e8', '#c3daf7']
@@ -111,6 +112,8 @@ export default function RecipientMetricsPage() {
           </button>
         </div>
       </header>
+
+      <PageGuide page="recipient-metrics" />
 
       {/* Key Stats */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>

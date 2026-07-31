@@ -83,14 +83,14 @@ class InsightReportsTool(Tool):
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "keywords or a question"},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 8, "default": 4},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 15, "default": 6},
         },
         "required": ["query"],
     }
 
     def run(self, **kwargs: Any) -> ToolResult:
         query = (kwargs.get("query") or "").strip()
-        limit = max(1, min(int(kwargs.get("limit") or 4), 8))
+        limit = max(1, min(int(kwargs.get("limit") or 6), 15))
         if not query:
             return ToolResult(ok=False, error="query is required")
 
@@ -124,7 +124,7 @@ class InsightReportsTool(Tool):
                 "app_link": f"/intel-reports/{s['slug']}",
                 "section": s["heading"],
                 "match_score": round(score, 2),
-                "excerpt": body if len(body) <= 1600 else body[:1600] + "…",
+                "excerpt": body if len(body) <= 4000 else body[:4000] + "…",
             })
 
         return ToolResult(

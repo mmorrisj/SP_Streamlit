@@ -8,6 +8,7 @@ import { Globe, TrendingUp, Zap, FileText, Loader2, ChevronDown, ChevronUp, Exte
 import ReactMarkdown from 'react-markdown'
 import { fetchCompetingInfluence } from '../api/client'
 import type { CompetingInfluenceSummary, CompetingInfluenceEvent } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './CompetingInfluencePage.css'
 
 interface AssessmentSource {
@@ -222,6 +223,8 @@ export default function CompetingInfluencePage() {
           ))}
         </select>
       </div>
+
+      <PageGuide page="competing-influence" />
 
       {/* KPI Cards */}
       <div className="influencer-kpi-row">

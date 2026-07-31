@@ -9,6 +9,7 @@ import ProjectDrawer from '../components/ProjectDrawer'
 import DataCoverageBadge from '../components/DataCoverageBadge'
 import { addProjectDocument, fetchProject } from '../api/client'
 import type { AddProjectDocumentRequest } from '../api/client'
+import PageGuide from '../components/PageGuide'
 import './Pages.css'
 import './ChatPage.css'
 
@@ -562,6 +563,8 @@ export default function ChatPage() {
             )}
           </div>
         </div>
+
+        <PageGuide page="research" />
 
         {/* Filter Panel */}
         {showFilters && (
