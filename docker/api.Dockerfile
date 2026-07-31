@@ -8,7 +8,7 @@
 # Stage 1: Frontend Builder
 # ============================================
 # Target: Rocky 9+ (kernel 5.14+, glibc 2.34+).
-FROM node:22-bookworm-slim AS frontend-builder
+FROM node:25-bookworm-slim AS frontend-builder
 
 WORKDIR /app/client
 
