@@ -65,6 +65,7 @@ rag:
   rerank_model: 'cross-encoder/ms-marco-MiniLM-L-6-v2'  # Local cross-encoder (no API cost, ~90MB vs 2.2GB)
   rerank_top_k: 50               # How many docs to keep after reranking
   rerank_candidate_k: 150        # How many docs to fetch before reranking
+  rerank_blend_alpha: 0.6        # Blend: alpha*cross-encoder + (1-alpha)*retrieval score (1.0 = pure rerank)
   enable_hyde: true              # Hypothetical Document Embeddings for query expansion
   hyde_model: 'gpt-4o-mini'      # Cheap model for HyDE hypothesis generation
   enable_hybrid_search: true     # BM25 + vector fusion via PostgreSQL tsvector

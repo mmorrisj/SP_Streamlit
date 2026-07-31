@@ -505,9 +505,10 @@ Return ONLY the JSON object, no additional text."""
             except ValueError:
                 primary_role = EntityRoleEnum.OTHER
 
-            # Generate embedding for canonical name
-            model = self.get_embedding_model()
-            embedding = model.encode(canonical_name).tolist()
+            # Generate embedding for canonical name (search_document prefix +
+            # normalized — must match the space reembed/retrieval use)
+            from shared.utils.model_cache import embed_for_storage
+            embedding = embed_for_storage(canonical_name)[0]
 
             # Check if canonical entity already exists
             existing_entity = session.query(CanonicalEntity).filter(

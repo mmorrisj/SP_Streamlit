@@ -257,3 +257,22 @@ def get_hf_embeddings():
     """
     model = load_embedding_model()
     return _NomicEmbeddings(model)
+
+
+def embed_for_storage(texts):
+    """Embed texts destined for persistent storage (canonical_events /
+    canonical_entities embedding_vector columns, or any stored vector that a
+    prefixed ``search_query:`` embedding will later be compared against).
+
+    ALWAYS use this instead of a raw ``model.encode(...)`` when writing
+    vectors to the database: raw encodes carry no task prefix and are not
+    normalized, which puts them in a different similarity space from both
+    query embeddings and prefixed stored vectors — consolidation thresholds
+    then behave inconsistently across rows (see evals/FINDINGS.md F8).
+
+    Accepts a single string or an iterable of strings; returns a list of
+    768-dim lists (one per input).
+    """
+    if isinstance(texts, str):
+        texts = [texts]
+    return get_hf_embeddings().embed_documents(list(texts))

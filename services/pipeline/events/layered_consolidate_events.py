@@ -323,7 +323,8 @@ def consolidate_cross_boundary(
         # Filter to events that actually span the boundary
         boundary_events.extend([
             e for e in events
-            if e['first_date'] <= window1_end and e['last_date'] >= window2_start
+            if e['first_date'] <= window1_end.date()
+            and e['last_date'] >= window2_start.date()
         ])
 
     # Remove duplicates

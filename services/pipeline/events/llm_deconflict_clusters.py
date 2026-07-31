@@ -376,15 +376,12 @@ For each potential group, verify:
 
         except Exception as e:
             if self.verbose:
-                print(f"    Warning: LLM review failed: {e}. Keeping cluster intact.")
+                print(f"    Warning: LLM review failed: {e}. Leaving cluster queued for retry.")
 
-            # Return safe default (keep cluster as-is)
-            return {
-                'same_event': True,
-                'explanation': f'LLM review failed: {str(e)}',
-                'groups': [[i+1 for i in range(len(unique_names))]],
-                'refined_cluster_ids': [cluster.cluster_id]
-            }
+            # Fail closed: an unvalidated merge must not look identical to a
+            # validated one. Returning None leaves llm_deconflicted=False so
+            # the cluster stays in the retry queue.
+            return None
 
     def save_deconfliction_result(
         self,
@@ -518,9 +515,10 @@ For each potential group, verify:
             # Choose canonical name (most frequent or first)
             canonical_name = max(group_names, key=group_names.count)
 
-            # Generate embedding for canonical name
-            model = self.get_embedding_model()
-            embedding = model.encode(canonical_name).tolist()
+            # Generate embedding for canonical name (search_document prefix +
+            # normalized — must match the space reembed/retrieval use)
+            from shared.utils.model_cache import embed_for_storage
+            embedding = embed_for_storage(canonical_name)[0]
 
             # Check if canonical event already exists
             existing_event = session.query(CanonicalEvent).filter(
@@ -718,13 +716,17 @@ For each potential group, verify:
                 llm_result = self.llm_review_cluster(cluster)
                 stats['reviewed'] += 1
 
-                if llm_result['same_event']:
+                if llm_result is None:
+                    # LLM call failed — cluster stays queued (llm_deconflicted
+                    # remains False); do not fabricate a same_event default.
+                    stats['failed'] = stats.get('failed', 0) + 1
+                elif llm_result['same_event']:
                     stats['confirmed'] += 1
                 else:
                     stats['split'] += 1
 
                 # Save result (unless dry run)
-                if not self.dry_run:
+                if not self.dry_run and llm_result is not None:
                     self.save_deconfliction_result(session, cluster, llm_result)
 
             # Create canonical events from deconflicted cluster (unless dry run)

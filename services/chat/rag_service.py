@@ -52,6 +52,10 @@ ENABLE_RERANKING = RAG_CONFIG.get('enable_reranking', True)
 RERANK_MODEL = RAG_CONFIG.get('rerank_model', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
 RERANK_TOP_K = RAG_CONFIG.get('rerank_top_k', 15)
 RERANK_CANDIDATE_K = RAG_CONFIG.get('rerank_candidate_k', 50)
+# Blend weight for cross-encoder vs retrieval score (1.0 = pure rerank, the
+# old behavior). Blending keeps exact-match retrieval hits from being buried
+# on navigational/known-item queries while preserving topical rerank gains.
+RERANK_BLEND_ALPHA = float(RAG_CONFIG.get('rerank_blend_alpha', 0.6))
 
 # HyDE configuration
 ENABLE_HYDE = RAG_CONFIG.get('enable_hyde', True)
@@ -231,6 +235,10 @@ def search_entities(
         # Step 3: Semantic search using embedding similarity (if still not enough)
         if len(matched) < top_k:
             # Use a CTE to calculate similarity only for entities with embeddings
+            # Inner query orders by the raw distance operator over the same
+            # expression as ix_canonical_entities_embedding_hnsw so the HNSW
+            # index drives candidate retrieval; threshold/seen filters apply
+            # to the candidate pool afterwards.
             semantic_sql = f"""
                 WITH entity_scores AS (
                     SELECT
@@ -243,10 +251,12 @@ def search_entities(
                         total_documents,
                         first_mention_date::text,
                         last_mention_date::text,
-                        1 - (embedding_vector::vector <=> '{embedding_str}'::vector) as similarity
+                        1 - (embedding_vector::vector(768) <=> '{embedding_str}'::vector(768)) as similarity
                     FROM canonical_entities
                     WHERE master_entity_id IS NULL
                       AND embedding_vector IS NOT NULL
+                    ORDER BY embedding_vector::vector(768) <=> '{embedding_str}'::vector(768)
+                    LIMIT 200
                 )
                 SELECT * FROM entity_scores
                 WHERE entity_id NOT IN :seen_ids
@@ -830,13 +840,43 @@ def rerank_results(
 
     try:
         scores = reranker.predict(pairs, show_progress_bar=False)
-        for doc, score in zip(results, scores):
-            doc['rerank_score'] = float(score)
+        raw_rerank = [float(s) for s in scores]
+
+        # Reciprocal-rank fusion of the two orderings rather than a score
+        # blend: score normalization can't stop the cross-encoder from
+        # burying an exact retrieval hit it dislikes, but rank fusion caps
+        # how far any single scorer can demote a document. alpha weights the
+        # rerank ranking (1.0 = pure rerank, the old behavior).
+        rrf_k = 60
+        alpha = RERANK_BLEND_ALPHA
+        retrieval_rank = {id(doc): i for i, doc in enumerate(results, start=1)}
+        rerank_order = sorted(
+            zip(results, raw_rerank), key=lambda p: p[1], reverse=True)
+        rerank_rank = {id(doc): i for i, (doc, _) in enumerate(rerank_order, start=1)}
+
+        for doc, rr in zip(results, raw_rerank):
+            doc['rerank_score'] = rr
             # Keep original vector score for reference
             doc['vector_score'] = doc.get('relevance_score', 0)
-            doc['relevance_score'] = float(score)
+            doc['relevance_score'] = (
+                alpha / (rrf_k + rerank_rank[id(doc)])
+                + (1 - alpha) / (rrf_k + retrieval_rank[id(doc)])
+            )
 
+        top_retrieval = results[0] if results else None
         results.sort(key=lambda x: x['relevance_score'], reverse=True)
+
+        # Insurance slot: never let the cross-encoder bury the retrieval
+        # top-1 below rank 3. For navigational/known-item queries the exact
+        # match is usually retrieval #1 but can score poorly with a
+        # cross-encoder trained on topical relevance; topical queries are
+        # unaffected because their retrieval #1 reranks high anyway.
+        if top_retrieval is not None:
+            pos = results.index(top_retrieval)
+            if pos > 2:
+                results.pop(pos)
+                results.insert(2, top_retrieval)
+
         return results[:top_k]
     except Exception as e:
         logger.warning(f"Reranking failed: {e}. Using original ranking.")

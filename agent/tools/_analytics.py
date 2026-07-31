@@ -59,7 +59,10 @@ def validate_recipient(name: str | None) -> tuple[str | None, str | None]:
     canon = canon_recipient(name)
     if canon in KNOWN_RECIPIENTS:
         return canon, None
-    members = GROUP_MEMBERS.get(name.strip().lower())
+    group_key = name.strip().lower()
+    if group_key.startswith("the "):
+        group_key = group_key[4:]
+    members = GROUP_MEMBERS.get(group_key)
     if members:
         return None, (
             f"'{name}' is a country group, not a recipient. Query each member "

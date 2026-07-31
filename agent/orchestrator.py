@@ -317,7 +317,8 @@ class Orchestrator:
                 message=f"Sorry -- the classifier couldn't reach the LLM: {e}",
             )
 
-        return _parse_intent_response(response.text, fallback_scope=request.current_scope)
+        parsed = _parse_intent_response(response.text, fallback_scope=request.current_scope)
+        return _enforce_tracked_scope(parsed)
 
     # ----- main loop --------------------------------------------------------
 
@@ -711,6 +712,24 @@ param for the workflow is set.
 def _build_intent_system_prompt(today: str, anchor: str | None = None,
                                 coverage: str = "") -> str:
     anchor = anchor or today
+    try:
+        from agent.tools.propose_report import _known_recipients, _tracked_influencers
+
+        tracked_line = ", ".join(sorted(_tracked_influencers()))
+        recipients_line = ", ".join(sorted(_known_recipients()))
+    except Exception:
+        tracked_line = recipients_line = ""
+    tracked_block = (
+        f"\nTRACKED SCOPE (hard constraint on propose_run)\n"
+        f"\nReports can only be generated for tracked INITIATORS: {tracked_line}.\n"
+        f"Tracked recipients: {recipients_line}.\n"
+        f"- If the named initiator is NOT tracked but IS a tracked recipient,\n"
+        f"  propose a recipient-centric scope instead (influencer=null,\n"
+        f"  recipient=<that country>) and say so in the message.\n"
+        f"- If it is neither, do NOT propose_run — use clarify and explain that\n"
+        f"  the corpus cannot support a report scoped to that initiator.\n"
+        if tracked_line else ""
+    )
     coverage_block = (
         f"\nDATA COVERAGE: {coverage}\n"
         f"Resolve ALL relative time references against the data anchor date "
@@ -740,7 +759,7 @@ report -- generates a multi-stage soft-power report for one country pair
     subcategory     free-text (rarely used; only when analyst is precise)
     category_mode   "flat" (no filtering) | "filter" (single-category scope,
                     requires category to be set)
-
+{tracked_block}
 CONVENTIONS (apply silently -- do NOT ask about these)
 
 - "X-Y" or "X-Y" or "X to Y" or "X in Y" or "X toward Y" or "X into Y"
@@ -820,6 +839,51 @@ Input: "actually only economic"
 
 {_INTENT_SCHEMA_BLOCK}
 """
+
+
+def _enforce_tracked_scope(resp: ChatTurnResponse) -> ChatTurnResponse:
+    """Deterministic guard behind the intent classifier: never let a
+    propose_run through for an initiator the event pipeline doesn't track.
+
+    Mirrors propose_report's three-way rule (agent/tools/propose_report.py):
+    tracked -> pass; known recipient -> pivot to recipient-centric; unknown ->
+    downgrade to clarify. The prompt states the same rule, but scope
+    constraints this cheap to check should never rely on the prompt alone.
+    """
+    if resp.action != "propose_run":
+        return resp
+    try:
+        from agent.tools.propose_report import _known_recipients, _tracked_influencers
+
+        tracked = _tracked_influencers()
+        known = _known_recipients()
+    except Exception:  # config unavailable — don't block
+        return resp
+    influencer = (resp.scope.influencer or "").strip()
+    if not tracked or not influencer or influencer in tracked:
+        return resp
+    if influencer in known:
+        scope = resp.scope.model_copy(
+            update={"influencer": None, "recipient": influencer, "region": None}
+        )
+        note = (
+            f"Note: '{influencer}' is not a tracked initiator, so I've reframed "
+            f"this as a recipient-centric report on {influencer} — covering what "
+            f"the tracked initiators ({', '.join(sorted(tracked))}) are doing there."
+        )
+        message = f"{resp.message}\n\n{note}".strip()
+        return resp.model_copy(update={"scope": scope, "message": message})
+    return resp.model_copy(update={
+        "action": "clarify",
+        "ready_to_run": False,
+        "message": (
+            f"'{influencer}' is neither a tracked initiator "
+            f"({', '.join(sorted(tracked))}) nor a tracked recipient, so the "
+            "corpus can't support a report scoped to it. I can answer "
+            "questions about it conversationally, or run a report for one of "
+            "the tracked initiators."
+        ),
+    })
 
 
 def _parse_intent_response(

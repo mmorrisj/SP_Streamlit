@@ -75,13 +75,18 @@ def submit_batch_to_openai(
 
             print(f"✓ Batch job created: {batch_result['id']}")
 
+            # The proxy returns a trimmed batch object ({id, status,
+            # created_at, input_file_id}); fall back to what we sent for
+            # fields it omits rather than KeyError-ing after the batch has
+            # already been created upstream.
             return {
                 'batch_id': batch_result['id'],
                 'input_file_id': file_id,
                 'status': batch_result['status'],
                 'created_at': batch_result['created_at'],
-                'endpoint': batch_result['endpoint'],
-                'completion_window': batch_result['completion_window']
+                'endpoint': batch_result.get('endpoint', OPENAI_BATCH_ENDPOINT),
+                'completion_window': batch_result.get(
+                    'completion_window', OPENAI_COMPLETION_WINDOW),
             }
 
         except Exception as e:
