@@ -2,7 +2,7 @@
 Embed Event Summaries (Daily, Weekly, Monthly)
 
 This script embeds event summaries from the event_summaries table into pgvector.
-Each period type (DAILY, WEEKLY, MONTHLY) has its own collection.
+Each period type (DAILY, WEEKLY, MONTHLY, YEARLY) has its own collection.
 
 Usage:
     # Embed all missing summaries
@@ -68,7 +68,7 @@ def find_missing_embeddings(period_type: Optional[str] = None):
     if period_type:
         periods = [period_type.upper()]
     else:
-        periods = ['DAILY', 'WEEKLY', 'MONTHLY']
+        periods = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 
     with engine.connect() as conn:
         for period in periods:
@@ -136,7 +136,7 @@ def get_embedding_statistics(period_type: Optional[str] = None):
     if period_type:
         periods = [period_type.upper()]
     else:
-        periods = ['DAILY', 'WEEKLY', 'MONTHLY']
+        periods = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 
     with engine.connect() as conn:
         for period in periods:
@@ -200,6 +200,8 @@ def embed_event_summaries(summary_ids: List[str], period_type: str, batch_size: 
         vector_store = embedding_vectorstore.weekly_store
     elif period_type == 'MONTHLY':
         vector_store = embedding_vectorstore.monthly_store
+    elif period_type == 'YEARLY':
+        vector_store = embedding_vectorstore.yearly_store
     else:
         raise ValueError(f"Unknown period type: {period_type}")
 
@@ -301,7 +303,7 @@ Examples:
 
     parser.add_argument(
         '--period',
-        choices=['daily', 'weekly', 'monthly'],
+        choices=['daily', 'weekly', 'monthly', 'yearly'],
         help='Embed only summaries of this period type'
     )
     parser.add_argument(
