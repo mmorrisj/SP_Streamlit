@@ -1,7 +1,7 @@
 # Turkey's Soft-Power Influence in the Middle East & North Africa
 ### A Strategic Influence Assessment for Policy Analysis
 
-*Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Prepared from the
+*Observation window: 2024-08-01 to 2026-06-30 (open-source media corpus). Prepared from the
 Soft Power Analytics database; method, scope, and caveats per `docs/INSIGHT_REPORT_PROMPT.md`.
 Intensity is measured in **third-party-corroborated** documents unless noted. Confidence tags:
 **(H)** high, **(M)** moderate, **(L)** low.*
@@ -11,10 +11,10 @@ Intensity is measured in **third-party-corroborated** documents unless noted. Co
 ## 1. Key Findings (BLUF)
 
 - **Turkey has the largest credible soft-power footprint in MENA of the four actors assessed** —
-  34,927 third-party-corroborated documents, ahead of Russia (24,800), China (24,792), and Iran
-  (12,223). Its coverage is overwhelmingly externally validated (self-report share 0.15). **(H)**
+  35,496 third-party-corroborated documents, ahead of China (25,252), Russia (24,999), and Iran
+  (13,257). Its coverage is overwhelmingly externally validated (self-report share 0.15). **(H)**
 - **Turkey owns the region's two highest-salience conflict files: Syria and Palestine.** It
-  leads all four actors decisively in Syria (8,829 corroborated docs) and Palestine (8,608) —
+  leads all four actors decisively in Syria (8,903 corroborated docs) and Palestine (8,696) —
   roughly 2.5–4× the next competitor — positioning itself as the indispensable Sunni patron of
   post-Assad reconstruction and the Gaza cause. **(H)**
 - **Turkey is the region's premier mediator-convener.** Its top-materiality events are
@@ -22,7 +22,7 @@ Intensity is measured in **third-party-corroborated** documents unless noted. Co
   (October 2025), the 2026 Gaza Reconstruction "Peace Council," and the **$216B Syria
   reconstruction** commitment alongside Saudi Arabia and Qatar. **(H)**
 - **Turkish foreign policy is intensely personalized in President Erdoğan**, the single largest
-  entity in Turkey's network (1,747 documents) and the face of its Gaza and Syria diplomacy.
+  entity in Turkey's network (1,705 documents) and the face of its Gaza and Syria diplomacy.
   **(H)**
 - **Turkey operates through a Sunni patron-coalition**, especially the **Turkey-Qatar axis** and
   a working **rapprochement with Egypt** — a multi-patron model distinct from Iran's hub-and-spoke
@@ -57,16 +57,16 @@ salience in this period.
 
 ## 3. Categorical Breakdown
 
-**Diplomacy (59.2%).** *Multilateral/Bilateral Commitments* (15,808 corroborated docs —
-the largest single instrument count of any actor), *International Negotiations* (7,184), and
-*Conflict Resolution* (4,758). Turkey's diplomacy is mediation-forward: hosting and convening
+**Diplomacy (59.3%).** *Multilateral/Bilateral Commitments* (16,383 corroborated docs —
+the largest single instrument count of any actor), *International Negotiations* (7,425), and
+*Conflict Resolution* (4,878). Turkey's diplomacy is mediation-forward: hosting and convening
 talks rather than merely issuing positions. **(H)**
 
-**Social (23.9%) — Turkey's force multiplier.** *Aid/Donation* is enormous (7,195 corroborated
+**Social (23.8%) — Turkey's force multiplier.** *Aid/Donation* is enormous (7,348 corroborated
 docs — the highest humanitarian-aid footprint of the four), the backbone of Turkey's
 soft-power brand across Gaza, Syria, and Libya. This is humanitarian diplomacy as strategy. **(H)**
 
-**Economic (13.8%).** Trade (3,631) and Infrastructure (1,811), increasingly fused with the
+**Economic (13.8%).** Trade (3,733) and Infrastructure (1,897), increasingly fused with the
 Syria reconstruction agenda (the $216B Saudi-Qatar-Turkey commitment). Economics is a vehicle
 for Turkey's reconstruction-patron role rather than a standalone pillar. **(M)**
 
@@ -85,9 +85,9 @@ Syrian operations sit largely outside this dataset. **(M)**
 
 | Tier | Recipients (corroborated docs) | Read |
 |------|-------------------------------|------|
-| **Dominant** | **Syria (8,829), Palestine (8,608)** | Turkey leads all actors here, decisively |
-| **Strong** | Iran (4,683), Iraq (3,893), Israel (3,705), Egypt (3,145) | Broad Levant + normalization tracks |
-| **Moderate** | Jordan (1,629), Libya (1,495) | Reconstruction + Mediterranean reach |
+| **Dominant** | **Syria (8,903), Palestine (8,696)** | Turkey leads all actors here, decisively |
+| **Strong** | Iran (4,934), Iraq (3,928), Israel (3,728), Egypt (3,177) | Broad Levant + normalization tracks |
+| **Moderate** | Jordan (1,671), Libya (1,563) | Reconstruction + Mediterranean reach |
 | **Light** | Gulf states | Secondary to its Levant focus |
 
 - **Syria is Turkey's defining theater.** Post-Assad, Turkey is the leading external influence
@@ -96,7 +96,7 @@ Syrian operations sit largely outside this dataset. **(M)**
 - **Palestine/Gaza is Turkey's signature cause** — near-parity with Syria, built on hosting
   negotiations and leading reconstruction diplomacy; Erdoğan personally fronts this file. **(H)**
 - **Turkey contests Iraq and Iran's neighborhood** — strong corroborated presence in Iraq
-  (3,893, leading) reflects both Kurdish/PKK dynamics and economic reach. **(M)**
+  (3,928, leading) reflects both Kurdish/PKK dynamics and economic reach. **(M)**
 
 ---
 
@@ -126,6 +126,17 @@ around the **October 2025 Gaza negotiations** at Sharm el-Sheikh and the 2026 Ga
 council. Turkey's calendar is driven by the region's two central conflict files — it surges
 precisely where and when the Levant's crises peak, consistent with a mediator that derives
 influence from being present at every inflection point. **(M)**
+
+**Post-window context (July 2026).** The refreshed corpus extends to 2026-07-27; July is a
+partial month with possible ingestion tail-off, so the following is context, not trend data.
+(a) Turkey→Egypt economic momentum continued — 89 corroborated docs in July, Turkey's
+strongest Egypt month on record despite the overall July tail-off. (b) Turkey→Saudi Arabia
+cooled after the February 2026 surge: 86 corroborated docs in June fell to 30 in July
+(partial-month caveat applies). (c) In July, Iran edged past Turkey as Qatar's top corroborated
+four-actor engager (903 vs. 865, full-corpus basis). (d) Mid-June context relevant to Turkey's
+mediation franchise: the U.S.–Iran ceasefire MOU (June 14) and subsequent talks ran through
+Switzerland, Doha and Muscat — not Ankara — despite Turkey's November 2025 Tehran
+pre-positioning and the January 2026 Ankara trilateral. **(M)**
 
 ---
 

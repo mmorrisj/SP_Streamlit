@@ -1,7 +1,7 @@
 # The Economic Influence Contest in MENA
 ### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for Policy Analysis
 
-*Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Category filter:
+*Observation window: 2024-08-01 to 2026-06-30 (open-source media corpus). Category filter:
 **Economic** only — diplomacy and crisis reporting removed to isolate the material competition.
 Method and caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Intensity = **third-party-corroborated**
 documents (coverage excluding the actor's own state media; the U.S. has no state media in the
@@ -11,11 +11,11 @@ corpus, so its figure is **registered coverage**). Confidence: **(H)/(M)/(L)**.*
 
 ## 1. Key Findings (BLUF)
 
-- **China is the uncontested economic hegemon of MENA.** With 9,924 corroborated economic
+- **China is the uncontested economic hegemon of MENA.** With 10,064 corroborated economic
   documents — 45% more than the next actor — it leads the economic file in Egypt and across the
   Gulf. No other actor competes on China's breadth of economic instruments. **(H)**
 - **Iran's economic influence is a mirage.** Stripping Iranian state media, its economic
-  footprint collapses from 9,085 raw documents to **1,101 corroborated — an 88% self-reported
+  footprint collapses from 9,273 raw documents to **1,164 corroborated — an 88% self-reported
   share**, by far the largest gap of any actor. This is the sanctions effect made visible: Iran
   *narrates* economic activity it cannot *transact*. **(H)**
 - **The economic map sorts into three clean lanes:** **China the developer** (Egypt + Gulf),
@@ -26,7 +26,7 @@ corpus, so its figure is **registered coverage**). Confidence: **(H)/(M)/(L)**.*
   **$216B Saudi-Qatar-Turkey Syria reconstruction** commitment, and **China's $12.75B SCO Tianjin
   package**. **(H)**
 - **All five actors lead with Trade, but China alone fields the full toolkit** — Infrastructure
-  (4,544), Technology (2,382), Industrial, and Finance — while Russia's economics is narrow
+  (4,662), Technology (2,499), Industrial, and Finance — while Russia's economics is narrow
   (trade + nuclear energy) and the U.S.'s tilts to Finance. **(M)**
 - **The strategies run on named programs, and they are competing for the same ground.** China's
   **Belt and Road** (Suez Canal Economic Zone, New Administrative Capital, China State Construction),
@@ -44,8 +44,8 @@ corpus, so its figure is **registered coverage**). Confidence: **(H)/(M)/(L)**.*
 
 ## 2. The Leaderboard: China Dominates, Iran Collapses
 
-On provenance-corrected volume the economic order is **China (9,924) › Turkey (6,844) › Russia
-(5,924) › United States (5,490) › Iran (1,101)**. The two extremes are the story. China's lead is
+On provenance-corrected volume the economic order is **China (10,064) › Turkey (6,960) › Russia
+(5,955) › United States (5,936) › Iran (1,164)**. The two extremes are the story. China's lead is
 structural and broad. Iran's position — last by a factor of five — is the single most striking
 result of the economic filter: in the all-category view Iran appears formidable, but its economic
 substance is almost entirely a product of its own media. **(H)**
@@ -65,17 +65,17 @@ obscures. **(H)**
 
 Every actor's economic activity is Trade-anchored, but the composition diverges sharply:
 
-- **China — the full developmental toolkit.** Trade (7,291), Infrastructure (4,544),
-  Aid/Donation (3,317), Technology (2,382), Industrial (1,612), Finance (1,277). China is the only
+- **China — the full developmental toolkit.** Trade (7,520), Infrastructure (4,662),
+  Aid/Donation (3,436), Technology (2,499), Industrial (1,650), Finance (1,310). China is the only
   actor building across the entire value chain — ports, industrial zones, technology, and
   concessional aid simultaneously. **(H)**
 - **Russia — narrow, energy-anchored.** Trade and Infrastructure with a thin tail; its economic
   weight comes not from breadth but from a few enormous **energy** projects (the $25B Hormoz
   nuclear plant for Iran; El Dabaa for Egypt) that the subcategory counts understate. **(M)**
-- **Turkey — reconstruction-trade.** Trade (4,397), Infrastructure (2,097), Aid (1,264) — an
+- **Turkey — reconstruction-trade.** Trade (4,527), Infrastructure (2,199), Aid (1,309) — an
   instrument set tuned to rebuilding Syria and engaging Iraq/Libya. **(M)**
-- **United States — finance-tilted and transactional.** Trade (5,042) with a comparatively heavy
-  **Finance** share (1,459) — investment and procurement deals rather than development finance. **(M)**
+- **United States — finance-tilted and transactional.** Trade (5,419) with a comparatively heavy
+  **Finance** share (1,713) — investment and procurement deals rather than development finance. **(M)**
 - **Iran — uniformly thin** across every instrument; nothing it does economically registers at
   scale externally. **(H)**
 
@@ -87,14 +87,14 @@ Every actor's economic activity is Trade-anchored, but the composition diverges 
 
 | Recipient | Economic leader | Corroborated docs | Lane |
 |-----------|-----------------|------------------:|------|
-| Egypt | **China** | 3,669 | developer |
-| Iran | **Russia** | 3,068 | energy patron |
-| Syria | **Turkey** | 1,832 | reconstructor |
-| Iraq | **Turkey** | 1,103 | reconstructor |
-| Saudi Arabia | **China** | 959 | developer |
-| UAE | **China** | 807 | developer |
-| Jordan | **China** | 660 | developer |
-| Kuwait | **China** | 613 | developer |
+| Egypt | **China** | 3,723 | developer |
+| Iran | **Russia** | 3,088 | energy patron |
+| Syria | **Turkey** | 1,864 | reconstructor |
+| Iraq | **Turkey** | 1,118 | reconstructor |
+| Saudi Arabia | **China** | 980 | developer |
+| UAE | **China** | 817 | developer |
+| Jordan | **China** | 674 | developer |
+| Kuwait | **China** | 622 | developer |
 
 - **China owns the development file** — Egypt and the entire Gulf, plus Jordan. It is the economic
   patron of the Arab world's wealthiest and most strategically central states. **(H)**
@@ -105,6 +105,10 @@ Every actor's economic activity is Trade-anchored, but the composition diverges 
 - **The U.S. leads no recipient economically.** Its economic presence is transactional (finance,
   procurement) and does not amount to patronage of any single state — the clearest evidence of the
   "U.S. security + Chinese capital" division of labor in the Gulf. **(H)**
+
+*Post-window note (July 2026, partial month — corpus extends to 2026-07-27): Turkey→Egypt economic
+momentum continued into July with 89 corroborated documents, Turkey's strongest Egypt month on
+record, while the China→Iraq project pipeline remained quiet post-Basra.*
 
 ---
 

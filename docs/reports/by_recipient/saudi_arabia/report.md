@@ -1,7 +1,7 @@
 # Who Courts Saudi Arabia? A Cross-Initiator Influence Assessment
 ### China · Iran · Russia · Turkey · United States — for Policy Analysis
 
-*Open-source media corpus, 2024-08-01 to 2026-06-15. Method/caveats per
+*Open-source media corpus, 2024-08-01 to 2026-06-30. Method/caveats per
 `../../INSIGHT_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
 coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)**.*
 
@@ -15,7 +15,7 @@ coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)*
 - **Division of labor by instrument:** Economic→**China**, Social→**China**, Military→**U.S.**, Diplomacy→**U.S.**. **(H)**
 - The classic division of labor is on display: **China supplies the economics and the U.S. the security** — the Gulf-hedge pattern at the country level. **(M)**
 - **Signature initiative:** Lenovo's Major Investment in Saudi Arabia (China). **(M)**
-- **19.6% of U.S. coverage here is Iranian-media-framed** — a meaningful adversarial-narrative presence around the U.S. role. **(M)**
+- **19.5% of U.S. coverage here is Iranian-media-framed** — a meaningful adversarial-narrative presence around the U.S. role. **(M)**
 
 ![Who courts Saudi Arabia](assets/01_suitor_leaderboard.png)
 
@@ -25,11 +25,11 @@ coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)*
 
 | Actor | Influence (docs) | Share |
 |-------|-----------------:|------:|
-| U.S. | 3,542 | 38% |
-| China | 2,399 | 26% |
-| Russia | 1,390 | 15% |
-| Iran | 1,157 | 12% |
-| Turkey | 900 | 10% |
+| U.S. | 3,632 | 38% |
+| China | 2,428 | 25% |
+| Russia | 1,394 | 15% |
+| Iran | 1,207 | 13% |
+| Turkey | 935 | 10% |
 
 ![Share of attention](assets/04_dominance_share.png)
 
@@ -54,7 +54,7 @@ than going head-to-head across all four. **(H)**
 
 *Validated for alignment: only events where Saudi Arabia is the **primary** recipient are shown — named in
 the title, holding ≥40% of the event's recipient mentions, or the sole top recipient.
-67 peripheral events (where Saudi Arabia was only mentioned in
+66 peripheral events (where Saudi Arabia was only mentioned in
 passing on another country's initiative — e.g., regional spillover) were excluded.*
 
 - **Lenovo's Major Investment in Saudi Arabia** — China, material 9.00 (2026-04)
@@ -64,7 +64,7 @@ passing on another country's initiative — e.g., regional spillover) were exclu
 - **Trump-Saudi Arabia Economic and Trade Agreements Signing, May 2025** — U.S., material 9.00 (2025-05)
 - **China-Saudi Arabia $2B Lenovo Manufacturing Hub Groundbreaking in Riyadh** — China, material 9.00 (2025-02)
 - **China Completes Oil Platform for Saudi Arabia's Marjan Field Increment Program** — China, material 9.00 (2024-08)
-- **St. Petersburg International Economic Forum** — Russia, material 8.50 (2026-06)
+- **Agreement 123** — U.S., material 8.50 (2026-07)
 
 ---
 
@@ -75,7 +75,7 @@ passing on another country's initiative — e.g., regional spillover) were exclu
 - **Trajectory:** see the monthly series for who is gaining or losing ground in Saudi Arabia; activity tracks
   the region's inflection points (Israel-Hezbollah escalation Sept 2024, Assad's fall Dec 2024, the
   June 2025 Israel-Iran war). **(M)**
-- **Adversarial framing:** 19.6% of the U.S.'s coverage in Saudi Arabia is carried by Iranian media — its image here is partly written by its adversary. **(M)**
+- **Adversarial framing:** 19.5% of the U.S.'s coverage in Saudi Arabia is carried by Iranian media — its image here is partly written by its adversary. **(M)**
 - **Caveat:** this measures *reported* influence; the soft-power lens under-captures hard power, and
   dollar figures are announced, not verified. 
 

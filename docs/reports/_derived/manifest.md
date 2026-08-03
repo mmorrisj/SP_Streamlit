@@ -15,6 +15,25 @@ recommendation**. DDL is migration-ready — lift into `alembic/versions/` to pr
 > for the cross-actor MENA Theater Assessment (`docs/reports/mena_theater/`);
 > builder: `build_theater.py`, charts: `analyze_theater.py`.
 
+> **2026-08 refresh:** all objects rebuilt on the 779K-doc corpus (extends to 2026-07-27;
+> window end unchanged at `date < 2026-07-01`, July = post-window context; report_base
+> 304,886 rows). `analyze_initiator.py`'s provenance headline was fixed to a
+> distinct-document basis (it previously summed per-recipient rows, over-counting
+> multi-recipient docs).
+>
+> **2026-08-03 events-layer re-consolidation:** the July refresh had re-run Stage-1 daily
+> event detection, leaving `canonical_events` as 76,728 unconsolidated daily fragments.
+> Stage-2 was then completed in full: `consolidate_all_events` (host run for Iran/Turkey/
+> Russia after an in-container OOM — the HDBSCAN precomputed matrix needs host RAM for the
+> larger actors) → `llm_deconflict_canonical_events` (60% synchronous, remainder via the
+> OpenAI Batch API `canonical_deconflict` job type; 12,071 groups validated, 3,857 splits) →
+> `merge_canonical_events` (21,426 children merged/deleted) → `score_materiality` batch
+> (5,688 events). Live layer: **55,302 consolidated events, 11,554 multi-day**. Event-grain
+> objects (`initiative_ledger`, `narrative_themes`, `narrative_theme_summary`) and the
+> theater Fig 3/10/11 assets were rebuilt on this layer. Its extraction grain is finer and
+> scores are freshly assigned, so funnel/ledger magnitudes are a new measurement — not
+> comparable to the 2026-07 snapshot (theater report prose was revised accordingly).
+
 ---
 
 ## 1. `analytics.report_base`  — 299,027 rows

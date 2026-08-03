@@ -128,8 +128,13 @@ def main():
         ORDER BY r.co_occurrence_count DESC LIMIT 10
     """, i=i))
 
-    # provenance headline
-    pr = rec[["raw", "third_party"]].sum()
+    # provenance headline — distinct-document basis (summing the per-recipient
+    # rows would count a multi-recipient doc once per recipient and inflate it)
+    pr = rpt.df("""
+        SELECT count(DISTINCT doc_id) raw,
+               count(DISTINCT doc_id) FILTER (WHERE NOT self_reported) third_party
+        FROM analytics.report_base WHERE initiating_country=:i
+    """, i=i).iloc[0]
     stats["provenance_headline"] = {
         "raw": int(pr["raw"]), "third_party": int(pr["third_party"]),
         "self_report_share": round(1 - pr["third_party"]/max(pr["raw"], 1), 3)}

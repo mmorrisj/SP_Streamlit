@@ -1,7 +1,7 @@
 # Who Courts Syria? A Cross-Initiator Influence Assessment
 ### China · Iran · Russia · Turkey · United States — for Policy Analysis
 
-*Open-source media corpus, 2024-08-01 to 2026-06-15. Method/caveats per
+*Open-source media corpus, 2024-08-01 to 2026-06-30. Method/caveats per
 `../../INSIGHT_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
 coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)**.*
 
@@ -24,11 +24,11 @@ coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)*
 
 | Actor | Influence (docs) | Share |
 |-------|-----------------:|------:|
-| Turkey | 8,829 | 42% |
-| U.S. | 6,799 | 33% |
-| Russia | 3,174 | 15% |
-| Iran | 1,620 | 8% |
-| China | 463 | 2% |
+| Turkey | 8,903 | 42% |
+| U.S. | 6,853 | 33% |
+| Russia | 3,183 | 15% |
+| Iran | 1,621 | 8% |
+| China | 467 | 2% |
 
 ![Share of attention](assets/04_dominance_share.png)
 
@@ -53,17 +53,17 @@ than going head-to-head across all four. **(H)**
 
 *Validated for alignment: only events where Syria is the **primary** recipient are shown — named in
 the title, holding ≥40% of the event's recipient mentions, or the sole top recipient.
-43 peripheral events (where Syria was only mentioned in
+42 peripheral events (where Syria was only mentioned in
 passing on another country's initiative — e.g., regional spillover) were excluded.*
 
 - **Saudi Arabia, Qatar, Turkey Commit to $216B Syria Reconstruction Agreements** — Turkey, material 9.00 (2025-10)
+- **Kirkuk-Baniyas pipeline** — U.S., material 8.50 (2026-07)
 - **Hejaz Railway** — Turkey, material 8.50 (2026-04)
 - **Turkey-Syria $190M Tartus Shipyard Investment Agreement, January 2026** — Turkey, material 8.50 (2026-01)
 - **Russia-Syria Military and Reconstruction Agreement Talks, October 2025** — Russia, material 8.50 (2025-10)
 - **Azerbaijan-Turkey-Qatar Gas Transfer to Syria Begins, August 2025** — Turkey, material 8.50 (2025-08)
 - **Azerbaijan-Turkey Gas Export Agreement to Syria for Electricity Generation** — Turkey, material 8.50 (2025-08)
 - **Turkey-Azerbaijan-Qatar Gas Supply Ceremony for Syria, August 2, 2025** — Turkey, material 8.50 (2025-07)
-- **Jordan-Turkey Wildfire Response Aid to Syria in Latakia, July 2025** — Turkey, material 8.50 (2025-07)
 
 ---
 
