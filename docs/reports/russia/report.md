@@ -1,7 +1,7 @@
 # Russia's Soft-Power Influence in the Middle East & North Africa
 ### A Strategic Influence Assessment for Policy Analysis
 
-*Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Prepared from the
+*Observation window: 2024-08-01 to 2026-06-30 (open-source media corpus). Prepared from the
 Soft Power Analytics database; method, scope, and caveats per `docs/INSIGHT_REPORT_PROMPT.md`.
 Intensity is measured in **third-party-corroborated** documents unless noted. Confidence tags:
 **(H)** high, **(M)** moderate, **(L)** low.*
@@ -13,9 +13,9 @@ Intensity is measured in **third-party-corroborated** documents unless noted. Co
 - **Russia's MENA influence is diplomacy-dominated and highly credible.** Diplomacy alone is
   62.6% of its profile — the most diplomacy-heavy posture of the four actors — and its coverage
   is overwhelmingly third-party (self-report share just 0.09, as virtually no Russian-geofocus
-  media is in the corpus). Russia's corroborated footprint (24,800 docs) is the second-largest
-  in MENA, behind Turkey. **(H)**
-- **Iran is Russia's single most important MENA relationship by a wide margin** — 11,529
+  media is in the corpus). Russia's corroborated footprint (24,999 docs) is the third-largest
+  in MENA, narrowly behind China (25,252) and well behind Turkey. **(H)**
+- **Iran is Russia's single most important MENA relationship by a wide margin** — 11,623
   corroborated docs at a 0.95 corroboration share, exceeding even China's engagement with
   Tehran. Russia, not China, is the dominant external partner in the Iran influence space. **(H)**
 - **The El Dabaa Nuclear Power Plant is Russia's flagship strategic anchor in the region.** It
@@ -57,8 +57,8 @@ Syria and Egypt — where it can convert diplomatic and energy ties into lasting
 
 ## 3. Categorical Breakdown
 
-**Diplomacy (62.6%).** *Multilateral/Bilateral Commitments* (12,943 corroborated docs),
-*International Negotiations* (5,370), and *Conflict Resolution* (2,763) dominate. Russia
+**Diplomacy (62.6%).** *Multilateral/Bilateral Commitments* (13,157 corroborated docs),
+*International Negotiations* (5,463), and *Conflict Resolution* (2,819) dominate. Russia
 positions as a mediator on Gaza and a partner-of-choice for states seeking alternatives to
 Western alignment; the Russian MFA and Lavrov co-occur heavily with the UNSC and the Gaza
 file. **(H)**
@@ -67,9 +67,9 @@ file. **(H)**
 is the centerpiece: it appears repeatedly among Russia's score-9 events, including direct
 engagement between Egypt's Minister of Electricity Mamdouh Ismat and Rosatom CEO **Alexey
 Likhachev**, and it co-occurs with the Suez Canal Economic Zone. Trade is a secondary instrument
-(2,512 docs). Russia's economic statecraft is concentrated and strategic, not broad. **(H)**
+(2,552 docs). Russia's economic statecraft is concentrated and strategic, not broad. **(H)**
 
-**Social (16.2%).** Aid/Donation and Cultural diplomacy reinforcing the partner narrative. **(M)**
+**Social (16.3%).** Aid/Donation and Cultural diplomacy reinforcing the partner narrative. **(M)**
 
 **Military (4.0%).** Low in the soft-power lens, though higher than China's. Russia's hard-power
 presence (Syria basing, arms) sits largely outside this dataset; the visible items are defense
@@ -87,10 +87,10 @@ diplomacy. **(M)**
 
 | Tier | Recipients (corroborated docs) | Read |
 |------|-------------------------------|------|
-| **Lead** | **Iran (11,529)** | Russia's #1 MENA relationship; 0.95 corroboration share |
-| **Strong** | Syria (3,174), Egypt (3,111) | Legacy ally (Syria) + flagship energy partner (Egypt) |
-| **Moderate** | Palestine (2,024), Israel (1,823), Saudi Arabia (1,390) | Great-power balancing across the divide |
-| **Light** | UAE (983), Yemen (864), Gulf | Opportunistic |
+| **Lead** | **Iran (11,623)** | Russia's #1 MENA relationship; 0.95 corroboration share |
+| **Strong** | Syria (3,183), Egypt (3,133) | Legacy ally (Syria) + flagship energy partner (Egypt) |
+| **Moderate** | Palestine (2,033), Israel (1,830), Saudi Arabia (1,394) | Great-power balancing across the divide |
+| **Light** | UAE (987), Yemen (868), Gulf | Opportunistic |
 
 - **The Russia-Iran axis is the defining feature** — denser and more corroborated than any other
   Russian tie, reflecting deepening strategic alignment (the Government-of-Russia ↔
@@ -98,7 +98,7 @@ diplomacy. **(M)**
 - **Egypt is Russia's economic keystone** via El Dabaa; this is the rare case where Russia owns
   a concrete, multi-decade infrastructure asset rather than just diplomacy. **(H)**
 - **Russia balances both sides of the Israel question** — meaningful corroborated activity with
-  both Palestine (2,024) and Israel (1,823), consistent with its broker posture. **(M)**
+  both Palestine (2,033) and Israel (1,830), consistent with its broker posture. **(M)**
 
 ---
 
@@ -126,6 +126,14 @@ is steady with diplomacy-driven peaks rather than crisis spikes. Activity around
 file persists into 2026 (e.g., the April 2026 Ismat–Rosatom engagement), confirming the
 nuclear partnership as a *standing* rather than episodic driver. Russia's calendar is set by
 summitry (St. Petersburg Forum) and its Iran/Egypt files. **(M)**
+
+**Post-window context (July 2026).** The refreshed corpus extends to 2026-07-27; July is a
+partial month with possible ingestion tail-off, so the following is context, not trend data.
+Russia's corroborated tempo fell to 243 docs in July — its lowest month on record even allowing
+for the partial month — consistent with, and reinforcing, the structural-decay finding. No
+Russian role registered in the July U.S.–Iran mediation round, which ran through Switzerland,
+Doha, Muscat and a China–Pakistan track — a notable absence for the actor that owned the Iran
+file. **(M)**
 
 ---
 

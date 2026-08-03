@@ -1,7 +1,7 @@
 # China's Soft-Power Influence in the Middle East & North Africa
 ### A Strategic Influence Assessment for Policy Analysis
 
-*Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Prepared from the
+*Observation window: 2024-08-01 to 2026-06-30 (open-source media corpus). Prepared from the
 Soft Power Analytics database; method, scope, and caveats per `docs/INSIGHT_REPORT_PROMPT.md`.
 Intensity is measured in **third-party-corroborated** documents (coverage not originating from
 the initiator's own state media) unless noted. Confidence tags: **(H)** high, **(M)** moderate,
@@ -12,15 +12,15 @@ the initiator's own state media) unless noted. Confidence tags: **(H)** high, **
 ## 1. Key Findings (BLUF)
 
 - **China runs a diplomacy- and economics-led influence model in MENA with a near-zero
-  military footprint** — 45.7% Diplomacy, 27.4% Social, 25.8% Economic, **1.2% Military** of
+  military footprint** — 45.8% Diplomacy, 27.4% Social, 25.7% Economic, **1.1% Military** of
   corroborated effort. This is the inverse of Russia's and Iran's security-heavy postures and
   is China's most distinctive regional trait. **(H)**
 - **China's influence is unusually credible.** Only ~14% of its MENA coverage comes from
   Chinese state media (self-report share 0.14); 86% is carried by recipient-country and
   third-party outlets — a *genuine-traction* signature, not narrative projection. **(H)**
 - **Egypt and the Gulf are China's strongholds; the Levant is not.** China leads all four
-  actors in Egypt (5,836 corroborated docs), Saudi Arabia (2,399), Jordan (1,749), and the UAE
-  (1,424), but is decisively outcompeted in Syria, Palestine, and Lebanon (by Turkey and Iran)
+  actors in Egypt (5,934 corroborated docs), Saudi Arabia (2,428), Jordan (1,784), and the UAE
+  (1,439), but is decisively outcompeted in Syria, Palestine, and Lebanon (by Turkey and Iran)
   and trails Russia inside Iran. **(H)**
 - **China's volume is diplomatic, but its highest-impact events are economic megadeals** — the
   $10B China-Egypt integrated steel complex, the SCO Tianjin $12.75B package, $30.5B in Belt
@@ -46,7 +46,7 @@ infrastructure into durable diplomatic alignment, while using forums (SCO, UN Se
 Belt and Road) to position itself as a stabilizing, non-aligned great power — explicitly
 contrasting itself with Western and Russian models. The corroborated record bears this out:
 diplomacy and economics together account for **71%** of China's measured effort, and its
-single largest instrument is *Multilateral/Bilateral Commitments* (12,053 corroborated docs),
+single largest instrument is *Multilateral/Bilateral Commitments* (12,481 corroborated docs),
 followed by *Aid/Donation*, *Trade*, *Infrastructure*, and *Cultural* engagement.
 
 Crucially, China's influence is **externally validated**: with only two Chinese-geofocus
@@ -63,14 +63,14 @@ real traction.
 
 ## 3. Categorical Breakdown
 
-**Diplomacy (45.7%) — the volume leader.** China's diplomatic activity centers on
+**Diplomacy (45.8%) — the volume leader.** China's diplomatic activity centers on
 multilateral commitments and international negotiations, with the **Ministry of Foreign Affairs
 of the PRC**, the **UN Security Council**, and the **Shanghai Cooperation Organization** as the
 dominant entities. A recurring theme is China positioning on the Gaza conflict (the China MFA
 co-occurs most frequently with "Gaza Strip" and the UNSC), using the crisis to project an image
 of even-handed global leadership. **(H)**
 
-**Economic (25.8%) — the materiality leader.** Although third by volume, economics produces
+**Economic (25.7%) — the materiality leader.** Although third by volume, economics produces
 China's most consequential events. The highest-materiality items in the entire China record
 are commercial: the **$10B China-Egypt integrated steel complex** (Shing Feng Steel, announced
 Jan. 27, 2026), the **SCO Tianjin summit's $12.75B investment package** announced by Xi Jinping,
@@ -78,11 +78,11 @@ Jan. 27, 2026), the **SCO Tianjin summit's $12.75B investment package** announce
 200,000 m² Riyadh manufacturing facility** in Saudi Arabia. The pattern: Gulf-and-Egypt
 industrial/technology investment converted into strategic partnership. **(H)**
 
-**Social (27.4%).** Driven by *Aid/Donation* (3,765 corroborated docs) and *Cultural*
+**Social (27.4%).** Driven by *Aid/Donation* (3,921 corroborated docs) and *Cultural*
 engagement — humanitarian gestures and cultural diplomacy that reinforce the benign-partner
 narrative. **(M)**
 
-**Military (1.2%) — effectively absent.** China conducts almost no military-category soft power
+**Military (1.1%) — effectively absent.** China conducts almost no military-category soft power
 in MENA in this window. This is a defining negative finding: China is not competing for
 security influence the way Russia (arms, basing) and Iran (proxies, IRGC ties) are. **(H)**
 
@@ -100,16 +100,16 @@ China engages **all 19** recipients but concentrates effort. Ranked by corrobora
 
 | Tier | Recipients (corroborated docs) | Read |
 |------|-------------------------------|------|
-| **Lead** | Iran (8,315), Egypt (5,836) | Together ~48% of China's top-tier effort |
-| **Strong** | Saudi Arabia (2,399), Jordan (1,749), Palestine (1,635), UAE (1,424), Israel (1,167) | Gulf + Jordan are competitive strongholds |
-| **Moderate** | Kuwait (1,077), Yemen (956), Iraq (878), Lebanon (748), Oman (640) | Broad but shallow |
+| **Lead** | Iran (8,506), Egypt (5,934) | Together ~48% of China's top-tier effort |
+| **Strong** | Saudi Arabia (2,428), Jordan (1,784), Palestine (1,641), UAE (1,439), Israel (1,177) | Gulf + Jordan are competitive strongholds |
+| **Moderate** | Kuwait (1,100), Yemen (972), Iraq (892), Lebanon (776), Oman (645) | Broad but shallow |
 | **Light** | Bahrain, Qatar, Syria, Libya, Turkey, Cyprus | Presence without depth |
 
 - **Egypt is China's flagship bilateral relationship** — the largest non-Iran target and the
   locus of its biggest economic bets (steel complex, BRI construction, TEDA-Suez industrial
   base). Corroboration share 0.85. **(H)**
-- **China's Iran engagement is heavily covered (8,315) but contested** — Russia's corroborated
-  Iran footprint (11,529) exceeds China's, and the relationship reads as part of the
+- **China's Iran engagement is heavily covered (8,506) but contested** — Russia's corroborated
+  Iran footprint (11,623) exceeds China's, and the relationship reads as part of the
   China-Russia-Iran alignment rather than China-led. **(M)**
 - **The Levant is a relative gap.** In Syria, Palestine, and Lebanon, China is a minor player
   behind Turkey and Iran — Beijing has ceded the region's highest-salience conflict theaters.
@@ -146,7 +146,16 @@ China's tempo is **steady and conflict-insulated**. Corroborated activity oscill
 The one mild peak — **September 2025 (1,747)** — aligns with the SCO Tianjin summit and Xi's
 investment-package announcements, underscoring that China's calendar is driven by *its own
 summitry and deal-making*, not by regional crises. The gentle taper through early 2026 is
-partly an artifact of the corpus's trailing edge (June 2026 is a partial month). **(M)**
+partly an artifact of the corpus's trailing edge. **(M)**
+
+**Post-window context (July 2026).** The refreshed corpus extends to 2026-07-27; July is a
+partial month with possible ingestion tail-off, so the following is context, not trend data.
+(a) China and Pakistan launched a joint mediation track for U.S.–Iran conflict resolution
+(July 14, 84 articles) — extending China's institutionalized broker role after the mid-June
+U.S.–Iran ceasefire MOU (June 14) and following a June 30 China–Iran engagement on global
+tensions (102 articles). (b) China's Libya re-entry held at roughly 30 corroborated docs/month
+through July. (c) The post-Basra China→Iraq project-pipeline pause persisted (~19 corroborated
+docs in July). **(M)**
 
 ---
 

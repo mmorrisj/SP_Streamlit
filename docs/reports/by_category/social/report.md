@@ -1,7 +1,7 @@
 # The Social & Cultural Influence Contest in MENA
 ### A Cross-Actor Category Assessment (China · Iran · Russia · Turkey · United States) — for Policy Analysis
 
-*Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Category filter:
+*Observation window: 2024-08-01 to 2026-06-30 (open-source media corpus). Category filter:
 **Social** only — cultural diplomacy, humanitarian aid, education, religion, media, and health.
 Method/caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Intensity = **third-party-corroborated**
 documents (U.S. = registered coverage). Confidence: **(H)/(M)/(L)**.*
@@ -15,12 +15,12 @@ documents (U.S. = registered coverage). Confidence: **(H)/(M)/(L)**.*
 
 ## 1. Key Findings (BLUF)
 
-- **Turkey is the social and cultural-influence leader in MENA** — 11,092 corroborated documents,
-  ahead of China (9,837), the U.S. (7,503), Russia (5,495), and Iran (3,268). It is the only actor
+- **Turkey is the social and cultural-influence leader in MENA** — 11,223 corroborated documents,
+  ahead of China (10,039), the U.S. (7,657), Russia (5,556), and Iran (3,314). It is the only actor
   operating the **full soft-power toolkit**: an aid agency, cultural institutes, schools, and a
   religious-affairs arm. **(H)**
 - **Iran's social influence is the largest mirage in the entire dataset.** Its raw social footprint
-  — 35,935 documents, its single biggest category — collapses to **3,268 corroborated, a 91%
+  — 36,420 documents, its single biggest category — collapses to **3,314 corroborated, a 91%
   self-reported share.** Even in religion and humanitarian aid, the instruments Iran leans on most,
   its externally-validated reach is small. **(H)**
 - **Turkey's apparatus is institutional and named:** **TIKA** (development aid), the **Yunus Emre
@@ -43,8 +43,8 @@ documents (U.S. = registered coverage). Confidence: **(H)/(M)/(L)**.*
 
 ## 2. The Leaderboard: Turkey Leads, Iran's Mirage Peaks
 
-On corroborated volume the social order is **Turkey (11,092) › China (9,837) › United States (7,503)
-› Russia (5,495) › Iran (3,268)**. Two findings stand out. First, **Turkey** — not the economic or
+On corroborated volume the social order is **Turkey (11,223) › China (10,039) › United States (7,657)
+› Russia (5,556) › Iran (3,314)**. Two findings stand out. First, **Turkey** — not the economic or
 military hegemon — leads here, because social/cultural influence is its comparative advantage.
 Second, **Iran**: in the all-category and raw views Iran's social activity looks enormous, but it is
 **91% self-reported**, the widest provenance gap of any actor in any category. Iran *narrates* a vast
@@ -72,14 +72,14 @@ scholarships) and the U.S.'s is **aid** (Gaza humanitarian). **(M)**
 
 | Recipient | Social leader | Corroborated docs | Read |
 |-----------|---------------|------------------:|------|
-| Palestine | **Turkey** | 3,948 | Gaza solidarity + humanitarian |
-| Egypt | **China** | 2,971 | cultural-education |
-| Syria | **Turkey** | 2,533 | reconstruction + aid |
-| Iran | **Russia** | 1,693 | project-tied |
-| Lebanon | **Iran** | 1,327 | confessional (Shia) |
-| Jordan | **China** | 1,154 | cultural-education |
-| Saudi Arabia | **China** | 1,068 | cultural-education |
-| Iraq | **Iran** | 853 | religious (Arbaeen/Shia) |
+| Palestine | **Turkey** | 3,973 | Gaza solidarity + humanitarian |
+| Egypt | **China** | 3,049 | cultural-education |
+| Syria | **Turkey** | 2,572 | reconstruction + aid |
+| Iran | **Russia** | 1,715 | project-tied |
+| Lebanon | **Iran** | 1,343 | confessional (Shia) |
+| Jordan | **China** | 1,175 | cultural-education |
+| Saudi Arabia | **China** | 1,082 | cultural-education |
+| Iraq | **Iran** | 878 | religious (Arbaeen/Shia) |
 
 - **Turkey owns the Gaza and Syria social files** — humanitarian solidarity with Palestine (its
   single largest social relationship) and reconstruction-linked aid in Syria. **(H)**
@@ -88,6 +88,12 @@ scholarships) and the U.S.'s is **aid** (Gaza humanitarian). **(M)**
 - **Iran owns the Shia confessional theaters** — Lebanon and Iraq, via religion and the Red
   Crescent — the same Resistance-arc geography as its (small) economic and (proxy) military files.
   **(H)**
+
+*Post-window note (July 2026, partial month): Ayatollah Khamenei's death (mid-June 2026) triggered a
+large religious-mobilization wave — funeral ceremonies ran from late June into July with ~303 corpus
+documents at 41% third-party corroboration (well above Iran's social-category norm), including
+projected one-million-strong Iraqi participation. The annual Arbaeen ramp followed in July
+(seasonal, and overwhelmingly self-reported as in prior years).*
 
 ---
 

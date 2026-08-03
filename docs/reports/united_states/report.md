@@ -1,7 +1,7 @@
 # How U.S. Soft-Power Efforts Register in the Middle East & North Africa
 ### A Relational Assessment Against China, Iran, Russia & Turkey — for Policy Analysis
 
-*Observation window: 2024-08-01 to 2026-06-15 (open-source media corpus). Method, scope, and
+*Observation window: 2024-08-01 to 2026-06-30 (open-source media corpus). Method, scope, and
 caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Confidence tags: **(H)** high, **(M)** moderate,
 **(L)** low.*
 
@@ -20,21 +20,28 @@ caveats per `docs/INSIGHT_REPORT_PROMPT.md`. Confidence tags: **(H)** high, **(M
 ## 1. Key Findings (BLUF)
 
 - **The U.S. registers as a near-pure diplomacy/security actor — the structural inverse of
-  China.** 77.6% of its captured footprint is Diplomacy, with Social (10.2%), Economic (7.4%),
-  and Military (4.8%) trailing far behind. Where China bleeds through as an economic patron, the
+  China.** 78.3% of its captured footprint is Diplomacy, with Social (9.6%), Economic (7.5%),
+  and Military (4.7%) trailing far behind. Where China bleeds through as an economic patron, the
   U.S. bleeds through as a crisis manager. (Treat the share itself as partly a selection
   artifact.) **(M)**
 - **The U.S. out-registers every rival on the region's security and conflict files**, but **cedes
   the development files.** It leads on Iran, Israel, Palestine, Lebanon, and Saudi Arabia; it is
   out-registered by **China in Egypt**, and by **Turkey in Syria and Iraq.** **(H)**
-- **A quarter of the U.S.'s regional image is written by its adversary.** 25.3% of U.S. coverage
-  is carried by Iranian state media; 43.8% by partner (Gulf/Israel) media; 30.9% neutral/other.
+- **A quarter of the U.S.'s regional image is written by its adversary.** 24.8% of U.S. coverage
+  is carried by Iranian state media; 44.0% by partner (Gulf/Israel) media; 31.2% neutral/other.
   The adversary lens is **not** spread across the Levant — it concentrates on the **U.S.–Iran
-  bilateral itself (49% Iranian-framed)** and on **Oman (43%), the U.S.–Iran mediator.** **(H)**
+  bilateral itself (46.5% Iranian-framed)** and on **Oman (39.9%), the U.S.–Iran mediator.** **(H)**
 - **The U.S.–Iran antagonism is the single axis that organizes both actors' footprints.** Iran
-  is the U.S.'s most-covered counterpart (22,196 docs) and the U.S. is Iran's most-covered target
-  (19,737). Each is substantially defined, in this corpus, by its confrontation with the other.
+  is the U.S.'s most-covered counterpart (25,208 docs) and the U.S. is Iran's most-covered target
+  (21,592). Each is substantially defined, in this corpus, by its confrontation with the other.
   **(H)**
+- **That confrontation pivoted to a brokered de-escalation in mid-June 2026** — a June 14
+  ceasefire Memorandum of Understanding (187 articles, materiality 8.0), U.S.–Iran negotiations
+  at Bürgenstock, Switzerland (June 17), a Doha meeting (June 26), and GCC–U.S. joint diplomatic
+  engagement on regional security (June 25). This is the strongest confirmation yet of the
+  "crisis manager" thesis — and the driver of the U.S.–Iran counterpart file's growth to 25,208
+  registered docs. The death of Ayatollah Khamenei in mid-June 2026 reshapes the channel's
+  context; succession is an open question. **(M)**
 - **U.S. economic engagement is small in share but large in the deals that do register** — the
   **US-Qatar $96B aircraft agreement** and **Trump's 2025 Gulf economic agreements** rank among
   the highest-materiality U.S. events, alongside Gaza peace diplomacy. **(M)**
@@ -72,14 +79,14 @@ theaters** — but those are precisely the files defined *by* U.S. involvement:
 
 | Recipient | U.S. registers | Leading rival | Who leads |
 |-----------|---------------:|---------------|-----------|
-| Iran | 22,196 | Russia 11,529 | **U.S.** |
-| Israel | 17,113 | Turkey 3,705 | **U.S.** (dominant) |
-| Palestine | 12,234 | Turkey 8,608 | **U.S.** |
-| Lebanon | 7,998 | Iran 3,561 | **U.S.** |
-| Saudi Arabia | 3,542 | China 2,399 | **U.S.** |
-| **Syria** | 6,799 | **Turkey 8,829** | Turkey |
-| **Iraq** | 2,383 | **Turkey 3,893** | Turkey |
-| **Egypt** | 2,597 | **China 5,836** | China |
+| Iran | 25,208 | Russia 11,623 | **U.S.** |
+| Israel | 17,808 | Turkey 3,728 | **U.S.** (dominant) |
+| Palestine | 12,321 | Turkey 8,696 | **U.S.** |
+| Lebanon | 9,451 | Iran 4,065 | **U.S.** |
+| Saudi Arabia | 3,632 | China 2,428 | **U.S.** |
+| **Syria** | 6,853 | **Turkey 8,903** | Turkey |
+| **Iraq** | 2,511 | **Turkey 3,928** | Turkey |
+| **Egypt** | 2,710 | **China 5,934** | China |
 
 ![Alignment geometry](assets/03_hedging_scatter.png)
 
@@ -100,12 +107,12 @@ The alignment geometry sorts the region into three groups:
 ## 4. Thread 3 — The U.S.–Iran Counterbalancing Axis
 
 The corpus makes the **U.S.–Iran confrontation the gravitational center** of both actors'
-regional presence. The U.S.'s single most-covered relationship is Iran (22,196 docs — adversarial,
-not cooperative), and Iran's single most-covered target is the U.S. (19,737). The shared
+regional presence. The U.S.'s single most-covered relationship is Iran (25,208 docs — adversarial,
+not cooperative), and Iran's single most-covered target is the U.S. (21,592). The shared
 interlocutor that bridges the two networks is Iranian FM **Abbas Araghchi**, who appears as a top
 entity in *both* the U.S. and Iran records — the diplomatic conduit of the antagonism (nuclear
 talks, prisoner/sanctions diplomacy, Gaza-war messaging). **Oman** surfaces as the structural
-mediator: 43% of its U.S. coverage is Iranian-framed, reflecting its role hosting U.S.–Iran
+mediator: 39.9% of its U.S. coverage is Iranian-framed, reflecting its role hosting U.S.–Iran
 back-channels. The practical implication: a large fraction of what looks like "U.S. influence" in
 MENA is the U.S.–Iran duel playing out across third-party venues. **(H)**
 
@@ -116,14 +123,14 @@ MENA is the U.S.–Iran duel playing out across third-party venues. **(H)**
 ![Framing decomposition by recipient](assets/04_framing_stack.png)
 
 Because the U.S. has no media of its own in the corpus, *who reports it* is itself a finding.
-Overall, the U.S.'s image breaks down as **43.8% partner-framed** (Gulf/Israel outlets), **30.9%
-neutral/other** (recipient-state and unaligned media), and **25.3% adversary-framed** (Iranian
+Overall, the U.S.'s image breaks down as **44.0% partner-framed** (Gulf/Israel outlets), **31.2%
+neutral/other** (recipient-state and unaligned media), and **24.8% adversary-framed** (Iranian
 state media). The adversary lens is sharply concentrated:
 
-- **Iran (49% Iranian-framed)** and **Oman (43%)** — the bilateral confrontation and its mediator.
-- **Gulf states (18–21% adversary, 52–57% partner)** — Washington's image in the Gulf is written
+- **Iran (46.5% Iranian-framed)** and **Oman (39.9%)** — the bilateral confrontation and its mediator.
+- **Gulf states (18–21% adversary, 54–57% partner)** — Washington's image in the Gulf is written
   mainly by friendly local media, with a meaningful Iranian counter-narrative.
-- **Lebanon (7%), Syria (10%), Libya (2%)** — contrary to a first hypothesis, the Levant's U.S.
+- **Lebanon (7.6%), Syria (10.3%), Libya (1.8%)** — contrary to a first hypothesis, the Levant's U.S.
   coverage is dominated by *local* media, not Tehran's.
 
 The signal: the U.S.'s exposure to adversarial framing is **a direct function of how much it
@@ -136,9 +143,9 @@ engages Iran**, not a generalized regional condition. **(H)**
 ![Who targets the U.S.](assets/05_target_bar.png)
 
 The U.S. is not only an actor but a **target**. Among the four, **Iran directs by far the most
-influence at the U.S. (19,737 docs)** — an anti-U.S. narrative that is itself one of Iran's
-largest single "soft-power" outputs — followed by **China (7,028)**, **Russia (5,563)**, and
-**Turkey (2,976)**. For Iran, antagonizing Washington is a core influence activity; for China and
+influence at the U.S. (21,592 docs)** — an anti-U.S. narrative that is itself one of Iran's
+largest single "soft-power" outputs — followed by **China (7,431)**, **Russia (5,705)**, and
+**Turkey (3,274)**. For Iran, antagonizing Washington is a core influence activity; for China and
 Russia, the U.S. is a great-power reference point in their messaging. **(M)**
 
 ---
@@ -161,6 +168,30 @@ Temporally, U.S. activity **tracks the conflict files** — rising with Gaza dip
 Israel-Iran confrontation — on a rhythm distinct from China's summit-driven cadence and closer to
 Turkey's crisis-driven one. The U.S. surges where the region's security crises peak, consistent
 with its registered role as the indispensable crisis actor. **(M)**
+
+The window's final fortnight — June 16–30, 2026, missed by the prior cutoff — shows the
+U.S.–Iran confrontation pivoting to a **brokered de-escalation**: a June 14 ceasefire
+Memorandum of Understanding (187 articles, materiality 8.0), U.S.–Iran negotiations at
+Bürgenstock, Switzerland (June 17), a Doha meeting (June 26), and GCC–U.S. joint diplomatic
+engagement on regional security (June 25). The sequence is the strongest confirmation yet of
+the crisis-manager thesis — and the driver of the U.S.–Iran counterpart file's growth to
+25,208 registered docs. The context of that channel was simultaneously reshaped by the death
+of **Ayatollah Khamenei** in mid-June 2026, with funeral ceremonies extending from late June
+into July; succession remains an open question. **(M)**
+
+### Post-window context (July 2026)
+
+*The refreshed corpus extends to July 27, 2026; July is a partial month with possible ingestion
+tail-off. Treat the following as context, not analysis-grade findings.*
+
+- **U.S.-mediated Lebanon–Israel Agreement Framework negotiations** became the single largest
+  new event in the corpus (365 articles), including a Rome negotiation round July 6.
+  U.S.→Lebanon registered coverage grew roughly 24% in six weeks — Lebanon is now the U.S.'s
+  fourth-largest counterpart file at 9,451 docs.
+- The U.S.–Iran process advanced to **"Nuclear Disarmament Talks"** in July (materiality 9.0,
+  179 articles), while **China and Pakistan launched a joint mediation track** for U.S.–Iran
+  conflict resolution (July 14, 84 articles) — rival brokers are institutionalizing around the
+  U.S. file.
 
 ---
 

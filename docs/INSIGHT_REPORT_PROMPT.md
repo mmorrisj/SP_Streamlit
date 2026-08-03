@@ -343,19 +343,30 @@ Per initiator (China, Iran, Russia, Turkey), the agent runs this loop:
 
 ## PART F — Verified Ground Truth & /goal Execution Brief
 
-*Probed against the live DB (corpus spans 2024-07-03 → 2026-06-15, ~23 months). Use these
-numbers to sanity-check the autonomous run; if a query returns wildly different magnitudes,
-something is mis-scoped.*
+*Probed against the live DB (re-verified 2026-08-02; corpus spans 2024-07-03 → 2026-07-27,
+~24.5 months — the report analysis window clamps to full months, date < 2026-07-01, with July
+quoted as post-window context only). Use these numbers to sanity-check the autonomous run; if
+a query returns wildly different magnitudes, something is mis-scoped.*
 
 ### Verified inventory
-- documents: **738,530**; source_name 100% populated (590 distinct), source_geofocus ~92%.
-- Docs by initiator (normalized table): **Iran 258,707 · China 65,036 · Turkey 53,932 ·
-  Russia 43,814** — Iran is ~3.4× the next actor. The top 8 sources are ALL Iranian state
+- documents: **779,075**; source_name 100% populated (599 distinct), source_geofocus ~92%.
+- Docs by initiator (normalized table): **Iran 271,767 · China 67,347 · Turkey 55,802 ·
+  Russia 44,580** — Iran is ~4× the next actor. The top 8 sources are ALL Iranian state
   media (IRIB, Fars, Mehr, IRNA, Tasnim, ISNA…). This is the bias, quantified.
-- canonical_entities **13,534** (Iran 4,693 · China 2,806 · Turkey 2,687 · Russia 1,624);
-  entity_relationships **8,320**; daily_entity_mentions **33,524**.
+- canonical_entities **10,999** (re-consolidated 2026-07, down from 13,534 via merges;
+  embedding_vector still 100%; country_affiliations now sparser — Iran 2,460 · China 883 ·
+  Turkey 743 · Russia 439 tagged); entity_relationships **11,464**; daily_entity_mentions
+  **37,924**.
 - Summary tables: bilateral_relationship_summaries 91 · country_category_summaries 20 ·
-  bilateral_category_summaries 308 · event_summaries 13,559 · aiddata_projects 20,985.
+  bilateral_category_summaries 308 · event_summaries 14,965 · aiddata_projects 20,985.
+- **Events layer (re-consolidated 2026-08-03):** after the July refresh re-ran Stage-1,
+  Stage-2 was completed in full (consolidate → LLM deconflict [12,071 groups; OpenAI Batch
+  `canonical_deconflict` job type for the bulk] → merge [21,426 children absorbed] →
+  `score_materiality` batch [5,688 events]). `canonical_events` = **55,302** consolidated
+  events (11,554 multi-day, max span 67 days), 0 unvalidated groups, embeddings 100%.
+  Note: this layer's extraction grain is finer than the pre-July snapshot (17,933), so
+  initiative-grain metrics computed on it are a new measurement, not continuous with
+  pre-refresh figures. `event_summaries` (14,965) is a separate, stable spine.
 
 ### MANDATORY scope filters (non-negotiable — the run is wrong without them)
 1. `initiating_country IN ('China','Iran','Russia','Turkey')`.
@@ -363,15 +374,16 @@ something is mis-scoped.*
    Lebanon, Libya, Oman, Palestine, Qatar, Saudi Arabia, Syria, UAE/United Arab Emirates,
    Yemen; plus Iran/Turkey only when they are the recipient). The raw data also contains
    non-MENA recipients (United States, Pakistan, etc.) — **exclude them**.
-3. `initiating_country != recipient_country`. The corpus contains **79,864 Iran→Iran**
+3. `initiating_country != recipient_country`. The corpus contains **83,163 Iran→Iran**
    self-referential rows (extraction noise); these MUST be dropped or they dominate Iran's
    profile.
 4. `date >= '2024-08-01'` per config start.
 
 ### Source-Provenance Normalization — concrete method (uses source_geofocus)
 `source_geofocus` is an array of country foci (e.g. `{Iran}`, `{"Saudi Arabia"}`). Verified
-distribution: `{Iran}` 325,654 vs. recipient-focused outlets (Saudi 50,954, Egypt 47,376,
-Jordan 43,760, UAE 27,585, Qatar 25,992…). For each INIT→RECIP relationship classify every
+distribution (2026-08): `{Iran}` 337,817 vs. recipient-focused outlets (illustrative 2026-06
+counts: Saudi 50,954, Egypt 47,376, Jordan 43,760, UAE 27,585, Qatar 25,992 — all ~3–5%
+higher on the refreshed corpus). For each INIT→RECIP relationship classify every
 document:
 - **Self-reported** if `source_geofocus` contains INIT (initiator's own media ecosystem).
 - **Recipient/third-party** if it contains RECIP or any non-INIT focus.
@@ -390,7 +402,8 @@ distinct-canonical-event counts as the PRIMARY intensity metric; show raw counts
 - Use raw SQL for tensors/pivots/joins; drop to pandas/networkx/numpy in the same script for
   centrality, community detection, changepoint, and embedding clustering.
 - Embeddings: document/chunk semantic search via `langchain_pg_embedding` (collection
-  `chunk_embeddings`, 721,368 rows, ~97.7% of docs). Entity semantic search via
+  `chunk_embeddings`, 757,867 rows — 100% of docs with distilled_text as of 2026-08-02;
+  the remainder are non-salient docs never embedded by design). Entity semantic search via
   `canonical_entities.embedding_vector` — 100% populated at 768-dim (re-embedded 2026-06-29
   with nomic `search_document:` prefix). Both vector paths are available; combine with
   pg_trgm fuzzy name match and the `entity_relationships` graph as needed.
@@ -475,7 +488,7 @@ The summary tables accelerate the run but inherit the raw-volume bias. Use them 
 narratives and named events; recompute all magnitude/ranking metrics from raw.
 
 ### What to use, and how
-- **event_summaries (13,559) — PRIMARY.** Fresh (2024-08→2026-06-15, updated 2026-06-28),
+- **event_summaries (14,965) — PRIMARY.** Fresh (2024-08→2026-07-26, updated 2026-07-29),
   `material_score` 100%, `narrative_summary` 100%. This is the **citation spine**: the named,
   materiality-scored events the report cites. Rank by material_score + recency per
   relationship. ⚠️ `entities_mentioned` and `outcomes_summary` are EMPTY here — get entity
@@ -498,17 +511,19 @@ are the index and the draft; the raw data is the evidence.
 
 ---
 
-## PART I — Live Schema Scan (verified 2026-06-29)
+## PART I — Live Schema Scan (verified 2026-06-29; volumes re-verified 2026-08-02)
 
 39 tables. The analytically relevant ones, with what the scan revealed:
 
 ### Volumes (raw vs. clean)
-- `documents` 738,530 · `event_summaries` 13,559 · `canonical_events` 17,933 (all masters —
-  no consolidation hierarchy populated) · `canonical_entities` 13,534 · `entity_relationships`
-  8,320 · `daily_entity_mentions` 33,524 · `daily_event_mentions` 22,317 ·
-  `event_source_links` 136,326 (every event linked → full event→document traceability).
-- Raw flatteners are huge: `raw_events` 1.41M, `recipient_countries` 1.21M, `raw_entities`
-  970K, `initiating_countries` 885K, `categories` 948K, `subcategories` 960K.
+- `documents` 779,075 · `event_summaries` 14,965 · `canonical_events` **55,302**
+  (re-consolidated 2026-08-03; 11,554 multi-day — finer extraction grain than the pre-July
+  17,933, see Part-F events-layer note) · `canonical_entities` 10,999 ·
+  `entity_relationships` 11,464 · `daily_entity_mentions` 37,924 · `daily_event_mentions`
+  87,207 post-merge · `event_source_links` 150,662 (every event linked → full event→document
+  traceability).
+- Raw flatteners are huge: `raw_events` 1.49M, `recipient_countries` 1.27M, `raw_entities`
+  1.02M, `initiating_countries` 931K, `categories` 995K, `subcategories` 1.01M.
 - `aiddata_projects` 20,985 + `aiddata_locations` 26,686.
 - Empty/near-empty (ignore): `canonical_propositions`, `document_propositions`,
   `period_summaries`, `ingestion_jobs`, `alert_*`, `agent_*` (app's own agent logs).
@@ -539,8 +554,9 @@ found: "St. Petersburg International Economic Forum" (Russia, score 9).
 - `entity_relationships.relationship_type`: co_occurrence 4,756 · works_with 1,042 · visited
   929 · partnered_with 759 · represents 311 · leads 210 · signed_agreement_with 172 ·
   employed_by 123 · located_in 18. Edges carry `relationship_description` + `co_occurrence_count`.
-- Example top Iran entities by doc volume: Abbas Araghchi (3,545), Masoud Pezeshkian (1,093),
-  Iranian Red Crescent Society (720), Hassan Nasrallah (629).
+- Example top Iran entities by doc volume (2026-06 snapshot; the 2026-07 entity
+  re-consolidation shifted counts, e.g. Araghchi now 3,311): Abbas Araghchi, Masoud
+  Pezeshkian, Iranian Red Crescent Society, Hassan Nasrallah.
 
 ### AidData overlap with media window ≈ nil (reaffirms the narrow stance)
 China MENA commitments are 2000–2023 (latest commitment_year 2021): Egypt 119 proj/$32.1B,
@@ -553,8 +569,9 @@ reporting is essentially nonexistent — corroborate only on an exact named-proj
   `amount_nominal_usd`, `material_score` math, any avg/ratio over float columns.
 - `source_geofocus` is a text rendering of an array (`{Iran}`, `{"Saudi Arabia"}`) — match
   with `LIKE '%Iran%'` or strip braces; it's the key to provenance normalization.
-- Embeddings: `canonical_entities.embedding_vector` 768-dim 100% (restored); document vectors
-  in `langchain_pg_embedding` (collection `chunk_embeddings`, 721K, one per doc).
+- Embeddings: `canonical_entities.embedding_vector` 768-dim 100% (held through the 2026-07
+  re-consolidation); document vectors in `langchain_pg_embedding` (collection
+  `chunk_embeddings`, 757,867, one per doc with distilled_text).
 
 ---
 

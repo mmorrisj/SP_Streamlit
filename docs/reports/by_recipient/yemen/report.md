@@ -1,7 +1,7 @@
 # Who Courts Yemen? A Cross-Initiator Influence Assessment
 ### China · Iran · Russia · Turkey · United States — for Policy Analysis
 
-*Open-source media corpus, 2024-08-01 to 2026-06-15. Method/caveats per
+*Open-source media corpus, 2024-08-01 to 2026-06-30. Method/caveats per
 `../../INSIGHT_REPORT_PROMPT.md`. Intensity = third-party-corroborated documents (U.S. = registered
 coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)**.*
 
@@ -23,11 +23,11 @@ coverage; the U.S. has no state media in the corpus). Confidence: **(H)/(M)/(L)*
 
 | Actor | Influence (docs) | Share |
 |-------|-----------------:|------:|
-| U.S. | 1,004 | 25% |
-| China | 956 | 24% |
-| Russia | 864 | 21% |
-| Iran | 622 | 15% |
-| Turkey | 574 | 14% |
+| U.S. | 1,030 | 25% |
+| China | 972 | 24% |
+| Russia | 868 | 21% |
+| Iran | 633 | 15% |
+| Turkey | 592 | 14% |
 
 ![Share of attention](assets/04_dominance_share.png)
 
@@ -52,7 +52,7 @@ than going head-to-head across all four. **(H)**
 
 *Validated for alignment: only events where Yemen is the **primary** recipient are shown — named in
 the title, holding ≥40% of the event's recipient mentions, or the sole top recipient.
-66 peripheral events (where Yemen was only mentioned in
+70 peripheral events (where Yemen was only mentioned in
 passing on another country's initiative — e.g., regional spillover) were excluded.*
 
 - **Inauguration of Anatolian Residential Complex for Displaced in Marib, Yemen** — Turkey, material 8.50 (2025-02)
@@ -81,3 +81,13 @@ passing on another country's initiative — e.g., regional spillover) were exclu
 
 *Visuals plot corroborated/registered influence; underlying numbers in sibling CSVs under `assets/`.
 Index: [`../README.md`](../README.md). Method: `docs/INSIGHT_REPORT_PROMPT.md`.*
+
+## Post-window context (July 2026)
+
+*The corpus extends to 2026-07-27; July is a partial month with a possible ingestion
+tail-off — context, not analysis-grade.*
+
+- **Iran began re-entering Yemen** — corroborated docs rose 3 (May) → 15 (June) → 52 (July),
+  the first sustained movement since the November 2024 collapse (the dataset's sharpest
+  break, z=11.4). Yemen's status as the theater's abandoned market, unclaimed by any actor
+  since that break, is ending; which instrument Iran leads with is the item to watch.
