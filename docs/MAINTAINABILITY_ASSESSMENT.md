@@ -1,6 +1,7 @@
 # Maintainability & Maintainer-Transition Assessment
 
 **Date:** 2026-06-07
+**Last reviewed:** 2026-08-06 (see second status addendum below)
 **Context:** Demo target **July 2026**; potential handoff to a new maintainer by **October 2026**.
 **Scope:** Whole-repo review of code structure, documentation, tests/CI, and deployment, with prioritized recommendations to (a) de-risk the July demo and (b) make the codebase handoff-ready by October.
 
@@ -15,6 +16,43 @@
 > - §9: compose files now use `pgvector:0.8.2-pg17` and app images through `1.8.26`;
 >   newer `docker-compose.laptop*.yml` / `enterprise.yml` variants exist.
 > - The coverage/CI findings (§1(4)) remain accurate and open.
+
+> **Status addendum (2026-08-06).** Re-verified against the working tree. Read the June
+> findings and the 2026-07-14 addendum with these updates:
+>
+> **Closed / improved since July:**
+> - §4: `_archive/`, `coverage.xml`, and `softpower_backup.sql` are confirmed gone from
+>   the working tree.
+> - §1(2)/§4: the `agent/` half-state is resolved — the providers, all tools, the ReAct
+>   converse loop, and all 12 report stages perform real DB queries and LLM calls, and the
+>   subsystem is wired into the React UI (`/agent`). Eight `TODO`s remain, confined to
+>   non-default paths (the unimplemented `anthropic.py` provider and `modes.json_fallback`,
+>   reachable only via non-default env values) — see `agent/README.md`.
+> - §6: the test suite grew from 8 files / 146 test functions to **12 files / 215 test
+>   functions**. (Line-coverage % was not re-measured in this review.)
+> - Alembic migrations: 21 → **22**. Phase 0's `docs/DEMO_RUNBOOK.md` exists.
+>
+> **Still accurate / still open:**
+> - §3: `server/main.py` is **5,952 lines / 98 `@app.*` routes** with three extracted
+>   routers (`influencer`, `ingestion`, `intel_reports`) — the full split remains the top
+>   Phase 2 item. The batch monoliths have **grown**: `batch_prepare.py` 3,726 → **3,939**
+>   lines and `batch_process_results.py` 2,494 → **2,696**, still without direct tests.
+> - §6: CI lint/test jobs remain **non-blocking** (`continue-on-error` on four jobs in
+>   `.github/workflows/ci.yml`); still no `.pre-commit-config.yaml` and no `mypy`.
+> - §4: the duplicate `config.yaml` (shared vs dashboard) is still present — the
+>   documented deferral rationale stands.
+> - §4/§8: the dual reporting paths are unresolved — `server/report_*` (5,703 lines across
+>   4 files) and `services/publication/` both live; no `services/reporting/` package yet.
+>   The two-frontend decision (§8) also remains open.
+> - §5: the Phase 3 operator docs remain missing: no `RUNBOOK.md`, `DATA_DICTIONARY.md`,
+>   `CONTRIBUTING.md`, `SECURITY.md`, `ARCHITECTURE.md`, or `LICENSE`.
+>
+> **New finding — version-pin drift:** the July addendum cited app images "through
+> 1.8.26"; the current release is **1.8.36** (git history) while
+> `docker-compose.production.yml` pins `mmorrisj/softpower-analytics:1.8.18`. Release
+> tags, compose pins, and this document have drifted three ways — establish a single
+> source of truth for the deployed tag (e.g. pin via `.env` and reference it from every
+> compose file).
 
 ---
 
