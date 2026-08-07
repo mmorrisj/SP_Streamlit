@@ -337,7 +337,7 @@ export default function Dashboard() {
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Soft Power Dashboard <DataCoverageBadge /></h1>
+        <h1>Soft Power Dashboard <span data-tour="dashboard-coverage" style={{ display: 'inline-block' }}><DataCoverageBadge /></span></h1>
         <p>Analytics overview of diplomatic documents and events</p>
       </header>
 
@@ -345,7 +345,7 @@ export default function Dashboard() {
 
       {/* Recent Intelligence Section */}
       {intelligence && ((intelligence.weekly?.length || 0) > 0 || (intelligence.monthly?.length || 0) > 0) && (
-        <div style={{ marginBottom: '2rem' }}>
+        <div style={{ marginBottom: '2rem' }} data-tour="dashboard-intelligence">
           <h2 style={{ fontSize: '1.25rem', color: '#1a365d', marginBottom: '1rem' }}>
             <Zap size={20} style={{ marginRight: 6, verticalAlign: 'middle' }} />
             Recent Intelligence

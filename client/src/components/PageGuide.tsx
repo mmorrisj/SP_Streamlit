@@ -38,7 +38,7 @@ export default function PageGuide({ page }: { page: string }) {
   }
 
   return (
-    <div className="page-guide">
+    <div className="page-guide" data-tour="page-guide">
       <button className="page-guide-toggle" onClick={toggle} aria-expanded={open}>
         <Info size={14} />
         <span>About this page</span>
