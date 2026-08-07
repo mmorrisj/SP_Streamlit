@@ -3,26 +3,28 @@ import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, S
 import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
+import { TourProvider } from './tour/TourContext'
+import TourButton from './tour/TourButton'
 import './Layout.css'
 
 const navItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/report', label: 'Publication', icon: FileBarChart },
-  { path: '/chat', label: 'Research', icon: MessageSquare },
-  { path: '/agent', label: 'Agent', icon: Bot },
-  { path: '/events', label: 'Events', icon: Zap },
-  { path: '/documents', label: 'Documents', icon: FileText },
-  { path: '/about', label: 'About & Methodology', icon: Info },
+  { path: '/', label: 'Dashboard', icon: LayoutDashboard, tour: 'nav-dashboard' },
+  { path: '/report', label: 'Publication', icon: FileBarChart, tour: 'nav-publication' },
+  { path: '/chat', label: 'Research', icon: MessageSquare, tour: 'nav-research' },
+  { path: '/agent', label: 'Agent', icon: Bot, tour: 'nav-agent' },
+  { path: '/events', label: 'Events', icon: Zap, tour: 'nav-events' },
+  { path: '/documents', label: 'Documents', icon: FileText, tour: 'nav-documents' },
+  { path: '/about', label: 'About & Methodology', icon: Info, tour: 'nav-about' },
 ]
 
 const intelligenceItems = [
-  { path: '/intel-reports', label: 'Insight Reports', icon: BookOpenText },
-  { path: '/summaries', label: 'Summaries', icon: TrendingUp },
-  { path: '/bilateral', label: 'Bilateral', icon: Users },
-  { path: '/events/comparison', label: 'Country Comparison', icon: Globe },
-  { path: '/events/materiality', label: 'Materiality Map', icon: Flame },
-  { path: '/competing/Egypt', label: 'Competing Influence', icon: TrendingUp },
-  { path: '/alerts', label: 'Alerts', icon: Bell },
+  { path: '/intel-reports', label: 'Insight Reports', icon: BookOpenText, tour: 'nav-intel-reports' },
+  { path: '/summaries', label: 'Summaries', icon: TrendingUp, tour: undefined },
+  { path: '/bilateral', label: 'Bilateral', icon: Users, tour: undefined },
+  { path: '/events/comparison', label: 'Country Comparison', icon: Globe, tour: undefined },
+  { path: '/events/materiality', label: 'Materiality Map', icon: Flame, tour: undefined },
+  { path: '/competing/Egypt', label: 'Competing Influence', icon: TrendingUp, tour: undefined },
+  { path: '/alerts', label: 'Alerts', icon: Bell, tour: undefined },
 ]
 
 const influencers = [
@@ -39,6 +41,7 @@ export default function Layout() {
   const { status, streamPhase, progressPct, cancelGeneration } = useReportGeneration()
 
   return (
+    <TourProvider>
     <div className="layout">
       <aside className="sidebar">
         <div className="logo">
@@ -46,10 +49,11 @@ export default function Layout() {
           <span>Analytics</span>
         </div>
         <nav className="nav">
-          {navItems.map(({ path, label, icon: Icon }) => (
+          {navItems.map(({ path, label, icon: Icon, tour }) => (
             <NavLink
               key={path}
               to={path}
+              data-tour={tour}
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
             >
               <Icon size={20} />
@@ -57,7 +61,7 @@ export default function Layout() {
             </NavLink>
           ))}
 
-          <div className="nav-section">
+          <div className="nav-section" data-tour="nav-influencers">
             <div className="nav-section-title">
               <Globe size={16} />
               <span>Influencers</span>
@@ -73,15 +77,16 @@ export default function Layout() {
             ))}
           </div>
 
-          <div className="nav-section">
+          <div className="nav-section" data-tour="nav-insights">
             <div className="nav-section-title">
               <Zap size={16} />
               <span>Insights</span>
             </div>
-            {intelligenceItems.map(({ path, label }) => (
+            {intelligenceItems.map(({ path, label, tour }) => (
               <NavLink
                 key={path}
                 to={path}
+                data-tour={tour}
                 className={({ isActive }) => `nav-item nav-sub-item ${isActive ? 'active' : ''}`}
               >
                 <span>{label}</span>
@@ -91,7 +96,7 @@ export default function Layout() {
 
           {/* Data section — analyst and admin only */}
           {(user?.role === 'admin' || user?.role === 'analyst') && (
-            <div className="nav-section">
+            <div className="nav-section" data-tour="nav-data">
               <div className="nav-section-title">
                 <Database size={16} />
                 <span>Data</span>
@@ -129,6 +134,8 @@ export default function Layout() {
             <BookOpenText size={20} />
             <span>White Paper</span>
           </NavLink>
+
+          <TourButton />
         </nav>
 
         {/* Report generation progress widget */}
@@ -178,5 +185,6 @@ export default function Layout() {
         </footer>
       </main>
     </div>
+    </TourProvider>
   )
 }
