@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud, BookOpenText, Info } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Globe, FileBarChart, MessageSquare, Shield, X, Loader2, Zap, TrendingUp, Flame, Bell, Bot, Database, UploadCloud, BookOpenText, Info, ClipboardList } from 'lucide-react'
 import AlertBell from './AlertBell'
 import { useAuth } from '../contexts/AuthContext'
 import { useReportGeneration } from '../contexts/ReportGenerationContext'
@@ -133,6 +133,15 @@ export default function Layout() {
           >
             <BookOpenText size={20} />
             <span>White Paper</span>
+          </NavLink>
+
+          <NavLink
+            to="/survey"
+            data-tour="nav-survey"
+            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          >
+            <ClipboardList size={20} />
+            <span>Feedback</span>
           </NavLink>
 
           <TourButton />

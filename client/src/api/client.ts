@@ -2112,4 +2112,47 @@ export const fetchIntelEvidence = async (
   return data
 }
 
+// ===== Survey (demo feedback) =====
+
+export interface SurveyAnswers {
+  ratings?: Record<string, number>
+  would_use?: string
+  most_valuable?: string
+  missing_confusing?: string
+  respondent_role?: string
+}
+
+export interface SurveyResponseRecord {
+  id: string
+  username: string | null
+  display_name: string | null
+  user_role: string | null
+  overall_rating: number | null
+  answers: SurveyAnswers
+  created_at: string | null
+}
+
+export interface SurveyResults {
+  responses: SurveyResponseRecord[]
+  summary: {
+    count: number
+    avg_overall: number | null
+    rating_averages: Record<string, number>
+    would_use_counts: Record<string, number>
+  }
+}
+
+export const submitSurveyResponse = async (payload: {
+  overall_rating: number | null
+  answers: SurveyAnswers
+}): Promise<{ id: string; status: string }> => {
+  const { data } = await api.post('/survey/responses', payload)
+  return data
+}
+
+export const fetchSurveyResults = async (): Promise<SurveyResults> => {
+  const { data } = await api.get('/survey/responses')
+  return data
+}
+
 export default api

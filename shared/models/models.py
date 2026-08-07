@@ -1673,6 +1673,49 @@ class User(Base):
         }
 
 
+class SurveyResponse(Base):
+    """
+    Feedback collected from the in-app survey page (used during demos and
+    evaluations). The question set lives in the client; answers are stored as
+    JSONB so the survey can evolve without migrations. `overall_rating` is
+    duplicated into its own column for cheap aggregation.
+    """
+    __tablename__ = "survey_responses"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Who answered (from the enterprise JWT; demo machines may share a login)
+    username: Mapped[Optional[str]] = mapped_column(String(100))
+    display_name: Mapped[Optional[str]] = mapped_column(String(255))
+    user_role: Mapped[Optional[str]] = mapped_column(String(20))
+
+    # 1-5 overall impression, extracted from answers for quick aggregation
+    overall_rating: Mapped[Optional[int]] = mapped_column(Integer)
+
+    # Full answer payload: per-feature ratings, multiple choice, free text
+    answers: Mapped[Dict] = mapped_column(JSONB, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("idx_survey_responses_created", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<SurveyResponse(id='{self.id}', user='{self.username}', overall={self.overall_rating})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'username': self.username,
+            'display_name': self.display_name,
+            'user_role': self.user_role,
+            'overall_rating': self.overall_rating,
+            'answers': self.answers,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ---------------------------------------------------------------------------
 # AidData Global Chinese Development Finance Dataset v3.0
 # ---------------------------------------------------------------------------

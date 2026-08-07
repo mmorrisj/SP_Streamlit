@@ -145,6 +145,10 @@ app.include_router(_ingestion_router.router)
 from server.routers import intel_reports as _intel_reports_router
 app.include_router(_intel_reports_router.router)
 
+# In-app feedback survey (demo/evaluation feedback; responses in Postgres)
+from server.routers import survey as _survey_router
+app.include_router(_survey_router.router)
+
 
 
 class DocumentStats(BaseModel):
