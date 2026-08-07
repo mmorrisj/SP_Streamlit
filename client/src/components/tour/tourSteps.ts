@@ -168,6 +168,16 @@ export const TOUR_STEPS: TourStep[] = [
       'links back to its source documents so you can check it.',
   },
   {
+    id: 'survey',
+    target: '[data-tour="nav-survey"]',
+    placement: 'right',
+    title: 'Tell us what you think',
+    body:
+      'When you have explored the platform, the Feedback page takes about two minutes: rate the areas ' +
+      'you used and tell us what was valuable and what was missing. Your feedback shapes what gets ' +
+      'built next.',
+  },
+  {
     id: 'finish',
     title: "You're all set",
     body:

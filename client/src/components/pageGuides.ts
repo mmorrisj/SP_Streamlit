@@ -256,6 +256,14 @@ export const PAGE_GUIDES: Record<string, PageGuideContent> = {
       'Upload a file, review the validation report (parse results, duplicates), then start ingestion and ' +
       'monitor progress. New documents flow into events and summaries on the next pipeline runs.',
   },
+  survey: {
+    what:
+      'A short feedback survey about your experience with the platform: an overall rating, per-area ' +
+      'usefulness ratings, and free-text questions on what was valuable and what was missing.',
+    how:
+      'Answer as much or as little as you like and submit — it takes about two minutes. Analysts and ' +
+      'admins can switch to the Responses tab to review collected feedback and aggregate scores.',
+  },
   'user-management': {
     what:
       'Administration of user accounts, roles, and permissions. Users are auto-provisioned on first access ' +

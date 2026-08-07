@@ -39,6 +39,7 @@ import EntityProfilePage from './pages/EntityProfilePage'
 import DataIngestionPage from './pages/DataIngestionPage'
 import IntelReportsPage from './pages/IntelReportsPage'
 import IntelReportViewerPage from './pages/IntelReportViewerPage'
+import SurveyPage from './pages/SurveyPage'
 
 const queryClient = new QueryClient()
 
@@ -86,6 +87,7 @@ function App() {
               <Route path="entity/:entityId" element={<EntityProfilePage />} />
               <Route path="intel-reports" element={<IntelReportsPage />} />
               <Route path="intel-reports/:slug" element={<IntelReportViewerPage />} />
+              <Route path="survey" element={<SurveyPage />} />
               <Route path="about" element={<AboutMethodologyPage />} />
               <Route path="whitepaper" element={<WhitePaperPage />} />
 
