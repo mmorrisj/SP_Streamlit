@@ -13,7 +13,7 @@ This image bundles everything into a single container managed by supervisord:
 - **Alembic** — Database migration tooling included
 
 > Use tag **`1.8.18` or newer** — earlier tags predate the embedding-model fix.
-> Current release: **`1.8.36`**.
+> Current release: **`2.0.0`**.
 
 ## Quick Start
 
@@ -44,7 +44,7 @@ services:
     image: redis:7-alpine
 
   app:
-    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.36}
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-2.0.0}
     environment:
       DOCKER_ENV: "true"
       DB_HOST: db
@@ -66,7 +66,7 @@ services:
         condition: service_started
 
   migrate:
-    image: mmorrisj/softpower-analytics:${APP_VERSION:-1.8.36}
+    image: mmorrisj/softpower-analytics:${APP_VERSION:-2.0.0}
     environment:
       DOCKER_ENV: "true"
       DATABASE_URL: postgresql+psycopg2://softpower:changeme@db:5432/softpower-db
