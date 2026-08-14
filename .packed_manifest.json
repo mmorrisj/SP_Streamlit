@@ -1,0 +1,468 @@
+{
+  "description": "Manifest for packed files. Use unpack_files.py to restore.",
+  "files": [
+    {
+      "original_path": ".dockerignore",
+      "packed_path": ".dockerignore.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": ".gitignore",
+      "packed_path": ".gitignore.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "alembic.ini",
+      "packed_path": "alembic.ini.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/.gitignore",
+      "packed_path": "client/.gitignore.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/eslint.config.js",
+      "packed_path": "client/eslint.config.js.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/App.tsx",
+      "packed_path": "client/src/App.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/AlertBell.tsx",
+      "packed_path": "client/src/components/AlertBell.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/AlertRuleForm.tsx",
+      "packed_path": "client/src/components/AlertRuleForm.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/ChatReportModal.tsx",
+      "packed_path": "client/src/components/ChatReportModal.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/DataCoverageBadge.tsx",
+      "packed_path": "client/src/components/DataCoverageBadge.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/EvidenceDrawer.tsx",
+      "packed_path": "client/src/components/EvidenceDrawer.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/Layout.tsx",
+      "packed_path": "client/src/components/Layout.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/MapView.tsx",
+      "packed_path": "client/src/components/MapView.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/PageGuide.tsx",
+      "packed_path": "client/src/components/PageGuide.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/ProjectDrawer.tsx",
+      "packed_path": "client/src/components/ProjectDrawer.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/ProtectedRoute.tsx",
+      "packed_path": "client/src/components/ProtectedRoute.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/ReportFigure.tsx",
+      "packed_path": "client/src/components/ReportFigure.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/ValidationIndicator.tsx",
+      "packed_path": "client/src/components/ValidationIndicator.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/reportFigures/builders.tsx",
+      "packed_path": "client/src/components/reportFigures/builders.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/tour/TourButton.tsx",
+      "packed_path": "client/src/components/tour/TourButton.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/tour/TourContext.tsx",
+      "packed_path": "client/src/components/tour/TourContext.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/components/tour/TourOverlay.tsx",
+      "packed_path": "client/src/components/tour/TourOverlay.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/contexts/AuthContext.tsx",
+      "packed_path": "client/src/contexts/AuthContext.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/contexts/ReportGenerationContext.tsx",
+      "packed_path": "client/src/contexts/ReportGenerationContext.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/main.tsx",
+      "packed_path": "client/src/main.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/AboutMethodologyPage.tsx",
+      "packed_path": "client/src/pages/AboutMethodologyPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/AgentPage.tsx",
+      "packed_path": "client/src/pages/AgentPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/AlertsPage.tsx",
+      "packed_path": "client/src/pages/AlertsPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/BilateralMetricsPage.tsx",
+      "packed_path": "client/src/pages/BilateralMetricsPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/BilateralPage.tsx",
+      "packed_path": "client/src/pages/BilateralPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/BilateralRelationships.tsx",
+      "packed_path": "client/src/pages/BilateralRelationships.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/BilateralSummariesPage.tsx",
+      "packed_path": "client/src/pages/BilateralSummariesPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/BilateralSummaryDetailPage.tsx",
+      "packed_path": "client/src/pages/BilateralSummaryDetailPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/Categories.tsx",
+      "packed_path": "client/src/pages/Categories.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/ChatPage.tsx",
+      "packed_path": "client/src/pages/ChatPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/CompetingInfluencePage.tsx",
+      "packed_path": "client/src/pages/CompetingInfluencePage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/CountryComparison.tsx",
+      "packed_path": "client/src/pages/CountryComparison.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/CrossPeriodView.tsx",
+      "packed_path": "client/src/pages/CrossPeriodView.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/Dashboard.tsx",
+      "packed_path": "client/src/pages/Dashboard.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/DataIngestionPage.tsx",
+      "packed_path": "client/src/pages/DataIngestionPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/DocumentSummariesPage.tsx",
+      "packed_path": "client/src/pages/DocumentSummariesPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/Documents.tsx",
+      "packed_path": "client/src/pages/Documents.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/DrilldownPage.tsx",
+      "packed_path": "client/src/pages/DrilldownPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/EntityProfilePage.tsx",
+      "packed_path": "client/src/pages/EntityProfilePage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/EventDetailPage.tsx",
+      "packed_path": "client/src/pages/EventDetailPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/Events.tsx",
+      "packed_path": "client/src/pages/Events.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/InfluencerMetricsPage.tsx",
+      "packed_path": "client/src/pages/InfluencerMetricsPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/InfluencerPage.tsx",
+      "packed_path": "client/src/pages/InfluencerPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/IntelReportViewerPage.tsx",
+      "packed_path": "client/src/pages/IntelReportViewerPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/IntelReportsPage.tsx",
+      "packed_path": "client/src/pages/IntelReportsPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/MaterialityHeatmap.tsx",
+      "packed_path": "client/src/pages/MaterialityHeatmap.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/OverallMetrics.tsx",
+      "packed_path": "client/src/pages/OverallMetrics.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/RecipientMetricsPage.tsx",
+      "packed_path": "client/src/pages/RecipientMetricsPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/ReportPage.tsx",
+      "packed_path": "client/src/pages/ReportPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/Summaries.tsx",
+      "packed_path": "client/src/pages/Summaries.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/SummaryDetailPage.tsx",
+      "packed_path": "client/src/pages/SummaryDetailPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/SurveyPage.tsx",
+      "packed_path": "client/src/pages/SurveyPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/TimelineComparison.tsx",
+      "packed_path": "client/src/pages/TimelineComparison.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/UserManagementPage.tsx",
+      "packed_path": "client/src/pages/UserManagementPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "client/src/pages/WhitePaperPage.tsx",
+      "packed_path": "client/src/pages/WhitePaperPage.tsx.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "deploy/enclave/setup.sh",
+      "packed_path": "deploy/enclave/setup.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "deploy/enclave/start.sh",
+      "packed_path": "deploy/enclave/start.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "deploy/enclave/stop.sh",
+      "packed_path": "deploy/enclave/stop.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "docker/api.Dockerfile",
+      "packed_path": "docker/api.Dockerfile.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "docker/dashboard.Dockerfile",
+      "packed_path": "docker/dashboard.Dockerfile.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "docker/pgvector.Dockerfile",
+      "packed_path": "docker/pgvector.Dockerfile.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "docker/preprocessing.Dockerfile",
+      "packed_path": "docker/preprocessing.Dockerfile.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "docker/registry.Dockerfile",
+      "packed_path": "docker/registry.Dockerfile.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "pytest.ini",
+      "packed_path": "pytest.ini.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/dev_db_down.sh",
+      "packed_path": "scripts/dev_db_down.sh.txt",
+      "permissions": 511
+    },
+    {
+      "original_path": "scripts/dev_db_up.sh",
+      "packed_path": "scripts/dev_db_up.sh.txt",
+      "permissions": 511
+    },
+    {
+      "original_path": "scripts/docker/enterprise-deploy.sh",
+      "packed_path": "scripts/docker/enterprise-deploy.sh.txt",
+      "permissions": 511
+    },
+    {
+      "original_path": "scripts/docker/fix_migration_heads.sh",
+      "packed_path": "scripts/docker/fix_migration_heads.sh.txt",
+      "permissions": 511
+    },
+    {
+      "original_path": "scripts/docker/production-deploy.sh",
+      "packed_path": "scripts/docker/production-deploy.sh.txt",
+      "permissions": 511
+    },
+    {
+      "original_path": "scripts/docker/production-wipe.sh",
+      "packed_path": "scripts/docker/production-wipe.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/docker/push-to-registry.sh",
+      "packed_path": "scripts/docker/push-to-registry.sh.txt",
+      "permissions": 511
+    },
+    {
+      "original_path": "scripts/reset_sp_preprocess.sh",
+      "packed_path": "scripts/reset_sp_preprocess.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/run_tests.ps1",
+      "packed_path": "scripts/run_tests.ps1.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/run_tests.sh",
+      "packed_path": "scripts/run_tests.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/start_services.ps1",
+      "packed_path": "scripts/start_services.ps1.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/start_services.sh",
+      "packed_path": "scripts/start_services.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/update_paths.ps1",
+      "packed_path": "scripts/update_paths.ps1.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "scripts/update_paths.sh",
+      "packed_path": "scripts/update_paths.sh.txt",
+      "permissions": 438
+    },
+    {
+      "original_path": "agent/llm/__init__.py",
+      "packed_path": "agent/llm/__init__.py",
+      "permissions": 438,
+      "empty_placeholder": true
+    },
+    {
+      "original_path": "agent/models/__init__.py",
+      "packed_path": "agent/models/__init__.py",
+      "permissions": 438,
+      "empty_placeholder": true
+    },
+    {
+      "original_path": "alembic/alembic",
+      "packed_path": "alembic/alembic",
+      "permissions": 438,
+      "empty_placeholder": true
+    },
+    {
+      "original_path": "evals/core/__init__.py",
+      "packed_path": "evals/core/__init__.py",
+      "permissions": 438,
+      "empty_placeholder": true
+    },
+    {
+      "original_path": "services/dashboard/charts/__init__.py",
+      "packed_path": "services/dashboard/charts/__init__.py",
+      "permissions": 438,
+      "empty_placeholder": true
+    },
+    {
+      "original_path": "services/dashboard/queries/__init__.py",
+      "packed_path": "services/dashboard/queries/__init__.py",
+      "permissions": 438,
+      "empty_placeholder": true
+    },
+    {
+      "original_path": "services/dashboard/utils/__init__.py",
+      "packed_path": "services/dashboard/utils/__init__.py",
+      "permissions": 438,
+      "empty_placeholder": true
+    },
+    {
+      "original_path": "shared/cache/__init__.py",
+      "packed_path": "shared/cache/__init__.py",
+      "permissions": 438,
+      "empty_placeholder": true
+    }
+  ]
+}
